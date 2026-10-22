@@ -1,0 +1,1 @@
+ALTER TABLE `product_variants` ADD `price` decimal(10,2);

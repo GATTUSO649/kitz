@@ -1,0 +1,88 @@
+import cors from 'cors'
+import express, { type ErrorRequestHandler } from 'express'
+import { rateLimit } from 'express-rate-limit'
+import helmet from 'helmet'
+import { pinoHttp } from 'pino-http'
+import { env, isAllowedClientOrigin } from './config/env.js'
+import { adminPool, pool } from './config/database.js'
+import { logger } from './config/logger.js'
+import { authRouter } from './modules/auth/routes.js'
+import { catalogueRouter } from './modules/catalogue/routes.js'
+import { ordersRouter } from './modules/orders/routes.js'
+import { accountRouter } from './modules/account/routes.js'
+import { adminAuthRouter } from './modules/admin/auth.js'
+import { adminRouter } from './modules/admin/routes.js'
+
+export const app = express()
+
+app.disable('x-powered-by')
+app.use(helmet())
+app.use(cors({
+  origin: (origin, callback) => callback(null, !origin || isAllowedClientOrigin(origin)),
+  credentials: true,
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+}))
+app.use(express.json({ limit: '100kb', strict: true }))
+app.use(pinoHttp({ logger, autoLogging: { ignore: (request) => request.url.startsWith('/health/') || request.url === '/health' } }))
+
+app.get('/health', (_request, response) => {
+  response.json({
+    status: 'ok',
+    service: 'kitculture-api',
+    databaseConfigured: Boolean(process.env.DATABASE_URL),
+    adminDatabaseConfigured: Boolean(process.env.ADMIN_DATABASE_URL),
+  })
+})
+
+app.get('/health/live', (_request, response) => {
+  response.json({ status: 'ok', service: 'kitculture-api' })
+})
+
+app.get('/health/ready', async (_request, response) => {
+  const [storeResult, adminResult] = await Promise.allSettled([
+    pool ? pool.query('SELECT 1') : Promise.reject(new Error('Store database is not configured')),
+    adminPool ? adminPool.query('SELECT 1') : Promise.reject(new Error('Admin database is not configured')),
+  ])
+  const checks = {
+    storeDatabase: storeResult.status === 'fulfilled' ? 'ok' : 'unavailable',
+    adminDatabase: adminResult.status === 'fulfilled' ? 'ok' : 'unavailable',
+  }
+  const ready = checks.storeDatabase === 'ok' && checks.adminDatabase === 'ok'
+  response.status(ready ? 200 : 503).json({ status: ready ? 'ready' : 'not_ready', checks })
+})
+
+const apiLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: env.NODE_ENV === 'production' ? 120 : 600,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+})
+const authLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: env.NODE_ENV === 'production' ? 10 : 60,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  skip: (request) => request.method === 'GET' || request.path === '/logout',
+})
+app.use('/api/v1', apiLimiter)
+app.use('/api/v1/auth', authLimiter, authRouter)
+app.use('/api/v1/account', accountRouter)
+app.use('/api/v1/admin', authLimiter, adminAuthRouter)
+app.use('/api/v1/admin', adminRouter)
+app.use('/api/v1', catalogueRouter)
+app.use('/api/v1', ordersRouter)
+
+app.use((_request, response) => {
+  response.status(404).json({ error: { code: 'NOT_FOUND', message: 'The requested resource was not found.' } })
+})
+
+const errorHandler: ErrorRequestHandler = (error, request, response, _next) => {
+  request.log.error({ err: error }, 'Request failed')
+  if (response.headersSent) return
+  if (error instanceof Error && 'type' in error && error.type === 'entity.too.large') {
+    response.status(413).json({ error: { code: 'PAYLOAD_TOO_LARGE', message: 'The uploaded file exceeds the 8 MB limit.' } })
+    return
+  }
+  response.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Something went wrong. Please try again.' } })
+}
+app.use(errorHandler)

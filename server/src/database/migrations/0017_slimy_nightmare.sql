@@ -1,0 +1,1 @@
+ALTER TABLE `payments` ADD `merchant_shortcode` varchar(20);

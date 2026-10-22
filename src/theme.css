@@ -1,0 +1,985 @@
+:root {
+  color-scheme: dark;
+  --green: #55e889;
+  --green-dark: #55e889;
+  --paper: #101512;
+  --ink: #f5f7f2;
+  --muted: #d5ddd6;
+  --line: #3b4a40;
+  --dark-surface: #18231c;
+  --dark-raised: #202d24;
+  --dark-border: #3b4a40;
+  --dark-text: #f5f7f2;
+  --dark-muted: #d5ddd6;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  background: #101512;
+  color: var(--dark-text);
+}
+
+body {
+  background-image: radial-gradient(ellipse at 50% -25%, #26392c 0, transparent 58%);
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid #8fffb5;
+  outline-offset: 3px;
+}
+
+.site-header,
+.mobile-nav,
+.site-footer,
+.footer-bottom,
+.footer-top,
+.shop-section,
+.values-section,
+.standalone-page,
+.shop-page,
+.portal-main,
+.admin-main {
+  background-color: #101512;
+  color: var(--dark-text);
+}
+
+.site-header {
+  border-bottom-color: #3b4a40;
+}
+
+.wordmark,
+.main-nav a,
+.header-actions .icon-button,
+.footer-bottom a,
+.section-heading h2,
+.values-grid h2,
+.product-info h3,
+.product-price,
+.cart-page-total,
+.shop-page-title h1,
+.standalone-page > h1,
+.product-detail-copy h1,
+.product-detail-copy h2,
+.product-detail-price,
+.cart-page > h1,
+.checkout-page > h1,
+.orders-page > h1,
+.auth-page .account-form h1,
+.admin-topbar h1 {
+  color: var(--dark-text);
+}
+
+.main-nav a:hover,
+.footer-bottom a:hover,
+.text-link,
+.product-back,
+.standalone-back,
+.auth-switch a,
+.auth-forgot-row > a,
+.portal-profile-link,
+.portal-section-heading > a,
+.portal-settings-links > a,
+.portal-order-actions a,
+.portal-summary-card > a,
+.portal-chat-toggle,
+.portal-track-link,
+.admin-store-link {
+  color: #71f2a3;
+}
+
+.hero,
+.admin-sidebar {
+  background-color: #101a14;
+}
+
+.hero h1 em,
+.ticker,
+.announcement {
+  color: #06150c;
+}
+
+.shop-toolbar,
+.catalogue-category-list,
+.cart-page-lines,
+.account-orders {
+  border-color: var(--dark-border);
+}
+
+.category-tab,
+.result-count,
+.catalogue-results,
+.section-heading p,
+.product-category,
+.product-meta,
+.product-price-note,
+.shop-description,
+.shop-page-title p,
+.standalone-intro,
+.product-detail-copy > p:not(.stock-label):not(.product-price-note),
+.stock-label,
+.cart-page-total,
+.footer-contact,
+.footer-bottom,
+.portal-order-date,
+.portal-order-reference > span,
+.portal-section-heading > a,
+.portal-summary-card p,
+.admin-metrics article span,
+.admin-data-count,
+.admin-pagination,
+.admin-support-request small {
+  color: var(--dark-muted);
+}
+
+.category-tab.active {
+  color: #f3fff7;
+  border-color: #55e889;
+}
+
+.product-card,
+.standalone-card,
+.portal-panel,
+.portal-order-detail,
+.portal-metric,
+.portal-order-row,
+.portal-address-card,
+.portal-support-requests > article,
+.portal-wishlist-card,
+.portal-settings-links,
+.portal-chat,
+.portal-chat-message,
+.portal-map-card,
+.portal-tracking-panel,
+.portal-form,
+.portal-address-form,
+.portal-support-form,
+.admin-metrics article,
+.admin-table-wrap,
+.admin-chart-card,
+.admin-data-toolbar,
+.admin-pagination,
+.admin-data-panel,
+.admin-support-request,
+.admin-dashboard-orders,
+.admin-order-actions,
+.admin-order-actions article,
+.admin-empty,
+.football-catalogue-manager,
+.admin-size-picker > div > label span,
+.admin-category-suggestions > div > button,
+.portal-summary-card {
+  border-color: var(--dark-border);
+  background-color: var(--dark-surface);
+  color: var(--dark-text);
+}
+
+.admin-settings-page .admin-create-form {
+  border-color: var(--dark-border);
+  background-color: var(--dark-surface);
+  color: var(--dark-text);
+}
+
+.admin-settings-page .admin-create-form h2 {
+  color: var(--dark-text);
+}
+
+.admin-settings-page .admin-create-form label,
+.admin-settings-page .admin-form-note {
+  color: var(--dark-muted);
+}
+
+.admin-settings-page .admin-create-form input,
+.admin-settings-page .admin-create-form textarea,
+.admin-settings-page .admin-create-form select {
+  border-color: var(--dark-border);
+  background-color: var(--dark-raised);
+  color: var(--dark-text);
+}
+
+.admin-settings-page .admin-create-form input::placeholder {
+  color: var(--dark-muted);
+}
+
+.product-card:hover {
+  border-color: #61df91;
+  box-shadow: 0 12px 30px #0008;
+}
+
+.product-media,
+.product-detail-image,
+.product-skeleton > div {
+  background-color: #202c24;
+}
+
+.product-image-empty {
+  background: linear-gradient(145deg, #1c2920, #29392d);
+}
+
+.product-image-empty span,
+.catalogue-mark {
+  color: #8ca995;
+}
+
+.product-tag {
+  border-color: #4d6454;
+  background: #18231b;
+  color: #e8f6ec;
+}
+
+.quick-add,
+.size-options button,
+.wishlist-add,
+.catalogue-category,
+.admin-sort-direction,
+.admin-pagination button,
+.portal-retry-link,
+.portal-row-actions button,
+.portal-order-actions button,
+.account-order button {
+  border-color: #53665a;
+  background-color: #18221b;
+  color: #f1f7f2;
+}
+
+.quick-add:hover:not(:disabled),
+.wishlist-add:hover,
+.size-options button[aria-pressed='true'],
+.catalogue-category.active,
+.catalogue-category:hover {
+  border-color: #55e889;
+  background-color: #55e889;
+  color: #08150c;
+}
+
+.quick-add:disabled,
+.size-options button:disabled {
+  border-color: #4a554d;
+  background-color: #252d27;
+  color: #a7b2aa;
+}
+
+.catalogue-state,
+.portal-placeholder,
+.portal-inline-state,
+.portal-note {
+  border-color: var(--dark-border);
+  background-color: #18231c;
+  color: var(--dark-muted);
+}
+
+.catalogue-state strong,
+.portal-order-reference strong,
+.portal-order-date strong,
+.portal-order-amount,
+.portal-order-summary strong,
+.portal-order-items strong,
+.portal-order-total strong,
+.portal-address-card strong,
+.portal-support-heading h3,
+.portal-support-response strong,
+.portal-settings-links strong,
+.portal-order-detail,
+.admin-metrics article strong,
+.admin-table td,
+.admin-support-request h2 {
+  color: var(--dark-text);
+}
+
+.catalogue-category-list {
+  border-bottom-color: var(--dark-border);
+}
+
+.catalogue-category {
+  border-radius: 5px;
+}
+
+.catalogue-filters label,
+.checkout-form label,
+.portal-form > label,
+.portal-address-form h2,
+.portal-chat-compose,
+.portal-support-form h2 {
+  color: #e5eee8;
+}
+
+input:not([type='checkbox']):not([type='radio']),
+select,
+textarea,
+.admin-data-search,
+.admin-data-select {
+  border-color: #53665a;
+  background-color: #0d1410;
+  color: #f2f6f3;
+}
+
+.admin-order-actions select {
+  border-color: var(--dark-border);
+  background-color: var(--dark-raised);
+  color: var(--dark-text);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #a8b5ab;
+  opacity: 1;
+}
+
+select option {
+  background-color: #18231c;
+  color: #f5f7f2;
+}
+
+.checkout-back,
+.portal-chat-message > span,
+.portal-map-heading,
+.portal-map-card > a,
+.portal-map-caption,
+.portal-chat-toggle > span:last-child,
+.portal-order-actions a,
+.portal-section-heading > a {
+  color: #70efa0;
+}
+
+.checkout-total,
+.cart-page-lines .cart-line,
+.account-order {
+  border-color: var(--dark-border);
+  color: var(--dark-text);
+}
+
+.auth-layout,
+.auth-info-card {
+  background-color: #101512;
+}
+
+.auth-content {
+  background-color: #101512;
+  background-image: linear-gradient(135deg, rgb(9 16 12 / 88%), rgb(12 22 15 / 66%)), url("https://www.soccerbible.com/media/148938/prem-kits-1-min.jpg");
+}
+
+.auth-card {
+  border-color: #405047;
+  background-color: #18231c;
+  box-shadow: 0 22px 60px #0008;
+}
+
+.auth-card h1,
+.auth-card > label,
+.auth-password-control > button {
+  color: var(--dark-text);
+}
+
+.auth-description,
+.auth-switch {
+  color: #c0cbc3;
+}
+
+.auth-return-link {
+  border-color: #6e8d78;
+  background-color: #142019;
+  color: #f2fff5;
+}
+
+.auth-return-link:hover {
+  border-color: #8affb0;
+  background-color: #203629;
+  color: #fff;
+}
+
+.auth-submit,
+.button-green,
+.product-add {
+  border: 1px solid #62f29a;
+  background-color: #55e889;
+  color: #07150c;
+}
+
+.auth-submit:hover,
+.button-green:hover,
+.product-add:hover {
+  border-color: #8affb0;
+  background-color: #8affb0;
+  color: #07150c;
+}
+
+.auth-security-note {
+  color: #c3cec5;
+}
+
+.portal-sidebar {
+  background-color: #18231c;
+  border-right: 1px solid #3b4a40;
+}
+
+.portal-workspace,
+.portal-topbar,
+.portal-footer {
+  background-color: #101512;
+  color: var(--dark-text);
+}
+
+.portal-topbar {
+  border-bottom-color: #3b4a40;
+}
+
+.portal-topbar-title,
+.portal-page-header h1,
+.portal-section-heading h2,
+.portal-profile-link,
+.portal-summary-card > strong,
+.portal-metric strong,
+.portal-dashboard-lower h2 {
+  color: var(--dark-text);
+}
+
+.portal-page-header .standalone-intro,
+.portal-metric small,
+.portal-order-date strong,
+.portal-order-row,
+.portal-address-card > div > span,
+.portal-settings-links small,
+.portal-footer {
+  color: var(--dark-muted);
+}
+
+.portal-avatar {
+  border-color: #4e6855;
+  background: #1d3022;
+  color: #a3f6ba;
+}
+
+.portal-chat-message {
+  border-color: #3a4b3e;
+  background-color: #151e18;
+}
+
+.portal-chat-message.from-customer,
+.portal-chat-message.from-admin {
+  border-color: #3c5945;
+  background-color: #18271d;
+}
+
+.portal-chat-message > p,
+.portal-chat-message > span {
+  color: #e6efe8;
+}
+
+.portal-chat-toggle {
+  border-color: #53675a;
+  background-color: #18231c;
+}
+
+.portal-map-card {
+  background-color: #18231c;
+}
+
+.portal-map-heading {
+  background-color: #141e17;
+}
+
+.portal-map-card iframe {
+  background-color: #202c24;
+}
+
+.portal-status {
+  border-color: #52645a;
+  background-color: #1b261e;
+  color: #e2eee5;
+}
+
+.admin-app,
+.admin-main {
+  background-color: #101512;
+  color: var(--dark-text);
+}
+
+.admin-sidebar {
+  border-right: 1px solid #3b4a40;
+}
+
+.admin-topbar h1,
+.admin-support-request h2,
+.admin-table th {
+  color: var(--dark-text);
+}
+
+.admin-kicker {
+  color: #72efa0;
+}
+
+.admin-table {
+  background-color: #18231c;
+  color: var(--dark-text);
+}
+
+.admin-table th {
+  border-color: #3b4a40;
+  background-color: #202d24;
+}
+
+.admin-table td {
+  border-color: #3b4a40;
+}
+
+.admin-data-search input,
+.admin-data-select select {
+  color: var(--dark-text);
+}
+
+.admin-support-request form,
+.portal-support-response {
+  border-color: #3a4a3e;
+  background-color: #141d17;
+  color: var(--dark-text);
+}
+
+.admin-empty,
+.portal-form-skeleton,
+.portal-order-skeletons > div,
+.portal-wishlist-skeleton > div {
+  border-color: #3b4a40;
+  background-color: #18231c;
+  color: var(--dark-muted);
+}
+
+.portal-message,
+.auth-feedback.success {
+  border-color: #3e7350;
+  background-color: #13271a;
+  color: #c7f8d5;
+}
+
+.portal-message.error-state,
+.auth-feedback {
+  border-color: #8a514a;
+  background-color: #2b1715;
+  color: #ffd6d0;
+}
+
+.site-footer {
+  border-top: 1px solid #3b4a40;
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --dark-text: #fff;
+    --dark-muted: #e1e8e2;
+    --dark-border: #819187;
+  }
+
+  .quick-add,
+  .wishlist-add,
+  .catalogue-category,
+  .portal-chat-toggle,
+  .admin-sort-direction,
+  .admin-pagination button {
+    border-width: 2px;
+  }
+}
+
+.store-header-stack .announcement {
+  background-color: #18231c;
+  color: #f3fff6;
+}
+
+.store-header-stack .announcement span {
+  color: #d7e5da;
+  opacity: 1;
+}
+
+.store-home {
+  background-color: #101512;
+  color: #f5f7f2;
+}
+
+.store-home > .ticker {
+  background-color: #202d24;
+  color: #f2fff5;
+  border-top: 1px solid #3d5844;
+  border-bottom: 1px solid #3d5844;
+}
+
+.store-home > .ticker span {
+  color: #71f2a3;
+}
+
+.store-home > .homepage-teams > a {
+  border-color: #53675a;
+  background-color: #18231c;
+  color: #f4fff6;
+}
+
+.store-home > .homepage-teams > a small {
+  color: #d0dbd3;
+}
+
+.store-home > .homepage-teams > a svg,
+.store-home .home-league-title svg {
+  color: #71f2a3;
+}
+
+.store-home .homepage-content-error {
+  color: #ffaaa0;
+}
+
+.store-home .eyebrow,
+.store-home .hero .eyebrow {
+  color: #a5ffc0;
+}
+
+.store-home .hero-copy > p,
+.store-home .hero-footnote,
+.store-home .hero-image-caption,
+.store-home .hero-slide-controls {
+  color: #edf5ef;
+}
+
+.store-home .hero-index {
+  color: #d0ddd3;
+}
+
+.store-home .section-heading h2,
+.store-home .home-product-section .section-heading h2,
+.store-home .home-league-groups > .section-heading h2 {
+  color: #f4fff6;
+}
+
+.store-home .section-heading p,
+.store-home .result-count,
+.store-home .product-category,
+.store-home .product-meta,
+.store-home .home-product-section .shop-description {
+  color: #d1ddd4;
+}
+
+.store-home .category-tab {
+  color: #d2ddd5;
+}
+
+.store-home .category-tab.active {
+  color: #fff;
+}
+
+.store-home .home-product-section .section-heading > .text-link,
+.store-home .home-league-groups > .section-heading .text-link {
+  color: #85f5aa;
+}
+
+.store-home .home-league-card {
+  border-color: #3b4a40;
+  background-color: #18231c;
+}
+
+.store-home .home-league-title {
+  color: #f3fff6;
+}
+
+.store-home .home-league-title small,
+.store-home .home-league-teams small {
+  color: #c5d2c8;
+}
+
+.store-home .home-league-teams > a {
+  border-color: #53675a;
+  background-color: #202d24;
+  color: #eef8f0;
+}
+
+.store-home .home-league-teams > a:hover {
+  border-color: #71f2a3;
+  background-color: #213529;
+}
+
+.store-home .collection-band {
+  background-color: #18231c;
+  color: #f4fff6;
+}
+
+.store-home .collection-copy,
+.store-home .collection-copy h2,
+.store-home .collection-copy p,
+.store-home .collection-number,
+.store-home .collection-vertical {
+  color: #f4fff6;
+}
+
+.store-home .collection-copy .eyebrow {
+  color: #a5ffc0;
+}
+
+.store-home .collection-copy > p:not(.collection-number) {
+  color: #dce7df;
+}
+
+.store-home .collection-copy .button-light {
+  border: 1px solid #8fffb5;
+  background-color: #eafff0;
+  color: #0b1a10;
+}
+
+.store-home .collection-copy .button-light:hover {
+  background-color: #fff;
+  color: #07150c;
+}
+
+.store-home > .values-section {
+  background-color: #101512;
+  color: #f4fff6;
+}
+
+.store-home .values-grid h2,
+.store-home .values-copy,
+.store-home .value-note {
+  color: #f4fff6;
+}
+
+.store-home .values-copy p,
+.store-home .value-note p {
+  color: #dce7df;
+}
+
+.store-home .values-copy .text-link {
+  color: #85f5aa;
+}
+
+.store-home > .shop-section .category-tab,
+.store-home > .shop-section .category-tab.active {
+  text-shadow: none;
+}
+
+.store-home .catalogue-state {
+  border-color: #53675a;
+  background-color: #18231c;
+}
+
+.store-home .catalogue-state strong {
+  color: #f4fff6;
+}
+
+.store-home .catalogue-state > span:not(.catalogue-mark) {
+  color: #d1ddd4;
+}
+
+.store-home .site-footer,
+.store-home ~ .site-footer,
+.site-footer {
+  background-color: #101512;
+  color: #f5f7f2;
+}
+
+.site-footer .footer-top p,
+.site-footer .footer-bottom,
+.site-footer .footer-bottom a,
+.site-footer .footer-contact {
+  color: #d1ddd4;
+}
+
+.site-footer .footer-bottom a:hover {
+  color: #8affb0;
+}
+
+.portal-chat,
+.portal-chat-workspace,
+.portal-direct-chat,
+.portal-direct-thread {
+  border-color: var(--dark-border);
+  background-color: var(--paper);
+  color: var(--dark-text);
+}
+
+.portal-chat-toggle,
+.portal-chat-workspace .portal-messenger-list,
+.portal-chat-workspace .portal-messenger-list > header,
+.portal-chat-workspace .portal-messenger-thread-header,
+.portal-chat-workspace .portal-messenger-thread,
+.portal-chat-workspace .portal-messenger-thread > .portal-chat,
+.portal-direct-chat,
+.portal-direct-header,
+.portal-direct-thread,
+.portal-direct-thread .portal-chat-compose,
+.admin-messenger.portal-chat-workspace .admin-messenger-status {
+  border-color: var(--dark-border);
+  background-color: var(--dark-surface);
+  color: var(--dark-text);
+  background-image: none;
+}
+
+.portal-chat-toggle,
+.portal-messenger-list h2,
+.portal-messenger-thread-header strong,
+.portal-messenger-empty strong,
+.portal-direct-contact strong,
+.portal-chat-workspace .portal-messenger-item-copy strong {
+  color: var(--dark-text);
+}
+
+.portal-chat-toggle > span:last-child,
+.portal-messenger-item-copy small,
+.portal-messenger-thread-header small,
+.portal-messenger-item time,
+.portal-messenger-thread-header time,
+.portal-messenger-state,
+.portal-messenger-empty p,
+.portal-direct-contact small,
+.portal-chat-workspace .portal-messenger-thread-header small {
+  color: var(--dark-muted);
+}
+
+.portal-chat-compose,
+.portal-chat-workspace .portal-chat-compose,
+.portal-chat-workspace .portal-messenger-search,
+.portal-direct-search {
+  border-color: var(--dark-border);
+  background: var(--dark-raised);
+  color: var(--dark-muted);
+}
+
+.portal-chat-compose textarea,
+.portal-chat-workspace .portal-chat-compose textarea,
+.portal-chat-workspace .portal-messenger-search input,
+.portal-direct-search,
+.portal-messenger-new-form input,
+.portal-messenger-new-form select,
+.portal-messenger-new-form textarea {
+  border-color: var(--dark-border);
+  background: var(--dark-raised);
+  color: var(--dark-text);
+}
+
+.portal-chat-compose textarea::placeholder,
+.portal-chat-workspace .portal-chat-compose textarea::placeholder,
+.portal-chat-workspace .portal-messenger-search input::placeholder {
+  color: var(--dark-muted);
+}
+
+.portal-chat-message,
+.portal-chat-workspace .portal-chat-message,
+.portal-direct-thread .portal-chat-message {
+  border-color: var(--dark-border);
+  background: var(--dark-raised);
+  color: var(--dark-text);
+  box-shadow: 0 2px 8px #0004;
+}
+
+.portal-chat-message.from-customer,
+.portal-chat-workspace .portal-chat-message.from-customer,
+.portal-direct-thread .portal-chat-message.from-customer {
+  border-color: #3b7951;
+  background: #1e3827;
+}
+
+.portal-chat-message.from-admin,
+.portal-chat-workspace .portal-chat-message.from-admin,
+.portal-direct-thread .portal-chat-message.from-admin {
+  border-color: var(--dark-border);
+  background: #202d24;
+}
+
+.portal-chat-message > span,
+.portal-chat-workspace .portal-chat-message-by,
+.portal-direct-thread .portal-chat-message-by {
+  color: #a5ffc0;
+}
+
+.portal-chat-message > p,
+.portal-chat-workspace .portal-chat-message > p,
+.portal-direct-thread .portal-chat-message > p,
+.portal-chat-workspace .portal-chat-message > time,
+.portal-direct-thread .portal-chat-message > time,
+.portal-direct-thread .portal-chat-message-meta {
+  color: var(--dark-text);
+}
+
+.portal-messenger-item,
+.portal-chat-workspace .portal-messenger-item {
+  border-color: var(--dark-border);
+  color: var(--dark-text);
+}
+
+.portal-messenger-item:hover,
+.portal-messenger-item.is-active,
+.portal-chat-workspace .portal-messenger-item:hover,
+.portal-chat-workspace .portal-messenger-item.is-active {
+  background: #26382c;
+}
+
+.portal-messenger-avatar,
+.portal-chat-workspace .portal-chat-avatar,
+.portal-direct-avatar {
+  border-color: #45604b;
+  background: #203c2a;
+  color: #a5ffc0;
+}
+
+.portal-messenger-list > header button,
+.portal-messenger-thread-header > button,
+.portal-direct-header > button,
+.portal-chat-workspace .portal-chat-icon-action {
+  border-color: var(--dark-border);
+  color: #a5ffc0;
+}
+
+.portal-chat-workspace .portal-chat-send,
+.portal-direct-thread .portal-chat-send {
+  background: #08784f;
+  color: #fff;
+}
+
+.portal-direct-header,
+.portal-chat-workspace .portal-messenger-thread-header {
+  border-bottom-color: var(--dark-border);
+}
+
+.portal-direct-header > button:hover,
+.portal-messenger-item:hover .portal-messenger-avatar {
+  background: #26382c;
+}
+
+.chat-product-preview,
+.portal-chat-workspace .chat-product-preview {
+  border-color: var(--dark-border);
+  background: #18231c;
+  color: var(--dark-text);
+}
+
+.chat-product-preview small,
+.portal-chat-workspace .chat-product-preview small {
+  color: var(--dark-muted);
+}
+
+.chat-message-actions button,
+.chat-product-draft > button {
+  background: #202d24e8;
+  color: var(--dark-text);
+}
+
+.chat-product-draft {
+  border-color: var(--dark-border);
+  background: var(--dark-surface);
+  color: var(--dark-text);
+}
+
+.chat-product-draft a,
+.chat-product-draft small {
+  color: var(--dark-text);
+}
+
+.portal-direct-empty {
+  border: 1px solid var(--dark-border);
+  background: var(--dark-raised);
+  color: var(--dark-muted);
+}
+
+.portal-chat-receipt {
+  color: var(--dark-muted);
+}
+
+.portal-chat-receipt.is-read {
+  color: #7cc8ed;
+}

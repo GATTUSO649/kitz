@@ -1,0 +1,1 @@
+ALTER TABLE `orders` ADD `payment_method` enum('pay_on_delivery','mpesa') DEFAULT 'pay_on_delivery' NOT NULL;

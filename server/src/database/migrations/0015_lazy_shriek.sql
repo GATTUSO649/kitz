@@ -1,0 +1,1 @@
+ALTER TABLE `notification_campaigns` MODIFY COLUMN `type` enum('order','support','announcement') NOT NULL;

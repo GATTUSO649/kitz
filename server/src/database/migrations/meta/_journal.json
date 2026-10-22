@@ -1,0 +1,139 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1792235965859,
+      "tag": "0000_lovely_colossus",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1792236312603,
+      "tag": "0001_careful_ronan",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1792245225450,
+      "tag": "0002_melted_leper_queen",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1792249210577,
+      "tag": "0003_tricky_morlun",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1792425482023,
+      "tag": "0004_bent_franklin_richards",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1792427168722,
+      "tag": "0005_great_vindicator",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1792428757097,
+      "tag": "0006_lean_anita_blake",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1792428757097,
+      "tag": "0007_kit_collections",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1792430000001,
+      "tag": "0008_nice_radioactive_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1792493076698,
+      "tag": "0009_gigantic_celestials",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1792505254838,
+      "tag": "0010_illegal_cobalt_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1792505442134,
+      "tag": "0011_glorious_blue_marvel",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1792529421245,
+      "tag": "0012_amused_shatterstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "5",
+      "when": 1792531596473,
+      "tag": "0013_nasty_wildside",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "5",
+      "when": 1792539252194,
+      "tag": "0014_aspiring_warpath",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "5",
+      "when": 1792541561076,
+      "tag": "0015_lazy_shriek",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "5",
+      "when": 1792545128242,
+      "tag": "0016_neat_quasimodo",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1792545240984,
+      "tag": "0017_slimy_nightmare",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "5",
+      "when": 1792684866752,
+      "tag": "0018_strong_northstar",
+      "breakpoints": true
+    }
+  ]
+}

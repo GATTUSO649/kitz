@@ -1,0 +1,127 @@
+- generic [ref=e2]:
+  - generic "KitCulture introduction" [ref=e3]:
+    - generic [ref=e4]:
+      - generic "KitCulture" [ref=e5]:
+        - generic [ref=e6]: K
+        - generic [ref=e7]: i
+        - generic [ref=e8]: t
+        - generic [ref=e9]: C
+        - generic [ref=e10]: u
+        - generic [ref=e11]: l
+        - generic [ref=e12]: t
+        - generic [ref=e13]: u
+        - generic [ref=e14]: r
+        - generic [ref=e15]: e
+      - paragraph [ref=e16]: Wear Your Colours. Live the Culture.
+    - button "Skip intro" [ref=e17] [cursor=pointer]
+  - generic [ref=e20]:
+    - text: Machakos, this is your matchday uniform
+    - generic [ref=e21]: Dispatch begins in Machakos
+  - banner [ref=e22]:
+    - link "KitCulture home" [ref=e23] [cursor=pointer]:
+      - /url: /
+    - navigation "Main navigation" [ref=e24]:
+      - link "Home" [ref=e25] [cursor=pointer]:
+        - /url: /
+      - link "Shop" [ref=e26] [cursor=pointer]:
+        - /url: /shop
+      - link "Teams & collections" [ref=e27] [cursor=pointer]:
+        - /url: /shop
+      - link "Our story" [ref=e30] [cursor=pointer]:
+        - /url: /#story
+    - generic [ref=e31]:
+      - textbox "Search jerseys" [ref=e36]:
+        - /placeholder: Find your colours
+      - link "Sign in or create an account" [ref=e37] [cursor=pointer]:
+        - /url: /login
+      - link "Open shopping bag, 0 items" [ref=e41] [cursor=pointer]:
+        - /url: /cart
+        - generic [ref=e45]: "0"
+  - main [ref=e46]:
+    - generic [ref=e47]:
+      - generic [ref=e48]:
+        - generic [ref=e49]: Built for the stands. Ready for the street.
+        - heading [level=1] [ref=e51]:
+          - text: Your colours.
+          - emphasis [ref=e52]: Your culture.
+        - paragraph [ref=e53]: For the ones who sing before kickoff and long after the final whistle. Find the shirt that feels like home.
+        - generic [ref=e54]:
+          - link "Shop the collection" [ref=e55] [cursor=pointer]:
+            - /url: "#shop"
+          - link "The KitCulture story" [ref=e58] [cursor=pointer]:
+            - /url: "#story"
+        - generic [ref=e61]: Machakos-born. Matchday-ready.
+      - img "Football supporters celebrating together in a stadium" [ref=e63]:
+        - generic [ref=e65]:
+          - generic [ref=e66]: 01 / THE CULTURE
+          - generic [ref=e67]: Made for every minute
+        - generic [ref=e68]:
+          - text: 90'
+          - generic [ref=e70]: and beyond
+      - generic [ref=e71]: KITCULTURE — EST. MACHAKOS
+    - region "Brand message" [ref=e72]:
+      - generic [ref=e73]:
+        - text: THE GAME IS OURS
+        - generic [ref=e74]: ✳
+        - text: THE GAME IS OURS
+        - generic [ref=e75]: ✳
+        - text: THE GAME IS OURS
+        - generic [ref=e76]: ✳
+        - text: THE GAME IS OURS
+        - generic [ref=e77]: ✳
+    - generic [ref=e78]:
+      - generic [ref=e79]:
+        - generic [ref=e80]:
+          - generic [ref=e81]: The rotation
+          - heading [level=2] [ref=e83]:
+            - text: Find your
+            - emphasis [ref=e84]: match.
+        - paragraph [ref=e85]: Some shirts are more than a shirt.They carry a whole side with them.
+      - generic [ref=e86]:
+        - group "Filter products by collection" [ref=e87]:
+          - button "All kits" [ref=e88] [cursor=pointer]
+          - button "Club kits" [ref=e89] [cursor=pointer]
+          - button "National teams" [ref=e90] [cursor=pointer]
+          - button "Retro" [ref=e91] [cursor=pointer]
+          - button "Training" [ref=e92] [cursor=pointer]
+        - generic [ref=e93]: Loading collection…
+      - generic "Loading products" [ref=e94]
+    - generic [ref=e111]:
+      - img "Floodlit football pitch at night" [ref=e112]
+      - generic [ref=e113]:
+        - generic [ref=e114]: The archive
+        - paragraph [ref=e116]: COLLECTION 001 — 2026
+        - heading [level=2] [ref=e117]:
+          - text: Old badges.
+          - emphasis [ref=e118]: New stories.
+        - paragraph [ref=e119]: From the classics that raised us to the colours we wear now. Find the next chapter in your matchday ritual.
+        - link "Explore the collection" [ref=e120] [cursor=pointer]:
+          - /url: "#shop"
+      - generic [ref=e123]: CULTURE NEVER STANDS STILL
+    - generic [ref=e124]:
+      - generic [ref=e125]: From Machakos, with love
+      - generic [ref=e127]:
+        - heading [level=2] [ref=e128]:
+          - text: More thanninety
+          - emphasis [ref=e129]: minutes.
+        - generic [ref=e130]:
+          - paragraph [ref=e131]: Football is a language. A meeting point. A reason to show up for each other. KitCulture is for everyone who carries the game with them, wherever they go.
+          - link "Get to know us" [ref=e132] [cursor=pointer]:
+            - /url: "#contact"
+        - generic [ref=e135]:
+          - text: "01"
+          - paragraph [ref=e136]: Wear your colours.Live the culture.
+  - contentinfo [ref=e137]:
+    - generic [ref=e138]:
+      - link "KitCulture home" [ref=e139] [cursor=pointer]:
+        - /url: /
+      - paragraph [ref=e140]: Wear Your Colours.Live the Culture.
+      - generic [ref=e141]: Contact details will be configured before launch.
+    - generic [ref=e142]:
+      - generic [ref=e143]: © 2026 KitCulture · Machakos, Kenya
+      - generic [ref=e144]:
+        - generic [ref=e145]: Delivery information coming soon
+        - generic [ref=e146]: Privacy information coming soon
+        - link "Admin" [ref=e147] [cursor=pointer]:
+          - /url: /admin/login
+      - generic [ref=e148]: Made for the love of the game.

@@ -1,0 +1,5 @@
+{
+  "name": "@kitculture/server",
+  "private": true,
+  "type": "module"
+}

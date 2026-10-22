@@ -1,0 +1,67 @@
+{
+  "name": "kitculture",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "server"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "dev:server": "tsx watch server/src/server.ts",
+    "dev:all": "concurrently -k \"npm:dev\" \"npm:dev:server\"",
+    "build": "tsc -b && vite build",
+    "build:server": "tsc -p server/tsconfig.json --noEmit false",
+    "build:deploy": "npm run build && npm run build:server",
+    "start:server": "node server/dist/server.js",
+    "typecheck": "tsc -b --pretty false && tsc -p server/tsconfig.json --noEmit",
+    "test": "tsx --test server/src/modules/auth/routes.test.ts",
+    "db:generate": "drizzle-kit generate --config=server/drizzle.config.ts",
+    "db:migrate": "drizzle-kit migrate --config=server/drizzle.config.ts",
+    "db:generate:admin": "drizzle-kit generate --config=server/drizzle.admin.config.ts",
+    "db:migrate:admin": "tsx server/src/scripts/setup-admin-database.ts && drizzle-kit migrate --config=server/drizzle.admin.config.ts",
+    "admin:provision": "tsx server/src/scripts/provision-admin.ts",
+    "lint": "oxlint",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.1.18",
+    "@tanstack/react-query": "^5.90.21",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "drizzle-orm": "^0.45.1",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.2.1",
+    "helmet": "^8.1.0",
+    "lucide-react": "^0.562.0",
+    "mysql2": "^3.16.0",
+    "pino": "^10.1.0",
+    "pino-http": "^11.0.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-hook-form": "^7.71.1",
+    "react-router-dom": "^7.12.0",
+    "tailwindcss": "^4.1.18",
+    "zod": "^4.3.5"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^9.2.1",
+    "drizzle-kit": "^0.31.11",
+    "oxlint": "^1.81.0",
+    "tsx": "^4.21.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0"
+  },
+  "overrides": {
+    "@esbuild-kit/core-utils": {
+      "esbuild": "^0.25.12"
+    }
+  }
+}

@@ -1,0 +1,1 @@
+ALTER TABLE `homepage_slides` ADD `display_duration_seconds` int DEFAULT 5 NOT NULL;

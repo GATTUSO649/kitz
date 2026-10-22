@@ -1,0 +1,7 @@
+- main [ref=f27e3]:
+  - generic [ref=f27e4]:
+    - link "← Administrator sign in" [ref=f27e5] [cursor=pointer]:
+      - /url: /admin/login
+    - generic [ref=f27e6]: FIRST-TIME LOCAL SETUP
+    - heading "Create administrator account" [level=1] [ref=f27e7]
+    - paragraph [ref=f27e8]: Checking administrator setup…
