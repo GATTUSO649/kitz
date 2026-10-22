@@ -2,9 +2,9 @@
 
 ## Build and run
 
-Use `npm ci` to install dependencies, `npm run build:deploy` to build the Vite client and compile the API, and `npm run start:server` to start the compiled API. The frontend output is in `dist`; the API entry point is `server/dist/server.js`. Set `PORT` to the platform-provided port.
+Use `npm ci` to install dependencies, `npm run build:deploy` to build the Vite client and compile the API, and `npm run start:server` to start the compiled server. The frontend output is in `dist`; the API entry point is `server/dist/server.js`. With `NODE_ENV=production`, the server serves the frontend and its client-side routes alongside the API on the same origin. Set `PORT` to the platform-provided port.
 
-The frontend uses relative `/api/...` requests. In production, serve the Vite `dist` directory with SPA fallback to `index.html` and reverse-proxy `/api/*` to the API on the same public origin. This lets the storefront, session cookies, and Daraja callback use one HTTPS host. Set `CLIENT_ORIGIN` to that exact storefront origin. Do not expose the API's internal port directly to the internet.
+The frontend uses relative `/api/...` requests. Keeping the storefront and API on the same public origin lets session cookies and the Daraja callback use one HTTPS host. Set `CLIENT_ORIGIN` to that exact storefront origin. Do not expose the API's internal port directly to the internet.
 
 ## Stable Daraja callback
 

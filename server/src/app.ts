@@ -1,5 +1,6 @@
 import cors from 'cors'
 import express, { type ErrorRequestHandler } from 'express'
+import { fileURLToPath } from 'node:url'
 import { rateLimit } from 'express-rate-limit'
 import helmet from 'helmet'
 import { pinoHttp } from 'pino-http'
@@ -71,6 +72,16 @@ app.use('/api/v1/admin', authLimiter, adminAuthRouter)
 app.use('/api/v1/admin', adminRouter)
 app.use('/api/v1', catalogueRouter)
 app.use('/api/v1', ordersRouter)
+
+if (env.NODE_ENV === 'production') {
+  const clientDist = fileURLToPath(new URL('../../dist', import.meta.url))
+  app.use(express.static(clientDist, { index: false }))
+  app.get(/^(?!\/api(?:\/|$)|\/health(?:\/|$)).*/, (_request, response, next) => {
+    response.sendFile('index.html', { root: clientDist }, (error) => {
+      if (error) next(error)
+    })
+  })
+}
 
 app.use((_request, response) => {
   response.status(404).json({ error: { code: 'NOT_FOUND', message: 'The requested resource was not found.' } })
