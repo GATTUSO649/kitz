@@ -7,6 +7,7 @@ process.env.NODE_ENV = 'development'
 process.env.PORT = '4000'
 process.env.CLIENT_ORIGIN = 'http://localhost:5173'
 process.env.DATABASE_URL = 'mysql://test:test@127.0.0.1:1/kitculture'
+process.env.MYSQL_URL = process.env.DATABASE_URL
 process.env.ADMIN_DATABASE_URL = 'mysql://test:test@127.0.0.1:1/kitculture_admin'
 process.env.LOG_LEVEL = 'silent'
 

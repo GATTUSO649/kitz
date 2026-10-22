@@ -26,8 +26,24 @@ const legacyCallbackBaseUrl = (() => {
   try { return new URL(process.env.MPESA_CALLBACK_URL).origin } catch { return undefined }
 })()
 
+function isLoopbackDatabaseUrl(value: string | undefined): boolean {
+  if (!value) return false
+  try {
+    return ['localhost', '127.0.0.1', '::1'].includes(new URL(value).hostname)
+  } catch {
+    return false
+  }
+}
+
+const railwayDatabaseUrl = process.env.MYSQL_URL
+const configuredAdminDatabaseUrl = process.env.ADMIN_DATABASE_URL
+
 const parsed = schema.safeParse({
   ...process.env,
+  DATABASE_URL: railwayDatabaseUrl ?? process.env.DATABASE_URL,
+  ADMIN_DATABASE_URL: railwayDatabaseUrl && isLoopbackDatabaseUrl(configuredAdminDatabaseUrl)
+    ? railwayDatabaseUrl
+    : configuredAdminDatabaseUrl ?? railwayDatabaseUrl,
   DARAJA_ENV: process.env.DARAJA_ENV ?? process.env.MPESA_ENV,
   DARAJA_CONSUMER_KEY: process.env.DARAJA_CONSUMER_KEY ?? process.env.MPESA_CONSUMER_KEY,
   DARAJA_CONSUMER_SECRET: process.env.DARAJA_CONSUMER_SECRET ?? process.env.MPESA_CONSUMER_SECRET,

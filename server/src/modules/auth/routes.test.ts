@@ -45,6 +45,8 @@ test('production MySQL connections require verified TLS and accept a custom CA',
   assert.deepEqual(mysqlSslOptions('production'), { rejectUnauthorized: true })
   assert.deepEqual(mysqlSslOptions('production', 'test-ca'), { rejectUnauthorized: true, ca: 'test-ca' })
   assert.equal(mysqlSslOptions('development'), undefined)
+  assert.equal(mysqlSslOptions('development', undefined, 'localhost'), undefined)
+  assert.deepEqual(mysqlSslOptions('development', 'test-ca', 'mysql.example.com'), { rejectUnauthorized: true, ca: 'test-ca' })
 })
 
 test('customer order mutations reject cross-origin requests before authentication', async () => {

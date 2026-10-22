@@ -4,12 +4,12 @@ import { env } from './env.js'
 import * as schema from '../database/schema.js'
 import * as adminSchema from '../database/admin-schema.js'
 
-export function mysqlSslOptions(nodeEnvironment: string, ca?: string) {
-  if (nodeEnvironment !== 'production') return undefined
+export function mysqlSslOptions(nodeEnvironment: string, ca?: string, host?: string) {
+  const isLoopback = !host || ['localhost', '127.0.0.1', '::1'].includes(host.toLowerCase())
+  if (nodeEnvironment !== 'production' && isLoopback) return undefined
   return { rejectUnauthorized: true, ...(ca ? { ca } : {}) }
 }
 
-const mysqlSsl = mysqlSslOptions(env.NODE_ENV, env.MYSQL_SSL_CA)
 const databaseUrl = env.DATABASE_URL ? new URL(env.DATABASE_URL) : null
 export const pool = databaseUrl
   ? createPool({
@@ -18,7 +18,7 @@ export const pool = databaseUrl
       user: decodeURIComponent(databaseUrl.username),
       password: decodeURIComponent(databaseUrl.password),
       database: databaseUrl.pathname.slice(1),
-      ssl: mysqlSsl,
+      ssl: mysqlSslOptions(env.NODE_ENV, env.MYSQL_SSL_CA, databaseUrl.hostname),
       connectionLimit: 10,
       waitForConnections: true,
       enableKeepAlive: true,
@@ -35,7 +35,7 @@ export const adminPool = adminDatabaseUrl
       user: decodeURIComponent(adminDatabaseUrl.username),
       password: decodeURIComponent(adminDatabaseUrl.password),
       database: adminDatabaseUrl.pathname.slice(1),
-      ssl: mysqlSsl,
+      ssl: mysqlSslOptions(env.NODE_ENV, env.MYSQL_SSL_CA, adminDatabaseUrl.hostname),
       connectionLimit: 5,
       waitForConnections: true,
       enableKeepAlive: true,
