@@ -1,5 +1,6 @@
 import cors from 'cors'
-import express, { type ErrorRequestHandler } from 'express'
+import express, { type ErrorRequestHandler, type RequestHandler } from 'express'
+import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { rateLimit } from 'express-rate-limit'
 import helmet from 'helmet'
@@ -73,14 +74,28 @@ app.use('/api/v1/admin', adminRouter)
 app.use('/api/v1', catalogueRouter)
 app.use('/api/v1', ordersRouter)
 
-if (env.NODE_ENV === 'production') {
-  const clientDist = fileURLToPath(new URL('../../dist', import.meta.url))
-  app.use(express.static(clientDist, { index: false }))
-  app.get(/^(?!\/api(?:\/|$)|\/health(?:\/|$)).*/, (_request, response, next) => {
+const clientDist = fileURLToPath(new URL('../../dist', import.meta.url))
+if (existsSync(clientDist)) {
+  const serveClientAssets = express.static(clientDist, { index: false })
+  app.use((request, response, next) => {
+    if (request.path === '/api' || request.path.startsWith('/api/')
+      || request.path === '/health' || request.path.startsWith('/health/')) {
+      next()
+      return
+    }
+    serveClientAssets(request, response, next)
+  })
+  const serveSpaShell: RequestHandler = (request, response, next) => {
+    if (request.path !== '/' && !request.get('accept')?.includes('text/html')) {
+      next()
+      return
+    }
     response.sendFile('index.html', { root: clientDist }, (error) => {
       if (error) next(error)
     })
-  })
+  }
+  app.get('/', serveSpaShell)
+  app.get(/^(?!\/api(?:\/|$)|\/health(?:\/|$)).*/, serveSpaShell)
 }
 
 app.use((_request, response) => {
@@ -90,6 +105,10 @@ app.use((_request, response) => {
 const errorHandler: ErrorRequestHandler = (error, request, response, _next) => {
   request.log.error({ err: error }, 'Request failed')
   if (response.headersSent) return
+  if (isDatabaseUnavailableError(error)) {
+    response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Database services are temporarily unavailable. Please try again shortly.' } })
+    return
+  }
   if (error instanceof Error && 'type' in error && error.type === 'entity.too.large') {
     response.status(413).json({ error: { code: 'PAYLOAD_TOO_LARGE', message: 'The uploaded file exceeds the 8 MB limit.' } })
     return
@@ -97,3 +116,30 @@ const errorHandler: ErrorRequestHandler = (error, request, response, _next) => {
   response.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Something went wrong. Please try again.' } })
 }
 app.use(errorHandler)
+
+const databaseErrorCodes = new Set([
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ETIMEDOUT',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'PROTOCOL_CONNECTION_LOST',
+  'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR',
+  'PROTOCOL_SEQUENCE_TIMEOUT',
+  'ER_ACCESS_DENIED_ERROR',
+  'ER_BAD_DB_ERROR',
+  'ER_CON_COUNT_ERROR',
+  'ER_NO_SUCH_TABLE',
+])
+
+function isDatabaseUnavailableError(error: unknown, seen = new Set<unknown>()): boolean {
+  if (!error || typeof error !== 'object' || seen.has(error)) return false
+  seen.add(error)
+  const candidate = error as { code?: unknown; cause?: unknown; errors?: unknown }
+  if (typeof candidate.code === 'string' && databaseErrorCodes.has(candidate.code)) return true
+  if (isDatabaseUnavailableError(candidate.cause, seen)) return true
+  return Array.isArray(candidate.errors)
+    && candidate.errors.some((nestedError) => isDatabaseUnavailableError(nestedError, seen))
+}

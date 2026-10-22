@@ -978,7 +978,7 @@ function App() {
             <div className="category-tabs" role="group" aria-label="Filter products by collection">{categories.map((category) => <button key={category} className={activeCategory === category ? 'category-tab active' : 'category-tab'} type="button" onClick={() => setActiveCategory(category)}>{category}</button>)}</div>
             <span className="result-count">{loading ? 'Loading collection…' : `${visibleProducts.length} ${visibleProducts.length === 1 ? 'piece' : 'pieces'}`}</span>
           </div>
-          {catalogueError && <div className="catalogue-state error-state"><strong>Our catalogue is taking a breather.</strong><span>Product data is served from the KitCulture API. Start the backend and configure MySQL to load available stock.</span></div>}
+          {catalogueError && <div className="catalogue-state error-state"><strong>Our catalogue is temporarily unavailable.</strong><span>Live product and stock information could not be loaded. Please try again shortly.</span></div>}
           {!catalogueError && loading && <div className="product-grid" aria-label="Loading products">{[1, 2, 3, 4].map((item) => <div className="product-skeleton" key={item}><div /><span /><span /></div>)}</div>}
           {!catalogueError && !loading && homeFeaturedProducts.length > 0 && <div className="product-grid">{homeFeaturedProducts.slice(0, 6).map((product) => {
             const inStock = product.variants.some((variant) => variant.stock > 0)
