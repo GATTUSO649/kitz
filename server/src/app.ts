@@ -24,6 +24,7 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       imgSrc: ["'self'", 'data:', 'https:'],
+      frameSrc: ["'self'", 'https://maps.google.com', 'https://www.google.com'],
     },
   },
 }))

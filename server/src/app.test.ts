@@ -121,7 +121,10 @@ test('keeps unknown API routes as JSON 404s', async () => {
 
 test('allows HTTPS-hosted images under the content security policy', async () => {
   const response = await fetch(`${baseUrl}/health/live`)
-  assert.match(response.headers.get('content-security-policy') ?? '', /img-src[^;]*https:/)
+  const policy = response.headers.get('content-security-policy') ?? ''
+  assert.match(policy, /img-src[^;]*https:/)
+  assert.match(policy, /frame-src[^;]*https:\/\/maps\.google\.com/)
+  assert.match(policy, /frame-src[^;]*https:\/\/www\.google\.com/)
 })
 
 test('diagnoses nested MySQL TLS errors without logging Drizzle SQL or credentials', () => {
