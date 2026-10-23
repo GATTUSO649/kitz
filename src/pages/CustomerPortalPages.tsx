@@ -482,6 +482,7 @@ export function CustomerPortalPage({ path, user, onProfileUpdate }: { path: stri
   const [notificationsUnreadOnly, setNotificationsUnreadOnly] = useState(false)
   const [notificationBusy, setNotificationBusy] = useState(false)
   const [paymentBusy, setPaymentBusy] = useState(false)
+  const [paymentPhone, setPaymentPhone] = useState('')
 
   const profileQuery = useQuery({
     queryKey: ['account-profile', user.id],
@@ -519,8 +520,12 @@ export function CustomerPortalPage({ path, user, onProfileUpdate }: { path: stri
     queryKey: ['customer-order', user.id, orderNumber],
     queryFn: () => readAccountData<OrderDetail>(`/api/v1/orders/${encodeURIComponent(orderNumber)}`),
     enabled: Boolean(orderNumber),
-    refetchInterval: (query) => query.state.data?.payment?.status === 'pending' ? 5000 : false,
+    refetchInterval: (query) => ['initiated', 'pending'].includes(query.state.data?.payment?.status ?? '') ? 5000 : false,
   })
+  useEffect(() => {
+    const savedPayerPhone = orderQuery.data?.payment?.payerPhone
+    if (savedPayerPhone) setPaymentPhone(savedPayerPhone)
+  }, [orderQuery.data?.payment?.payerPhone])
   const orderTrackingQuery = useQuery({
     queryKey: ['customer-order-tracking', user.id, orderNumber],
     queryFn: () => readAccountData<OrderTracking>(`/api/v1/orders/${encodeURIComponent(orderNumber)}/tracking`),
@@ -537,11 +542,11 @@ export function CustomerPortalPage({ path, user, onProfileUpdate }: { path: stri
       const response = await fetch(`/api/v1/orders/${encodeURIComponent(orderNumber)}/mpesa/stk-push`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ phone: paymentPhone }),
       })
       const result = await response.json() as { error?: { message?: string } }
       if (!response.ok) throw new Error(result.error?.message ?? 'A new M-Pesa prompt could not be started.')
-      setMessage('A new M-Pesa prompt was sent to the phone saved on your account. Approve it to continue.')
+      setMessage(`A new M-PESA prompt was sent to ${paymentPhone}. Approve it on your phone to continue.`)
       await orderQuery.refetch()
     } catch (issue) {
       setError(issue instanceof Error ? issue.message : 'A new M-Pesa prompt could not be started.')
@@ -810,12 +815,12 @@ export function CustomerPortalPage({ path, user, onProfileUpdate }: { path: stri
               <div className="portal-order-items">{orderQuery.data.items.map((item, index) => <article key={`${item.name}-${item.size}-${index}`}><span>{item.name} · Size {item.size} × {item.quantity}</span><strong>{money.format(Number(item.unitPrice) * item.quantity)}</strong></article>)}</div>
               <div className="portal-order-total"><span>Subtotal</span><strong>{money.format(Number(orderQuery.data.subtotal))}</strong><span>Delivery</span><strong>{money.format(Number(orderQuery.data.deliveryFee))}</strong><span>Total</span><strong>{money.format(Number(orderQuery.data.total))}</strong></div>
               {orderQuery.data.paymentMethod === 'mpesa' && <section className="portal-panel portal-payment-status">
-                <div className="portal-section-heading"><div><span className="admin-kicker">M-PESA PAYMENT</span><h2>{orderQuery.data.payment?.status === 'succeeded' ? 'Payment verified' : orderQuery.data.payment?.status === 'pending' ? 'Waiting for payment' : orderQuery.data.payment?.status === 'failed' ? 'Payment not verified' : 'Payment prompt not started'}</h2></div><ShieldCheck size={18} /></div>
+                <div className="portal-section-heading"><div><span className="admin-kicker">M-PESA PAYMENT</span><h2>{orderQuery.data.payment?.status === 'succeeded' ? 'Payment verified' : orderQuery.data.payment?.status === 'pending' || orderQuery.data.payment?.status === 'initiated' ? 'Waiting for payment' : orderQuery.data.payment?.status === 'failed' ? 'Payment not completed' : orderQuery.data.payment?.status === 'cancelled' ? 'Payment cancelled' : orderQuery.data.payment?.status === 'expired' ? 'Prompt expired' : orderQuery.data.payment?.status === 'requires_review' ? 'Payment under review' : 'Payment prompt not started'}</h2></div><ShieldCheck size={18} /></div>
                 {orderQuery.data.payment?.providerReceipt && <p><strong>Receipt:</strong> {orderQuery.data.payment.providerReceipt}</p>}
                 {orderQuery.data.payment?.payerPhone && <p><strong>Paying phone:</strong> {orderQuery.data.payment.payerPhone}</p>}
                 {orderQuery.data.payment?.transactionAt && <p><strong>Paid at:</strong> {new Date(orderQuery.data.payment.transactionAt).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}</p>}
                 <p>{orderQuery.data.payment?.verificationMessage ?? 'Payment is only confirmed after Daraja verifies the transaction against this order and your account phone.'}</p>
-                {orderQuery.data.status === 'pending_payment' && orderQuery.data.payment?.status !== 'pending' && <button type="button" className="button button-green" disabled={paymentBusy} onClick={() => void retryMpesaPayment()}>{paymentBusy ? 'Requesting prompt…' : 'Send payment prompt'} <Smartphone size={15} /></button>}
+                {orderQuery.data.status === 'pending_payment' && (!orderQuery.data.payment || ['failed', 'cancelled', 'expired'].includes(orderQuery.data.payment.status)) && <><label>Phone number to pay from<input type="tel" inputMode="tel" autoComplete="tel" required pattern="(?:0[17][0-9]{8}|\\+?254[17][0-9]{8})" maxLength={13} value={paymentPhone} onChange={(event) => setPaymentPhone(event.target.value)} /></label><button type="button" className="button button-green" disabled={paymentBusy || !paymentPhone} onClick={() => void retryMpesaPayment()}>{paymentBusy ? 'Requesting prompt…' : 'Send payment prompt'} <Smartphone size={15} /></button></>}
               </section>}
             </div>)}
 

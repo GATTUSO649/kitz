@@ -1,16 +1,83 @@
-import { timingSafeEqual } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import { env } from '../../config/env.js'
 
 type DarajaResponse = Record<string, unknown>
+type DarajaConfiguration = Pick<typeof env, 'DARAJA_ENV' | 'DARAJA_CONSUMER_KEY' | 'DARAJA_CONSUMER_SECRET' | 'DARAJA_PASSKEY' | 'DARAJA_CALLBACK_BASE_URL' | 'DARAJA_CALLBACK_TOKEN' | 'DARAJA_TRANSACTION_TYPE'>
+type DarajaRequestDependencies = { configuration?: DarajaConfiguration; fetcher?: typeof fetch; now?: Date }
+
+export class DarajaRequestError extends Error {
+  constructor(
+    readonly stage: 'oauth' | 'stk_push' | 'stk_query',
+    readonly outcome: 'not_submitted' | 'rejected' | 'unknown',
+    readonly providerCode?: string,
+  ) {
+    super(`Daraja ${stage.replaceAll('_', ' ')} ${outcome}.`)
+    this.name = 'DarajaRequestError'
+  }
+}
+
+export type ParsedStkCallback = {
+  checkoutRequestId: string
+  merchantRequestId: string
+  resultCode: number
+  resultDescription: string
+  metadata: Record<string, unknown>
+}
+
+export function parseStkCallback(body: unknown): ParsedStkCallback | null {
+  if (!body || typeof body !== 'object') return null
+  const callback = (body as { Body?: { stkCallback?: unknown } }).Body?.stkCallback
+  if (!callback || typeof callback !== 'object') return null
+  const value = callback as {
+    CheckoutRequestID?: unknown
+    MerchantRequestID?: unknown
+    ResultCode?: unknown
+    ResultDesc?: unknown
+    CallbackMetadata?: { Item?: unknown }
+  }
+  if (typeof value.CheckoutRequestID !== 'string' || !value.CheckoutRequestID
+    || typeof value.MerchantRequestID !== 'string' || !value.MerchantRequestID) return null
+  const resultCodeValue = value.ResultCode
+  if (!(typeof resultCodeValue === 'number' || (typeof resultCodeValue === 'string' && /^\d+$/.test(resultCodeValue)))) return null
+  const resultCode = Number(resultCodeValue)
+  if (!Number.isSafeInteger(resultCode) || resultCode < 0) return null
+  const metadata: Record<string, unknown> = {}
+  if (Array.isArray(value.CallbackMetadata?.Item)) {
+    for (const item of value.CallbackMetadata.Item) {
+      if (!item || typeof item !== 'object') continue
+      const entry = item as { Name?: unknown; Value?: unknown }
+      if (typeof entry.Name === 'string' && entry.Name.length <= 80) metadata[entry.Name] = entry.Value
+    }
+  }
+  return {
+    checkoutRequestId: value.CheckoutRequestID,
+    merchantRequestId: value.MerchantRequestID,
+    resultCode,
+    resultDescription: typeof value.ResultDesc === 'string' ? value.ResultDesc : '',
+    metadata,
+  }
+}
+
+export function callbackFailureStatus(resultCode: number): 'cancelled' | 'expired' | 'failed' {
+  if (resultCode === 1032) return 'cancelled'
+  if (resultCode === 1037) return 'expired'
+  return 'failed'
+}
 
 export const darajaCallbackRoute = '/orders/mpesa/callback/:token'
 
-const apiBase = env.DARAJA_ENV === 'production'
-  ? 'https://api.safaricom.co.ke'
-  : 'https://sandbox.safaricom.co.ke'
+function safeProviderCode(value: unknown) {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{1,32}$/.test(value) ? value : undefined
+}
 
-let cachedAccessToken: string | undefined
-let accessTokenExpiresAt = 0
+function apiBase(configuration: DarajaConfiguration) {
+  if (!configuration.DARAJA_ENV) throw new DarajaRequestError('oauth', 'not_submitted')
+  return configuration.DARAJA_ENV === 'production'
+    ? 'https://api.safaricom.co.ke'
+    : 'https://sandbox.safaricom.co.ke'
+}
+
+const accessTokens = new Map<string, { token: string; expiresAt: number }>()
 
 export function normalizeKenyanPhone(value: string) {
   const digits = value.replace(/[^0-9]/g, '')
@@ -35,7 +102,7 @@ export function parseDarajaTimestamp(value: string | number) {
 
 export function isDarajaConfigured(shortcode: string) {
   const effectiveShortcode = shortcode || env.DARAJA_SHORTCODE || ''
-  if (!env.DARAJA_CONSUMER_KEY || !env.DARAJA_CONSUMER_SECRET || !env.DARAJA_PASSKEY
+  if (!env.DARAJA_ENV || !env.DARAJA_TRANSACTION_TYPE || !env.DARAJA_CONSUMER_KEY || !env.DARAJA_CONSUMER_SECRET || !env.DARAJA_PASSKEY
     || !env.DARAJA_CALLBACK_BASE_URL || !env.DARAJA_CALLBACK_TOKEN || !/^\d{5,20}$/.test(effectiveShortcode)) return false
   try {
     const callbackUrl = new URL(buildDarajaCallbackUrl(env.DARAJA_CALLBACK_BASE_URL, env.DARAJA_CALLBACK_TOKEN))
@@ -59,9 +126,9 @@ export function buildDarajaCallbackUrl(baseOrCallbackUrl: string, token: string)
   return callbackUrl.toString()
 }
 
-export function darajaCallbackUrl() {
-  if (!env.DARAJA_CALLBACK_BASE_URL || !env.DARAJA_CALLBACK_TOKEN) throw new Error('M-Pesa callback configuration is missing.')
-  return buildDarajaCallbackUrl(env.DARAJA_CALLBACK_BASE_URL, env.DARAJA_CALLBACK_TOKEN)
+export function darajaCallbackUrl(configuration: DarajaConfiguration = env) {
+  if (!configuration.DARAJA_CALLBACK_BASE_URL || !configuration.DARAJA_CALLBACK_TOKEN) throw new Error('M-Pesa callback configuration is missing.')
+  return buildDarajaCallbackUrl(configuration.DARAJA_CALLBACK_BASE_URL, configuration.DARAJA_CALLBACK_TOKEN)
 }
 
 export function isValidCallbackToken(candidate: string) {
@@ -77,7 +144,7 @@ export function matchesCallbackToken(candidate: string, expected: string | undef
 }
 
 export function isFinalDarajaPaymentStatus(status: string) {
-  return status === 'succeeded' || status === 'failed'
+  return ['succeeded', 'failed', 'cancelled', 'expired', 'requires_review', 'refunded'].includes(status)
 }
 
 export function isValidDarajaPaymentAmount(currency: string, callbackAmount: number, paymentAmount: string | number, orderTotal: string | number) {
@@ -86,20 +153,53 @@ export function isValidDarajaPaymentAmount(currency: string, callbackAmount: num
     && Math.round(Number(paymentAmount) * 100) === Math.round(Number(orderTotal) * 100)
 }
 
-async function accessToken() {
-  if (cachedAccessToken && Date.now() < accessTokenExpiresAt - 60_000) return cachedAccessToken
-  if (!env.DARAJA_CONSUMER_KEY || !env.DARAJA_CONSUMER_SECRET) throw new Error('Daraja API credentials are not configured.')
-  const credentials = Buffer.from(`${env.DARAJA_CONSUMER_KEY}:${env.DARAJA_CONSUMER_SECRET}`).toString('base64')
-  const response = await fetch(`${apiBase}/oauth/v1/generate?grant_type=client_credentials`, {
-    headers: { Authorization: `Basic ${credentials}` },
-    signal: AbortSignal.timeout(12_000),
-  })
-  const result = await response.json() as DarajaResponse
-  if (!response.ok || typeof result.access_token !== 'string') throw new Error('Daraja authentication failed.')
+export function canVerifySuccessfulStkPayment(input: {
+  orderStatus: string
+  currency: string
+  callbackAmount: number
+  paymentAmount: string | number
+  orderTotal: string | number
+  callbackPhone: string
+  payerPhone: string | null
+  transactionAt: Date
+  paymentCreatedAt: Date
+  now?: Date
+}) {
+  const now = input.now ?? new Date()
+  const validTime = input.transactionAt.getTime() >= input.paymentCreatedAt.getTime() - 2 * 60 * 1000
+    && input.transactionAt.getTime() <= now.getTime() + 5 * 60 * 1000
+  return input.orderStatus === 'pending_payment'
+    && input.currency === 'KES'
+    && input.payerPhone !== null
+    && input.callbackPhone === input.payerPhone
+    && isValidDarajaPaymentAmount(input.currency, input.callbackAmount, input.paymentAmount, input.orderTotal)
+    && validTime
+}
+
+async function accessToken(configuration: DarajaConfiguration, fetcher: typeof fetch) {
+  if (!configuration.DARAJA_CONSUMER_KEY || !configuration.DARAJA_CONSUMER_SECRET) {
+    throw new DarajaRequestError('oauth', 'not_submitted')
+  }
+  const tokenKey = createHash('sha256').update(`${configuration.DARAJA_ENV}:${configuration.DARAJA_CONSUMER_KEY}:${configuration.DARAJA_CONSUMER_SECRET}`).digest('hex')
+  const cached = accessTokens.get(tokenKey)
+  if (cached && Date.now() < cached.expiresAt - 60_000) return cached.token
+  const credentials = Buffer.from(`${configuration.DARAJA_CONSUMER_KEY}:${configuration.DARAJA_CONSUMER_SECRET}`).toString('base64')
+  let response: Response
+  try {
+    response = await fetcher(`${apiBase(configuration)}/oauth/v1/generate?grant_type=client_credentials`, {
+      headers: { Authorization: `Basic ${credentials}` },
+      signal: AbortSignal.timeout(12_000),
+    })
+  } catch {
+    throw new DarajaRequestError('oauth', 'not_submitted')
+  }
+  let result: DarajaResponse
+  try { result = await response.json() as DarajaResponse } catch { throw new DarajaRequestError('oauth', 'not_submitted') }
+  if (!response.ok || typeof result.access_token !== 'string') throw new DarajaRequestError('oauth', 'not_submitted', safeProviderCode(result.errorCode))
   const expiresIn = Number(result.expires_in ?? 3600)
-  cachedAccessToken = result.access_token
-  accessTokenExpiresAt = Date.now() + (Number.isFinite(expiresIn) ? expiresIn : 3600) * 1000
-  return cachedAccessToken
+  const token = result.access_token
+  accessTokens.set(tokenKey, { token, expiresAt: Date.now() + (Number.isFinite(expiresIn) ? expiresIn : 3600) * 1000 })
+  return token
 }
 
 function timestampNairobi(date = new Date()) {
@@ -110,57 +210,69 @@ function timestampNairobi(date = new Date()) {
   return `${values.year}${values.month}${values.day}${values.hour}${values.minute}${values.second}`
 }
 
-function stkPassword(shortcode: string, timestamp: string) {
-  if (!env.DARAJA_PASSKEY) throw new Error('Daraja passkey is not configured.')
-  return Buffer.from(`${shortcode}${env.DARAJA_PASSKEY}${timestamp}`).toString('base64')
+function stkPassword(shortcode: string, timestamp: string, passkey?: string) {
+  if (!passkey) throw new DarajaRequestError('stk_push', 'not_submitted')
+  return Buffer.from(`${shortcode}${passkey}${timestamp}`).toString('base64')
 }
 
-async function authenticatedPost(path: string, body: Record<string, unknown>) {
-  const token = await accessToken()
-  const response = await fetch(`${apiBase}${path}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(15_000),
-  })
-  const result = await response.json() as DarajaResponse
-  if (!response.ok) throw new Error('Daraja payment service rejected the request.')
+async function authenticatedPost(path: string, body: Record<string, unknown>, configuration: DarajaConfiguration, fetcher: typeof fetch, stage: 'stk_push' | 'stk_query') {
+  const token = await accessToken(configuration, fetcher)
+  let response: Response
+  try {
+    response = await fetcher(`${apiBase(configuration)}${path}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15_000),
+    })
+  } catch {
+    throw new DarajaRequestError(stage, 'unknown')
+  }
+  let result: DarajaResponse
+  try { result = await response.json() as DarajaResponse } catch { throw new DarajaRequestError(stage, 'unknown') }
+  if (!response.ok) throw new DarajaRequestError(stage, stage === 'stk_push' ? 'unknown' : 'rejected', safeProviderCode(result.errorCode))
   return result
 }
 
-export async function initiateStkPush(input: { shortcode: string; phone: string; amount: number; accountReference: string }) {
-  const timestamp = timestampNairobi()
+export async function initiateStkPush(input: { shortcode: string; phone: string; amount: number; accountReference: string }, dependencies: DarajaRequestDependencies = {}) {
+  const configuration = dependencies.configuration ?? env
+  const fetcher = dependencies.fetcher ?? fetch
+  const timestamp = timestampNairobi(dependencies.now)
   const result = await authenticatedPost('/mpesa/stkpush/v1/processrequest', {
     BusinessShortCode: input.shortcode,
-    Password: stkPassword(input.shortcode, timestamp),
+    Password: stkPassword(input.shortcode, timestamp, configuration.DARAJA_PASSKEY),
     Timestamp: timestamp,
-    TransactionType: 'CustomerBuyGoodsOnline',
+    TransactionType: configuration.DARAJA_TRANSACTION_TYPE,
     Amount: input.amount,
     PartyA: input.phone,
     PartyB: input.shortcode,
     PhoneNumber: input.phone,
-    CallBackURL: darajaCallbackUrl(),
+    CallBackURL: darajaCallbackUrl(configuration),
     AccountReference: input.accountReference.slice(0, 12),
     TransactionDesc: `KitCulture ${input.accountReference}`.slice(0, 13),
-  })
-  if (result.ResponseCode !== '0' || typeof result.CheckoutRequestID !== 'string' || typeof result.MerchantRequestID !== 'string') {
-    throw new Error(typeof result.ResponseDescription === 'string' ? result.ResponseDescription : 'Daraja could not start the payment prompt.')
+  }, configuration, fetcher, 'stk_push')
+  if (result.ResponseCode !== '0') {
+    throw new DarajaRequestError('stk_push', 'rejected', safeProviderCode(result.ResponseCode))
+  }
+  if (typeof result.CheckoutRequestID !== 'string' || typeof result.MerchantRequestID !== 'string') {
+    throw new DarajaRequestError('stk_push', 'unknown')
   }
   return {
     checkoutRequestId: result.CheckoutRequestID,
     merchantRequestId: result.MerchantRequestID,
-    customerMessage: typeof result.CustomerMessage === 'string' ? result.CustomerMessage : 'Payment prompt sent.',
+    customerMessage: 'Payment prompt sent.',
   }
 }
 
-export async function queryStkPush(shortcode: string, checkoutRequestId: string) {
-  const timestamp = timestampNairobi()
+export async function queryStkPush(shortcode: string, checkoutRequestId: string, dependencies: DarajaRequestDependencies = {}) {
+  const configuration = dependencies.configuration ?? env
+  const timestamp = timestampNairobi(dependencies.now)
   const result = await authenticatedPost('/mpesa/stkpushquery/v1/query', {
     BusinessShortCode: shortcode,
-    Password: stkPassword(shortcode, timestamp),
+    Password: stkPassword(shortcode, timestamp, configuration.DARAJA_PASSKEY),
     Timestamp: timestamp,
     CheckoutRequestID: checkoutRequestId,
-  })
-  if (result.ResponseCode !== '0') throw new Error('Daraja could not verify the payment request.')
+  }, configuration, dependencies.fetcher ?? fetch, 'stk_query')
+  if (result.ResponseCode !== '0') throw new DarajaRequestError('stk_query', 'rejected', safeProviderCode(result.ResponseCode))
   return result
 }

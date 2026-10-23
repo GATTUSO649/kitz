@@ -8,6 +8,7 @@ import { matchesNationalTeam, NATIONAL_TEAM_NAMES } from '../nationalTeams'
 export type ShopVariant = { id: number; size: string; stock: number; price?: string | null }
 export type ShopPurchaseSelection = { variant: ShopVariant; quantity: number }
 export type BuyNowCheckoutDetails = {
+  idempotencyKey: string
   deliveryZoneId: number
   payerPhone: string
   recipientName: string
@@ -354,12 +355,14 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
   const [buyFlowStep, setBuyFlowStep] = useState(0)
   const [buyFlowError, setBuyFlowError] = useState('')
   const [buyFlowBusy, setBuyFlowBusy] = useState(false)
+  const [buyFlowIdempotencyKey, setBuyFlowIdempotencyKey] = useState(() => crypto.randomUUID())
   const [deliveryZoneId, setDeliveryZoneId] = useState('')
   const [deliveryPinStatus, setDeliveryPinStatus] = useState('')
   const [deliveryPin, setDeliveryPin] = useState<{ latitude: number; longitude: number; accuracy: number | null } | null>(null)
   const [deliveryLatitude, setDeliveryLatitude] = useState('')
   const [deliveryLongitude, setDeliveryLongitude] = useState('')
   const [deliveryAddress, setDeliveryAddress] = useState({ address: '', county: 'Machakos', town: 'Machakos', estate: '', landmark: '' })
+  const [deliveryPhone, setDeliveryPhone] = useState(accountUser?.phone ?? '')
   const [payerPhone, setPayerPhone] = useState(accountUser?.phone ?? '')
   const [reviewRating, setReviewRating] = useState(5)
   const [reviewBody, setReviewBody] = useState('')
@@ -383,7 +386,9 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
     if (!navigationState?.openBuyFlow || !productQuery.data) return
     setBuyFlowStep(0)
     setBuyFlowError('')
+    setBuyFlowIdempotencyKey(crypto.randomUUID())
     setPayerPhone(accountUser?.phone ?? '')
+    setDeliveryPhone(accountUser?.phone ?? '')
     setBuyFlowOpen(true)
   }, [location.state, productQuery.data, accountUser?.phone])
   const deliveryZonesQuery = useQuery({
@@ -539,10 +544,11 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
     setBuyFlowError('')
     try {
       await onBuyNow(product, selectedItems, {
+        idempotencyKey: buyFlowIdempotencyKey,
         deliveryZoneId: selectedZone.id,
         payerPhone,
         recipientName: accountUser?.fullName ?? '',
-        phone: accountUser?.phone ?? '',
+        phone: deliveryPhone,
         ...deliveryAddress,
         latitude: deliveryPin.latitude,
         longitude: deliveryPin.longitude,
@@ -618,7 +624,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
         <p className="product-price-note">Select one or more sizes below the kit image. Choose up to 5 kits total, subject to stock.</p>
         <p className="product-purchase-total"><span>{selectedQuantity} {selectedQuantity === 1 ? 'kit' : 'kits'} selected</span><strong>{money.format(selectedSubtotal)}</strong></p>
         <button className="button button-outline product-add" type="button" disabled={!selectedItems.length} onClick={() => selectedItems.length && onAdd(product, selectedItems)}>Add to bag<ArrowRight size={16} /></button>
-        <button className="button button-green product-buy-now" type="button" disabled={!product.variants.some((variant) => variant.stock > 0)} onClick={() => { setBuyFlowStep(0); setBuyFlowError(''); setPayerPhone(accountUser?.phone ?? ''); setBuyFlowOpen(true) }}>Buy now <ArrowRight size={16} /></button>
+        <button className="button button-green product-buy-now" type="button" disabled={!product.variants.some((variant) => variant.stock > 0)} onClick={() => { setBuyFlowStep(0); setBuyFlowError(''); setBuyFlowIdempotencyKey(crypto.randomUUID()); setPayerPhone(accountUser?.phone ?? ''); setBuyFlowOpen(true) }}>Buy now <ArrowRight size={16} /></button>
         <div className="product-secondary-actions"><button className="wishlist-add" type="button" onClick={() => onSave(product.id)}>Save to wishlist</button>
         {portalMode && <button className="product-chat-button" type="button" onClick={() => navigate('/account/chat', { state: {
           draft: `Hi KitCulture Admin, I’m interested in ${product.name}. The listed price is ${money.format(startingPrice)}. Is it available?`,
@@ -643,6 +649,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
       </div> : <form className="buy-flow-content" onSubmit={(event) => void submitBuyFlow(event)} noValidate>
         {buyFlowStep === 1 && <>
           {deliveryZonesQuery.isPending ? <p>Loading delivery areas…</p> : deliveryZonesQuery.isError ? <p className="buy-flow-error">{deliveryZonesQuery.error.message}</p> : <label>Delivery area<select required value={deliveryZoneId} onChange={(event) => setDeliveryZoneId(event.target.value)}><option value="">Choose an area</option>{deliveryZonesQuery.data?.map((zone) => <option key={zone.id} value={zone.id}>{zone.name} · {money.format(Number(zone.fee))}</option>)}</select></label>}
+          <label>Delivery recipient phone<input type="tel" inputMode="tel" autoComplete="tel" required minLength={7} maxLength={20} value={deliveryPhone} onChange={(event) => setDeliveryPhone(event.target.value)} /></label>
           <label>Street address or building<input required minLength={3} maxLength={180} value={deliveryAddress.address} onChange={(event) => setDeliveryAddress({ ...deliveryAddress, address: event.target.value })} /></label>
           <div className="checkout-fields"><label>County<input required maxLength={80} value={deliveryAddress.county} onChange={(event) => setDeliveryAddress({ ...deliveryAddress, county: event.target.value })} /></label><label>Town<input required maxLength={100} value={deliveryAddress.town} onChange={(event) => setDeliveryAddress({ ...deliveryAddress, town: event.target.value })} /></label></div>
           <div className="checkout-fields"><label>Estate <span>(optional)</span><input maxLength={100} value={deliveryAddress.estate} onChange={(event) => setDeliveryAddress({ ...deliveryAddress, estate: event.target.value })} /></label><label>Landmark <span>(optional)</span><input maxLength={180} value={deliveryAddress.landmark} onChange={(event) => setDeliveryAddress({ ...deliveryAddress, landmark: event.target.value })} /></label></div>
@@ -654,8 +661,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
         {buyFlowStep === 2 && <>
           <div className="buy-flow-payment-merchant"><Smartphone size={20} /><div><strong>{paymentOptionsQuery.data?.mpesaTillName || 'KitCulture'}</strong><span>Secure M-Pesa prompt · Buy Goods Till</span></div></div>
           <label>Phone number to pay from<input type="tel" inputMode="tel" autoComplete="tel" required pattern="(?:0[17][0-9]{8}|\+?254[17][0-9]{8})" title="Enter a valid Kenyan number, such as 0712345678 or +254712345678." maxLength={13} placeholder="0712345678 or +254712345678" value={payerPhone} onChange={(event) => setPayerPhone(event.target.value)} /></label>
-          <p className="buy-flow-hint">The payment prompt will be sent to this Kenyan number. Delivery recipient details use your signed-in account.</p>
-          {!accountUser?.phone && <p className="buy-flow-error">Add a valid phone number to your account before proceeding.</p>}
+          <p className="buy-flow-hint">The payment prompt will be sent to this Kenyan number. Delivery contact details are entered separately.</p>
           {!paymentOptionsQuery.data?.stkPushAvailable && !paymentOptionsQuery.isPending && <p className="buy-flow-error">M-Pesa prompts are not available right now.</p>}
         </>}
         {buyFlowStep === 3 && <>
@@ -663,11 +669,10 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
           <div className="buy-flow-review buy-flow-payee"><h3>Payment details</h3><div><span>Expected recipient</span><strong>{paymentOptionsQuery.data?.mpesaTillName || 'KitCulture'}</strong></div><div><span>Buy Goods Till</span><strong>{paymentOptionsQuery.data?.mpesaTillNumber || 'Not configured'}</strong></div><div><span>Prompt sent to</span><strong>{payerPhone}</strong></div><div><span>Account name</span><strong>{accountUser?.fullName || 'Sign in required'}</strong></div></div>
           <p className="buy-flow-hint">Tap Proceed to send the payment request. Confirm the displayed merchant and amount on your phone before approving.</p>
           {!accountUser && <Link className="buy-flow-signin" to={`/login?returnTo=${encodeURIComponent(pathname)}`}>Sign in to place this order <ArrowRight size={14} /></Link>}
-          {accountUser && !accountUser.phone && <Link className="buy-flow-signin" to="/account/profile">Add a phone number to your account <ArrowRight size={14} /></Link>}
           {!paymentOptionsQuery.data?.stkPushAvailable && <p className="buy-flow-error">M-Pesa prompts are not available right now.</p>}
         </>}
         {buyFlowError && <p className="buy-flow-error" role="alert">{buyFlowError}</p>}
-        <div className="buy-flow-actions"><button className="button button-outline" type="button" disabled={buyFlowBusy} onClick={() => { setBuyFlowError(''); setBuyFlowStep(buyFlowStep - 1) }}>Back</button>{buyFlowStep < 3 ? <button className="button button-green" type="submit" disabled={(buyFlowStep === 1 && deliveryZonesQuery.isPending) || (buyFlowStep === 2 && (!payerPhone || !paymentOptionsQuery.data?.stkPushAvailable))}>Continue <ArrowRight size={16} /></button> : <button className="button button-green" type="button" disabled={buyFlowBusy || !paymentOptionsQuery.data?.stkPushAvailable || !accountUser?.phone} onClick={() => void submitBuyFlow()}>{buyFlowBusy ? 'Sending prompt…' : 'Proceed' } <ArrowRight size={16} /></button>}</div>
+        <div className="buy-flow-actions"><button className="button button-outline" type="button" disabled={buyFlowBusy} onClick={() => { setBuyFlowError(''); setBuyFlowStep(buyFlowStep - 1) }}>Back</button>{buyFlowStep < 3 ? <button className="button button-green" type="submit" disabled={(buyFlowStep === 1 && deliveryZonesQuery.isPending) || (buyFlowStep === 2 && (!payerPhone || !paymentOptionsQuery.data?.stkPushAvailable))}>Continue <ArrowRight size={16} /></button> : <button className="button button-green" type="button" disabled={buyFlowBusy || !paymentOptionsQuery.data?.stkPushAvailable} onClick={() => void submitBuyFlow()}>{buyFlowBusy ? 'Sending prompt…' : 'Proceed' } <ArrowRight size={16} /></button>}</div>
       </form>}
     </section></div>}
     {zoomOpen && imageUrl && <div className="product-lightbox" role="dialog" aria-modal="true" aria-label={`${product.name} image preview`} onClick={(event) => { if (event.target === event.currentTarget) setZoomOpen(false) }}>

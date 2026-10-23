@@ -46,6 +46,7 @@ const schema = z.object({
   DARAJA_CONSUMER_KEY: z.string().min(1).optional(),
   DARAJA_CONSUMER_SECRET: z.string().min(1).optional(),
   DARAJA_PASSKEY: z.string().min(1).optional(),
+  DARAJA_TRANSACTION_TYPE: z.enum(['CustomerPayBillOnline', 'CustomerBuyGoodsOnline']).optional(),
   DARAJA_SHORTCODE: z.string().regex(/^\d{5,20}$/).optional(),
   DARAJA_CALLBACK_BASE_URL: z.string().url().optional(),
   DARAJA_CALLBACK_TOKEN: z.string().min(32).optional(),
@@ -73,7 +74,21 @@ if (!parsed.success) {
   throw new Error(`Invalid environment configuration: ${parsed.error.issues.map((issue) => issue.path.join('.') + ' ' + issue.message).join('; ')}`)
 }
 
-export const env = parsed.data
+export function resolveDarajaEnvironment(nodeEnvironment: string, configuredEnvironment?: 'sandbox' | 'production') {
+  if (configuredEnvironment) return configuredEnvironment
+  return nodeEnvironment === 'development' || nodeEnvironment === 'test' ? 'sandbox' : undefined
+}
+
+export function resolveDarajaTransactionType(nodeEnvironment: string, configuredType?: 'CustomerPayBillOnline' | 'CustomerBuyGoodsOnline') {
+  if (configuredType) return configuredType
+  return nodeEnvironment === 'development' || nodeEnvironment === 'test' ? 'CustomerBuyGoodsOnline' : undefined
+}
+
+export const env = {
+  ...parsed.data,
+  DARAJA_ENV: resolveDarajaEnvironment(parsed.data.NODE_ENV, parsed.data.DARAJA_ENV),
+  DARAJA_TRANSACTION_TYPE: resolveDarajaTransactionType(parsed.data.NODE_ENV, parsed.data.DARAJA_TRANSACTION_TYPE),
+}
 
 export function isAllowedClientOrigin(origin: string | undefined): boolean {
   if (!origin) return false

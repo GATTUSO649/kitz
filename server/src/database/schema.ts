@@ -202,6 +202,7 @@ export const cartItems = mysqlTable('cart_items', {
 export const orders = mysqlTable('orders', {
   id: int('id').autoincrement().primaryKey(),
   orderNumber: varchar('order_number', { length: 32 }).notNull().unique(),
+  idempotencyKey: varchar('idempotency_key', { length: 36 }).unique(),
   userId: int('user_id').notNull().references(() => users.id),
   status: mysqlEnum('status', ['pending_payment', 'paid', 'processing', 'dispatched', 'delivered', 'cancelled', 'refunded']).default('pending_payment').notNull(),
   paymentMethod: mysqlEnum('payment_method', ['pay_on_delivery', 'mpesa']).default('pay_on_delivery').notNull(),
@@ -291,7 +292,8 @@ export const payments = mysqlTable('payments', {
   merchantShortcode: varchar('merchant_shortcode', { length: 20 }),
   providerReceipt: varchar('provider_receipt', { length: 120 }).unique(),
   amount: decimal('amount', { precision: 12, scale: 2 }).notNull(),
-  status: mysqlEnum('payment_status', ['initiated', 'pending', 'succeeded', 'failed', 'refunded']).default('initiated').notNull(),
+  status: mysqlEnum('payment_status', ['initiated', 'pending', 'succeeded', 'failed', 'cancelled', 'expired', 'requires_review', 'refunded']).default('initiated').notNull(),
+  providerResultCode: varchar('provider_result_code', { length: 32 }),
   payerPhone: varchar('payer_phone', { length: 20 }),
   payerName: varchar('payer_name', { length: 160 }),
   transactionAt: datetime('transaction_at'),

@@ -28,6 +28,7 @@ DARAJA_CALLBACK_TOKEN=<random secret, at least 32 characters>
 DARAJA_CONSUMER_KEY=<sandbox key>
 DARAJA_CONSUMER_SECRET=<sandbox secret>
 DARAJA_PASSKEY=<sandbox passkey>
+DARAJA_TRANSACTION_TYPE=CustomerBuyGoodsOnline
 DARAJA_SHORTCODE=<sandbox shortcode>
 CLIENT_ORIGIN=https://your-domain.example
 DATABASE_URL=<TLS-enabled Railway MySQL URL>
@@ -44,7 +45,7 @@ When `NODE_ENV=production`, the MySQL pool requires TLS and verifies the server 
 
 The app appends `/api/v1/orders/mpesa/callback/<token>` to `DARAJA_CALLBACK_BASE_URL`. Register that exact generated URL in the matching Daraja app. The public URL must reach the same service process that owns the pending payment record. Keep the token private; changing it requires registering the newly generated callback URL in Daraja and restarting the service.
 
-Start with sandbox credentials and run a full sandbox checkout through callback verification. Only set `DARAJA_ENV=production` after Safaricom has approved the app and supplied the matching live consumer key, consumer secret, passkey, and shortcode/Till. Replace the callback base URL with the permanent production site origin and register the resulting callback URL in the live Daraja app. Never mix sandbox and production values.
+Start with sandbox credentials and run a full sandbox checkout through callback verification. Set `DARAJA_TRANSACTION_TYPE` to `CustomerBuyGoodsOnline` only for a Buy Goods Till or `CustomerPayBillOnline` only for a PayBill shortcode. Production requires both `DARAJA_ENV` and `DARAJA_TRANSACTION_TYPE` to be explicit; it will not silently default to sandbox or Buy Goods. Only set `DARAJA_ENV=production` after Safaricom has approved the app and supplied the matching live consumer key, consumer secret, passkey, transaction type, and shortcode/Till. Replace the callback base URL with the permanent production site origin and register the resulting callback URL in the live Daraja app. Never mix sandbox and production values.
 
 Use `/health` for liveness and `/health/ready` to check both MySQL connections. Run Drizzle migrations as an explicit release step after a backup; do not run migrations automatically at API startup. Store database credentials in the hosting secret manager and use dedicated least-privilege database users. The compose file is for local development only.
 

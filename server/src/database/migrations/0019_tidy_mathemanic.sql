@@ -1,0 +1,2 @@
+ALTER TABLE `payments` MODIFY COLUMN `payment_status` enum('initiated','pending','succeeded','failed','cancelled','expired','requires_review','refunded') NOT NULL DEFAULT 'initiated';--> statement-breakpoint
+ALTER TABLE `payments` ADD `provider_result_code` varchar(32);

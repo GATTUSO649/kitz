@@ -175,3 +175,20 @@ test('trusts the observed Render and Cloudflare proxy chain for rate limiting', 
   assert.equal(response.status, 404)
   assert.ok(response.headers.has('ratelimit-policy'))
 })
+
+test('limits repeated M-PESA STK initiation attempts per forwarded client IP', async () => {
+  const statuses = await Promise.all(Array.from({ length: 6 }, async () => {
+    const response = await fetch(`${baseUrl}/api/v1/orders/KC-2026-000001/mpesa/stk-push`, {
+      method: 'POST',
+      headers: {
+        origin: process.env.CLIENT_ORIGIN!,
+        'content-type': 'application/json',
+        'x-forwarded-for': '198.51.100.42, 104.23.243.42, 10.24.90.146',
+      },
+      body: JSON.stringify({ phone: '0712345678' }),
+    })
+    return response.status
+  }))
+  assert.equal(statuses.filter((status) => status === 429).length, 1)
+  assert.equal(statuses.filter((status) => status === 401).length, 5)
+})

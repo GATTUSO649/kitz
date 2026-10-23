@@ -2,10 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import express from 'express'
 import { mysqlSslOptions } from '../../config/database.js'
-import { isAllowedClientOrigin } from '../../config/env.js'
+import { isAllowedClientOrigin, resolveDarajaEnvironment, resolveDarajaTransactionType } from '../../config/env.js'
 import { loginSchema, registerSchema } from './routes.js'
 import { createOrderSchema, createTemporaryOrderNumber, exceedsProductQuantityLimit, ordersRouter } from '../orders/routes.js'
-import { buildDarajaCallbackUrl, darajaCallbackRoute, isFinalDarajaPaymentStatus, isValidDarajaPaymentAmount, matchesCallbackToken, normalizeKenyanPhone, parseDarajaTimestamp } from '../orders/daraja.js'
+import { buildDarajaCallbackUrl, callbackFailureStatus, canVerifySuccessfulStkPayment, DarajaRequestError, darajaCallbackRoute, initiateStkPush, isFinalDarajaPaymentStatus, isValidDarajaPaymentAmount, matchesCallbackToken, normalizeKenyanPhone, parseDarajaTimestamp, parseStkCallback } from '../orders/daraja.js'
 import { createAddressSchema, passwordSchema, productReviewSchema, profileSchema, supportMessageSchema, supportRequestSchema } from '../account/routes.js'
 import { adminNotificationSchema, canTransitionOrderStatus, createProductSchema, homepageSlideBatchSchema, homepageSlideSchema, isDuplicateKeyError, settingsSchema, supportUpdateSchema } from '../admin/routes.js'
 import { detectImageFormat } from '../admin/image-storage.js'
@@ -351,6 +351,9 @@ test('Daraja callback tokens require an exact constant-time match', () => {
 test('Daraja callback processing treats completed payment states as final', () => {
   assert.equal(isFinalDarajaPaymentStatus('succeeded'), true)
   assert.equal(isFinalDarajaPaymentStatus('failed'), true)
+  assert.equal(isFinalDarajaPaymentStatus('cancelled'), true)
+  assert.equal(isFinalDarajaPaymentStatus('expired'), true)
+  assert.equal(isFinalDarajaPaymentStatus('requires_review'), true)
   assert.equal(isFinalDarajaPaymentStatus('pending'), false)
   assert.equal(isFinalDarajaPaymentStatus('initiated'), false)
 })
@@ -362,6 +365,27 @@ test('Daraja payment amount validation requires matching KES amounts', () => {
   assert.equal(isValidDarajaPaymentAmount('KES', 1250, '1249.00', '1250.00'), false)
 })
 
+test('successful STK verification requires matching order, amount, payer, and time', () => {
+  const valid = {
+    orderStatus: 'pending_payment',
+    currency: 'KES',
+    callbackAmount: 1250,
+    paymentAmount: '1250.00',
+    orderTotal: '1250.00',
+    callbackPhone: '254712345678',
+    payerPhone: '254712345678',
+    transactionAt: new Date('2026-10-23T07:00:00.000Z'),
+    paymentCreatedAt: new Date('2026-10-23T06:59:00.000Z'),
+    now: new Date('2026-10-23T07:01:00.000Z'),
+  }
+  assert.equal(canVerifySuccessfulStkPayment(valid), true)
+  assert.equal(canVerifySuccessfulStkPayment({ ...valid, orderStatus: 'cancelled' }), false)
+  assert.equal(canVerifySuccessfulStkPayment({ ...valid, currency: 'USD' }), false)
+  assert.equal(canVerifySuccessfulStkPayment({ ...valid, callbackAmount: 1249 }), false)
+  assert.equal(canVerifySuccessfulStkPayment({ ...valid, payerPhone: '254711111111' }), false)
+  assert.equal(canVerifySuccessfulStkPayment({ ...valid, transactionAt: new Date('2026-10-23T05:00:00.000Z') }), false)
+})
+
 test('order status transitions allow Pay on Delivery and reject invalid jumps', () => {
   assert.equal(canTransitionOrderStatus('pending_payment', 'processing', 'pay_on_delivery'), true)
   assert.equal(canTransitionOrderStatus('pending_payment', 'processing', 'mpesa'), false)
@@ -369,4 +393,124 @@ test('order status transitions allow Pay on Delivery and reject invalid jumps', 
   assert.equal(canTransitionOrderStatus('processing', 'dispatched', 'pay_on_delivery'), true)
   assert.equal(canTransitionOrderStatus('pending_payment', 'delivered', 'pay_on_delivery'), false)
   assert.equal(canTransitionOrderStatus('delivered', 'cancelled', 'pay_on_delivery'), false)
+})
+
+test('production requires an explicit Daraja environment instead of silently selecting sandbox', () => {
+  assert.equal(resolveDarajaEnvironment('development'), 'sandbox')
+  assert.equal(resolveDarajaEnvironment('test'), 'sandbox')
+  assert.equal(resolveDarajaEnvironment('production'), undefined)
+  assert.equal(resolveDarajaEnvironment('production', 'production'), 'production')
+})
+
+test('Daraja accepts supported Kenyan payer phone formats and rejects malformed numbers', () => {
+  for (const phone of ['0712345678', '0112345678', '+254712345678', '254112345678']) {
+    assert.ok(normalizeKenyanPhone(phone), phone)
+  }
+  for (const phone of ['0612345678', '254612345678', '071234567', '07123456789']) {
+    assert.equal(normalizeKenyanPhone(phone), null, phone)
+  }
+})
+
+const mockDarajaConfiguration = {
+  DARAJA_ENV: 'sandbox' as const,
+  DARAJA_CONSUMER_KEY: 'test-consumer-key',
+  DARAJA_CONSUMER_SECRET: 'test-consumer-secret',
+  DARAJA_PASSKEY: 'test-passkey',
+  DARAJA_CALLBACK_BASE_URL: 'https://payments.example.test',
+  DARAJA_CALLBACK_TOKEN: 'a'.repeat(40),
+  DARAJA_TRANSACTION_TYPE: 'CustomerBuyGoodsOnline' as const,
+}
+
+test('STK Push sends official request fields using mocked OAuth and provider responses', async () => {
+  const requests: { url: string; init?: RequestInit }[] = []
+  const fetcher: typeof fetch = async (input, init) => {
+    const url = String(input)
+    requests.push({ url, init })
+    return url.includes('/oauth/')
+      ? new Response(JSON.stringify({ access_token: 'mock-access-token', expires_in: 3600 }), { status: 200 })
+      : new Response(JSON.stringify({ ResponseCode: '0', MerchantRequestID: 'merchant-id', CheckoutRequestID: 'checkout-id', CustomerMessage: 'Prompt sent' }), { status: 200 })
+  }
+
+  const result = await initiateStkPush({ shortcode: '174379', phone: '254712345678', amount: 1250, accountReference: 'KC-2026-000001' }, {
+    configuration: mockDarajaConfiguration,
+    fetcher,
+    now: new Date('2026-10-23T07:00:00.000Z'),
+  })
+  const body = JSON.parse(String(requests[1]?.init?.body)) as Record<string, unknown>
+  assert.equal(requests[0]?.url, 'https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials')
+  assert.equal(requests[1]?.url, 'https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest')
+  assert.equal(body.BusinessShortCode, '174379')
+  assert.equal(body.TransactionType, 'CustomerBuyGoodsOnline')
+  assert.equal(body.Amount, 1250)
+  assert.equal(body.PartyA, '254712345678')
+  assert.equal(body.PhoneNumber, '254712345678')
+  assert.equal(body.CallBackURL, `https://payments.example.test/api/v1${darajaCallbackRoute.replace(':token', mockDarajaConfiguration.DARAJA_CALLBACK_TOKEN)}`)
+  assert.equal(result.checkoutRequestId, 'checkout-id')
+})
+
+test('missing Daraja credentials fail before any provider request', async () => {
+  let fetchCalled = false
+  const fetcher: typeof fetch = async () => { fetchCalled = true; return new Response('{}') }
+  await assert.rejects(
+    initiateStkPush({ shortcode: '174379', phone: '254712345678', amount: 1200, accountReference: 'KC-1' }, {
+      configuration: { ...mockDarajaConfiguration, DARAJA_CONSUMER_KEY: undefined },
+      fetcher,
+    }),
+    (error: unknown) => error instanceof DarajaRequestError && error.stage === 'oauth' && error.outcome === 'not_submitted',
+  )
+  assert.equal(fetchCalled, false)
+})
+
+test('invalid Daraja credentials fail safely at OAuth', async () => {
+  const fetcher: typeof fetch = async () => new Response(JSON.stringify({ errorCode: 'invalid_client' }), { status: 401 })
+  await assert.rejects(
+    initiateStkPush({ shortcode: '174379', phone: '254712345678', amount: 1200, accountReference: 'KC-1' }, { configuration: { ...mockDarajaConfiguration, DARAJA_CONSUMER_KEY: 'invalid-test-consumer-key' }, fetcher }),
+    (error: unknown) => error instanceof DarajaRequestError && error.stage === 'oauth' && error.outcome === 'not_submitted',
+  )
+})
+
+test('STK Push provider rejection is safe to retry', async () => {
+  const fetcher: typeof fetch = async (input) => String(input).includes('/oauth/')
+    ? new Response(JSON.stringify({ access_token: 'mock-access-token', expires_in: 3600 }), { status: 200 })
+    : new Response(JSON.stringify({ ResponseCode: '1', ResponseDescription: 'Rejected' }), { status: 200 })
+  await assert.rejects(
+    initiateStkPush({ shortcode: '174379', phone: '254712345678', amount: 1200, accountReference: 'KC-1' }, {
+      configuration: { ...mockDarajaConfiguration, DARAJA_CONSUMER_KEY: 'rejected-test-consumer-key' },
+      fetcher,
+    }),
+    (error: unknown) => error instanceof DarajaRequestError && error.stage === 'stk_push' && error.outcome === 'rejected',
+  )
+})
+
+test('ambiguous STK timeout is not classified as a safe retry', async () => {
+  let calls = 0
+  const fetcher: typeof fetch = async () => {
+    calls += 1
+    if (calls === 1) return new Response(JSON.stringify({ access_token: 'mock-access-token', expires_in: 3600 }), { status: 200 })
+    throw new TypeError('network timeout')
+  }
+  await assert.rejects(
+    initiateStkPush({ shortcode: '174379', phone: '254712345678', amount: 1200, accountReference: 'KC-1' }, { configuration: { ...mockDarajaConfiguration, DARAJA_CONSUMER_KEY: 'timeout-test-consumer-key' }, fetcher }),
+    (error: unknown) => error instanceof DarajaRequestError && error.stage === 'stk_push' && error.outcome === 'unknown',
+  )
+})
+
+test('callback parser validates required identifiers and maps cancellation and expiry', () => {
+  const parsed = parseStkCallback({ Body: { stkCallback: {
+    CheckoutRequestID: 'checkout-id', MerchantRequestID: 'merchant-id', ResultCode: 0, ResultDesc: 'Success',
+    CallbackMetadata: { Item: [{ Name: 'Amount', Value: 1250 }, { Name: 'MpesaReceiptNumber', Value: 'QWE123' }] },
+  } } })
+  assert.equal(parsed?.resultCode, 0)
+  assert.equal(parsed?.metadata.MpesaReceiptNumber, 'QWE123')
+  assert.equal(parseStkCallback({ Body: { stkCallback: { ResultCode: 0 } } }), null)
+  assert.equal(parseStkCallback({ Body: { stkCallback: { CheckoutRequestID: 'c', MerchantRequestID: 'm', ResultCode: null } } }), null)
+  assert.equal(callbackFailureStatus(1032), 'cancelled')
+  assert.equal(callbackFailureStatus(1037), 'expired')
+  assert.equal(callbackFailureStatus(1), 'failed')
+})
+
+test('production requires the configured Daraja transaction type', () => {
+  assert.equal(resolveDarajaTransactionType('development'), 'CustomerBuyGoodsOnline')
+  assert.equal(resolveDarajaTransactionType('production'), undefined)
+  assert.equal(resolveDarajaTransactionType('production', 'CustomerPayBillOnline'), 'CustomerPayBillOnline')
 })

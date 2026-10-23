@@ -1104,10 +1104,10 @@ adminRouter.patch('/delivery/zones/:id', async (request, response) => {
 adminRouter.get('/payments', async (_request, response) => {
   if (!db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Payment services are unavailable.' } })
   const rows = await db.select({
-    id: payments.id, orderNumber: orders.orderNumber, provider: payments.provider, amount: payments.amount,
-    status: payments.status, providerRequestId: payments.providerRequestId, merchantRequestId: payments.merchantRequestId,
-    providerReceipt: payments.providerReceipt, payerPhone: payments.payerPhone, payerName: payments.payerName,
-    transactionAt: payments.transactionAt, verificationMessage: payments.verificationMessage, createdAt: payments.createdAt,
+    orderNumber: orders.orderNumber, provider: payments.provider, status: payments.status, amount: payments.amount,
+    providerReceipt: payments.providerReceipt, transactionAt: payments.transactionAt, payerPhone: payments.payerPhone,
+    verificationMessage: payments.verificationMessage, providerResultCode: payments.providerResultCode,
+    createdAt: payments.createdAt, id: payments.id, providerRequestId: payments.providerRequestId, merchantRequestId: payments.merchantRequestId,
   }).from(payments).innerJoin(orders, eq(payments.orderId, orders.id)).orderBy(desc(payments.createdAt)).limit(250)
   response.json({ data: rows })
 })

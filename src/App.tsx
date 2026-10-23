@@ -113,18 +113,19 @@ function ProductRating({ rating = 0, count = 0 }: { rating?: number; count?: num
   </div>
 }
 
-function CheckoutPaymentOptions({ paymentMethod, onPaymentMethodChange, mpesaOptions, accountUser }: { paymentMethod: 'pay_on_delivery' | 'mpesa'; onPaymentMethodChange: (method: 'pay_on_delivery' | 'mpesa') => void; mpesaOptions?: MpesaPaymentOptions; accountUser: AccountUser | null }) {
-  const mpesaReady = Boolean(mpesaOptions?.stkPushAvailable && accountUser?.phone)
+function CheckoutPaymentOptions({ paymentMethod, onPaymentMethodChange, mpesaOptions, accountUser, payerPhone, onPayerPhoneChange }: { paymentMethod: 'pay_on_delivery' | 'mpesa'; onPaymentMethodChange: (method: 'pay_on_delivery' | 'mpesa') => void; mpesaOptions?: MpesaPaymentOptions; accountUser: AccountUser | null; payerPhone: string; onPayerPhoneChange: (phone: string) => void }) {
+  const mpesaReady = Boolean(mpesaOptions?.stkPushAvailable)
   return <fieldset className="checkout-payment-options">
     <legend>Payment method</legend>
     <label className="checkout-payment-option"><input type="radio" name="paymentMethod" value="pay_on_delivery" checked={paymentMethod === 'pay_on_delivery'} onChange={() => onPaymentMethodChange('pay_on_delivery')} /><span><strong>Pay on Delivery</strong><small>Pay when your kit is delivered.</small></span></label>
-    <label className="checkout-payment-option"><input type="radio" name="paymentMethod" value="mpesa" checked={paymentMethod === 'mpesa'} disabled={!mpesaReady} onChange={() => onPaymentMethodChange('mpesa')} /><span><strong>Pay with M-Pesa</strong><small>{mpesaReady ? `Prompt to account phone ${accountUser?.phone}.` : 'Available when Daraja is configured and your account has a phone number.'}</small></span></label>
+    <label className="checkout-payment-option"><input type="radio" name="paymentMethod" value="mpesa" checked={paymentMethod === 'mpesa'} disabled={!mpesaReady} onChange={() => onPaymentMethodChange('mpesa')} /><span><strong>M-PESA Express (STK Push)</strong><small>{mpesaReady ? 'Approve the payment prompt on your chosen Kenyan number.' : 'Temporarily unavailable.'}</small></span></label>
     {paymentMethod === 'mpesa' ? <div className="checkout-mpesa-panel">
       <div className="checkout-mpesa-merchant"><Smartphone size={19} /><span><strong>{mpesaOptions?.mpesaTillName || 'KitCulture'}</strong><small>Buy Goods Till</small></span></div>
       <dl><div><dt>Till number</dt><dd>{mpesaOptions?.mpesaTillNumber || 'Not configured yet'}</dd></div></dl>
       {mpesaOptions?.mpesaMobileNumber && <dl><div><dt>Manual payment to mobile</dt><dd>{mpesaOptions.mpesaMobileNumber}</dd></div></dl>}
-      <dl><div><dt>Paying KitCulture account</dt><dd>{accountUser?.fullName || 'Add your name in Personal Information'}</dd></div><div><dt>Prompt destination</dt><dd>{accountUser?.phone || 'Add a phone number in Personal Information'}</dd></div></dl>
-      <p className="checkout-mpesa-notice">The STK prompt is sent to the phone saved on your account and verified automatically. Mobile-number transfers are manual and are not confirmed by the STK callback; contact support with your receipt for verification.</p>
+      <label>M-PESA phone number<input type="tel" inputMode="tel" autoComplete="tel" required pattern="(?:0[17][0-9]{8}|\\+?254[17][0-9]{8})" title="Enter a valid Kenyan number, such as 0712345678 or +254712345678." maxLength={13} placeholder="0712345678 or +254712345678" value={payerPhone} onChange={(event) => onPayerPhoneChange(event.target.value)} /></label>
+      <dl><div><dt>Paying customer</dt><dd>{accountUser?.fullName || 'Signed-in customer'}</dd></div><div><dt>Prompt destination</dt><dd>{payerPhone || 'Enter a Kenyan phone number'}</dd></div></dl>
+      <p className="checkout-mpesa-notice">The prompt is sent to this number. Enter your PIN only on your phone; KitCulture never asks for or receives your M-PESA PIN.</p>
     </div> : <p>A delivery location pin is required before placing the order.</p>}
   </fieldset>
 }
@@ -253,6 +254,8 @@ function App() {
   const [checkoutLongitude, setCheckoutLongitude] = useState('')
   const [checkoutAccuracy, setCheckoutAccuracy] = useState<number | null>(null)
   const [checkoutPaymentMethod, setCheckoutPaymentMethod] = useState<'pay_on_delivery' | 'mpesa'>('pay_on_delivery')
+  const [mpesaPhone, setMpesaPhone] = useState('')
+  const [checkoutIdempotencyKey, setCheckoutIdempotencyKey] = useState('')
   const [checkoutDeliveryZoneId, setCheckoutDeliveryZoneId] = useState('')
   const [orderActionBusy, setOrderActionBusy] = useState('')
   const [orderActionError, setOrderActionError] = useState('')
@@ -484,7 +487,7 @@ function App() {
     }
     const response = await fetch('/api/v1/orders', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': details.idempotencyKey },
       body: JSON.stringify({
         items: selections.map(({ variant, quantity }) => ({ variantId: variant.id, quantity })),
         deliveryZoneId: details.deliveryZoneId,
@@ -619,6 +622,7 @@ function App() {
     }
     setCheckoutError('')
     setCheckoutPinStatus('')
+    setCheckoutIdempotencyKey(crypto.randomUUID())
     setCheckoutOpen(true)
   }
 
@@ -700,8 +704,12 @@ function App() {
     const latitudeValue = String(form.get('latitude') ?? '').trim()
     const longitudeValue = String(form.get('longitude') ?? '').trim()
     const accuracyValue = String(form.get('accuracy') ?? '').trim()
-    if (paymentMethod === 'mpesa' && (!mpesaPaymentOptions?.stkPushAvailable || !accountUser?.phone)) {
-      setCheckoutError('M-Pesa is unavailable until Daraja is configured and your account has a valid phone number.')
+    if (paymentMethod === 'mpesa' && !mpesaPaymentOptions?.stkPushAvailable) {
+      setCheckoutError('M-PESA Express is unavailable until Daraja is configured.')
+      return
+    }
+    if (paymentMethod === 'mpesa' && !/^(?:0[17]\d{8}|\+?254[17]\d{8})$/.test(mpesaPhone.replace(/[\s()-]/g, ''))) {
+      setCheckoutError('Enter a valid Kenyan M-PESA phone number.')
       return
     }
     if (!latitudeValue || !longitudeValue) {
@@ -721,16 +729,18 @@ function App() {
 
     setCheckoutBusy(true)
     try {
+      const idempotencyKey = checkoutIdempotencyKey || crypto.randomUUID()
+      if (!checkoutIdempotencyKey) setCheckoutIdempotencyKey(idempotencyKey)
       const response = await fetch('/api/v1/orders', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
         body: JSON.stringify({
           items,
           deliveryZoneId,
           paymentMethod,
           address: {
-            recipientName: paymentMethod === 'mpesa' ? accountUser?.fullName : String(form.get('recipientName') ?? ''),
-            phone: paymentMethod === 'mpesa' ? accountUser?.phone : String(form.get('phone') ?? ''),
+            recipientName: String(form.get('recipientName') ?? ''),
+            phone: String(form.get('phone') ?? ''),
             address: String(form.get('address') ?? ''),
             county: String(form.get('county') ?? ''),
             town: String(form.get('town') ?? ''),
@@ -749,7 +759,7 @@ function App() {
         const promptResponse = await fetch(`/api/v1/orders/${encodeURIComponent(result.data.orderNumber)}/mpesa/stk-push`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
+          body: JSON.stringify({ phone: mpesaPhone }),
         })
         const promptResult = await promptResponse.json() as { data?: { message?: string }; error?: { message?: string } }
         noticeMessage = promptResponse.ok
@@ -834,8 +844,8 @@ function App() {
         ? <section className="standalone-page page-width checkout-page portal-checkout-page"><Link to="/account/cart" className="standalone-back">← Back to your bag</Link><h1>Complete your order</h1>
             {zonesLoading ? <div className="catalogue-state"><strong>Loading delivery areas…</strong></div> : zonesFailed || deliveryZones.length === 0 ? <div className="catalogue-state error-state"><strong>Checkout is not available yet.</strong><span>{zonesFailed ? (zonesError instanceof Error ? zonesError.message : 'Delivery areas could not be loaded.') : 'Delivery areas have not been configured.'}</span></div> : <form className="standalone-card checkout-form" onSubmit={(event) => void submitCheckout(event)} noValidate>
               <label>Delivery area<select name="deliveryZoneId" required value={checkoutDeliveryZoneId} onChange={(event) => setCheckoutDeliveryZoneId(event.target.value)}><option value="" disabled>Select an area</option>{deliveryZones.map((zone) => <option key={zone.id} value={zone.id}>{zone.name} · {money.format(Number(zone.fee))}</option>)}</select></label>
-              <CheckoutPaymentOptions paymentMethod={checkoutPaymentMethod} onPaymentMethodChange={setCheckoutPaymentMethod} mpesaOptions={mpesaPaymentOptions} accountUser={accountUser} />
-              <div className="checkout-fields"><label>Recipient full name<input key={`recipient-${checkoutPaymentMethod}-${accountUser.id}`} name="recipientName" autoComplete="name" defaultValue={accountUser.fullName} readOnly={checkoutPaymentMethod === 'mpesa'} required minLength={2} maxLength={160} /></label><label>Phone number<input key={`phone-${checkoutPaymentMethod}-${accountUser.id}`} name="phone" type="tel" autoComplete="tel" defaultValue={accountUser.phone ?? ''} readOnly={checkoutPaymentMethod === 'mpesa'} required minLength={7} maxLength={20} /></label></div>
+              <CheckoutPaymentOptions paymentMethod={checkoutPaymentMethod} onPaymentMethodChange={setCheckoutPaymentMethod} mpesaOptions={mpesaPaymentOptions} accountUser={accountUser} payerPhone={mpesaPhone} onPayerPhoneChange={setMpesaPhone} />
+              <div className="checkout-fields"><label>Recipient full name<input key={`recipient-${checkoutPaymentMethod}-${accountUser.id}`} name="recipientName" autoComplete="name" defaultValue={accountUser.fullName} required minLength={2} maxLength={160} /></label><label>Delivery phone number<input key={`phone-${checkoutPaymentMethod}-${accountUser.id}`} name="phone" type="tel" autoComplete="tel" defaultValue={accountUser.phone ?? ''} required minLength={7} maxLength={20} /></label></div>
               <label>Email address<input type="email" autoComplete="email" value={accountUser.email} readOnly /></label>
               <label>Street address or building<input name="address" autoComplete="street-address" required minLength={3} maxLength={180} /></label>
               <div className="checkout-fields"><label>County<input name="county" autoComplete="address-level1" defaultValue="Machakos" required maxLength={80} /></label><label>Town<input name="town" autoComplete="address-level2" defaultValue="Machakos" required maxLength={100} /></label></div>
@@ -1021,7 +1031,7 @@ function App() {
         {isCheckoutPage && <section className="standalone-page page-width checkout-page"><Link to="/cart" className="standalone-back">← Back to your bag</Link><h1>Delivery details</h1>
           {zonesLoading ? <div className="catalogue-state"><strong>Loading delivery areas…</strong></div> : zonesFailed || deliveryZones.length === 0 ? <div className="catalogue-state error-state"><strong>Checkout is not available yet.</strong><span>{zonesFailed ? (zonesError instanceof Error ? zonesError.message : 'Delivery areas could not be loaded.') : 'Delivery areas have not been configured.'}</span></div> : <form className="standalone-card checkout-form" onSubmit={(event) => void submitCheckout(event)} noValidate>
             <label>Delivery area<select name="deliveryZoneId" required value={checkoutDeliveryZoneId} onChange={(event) => setCheckoutDeliveryZoneId(event.target.value)}><option value="" disabled>Select an area</option>{deliveryZones.map((zone) => <option key={zone.id} value={zone.id}>{zone.name} · {money.format(Number(zone.fee))}</option>)}</select></label>
-            <CheckoutPaymentOptions paymentMethod={checkoutPaymentMethod} onPaymentMethodChange={setCheckoutPaymentMethod} mpesaOptions={mpesaPaymentOptions} accountUser={accountUser} />
+            <CheckoutPaymentOptions paymentMethod={checkoutPaymentMethod} onPaymentMethodChange={setCheckoutPaymentMethod} mpesaOptions={mpesaPaymentOptions} accountUser={accountUser} payerPhone={mpesaPhone} onPayerPhoneChange={setMpesaPhone} />
             <div className="checkout-fields"><label>Recipient full name<input key={`recipient-${checkoutPaymentMethod}-${accountUser?.id ?? 'guest'}`} name="recipientName" autoComplete="name" defaultValue={accountUser?.fullName ?? ''} readOnly={checkoutPaymentMethod === 'mpesa'} required minLength={2} maxLength={160} /></label><label>Phone number<input key={`phone-${checkoutPaymentMethod}-${accountUser?.id ?? 'guest'}`} name="phone" type="tel" autoComplete="tel" defaultValue={accountUser?.phone ?? ''} readOnly={checkoutPaymentMethod === 'mpesa'} required minLength={7} maxLength={20} /></label></div>
             <label>Email address<input type="email" autoComplete="email" value={accountUser?.email ?? ''} readOnly /></label>
             <label>Street address or building<input name="address" autoComplete="street-address" required minLength={3} maxLength={180} /></label>
@@ -1056,7 +1066,7 @@ function App() {
           <button className="checkout-back" type="button" onClick={() => { setCheckoutOpen(false); setCheckoutError('') }}>← Back to your bag</button>
           {zonesLoading ? <div className="catalogue-state"><strong>Loading delivery areas…</strong></div> : zonesFailed || deliveryZones.length === 0 ? <div className="catalogue-state"><strong>Checkout is not available yet.</strong><span>{zonesFailed ? (zonesError instanceof Error ? zonesError.message : 'Delivery areas could not be loaded.') : 'Delivery areas have not been configured. Please try again later.'}</span></div> : <form className="checkout-form" onSubmit={(event) => void submitCheckout(event)} noValidate>
             <label>Delivery area<select name="deliveryZoneId" required value={checkoutDeliveryZoneId} onChange={(event) => setCheckoutDeliveryZoneId(event.target.value)}><option value="" disabled>Select an area</option>{deliveryZones.map((zone) => <option key={zone.id} value={zone.id}>{zone.name} · {money.format(Number(zone.fee))}</option>)}</select></label>
-            <CheckoutPaymentOptions paymentMethod={checkoutPaymentMethod} onPaymentMethodChange={setCheckoutPaymentMethod} mpesaOptions={mpesaPaymentOptions} accountUser={accountUser} />
+            <CheckoutPaymentOptions paymentMethod={checkoutPaymentMethod} onPaymentMethodChange={setCheckoutPaymentMethod} mpesaOptions={mpesaPaymentOptions} accountUser={accountUser} payerPhone={mpesaPhone} onPayerPhoneChange={setMpesaPhone} />
             <div className="checkout-fields"><label>Recipient full name<input key={`recipient-${checkoutPaymentMethod}-${accountUser?.id ?? 'guest'}`} name="recipientName" autoComplete="name" defaultValue={accountUser?.fullName ?? ''} readOnly={checkoutPaymentMethod === 'mpesa'} required minLength={2} maxLength={160} /></label><label>Phone number<input key={`phone-${checkoutPaymentMethod}-${accountUser?.id ?? 'guest'}`} name="phone" type="tel" autoComplete="tel" defaultValue={accountUser?.phone ?? ''} readOnly={checkoutPaymentMethod === 'mpesa'} required minLength={7} maxLength={20} /></label></div>
             <label>Email address<input type="email" autoComplete="email" value={accountUser?.email ?? ''} readOnly /></label>
             <label>Street address or building<input name="address" autoComplete="street-address" required minLength={3} maxLength={180} /></label>
