@@ -12,7 +12,7 @@ Create one Node web service from the repository root. Use build command `npm ci 
 
 Set `CLIENT_ORIGIN` and `DARAJA_CALLBACK_BASE_URL` to the service's public HTTPS origin (for example, `https://your-service.onrender.com`). Keep the storefront and API on that same origin. Add database and payment credentials as Render environment variables, never as `VITE_` variables or committed files. `MYSQL_SSL_CA` is only needed for a database provider whose CA is not trusted by Node.js.
 
-For Railway, map its MySQL connection URL to `DATABASE_URL` and provide `ADMIN_DATABASE_URL` for the admin schema. After confirming these variables are available in the linked Railway environment and taking a database backup, run `railway run npm run db:migrate:all` from the repository root. The admin migration first creates the database named in `ADMIN_DATABASE_URL`, so its database user must have permission to create databases; otherwise create that database through Railway and adjust the setup flow before running migrations. The migration command is explicit and should not be configured as an automatic app-start command.
+Use one Railway MySQL database for storefront and administrator tables. Set `DATABASE_URL` to that database URL (or map Railway's `MYSQL_URL` to `DATABASE_URL` in Render); the application uses the same pool for both. Do not configure a separate admin database. Back up and inspect the live schema before applying migrations. The current storefront and admin migration histories share Drizzle's default tracking table, and the existing admin migration timestamp predates the latest storefront migration, so `db:migrate:all` is not a safe way to reconcile an existing shared database. Do not run it until the migration histories have been consolidated and the pending SQL has been reviewed. Never run migrations automatically at API startup.
 
 ## Stable Daraja callback
 
@@ -30,8 +30,7 @@ DARAJA_CONSUMER_SECRET=<sandbox secret>
 DARAJA_PASSKEY=<sandbox passkey>
 DARAJA_SHORTCODE=<sandbox shortcode>
 CLIENT_ORIGIN=https://your-domain.example
-DATABASE_URL=<TLS-enabled MySQL URL>
-ADMIN_DATABASE_URL=<TLS-enabled admin MySQL URL>
+DATABASE_URL=<TLS-enabled Railway MySQL URL>
 LOG_LEVEL=info
 # MYSQL_SSL_CA=<optional PEM CA certificate for the MySQL provider>
 # CLOUDINARY_CLOUD_NAME=<optional>
@@ -41,7 +40,7 @@ LOG_LEVEL=info
 
 `PORT` is supplied by Render; do not hard-code it. To provision the initial administrator, set `ADMIN_EMAIL`, `ADMIN_NAME`, and `ADMIN_PASSWORD` temporarily when running `npm run admin:provision`, then remove `ADMIN_PASSWORD`. These are not runtime web-service variables.
 
-When `NODE_ENV=production`, both MySQL pools require TLS and verify the server certificate. Set `MYSQL_SSL_CA` only when the database provider uses a CA not trusted by the runtime's system certificate store.
+When `NODE_ENV=production`, the MySQL pool requires TLS and verifies the server certificate. Set `MYSQL_SSL_CA` only when the database provider uses a CA not trusted by the runtime's system certificate store.
 
 The app appends `/api/v1/orders/mpesa/callback/<token>` to `DARAJA_CALLBACK_BASE_URL`. Register that exact generated URL in the matching Daraja app. The public URL must reach the same service process that owns the pending payment record. Keep the token private; changing it requires registering the newly generated callback URL in Daraja and restarting the service.
 

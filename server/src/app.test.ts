@@ -94,6 +94,11 @@ test('keeps unknown API routes as JSON 404s', async () => {
   assert.equal(result.error.code, 'NOT_FOUND')
 })
 
+test('allows HTTPS-hosted images under the content security policy', async () => {
+  const response = await fetch(`${baseUrl}/health/live`)
+  assert.match(response.headers.get('content-security-policy') ?? '', /img-src[^;]*https:/)
+})
+
 test('returns temporary-unavailability responses when MySQL is unreachable', async () => {
   const catalogue = await fetch(`${baseUrl}/api/v1/products`)
   assert.equal(catalogue.status, 503)

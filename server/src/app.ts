@@ -18,7 +18,13 @@ import { adminRouter } from './modules/admin/routes.js'
 export const app = express()
 
 app.disable('x-powered-by')
-app.use(helmet())
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      imgSrc: ["'self'", 'data:', 'https:'],
+    },
+  },
+}))
 app.use(cors({
   origin: (origin, callback) => callback(null, !origin || isAllowedClientOrigin(origin)),
   credentials: true,
