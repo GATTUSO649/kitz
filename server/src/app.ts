@@ -7,6 +7,7 @@ import helmet from 'helmet'
 import { pinoHttp } from 'pino-http'
 import { env, isAllowedClientOrigin } from './config/env.js'
 import { adminPool, pool } from './config/database.js'
+import { inspectDatabaseError } from './config/database-diagnostics.js'
 import { logger } from './config/logger.js'
 import { authRouter } from './modules/auth/routes.js'
 import { catalogueRouter } from './modules/catalogue/routes.js'
@@ -18,6 +19,7 @@ import { adminRouter } from './modules/admin/routes.js'
 export const app = express()
 
 app.disable('x-powered-by')
+app.set('trust proxy', 1)
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -33,13 +35,15 @@ app.use(cors({
 app.use(express.json({ limit: '100kb', strict: true }))
 app.use(pinoHttp({ logger, autoLogging: { ignore: (request) => request.url.startsWith('/health/') || request.url === '/health' } }))
 
-app.get('/health', async (_request, response) => {
+app.get('/health', async (request, response) => {
   const databaseQuery = pool ? pool.query('SELECT 1 AS ok') : Promise.reject(new Error('Store database is not configured'))
   const adminQuery = adminPool && adminPool !== pool
     ? adminPool.query('SELECT 1 AS ok')
     : databaseQuery
 
   const [storeResult, adminResult] = await Promise.allSettled([databaseQuery, adminQuery])
+  logDatabaseCheckFailure(request, storeResult, 'health.store-database')
+  if (adminPool !== pool) logDatabaseCheckFailure(request, adminResult, 'health.admin-database')
 
   response.json({
     status: 'ok',
@@ -55,13 +59,15 @@ app.get('/health/live', (_request, response) => {
   response.json({ status: 'ok', service: 'kitculture-api' })
 })
 
-app.get('/health/ready', async (_request, response) => {
+app.get('/health/ready', async (request, response) => {
   const databaseQuery = pool ? pool.query('SELECT 1') : Promise.reject(new Error('Store database is not configured'))
   const adminQuery = adminPool && adminPool !== pool
     ? adminPool.query('SELECT 1')
     : databaseQuery
 
   const [storeResult, adminResult] = await Promise.allSettled([databaseQuery, adminQuery])
+  logDatabaseCheckFailure(request, storeResult, 'health.store-database')
+  if (adminPool !== pool) logDatabaseCheckFailure(request, adminResult, 'health.admin-database')
   const checks = {
     storeDatabase: storeResult.status === 'fulfilled' ? 'ok' : 'unavailable',
     adminDatabase: adminResult.status === 'fulfilled' ? 'ok' : 'unavailable',
@@ -120,12 +126,23 @@ app.use((_request, response) => {
 })
 
 const errorHandler: ErrorRequestHandler = (error, request, response, _next) => {
-  request.log.error({ err: error }, 'Request failed')
   if (response.headersSent) return
-  if (isDatabaseUnavailableError(error)) {
-    response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Database services are temporarily unavailable. Please try again shortly.' } })
+  const databaseError = inspectDatabaseError(error)
+  if (databaseError.category) {
+    request.log.error({
+      requestId: request.id,
+      operation: response.locals.databaseOperation ?? 'http.request',
+      category: databaseError.category,
+      errors: databaseError.errors,
+    }, 'Database operation failed')
+    if (databaseError.category === 'connection') {
+      response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Database services are temporarily unavailable. Please try again shortly.' } })
+      return
+    }
+    response.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Something went wrong. Please try again.' } })
     return
   }
+  request.log.error({ err: error, requestId: request.id }, 'Request failed')
   if (error instanceof Error && 'type' in error && error.type === 'entity.too.large') {
     response.status(413).json({ error: { code: 'PAYLOAD_TOO_LARGE', message: 'The uploaded file exceeds the 8 MB limit.' } })
     return
@@ -134,29 +151,17 @@ const errorHandler: ErrorRequestHandler = (error, request, response, _next) => {
 }
 app.use(errorHandler)
 
-const databaseErrorCodes = new Set([
-  'ECONNREFUSED',
-  'ECONNRESET',
-  'ETIMEDOUT',
-  'EHOSTUNREACH',
-  'ENETUNREACH',
-  'ENOTFOUND',
-  'EAI_AGAIN',
-  'PROTOCOL_CONNECTION_LOST',
-  'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR',
-  'PROTOCOL_SEQUENCE_TIMEOUT',
-  'ER_ACCESS_DENIED_ERROR',
-  'ER_BAD_DB_ERROR',
-  'ER_CON_COUNT_ERROR',
-  'ER_NO_SUCH_TABLE',
-])
-
-function isDatabaseUnavailableError(error: unknown, seen = new Set<unknown>()): boolean {
-  if (!error || typeof error !== 'object' || seen.has(error)) return false
-  seen.add(error)
-  const candidate = error as { code?: unknown; cause?: unknown; errors?: unknown }
-  if (typeof candidate.code === 'string' && databaseErrorCodes.has(candidate.code)) return true
-  if (isDatabaseUnavailableError(candidate.cause, seen)) return true
-  return Array.isArray(candidate.errors)
-    && candidate.errors.some((nestedError) => isDatabaseUnavailableError(nestedError, seen))
+function logDatabaseCheckFailure(
+  request: express.Request,
+  result: PromiseSettledResult<unknown>,
+  operation: string,
+): void {
+  if (result.status === 'fulfilled') return
+  const diagnostics = inspectDatabaseError(result.reason)
+  request.log.error({
+    requestId: request.id,
+    operation,
+    category: diagnostics.category ?? 'query',
+    errors: diagnostics.errors,
+  }, 'Database health check failed')
 }

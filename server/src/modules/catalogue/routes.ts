@@ -35,6 +35,7 @@ async function getProducts(
   response: Response,
   options: { q?: string; category?: string; league?: string; team?: string; jerseyCategory?: string; limit?: number; page?: number; filter?: SQL; order?: 'name' | 'recent' | 'featured' | 'trending'; orderIds?: number[] },
 ): Promise<void> {
+  response.locals.databaseOperation = 'catalogue.getProducts'
   if (!db) {
     response.status(503).json({ error: { code: 'CATALOGUE_UNAVAILABLE', message: 'The catalogue database is not configured.' } })
     return

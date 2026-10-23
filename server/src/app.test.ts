@@ -12,6 +12,7 @@ process.env.LOG_LEVEL = 'silent'
 
 const { app } = await import('./app.js')
 const { pool, adminPool } = await import('./config/database.js')
+const { inspectDatabaseError } = await import('./config/database-diagnostics.js')
 const { resolveDatabaseUrl } = await import('./config/env.js')
 const clientDist = fileURLToPath(new URL('../../dist', import.meta.url))
 const hasClientBuild = existsSync(`${clientDist}/index.html`)
@@ -123,6 +124,27 @@ test('allows HTTPS-hosted images under the content security policy', async () =>
   assert.match(response.headers.get('content-security-policy') ?? '', /img-src[^;]*https:/)
 })
 
+test('diagnoses nested MySQL TLS errors without logging Drizzle SQL or credentials', () => {
+  const tlsError = Object.assign(new Error('self-signed certificate in certificate chain'), { code: 'HANDSHAKE_SSL_ERROR' })
+  const aggregate = new AggregateError([tlsError], 'Connection failed')
+  const drizzleError = Object.assign(new Error('Failed query: SELECT * FROM products WHERE email = secret@example.com'), {
+    name: 'DrizzleQueryError',
+    cause: aggregate,
+  })
+  const result = inspectDatabaseError(drizzleError)
+
+  assert.equal(result.category, 'connection')
+  assert.equal(result.errors[0].message, 'Drizzle query failed.')
+  assert.equal(result.errors[2].code, 'HANDSHAKE_SSL_ERROR')
+  assert.equal(result.errors[2].message, 'self-signed certificate in certificate chain')
+  assert.ok(result.errors.every(({ message }) => !message.includes('secret@example.com')))
+})
+
+test('distinguishes missing MySQL tables and columns from connection failures', () => {
+  assert.equal(inspectDatabaseError(Object.assign(new Error("Table 'railway.products' doesn't exist"), { code: 'ER_NO_SUCH_TABLE' })).category, 'missing_table')
+  assert.equal(inspectDatabaseError(Object.assign(new Error("Unknown column 'published' in 'where clause'"), { code: 'ER_BAD_FIELD_ERROR' })).category, 'missing_column')
+})
+
 test('returns temporary-unavailability responses when MySQL is unreachable', async () => {
   const catalogue = await fetch(`${baseUrl}/api/v1/products`)
   assert.equal(catalogue.status, 503)
@@ -138,4 +160,13 @@ test('returns temporary-unavailability responses when MySQL is unreachable', asy
   const loginResult = await login.json() as { error: { code: string } }
   assert.equal(loginResult.error.code, 'DATABASE_UNAVAILABLE')
   assert.equal(login.headers.get('set-cookie'), null)
+})
+
+test('trusts one Render proxy hop so forwarded IPs work with rate limiting', async () => {
+  assert.equal(app.get('trust proxy'), 1)
+  const response = await fetch(`${baseUrl}/api/v1/missing`, {
+    headers: { 'x-forwarded-for': '198.51.100.24' },
+  })
+  assert.equal(response.status, 404)
+  assert.ok(response.headers.has('ratelimit-policy'))
 })
