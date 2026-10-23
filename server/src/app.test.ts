@@ -7,12 +7,12 @@ process.env.NODE_ENV = 'development'
 process.env.PORT = '4000'
 process.env.CLIENT_ORIGIN = 'http://localhost:5173'
 process.env.DATABASE_URL = 'mysql://test:test@127.0.0.1:1/kitculture'
-process.env.MYSQL_URL = process.env.DATABASE_URL
 process.env.ADMIN_DATABASE_URL = 'mysql://test:test@127.0.0.1:1/kitculture_admin'
 process.env.LOG_LEVEL = 'silent'
 
 const { app } = await import('./app.js')
 const { pool, adminPool } = await import('./config/database.js')
+const { resolveDatabaseUrl } = await import('./config/env.js')
 const clientDist = fileURLToPath(new URL('../../dist', import.meta.url))
 const hasClientBuild = existsSync(`${clientDist}/index.html`)
 let server: ReturnType<typeof app.listen>
@@ -29,6 +29,32 @@ before(async () => {
 after(async () => {
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
   await Promise.all([pool?.end(), adminPool?.end()])
+})
+
+test('reads Railway-style MYSQL_URL values when DATABASE_URL is not set', async () => {
+  const previous = process.env.DATABASE_URL
+  const adminPrevious = process.env.ADMIN_DATABASE_URL
+  const mysqlPrevious = process.env.MYSQL_URL
+  const adminMysqlPrevious = process.env.ADMIN_MYSQL_URL
+
+  process.env.DATABASE_URL = ''
+  process.env.ADMIN_DATABASE_URL = ''
+  process.env.MYSQL_URL = 'mysql://root:secret@iriguchi.proxy.rlwy.net:14915/railway'
+  process.env.ADMIN_MYSQL_URL = 'mysql://root:secret@iriguchi.proxy.rlwy.net:14915/railway'
+
+  try {
+    assert.equal(resolveDatabaseUrl('DATABASE_URL', ['MYSQL_URL']), 'mysql://root:secret@iriguchi.proxy.rlwy.net:14915/railway')
+    assert.equal(resolveDatabaseUrl('ADMIN_DATABASE_URL', ['ADMIN_MYSQL_URL']), 'mysql://root:secret@iriguchi.proxy.rlwy.net:14915/railway')
+  } finally {
+    if (previous === undefined) delete process.env.DATABASE_URL
+    else process.env.DATABASE_URL = previous
+    if (adminPrevious === undefined) delete process.env.ADMIN_DATABASE_URL
+    else process.env.ADMIN_DATABASE_URL = adminPrevious
+    if (mysqlPrevious === undefined) delete process.env.MYSQL_URL
+    else process.env.MYSQL_URL = mysqlPrevious
+    if (adminMysqlPrevious === undefined) delete process.env.ADMIN_MYSQL_URL
+    else process.env.ADMIN_MYSQL_URL = adminMysqlPrevious
+  }
 })
 
 test('serves the built homepage and Vite assets without production NODE_ENV', { skip: !hasClientBuild }, async () => {

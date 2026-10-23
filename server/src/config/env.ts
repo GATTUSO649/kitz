@@ -1,12 +1,41 @@
 import 'dotenv/config'
 import { z } from 'zod'
 
+export function resolveDatabaseUrl(primaryKey: 'DATABASE_URL' | 'ADMIN_DATABASE_URL', fallbackKeys: readonly string[] = []): string | undefined {
+  const configuredValue = process.env[primaryKey]?.trim()
+  if (configuredValue) return configuredValue
+
+  for (const candidate of fallbackKeys) {
+    const value = process.env[candidate]?.trim()
+    if (value) return value
+  }
+
+  const directFromRailway = primaryKey === 'DATABASE_URL'
+    ? process.env.MYSQL_URL ?? process.env.MYSQL_URI
+    : process.env.ADMIN_MYSQL_URL ?? process.env.MYSQL_URL
+  if (directFromRailway && directFromRailway.trim()) return directFromRailway.trim()
+
+  const host = process.env.MYSQLHOST ?? process.env.MYSQL_HOST
+  const port = process.env.MYSQLPORT ?? process.env.MYSQL_PORT ?? '3306'
+  const databaseName = process.env.MYSQLDATABASE ?? process.env.MYSQL_DB ?? process.env.MYSQL_DATABASE
+  const username = process.env.MYSQLUSER ?? process.env.MYSQL_USER ?? process.env.MYSQL_USERNAME
+  const password = process.env.MYSQLPASSWORD ?? process.env.MYSQL_PASSWORD
+
+  if (host && username && password && databaseName) {
+    return `mysql://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${host}:${port}/${databaseName}`
+  }
+
+  return undefined
+}
+
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(4000),
   CLIENT_ORIGIN: z.string().url().default('http://localhost:5173'),
   DATABASE_URL: z.string().min(1).optional(),
   ADMIN_DATABASE_URL: z.string().min(1).optional(),
+  MYSQL_URL: z.string().min(1).optional(),
+  ADMIN_MYSQL_URL: z.string().min(1).optional(),
   MYSQL_SSL_CA: z.string().min(1).optional(),
   CLOUDINARY_CLOUD_NAME: z.string().min(1).optional(),
   CLOUDINARY_API_KEY: z.string().min(1).optional(),
@@ -26,24 +55,10 @@ const legacyCallbackBaseUrl = (() => {
   try { return new URL(process.env.MPESA_CALLBACK_URL).origin } catch { return undefined }
 })()
 
-function isLoopbackDatabaseUrl(value: string | undefined): boolean {
-  if (!value) return false
-  try {
-    return ['localhost', '127.0.0.1', '::1'].includes(new URL(value).hostname)
-  } catch {
-    return false
-  }
-}
-
-const railwayDatabaseUrl = process.env.MYSQL_URL
-const configuredAdminDatabaseUrl = process.env.ADMIN_DATABASE_URL
-
 const parsed = schema.safeParse({
   ...process.env,
-  DATABASE_URL: railwayDatabaseUrl ?? process.env.DATABASE_URL,
-  ADMIN_DATABASE_URL: railwayDatabaseUrl && isLoopbackDatabaseUrl(configuredAdminDatabaseUrl)
-    ? railwayDatabaseUrl
-    : configuredAdminDatabaseUrl ?? railwayDatabaseUrl,
+  DATABASE_URL: process.env.DATABASE_URL ?? resolveDatabaseUrl('DATABASE_URL', ['MYSQL_URL', 'MYSQL_URI']),
+  ADMIN_DATABASE_URL: process.env.ADMIN_DATABASE_URL ?? resolveDatabaseUrl('ADMIN_DATABASE_URL', ['ADMIN_MYSQL_URL', 'MYSQL_URL']),
   DARAJA_ENV: process.env.DARAJA_ENV ?? process.env.MPESA_ENV,
   DARAJA_CONSUMER_KEY: process.env.DARAJA_CONSUMER_KEY ?? process.env.MPESA_CONSUMER_KEY,
   DARAJA_CONSUMER_SECRET: process.env.DARAJA_CONSUMER_SECRET ?? process.env.MPESA_CONSUMER_SECRET,

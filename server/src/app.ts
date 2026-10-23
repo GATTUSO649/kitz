@@ -27,12 +27,19 @@ app.use(cors({
 app.use(express.json({ limit: '100kb', strict: true }))
 app.use(pinoHttp({ logger, autoLogging: { ignore: (request) => request.url.startsWith('/health/') || request.url === '/health' } }))
 
-app.get('/health', (_request, response) => {
+app.get('/health', async (_request, response) => {
+  const [storeResult, adminResult] = await Promise.allSettled([
+    pool ? pool.query('SELECT 1 AS ok') : Promise.reject(new Error('Store database is not configured')),
+    adminPool ? adminPool.query('SELECT 1 AS ok') : Promise.reject(new Error('Admin database is not configured')),
+  ])
+
   response.json({
     status: 'ok',
     service: 'kitculture-api',
-    databaseConfigured: Boolean(process.env.DATABASE_URL),
-    adminDatabaseConfigured: Boolean(process.env.ADMIN_DATABASE_URL),
+    databaseConfigured: Boolean(pool),
+    adminDatabaseConfigured: Boolean(adminPool),
+    databaseConnected: storeResult.status === 'fulfilled',
+    adminDatabaseConnected: adminResult.status === 'fulfilled',
   })
 })
 
@@ -125,7 +132,6 @@ const databaseErrorCodes = new Set([
   'ENETUNREACH',
   'ENOTFOUND',
   'EAI_AGAIN',
-  'HANDSHAKE_SSL_ERROR',
   'PROTOCOL_CONNECTION_LOST',
   'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR',
   'PROTOCOL_SEQUENCE_TIMEOUT',
