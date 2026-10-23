@@ -29,21 +29,5 @@ export const pool = databaseUrl
 
 export const db = pool ? drizzle(pool, { schema, mode: 'default' }) : null
 
-const adminDatabaseUrl = resolveDatabaseUrl('ADMIN_DATABASE_URL', ['ADMIN_MYSQL_URL', 'MYSQL_URL'])
-export const adminPool = adminDatabaseUrl
-  ? createPool({
-      host: new URL(adminDatabaseUrl).hostname,
-      port: Number(new URL(adminDatabaseUrl).port || 3306),
-      user: decodeURIComponent(new URL(adminDatabaseUrl).username),
-      password: decodeURIComponent(new URL(adminDatabaseUrl).password),
-      database: new URL(adminDatabaseUrl).pathname.slice(1),
-      ssl: mysqlSsl,
-      connectionLimit: 5,
-      waitForConnections: true,
-      queueLimit: 0,
-      enableKeepAlive: true,
-      connectTimeout: 8_000,
-    })
-  : null
-
-export const adminDb = adminPool ? drizzle(adminPool, { schema: adminSchema, mode: 'default' }) : null
+export const adminPool = pool
+export const adminDb = pool ? drizzle(pool, { schema: adminSchema, mode: 'default' }) : null

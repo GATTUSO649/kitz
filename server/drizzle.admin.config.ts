@@ -6,6 +6,6 @@ export default defineConfig({
   schema: './server/src/database/admin-schema.ts',
   out: './server/src/database/admin-migrations',
   dbCredentials: {
-    url: process.env.ADMIN_DATABASE_URL ?? 'mysql://root@127.0.0.1:3306/kitculture_admin',
+    url: process.env.DATABASE_URL ?? process.env.ADMIN_DATABASE_URL ?? 'mysql://root@127.0.0.1:3306/railway',
   },
 })

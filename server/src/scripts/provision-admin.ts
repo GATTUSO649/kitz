@@ -7,7 +7,7 @@ async function main() {
   const email = process.env.ADMIN_EMAIL?.trim().toLowerCase()
   const fullName = process.env.ADMIN_NAME?.trim()
   const password = process.env.ADMIN_PASSWORD
-  if (!adminDb) throw new Error('Set ADMIN_DATABASE_URL before provisioning an administrator.')
+  if (!adminDb) throw new Error('Set DATABASE_URL before provisioning an administrator in the shared Railway database.')
   if (!email || !fullName || !password || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || fullName.length < 2 || password.length < 14 || password.length > 128) {
     throw new Error('Set ADMIN_EMAIL, ADMIN_NAME, and a unique ADMIN_PASSWORD of 14 to 128 characters.')
   }

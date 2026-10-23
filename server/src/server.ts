@@ -12,7 +12,7 @@ async function shutdown(signal: string) {
   server.close(async (error) => {
     if (error) logger.error({ err: error }, 'HTTP server shutdown failed')
     if (pool) await pool.end()
-    if (adminPool) await adminPool.end()
+    if (adminPool && adminPool !== pool) await adminPool.end()
     process.exit(error ? 1 : 0)
   })
 }

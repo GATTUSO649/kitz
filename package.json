@@ -19,7 +19,7 @@
     "db:generate": "drizzle-kit generate --config=server/drizzle.config.ts",
     "db:migrate": "drizzle-kit migrate --config=server/drizzle.config.ts",
     "db:generate:admin": "drizzle-kit generate --config=server/drizzle.admin.config.ts",
-    "db:migrate:admin": "tsx server/src/scripts/setup-admin-database.ts && drizzle-kit migrate --config=server/drizzle.admin.config.ts",
+    "db:migrate:admin": "drizzle-kit migrate --config=server/drizzle.admin.config.ts",
     "db:migrate:all": "npm run db:migrate && npm run db:migrate:admin",
     "admin:provision": "tsx server/src/scripts/provision-admin.ts",
     "lint": "oxlint",

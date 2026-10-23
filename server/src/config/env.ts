@@ -58,7 +58,7 @@ const legacyCallbackBaseUrl = (() => {
 const parsed = schema.safeParse({
   ...process.env,
   DATABASE_URL: process.env.DATABASE_URL ?? resolveDatabaseUrl('DATABASE_URL', ['MYSQL_URL', 'MYSQL_URI']),
-  ADMIN_DATABASE_URL: process.env.ADMIN_DATABASE_URL ?? resolveDatabaseUrl('ADMIN_DATABASE_URL', ['ADMIN_MYSQL_URL', 'MYSQL_URL']),
+  ADMIN_DATABASE_URL: process.env.ADMIN_DATABASE_URL ?? process.env.DATABASE_URL ?? resolveDatabaseUrl('ADMIN_DATABASE_URL', ['ADMIN_MYSQL_URL', 'MYSQL_URL']),
   DARAJA_ENV: process.env.DARAJA_ENV ?? process.env.MPESA_ENV,
   DARAJA_CONSUMER_KEY: process.env.DARAJA_CONSUMER_KEY ?? process.env.MPESA_CONSUMER_KEY,
   DARAJA_CONSUMER_SECRET: process.env.DARAJA_CONSUMER_SECRET ?? process.env.MPESA_CONSUMER_SECRET,
