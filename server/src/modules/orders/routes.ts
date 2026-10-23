@@ -8,7 +8,7 @@ import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { applicationSettings, auditLogs, deliveryZones, inventoryMovements, notificationCampaigns, notificationRecipients, orderItems, orders, payments, productVariants, products, supportMessages, supportRequests, users } from '../../database/schema.js'
 import { authenticate, authenticatedUser } from '../../middleware/authenticate.js'
 import { isAdminOnline, publishChatMessage } from '../../realtime/chat-events.js'
-import { callbackFailureStatus, canVerifySuccessfulStkPayment, DarajaRequestError, darajaCallbackRoute, initiateStkPush, isDarajaConfigured, isFinalDarajaPaymentStatus, isValidCallbackToken, normalizeKenyanPhone, parseDarajaTimestamp, parseStkCallback, queryStkPush, resolveDarajaShortcode } from './daraja.js'
+import { callbackFailureStatus, canVerifySuccessfulStkPayment, DarajaRequestError, darajaCallbackRoute, initiateStkPush, isDarajaConfigured, isFinalDarajaPaymentStatus, isValidCallbackToken, normalizeKenyanPhone, parseDarajaTimestamp, parseStkCallback, queryStkPush, resolveDarajaShortcodes } from './daraja.js'
 
 export const ordersRouter = Router()
 
@@ -107,6 +107,7 @@ ordersRouter.get('/delivery/zones', async (_request, response) => {
 })
 
 ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, response) => {
+  response.locals.databaseOperation = 'orders.create'
   const input = createOrderSchema.safeParse(request.body)
   if (!input.success) {
     response.status(400).json({ error: { code: 'INVALID_ORDER', message: 'Check the delivery details and order items.' } })
@@ -135,8 +136,8 @@ ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, re
   if (input.data.paymentMethod === 'mpesa') {
     const [till] = await db.select({ value: applicationSettings.value }).from(applicationSettings)
       .where(eq(applicationSettings.key, 'mpesaTillNumber')).limit(1)
-    const shortcode = resolveDarajaShortcode(env.DARAJA_ENV, env.DARAJA_SHORTCODE, till?.value)
-    if (!isDarajaConfigured(shortcode)) {
+    const shortcodes = resolveDarajaShortcodes(env.DARAJA_ENV, env.DARAJA_SHORTCODE, till?.value)
+    if (!isDarajaConfigured(shortcodes.businessShortcode) || !/^\d{5,20}$/.test(shortcodes.partyB)) {
       response.status(503).json({ error: { code: 'MPESA_NOT_CONFIGURED', message: 'M-Pesa payments are not configured yet.' } })
       return
     }
@@ -290,6 +291,7 @@ ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, re
 const stkPushSchema = z.object({ phone: z.string().trim().min(7).max(20) }).strict()
 
 ordersRouter.post('/orders/:orderNumber/mpesa/stk-push', rejectCrossOrigin, stkPushLimiter, authenticate, async (request, response) => {
+  response.locals.databaseOperation = 'orders.mpesa.stk-push'
   const orderNumber = z.string().min(1).max(32).safeParse(request.params.orderNumber)
   const input = stkPushSchema.safeParse(request.body)
   if (!orderNumber.success || !input.success) return response.status(400).json({ error: { code: 'INVALID_PAYMENT_REQUEST', message: 'Payment details are invalid.' } })
@@ -299,8 +301,8 @@ ordersRouter.post('/orders/:orderNumber/mpesa/stk-push', rejectCrossOrigin, stkP
 
   const [settings] = await db.select({ value: applicationSettings.value }).from(applicationSettings)
     .where(eq(applicationSettings.key, 'mpesaTillNumber')).limit(1)
-  const shortcode = resolveDarajaShortcode(env.DARAJA_ENV, env.DARAJA_SHORTCODE, settings?.value)
-  if (!isDarajaConfigured(shortcode)) return response.status(503).json({ error: { code: 'MPESA_NOT_CONFIGURED', message: 'M-Pesa payments are not configured yet. Complete the Daraja server settings first.' } })
+  const shortcodes = resolveDarajaShortcodes(env.DARAJA_ENV, env.DARAJA_SHORTCODE, settings?.value)
+  if (!isDarajaConfigured(shortcodes.businessShortcode) || !/^\d{5,20}$/.test(shortcodes.partyB)) return response.status(503).json({ error: { code: 'MPESA_NOT_CONFIGURED', message: 'M-Pesa payments are not configured yet. Complete the Daraja server settings first.' } })
 
   const phone = normalizeKenyanPhone(input.data.phone)
   if (!phone) return response.status(400).json({ error: { code: 'MPESA_PHONE_REQUIRED', message: 'Enter a valid Kenyan phone number for the payment prompt.' } })
@@ -338,7 +340,7 @@ ordersRouter.post('/orders/:orderNumber/mpesa/stk-push', rejectCrossOrigin, stkP
         provider: 'mpesa',
         amount: lockedOrder.total,
         status: 'initiated',
-        merchantShortcode: shortcode,
+        merchantShortcode: shortcodes.businessShortcode,
         payerPhone: phone,
       }).$returningId()
       return { order: lockedOrder, amountCents, paymentId: createdPayment.id }
@@ -353,7 +355,8 @@ ordersRouter.post('/orders/:orderNumber/mpesa/stk-push', rejectCrossOrigin, stkP
   let providerAccepted = false
   try {
     const result = await initiateStkPush({
-      shortcode,
+      businessShortcode: shortcodes.businessShortcode,
+      partyB: shortcodes.partyB,
       phone,
       amount: amountInCents / 100,
       accountReference: order.orderNumber,
@@ -376,6 +379,7 @@ ordersRouter.post('/orders/:orderNumber/mpesa/stk-push', rejectCrossOrigin, stkP
       stage: error instanceof DarajaRequestError ? error.stage : 'payment_record_update',
       outcome: unknownOutcome ? 'unknown' : error instanceof DarajaRequestError ? error.outcome : 'unknown',
       providerCode: resultCode,
+      httpStatus: error instanceof DarajaRequestError ? error.httpStatus : undefined,
     }, 'Daraja STK request did not complete normally')
     await db.update(payments).set({
       status: unknownOutcome ? 'requires_review' : 'failed',
@@ -384,11 +388,26 @@ ordersRouter.post('/orders/:orderNumber/mpesa/stk-push', rejectCrossOrigin, stkP
         ? 'The payment request outcome is unknown. Check payment status or contact support before retrying.'
         : 'Daraja rejected the payment request before creating a customer prompt.',
     }).where(and(eq(payments.id, paymentId), eq(payments.status, 'initiated')))
-    response.status(502).json({ error: { code: unknownOutcome ? 'MPESA_OUTCOME_UNKNOWN' : 'MPESA_PROMPT_FAILED', message: unknownOutcome ? 'We could not confirm whether the prompt was sent. Check payment status before trying again.' : 'Daraja could not start the payment prompt. You can retry this order.' } })
+    const failureCode = unknownOutcome
+      ? 'MPESA_OUTCOME_UNKNOWN'
+      : error instanceof DarajaRequestError && error.stage === 'oauth'
+        ? 'MPESA_OAUTH_FAILED'
+        : error instanceof DarajaRequestError && error.stage === 'stk_push'
+          ? 'MPESA_STK_REJECTED'
+          : 'MPESA_PROMPT_FAILED'
+    const message = unknownOutcome
+      ? 'We could not confirm whether the prompt was sent. Check its status before trying again.'
+      : error instanceof DarajaRequestError && error.stage === 'oauth'
+        ? 'Safaricom authentication failed. Check the configured Daraja environment and credentials.'
+        : error instanceof DarajaRequestError && error.stage === 'stk_push'
+          ? 'Safaricom rejected the STK request. Check the configured shortcode, transaction type, and product activation.'
+          : 'The STK request could not be completed. Check the payment status before retrying.'
+    response.status(502).json({ error: { code: failureCode, message } })
   }
 })
 
 ordersRouter.post(darajaCallbackRoute, async (request, response) => {
+  response.locals.databaseOperation = 'orders.mpesa.callback'
   const token = z.string().min(32).max(256).safeParse(request.params.token)
   if (!token.success || !isValidCallbackToken(token.data)) return response.status(404).end()
   if (!db) return response.status(503).json({ ResultCode: 1, ResultDesc: 'Payment services are unavailable.' })
@@ -444,7 +463,15 @@ ordersRouter.post(darajaCallbackRoute, async (request, response) => {
     if (String(query.ResultCode) !== '0' || query.CheckoutRequestID !== checkoutRequestId || query.MerchantRequestID !== merchantRequestId) {
       throw new Error('Daraja STK query did not confirm this payment request.')
     }
-  } catch {
+  } catch (error) {
+    request.log.warn({
+      requestId: request.id,
+      operation: 'orders.mpesa.callback',
+      stage: 'stk_query',
+      outcome: error instanceof DarajaRequestError ? error.outcome : 'unknown',
+      providerCode: error instanceof DarajaRequestError ? error.providerCode : undefined,
+      httpStatus: error instanceof DarajaRequestError ? error.httpStatus : undefined,
+    }, 'Daraja callback verification query did not complete')
     return response.status(500).json({ ResultCode: 1, ResultDesc: 'Payment verification is temporarily unavailable.' })
   }
 

@@ -5,7 +5,7 @@ import { mysqlSslOptions } from '../../config/database.js'
 import { isAllowedClientOrigin, resolveDarajaEnvironment, resolveDarajaTransactionType } from '../../config/env.js'
 import { loginSchema, registerSchema } from './routes.js'
 import { createOrderSchema, createTemporaryOrderNumber, exceedsProductQuantityLimit, ordersRouter } from '../orders/routes.js'
-import { buildDarajaCallbackUrl, callbackFailureStatus, canVerifySuccessfulStkPayment, DarajaRequestError, darajaCallbackRoute, initiateStkPush, isFinalDarajaPaymentStatus, isValidDarajaPaymentAmount, matchesCallbackToken, normalizeKenyanPhone, parseDarajaTimestamp, parseStkCallback, resolveDarajaShortcode } from '../orders/daraja.js'
+import { buildDarajaCallbackUrl, callbackFailureStatus, canVerifySuccessfulStkPayment, DarajaRequestError, darajaCallbackRoute, initiateStkPush, isFinalDarajaPaymentStatus, isValidDarajaPaymentAmount, matchesCallbackToken, normalizeKenyanPhone, parseDarajaTimestamp, parseStkCallback, resolveDarajaShortcodes } from '../orders/daraja.js'
 import { createAddressSchema, passwordSchema, productReviewSchema, profileSchema, supportMessageSchema, supportRequestSchema } from '../account/routes.js'
 import { adminNotificationSchema, canTransitionOrderStatus, createProductSchema, homepageSlideBatchSchema, homepageSlideSchema, isDuplicateKeyError, settingsSchema, supportUpdateSchema } from '../admin/routes.js'
 import { detectImageFormat } from '../admin/image-storage.js'
@@ -403,13 +403,13 @@ test('production requires an explicit Daraja environment instead of silently sel
 })
 
 test('sandbox uses its Daraja shortcode instead of the production Till setting', () => {
-  assert.equal(resolveDarajaShortcode('sandbox', '174379', '4682146'), '174379')
-  assert.equal(resolveDarajaShortcode('sandbox', undefined, '4682146'), '')
+  assert.deepEqual(resolveDarajaShortcodes('sandbox', '174379', '4682146'), { businessShortcode: '174379', partyB: '174379' })
+  assert.deepEqual(resolveDarajaShortcodes('sandbox', undefined, '4682146'), { businessShortcode: '', partyB: '' })
 })
 
-test('production keeps the configured business Till and falls back to its environment value', () => {
-  assert.equal(resolveDarajaShortcode('production', '174379', '4682146'), '4682146')
-  assert.equal(resolveDarajaShortcode('production', '4682146', undefined), '4682146')
+test('production keeps business shortcode separate from receiving Till', () => {
+  assert.deepEqual(resolveDarajaShortcodes('production', '600001', '4682146'), { businessShortcode: '600001', partyB: '4682146' })
+  assert.deepEqual(resolveDarajaShortcodes('production', '600001', undefined), { businessShortcode: '600001', partyB: '' })
 })
 
 test('Daraja accepts supported Kenyan payer phone formats and rejects malformed numbers', () => {
@@ -431,7 +431,7 @@ const mockDarajaConfiguration = {
   DARAJA_TRANSACTION_TYPE: 'CustomerBuyGoodsOnline' as const,
 }
 
-test('STK Push sends official request fields using mocked OAuth and provider responses', async () => {
+test('STK Push uses the business shortcode for password and PartyB for the receiving Till', async () => {
   const requests: { url: string; init?: RequestInit }[] = []
   const fetcher: typeof fetch = async (input, init) => {
     const url = String(input)
@@ -441,15 +441,19 @@ test('STK Push sends official request fields using mocked OAuth and provider res
       : new Response(JSON.stringify({ ResponseCode: '0', MerchantRequestID: 'merchant-id', CheckoutRequestID: 'checkout-id', CustomerMessage: 'Prompt sent' }), { status: 200 })
   }
 
-  const result = await initiateStkPush({ shortcode: '174379', phone: '254712345678', amount: 1250, accountReference: 'KC-2026-000001' }, {
-    configuration: mockDarajaConfiguration,
+  const productionConfiguration = { ...mockDarajaConfiguration, DARAJA_ENV: 'production' as const }
+  const result = await initiateStkPush({ businessShortcode: '600001', partyB: '4682146', phone: '254712345678', amount: 1250, accountReference: 'KC-2026-000001' }, {
+    configuration: productionConfiguration,
     fetcher,
     now: new Date('2026-10-23T07:00:00.000Z'),
   })
   const body = JSON.parse(String(requests[1]?.init?.body)) as Record<string, unknown>
-  assert.equal(requests[0]?.url, 'https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials')
-  assert.equal(requests[1]?.url, 'https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest')
-  assert.equal(body.BusinessShortCode, '174379')
+  assert.equal(requests[0]?.url, 'https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials')
+  assert.equal(requests[1]?.url, 'https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest')
+  assert.equal(body.BusinessShortCode, '600001')
+  assert.equal(body.PartyB, '4682146')
+  assert.equal(body.Timestamp, '20261023100000')
+  assert.equal(body.Password, Buffer.from(`600001test-passkey${body.Timestamp}`).toString('base64'))
   assert.equal(body.TransactionType, 'CustomerBuyGoodsOnline')
   assert.equal(body.Amount, 1250)
   assert.equal(body.PartyA, '254712345678')
@@ -462,7 +466,7 @@ test('missing Daraja credentials fail before any provider request', async () => 
   let fetchCalled = false
   const fetcher: typeof fetch = async () => { fetchCalled = true; return new Response('{}') }
   await assert.rejects(
-    initiateStkPush({ shortcode: '174379', phone: '254712345678', amount: 1200, accountReference: 'KC-1' }, {
+    initiateStkPush({ businessShortcode: '174379', partyB: '174379', phone: '254712345678', amount: 1200, accountReference: 'KC-1' }, {
       configuration: { ...mockDarajaConfiguration, DARAJA_CONSUMER_KEY: undefined },
       fetcher,
     }),
@@ -474,9 +478,31 @@ test('missing Daraja credentials fail before any provider request', async () => 
 test('invalid Daraja credentials fail safely at OAuth', async () => {
   const fetcher: typeof fetch = async () => new Response(JSON.stringify({ errorCode: 'invalid_client' }), { status: 401 })
   await assert.rejects(
-    initiateStkPush({ shortcode: '174379', phone: '254712345678', amount: 1200, accountReference: 'KC-1' }, { configuration: { ...mockDarajaConfiguration, DARAJA_CONSUMER_KEY: 'invalid-test-consumer-key' }, fetcher }),
-    (error: unknown) => error instanceof DarajaRequestError && error.stage === 'oauth' && error.outcome === 'not_submitted',
+    initiateStkPush({ businessShortcode: '174379', partyB: '174379', phone: '254712345678', amount: 1200, accountReference: 'KC-1' }, { configuration: { ...mockDarajaConfiguration, DARAJA_CONSUMER_KEY: 'invalid-test-consumer-key' }, fetcher }),
+    (error: unknown) => error instanceof DarajaRequestError && error.stage === 'oauth' && error.outcome === 'not_submitted' && error.httpStatus === 401,
   )
+})
+
+test('Safaricom HTTP 400 rejection preserves a sanitized status and rejected outcome', async () => {
+  let calls = 0
+  const fetcher: typeof fetch = async () => {
+    calls += 1
+    return calls === 1
+      ? new Response(JSON.stringify({ access_token: 'mock-access-token', expires_in: 3600 }), { status: 200 })
+      : new Response(JSON.stringify({ errorCode: 'InvalidParameter' }), { status: 400 })
+  }
+  await assert.rejects(
+    initiateStkPush({ businessShortcode: '600001', partyB: '4682146', phone: '254712345678', amount: 1200, accountReference: 'KC-1' }, {
+      configuration: { ...mockDarajaConfiguration, DARAJA_ENV: 'production', DARAJA_CONSUMER_KEY: 'http-400-test-consumer-key' },
+      fetcher,
+    }),
+    (error: unknown) => error instanceof DarajaRequestError
+      && error.stage === 'stk_push'
+      && error.outcome === 'rejected'
+      && error.providerCode === 'InvalidParameter'
+      && error.httpStatus === 400,
+  )
+  assert.equal(calls, 2)
 })
 
 test('STK Push provider rejection is safe to retry', async () => {
@@ -484,7 +510,7 @@ test('STK Push provider rejection is safe to retry', async () => {
     ? new Response(JSON.stringify({ access_token: 'mock-access-token', expires_in: 3600 }), { status: 200 })
     : new Response(JSON.stringify({ ResponseCode: '1', ResponseDescription: 'Rejected' }), { status: 200 })
   await assert.rejects(
-    initiateStkPush({ shortcode: '174379', phone: '254712345678', amount: 1200, accountReference: 'KC-1' }, {
+    initiateStkPush({ businessShortcode: '174379', partyB: '174379', phone: '254712345678', amount: 1200, accountReference: 'KC-1' }, {
       configuration: { ...mockDarajaConfiguration, DARAJA_CONSUMER_KEY: 'rejected-test-consumer-key' },
       fetcher,
     }),
@@ -500,7 +526,7 @@ test('ambiguous STK timeout is not classified as a safe retry', async () => {
     throw new TypeError('network timeout')
   }
   await assert.rejects(
-    initiateStkPush({ shortcode: '174379', phone: '254712345678', amount: 1200, accountReference: 'KC-1' }, { configuration: { ...mockDarajaConfiguration, DARAJA_CONSUMER_KEY: 'timeout-test-consumer-key' }, fetcher }),
+    initiateStkPush({ businessShortcode: '174379', partyB: '174379', phone: '254712345678', amount: 1200, accountReference: 'KC-1' }, { configuration: { ...mockDarajaConfiguration, DARAJA_CONSUMER_KEY: 'timeout-test-consumer-key' }, fetcher }),
     (error: unknown) => error instanceof DarajaRequestError && error.stage === 'stk_push' && error.outcome === 'unknown',
   )
 })

@@ -10,6 +10,7 @@ export class DarajaRequestError extends Error {
     readonly stage: 'oauth' | 'stk_push' | 'stk_query',
     readonly outcome: 'not_submitted' | 'rejected' | 'unknown',
     readonly providerCode?: string,
+    readonly httpStatus?: number,
   ) {
     super(`Daraja ${stage.replaceAll('_', ' ')} ${outcome}.`)
     this.name = 'DarajaRequestError'
@@ -104,6 +105,7 @@ export function isDarajaConfigured(shortcode: string) {
   const effectiveShortcode = shortcode || env.DARAJA_SHORTCODE || ''
   if (!env.DARAJA_ENV || !env.DARAJA_TRANSACTION_TYPE || !env.DARAJA_CONSUMER_KEY || !env.DARAJA_CONSUMER_SECRET || !env.DARAJA_PASSKEY
     || !env.DARAJA_CALLBACK_BASE_URL || !env.DARAJA_CALLBACK_TOKEN || !/^\d{5,20}$/.test(effectiveShortcode)) return false
+  if (env.DARAJA_ENV === 'production' && env.DARAJA_TRANSACTION_TYPE !== 'CustomerBuyGoodsOnline') return false
   try {
     const callbackUrl = new URL(buildDarajaCallbackUrl(env.DARAJA_CALLBACK_BASE_URL, env.DARAJA_CALLBACK_TOKEN))
     return !/your-public-domain|example\.com|localhost/i.test(callbackUrl.hostname)
@@ -112,14 +114,14 @@ export function isDarajaConfigured(shortcode: string) {
   }
 }
 
-export function resolveDarajaShortcode(
+export function resolveDarajaShortcodes(
   environment: 'sandbox' | 'production' | undefined,
-  configuredShortcode: string | undefined,
-  businessShortcode: string | undefined,
+  configuredBusinessShortcode: string | undefined,
+  receivingTill: string | undefined,
 ) {
-  const configured = configuredShortcode?.trim() ?? ''
-  const business = businessShortcode?.trim() ?? ''
-  return environment === 'production' ? business || configured : configured
+  const businessShortcode = configuredBusinessShortcode?.trim() ?? ''
+  const partyB = environment === 'production' ? receivingTill?.trim() ?? '' : businessShortcode
+  return { businessShortcode, partyB }
 }
 
 export function buildDarajaCallbackUrl(baseOrCallbackUrl: string, token: string) {
@@ -205,7 +207,9 @@ async function accessToken(configuration: DarajaConfiguration, fetcher: typeof f
   }
   let result: DarajaResponse
   try { result = await response.json() as DarajaResponse } catch { throw new DarajaRequestError('oauth', 'not_submitted') }
-  if (!response.ok || typeof result.access_token !== 'string') throw new DarajaRequestError('oauth', 'not_submitted', safeProviderCode(result.errorCode))
+  if (!response.ok || typeof result.access_token !== 'string') {
+    throw new DarajaRequestError('oauth', 'not_submitted', safeProviderCode(result.errorCode), response.status)
+  }
   const expiresIn = Number(result.expires_in ?? 3600)
   const token = result.access_token
   accessTokens.set(tokenKey, { token, expiresAt: Date.now() + (Number.isFinite(expiresIn) ? expiresIn : 3600) * 1000 })
@@ -240,22 +244,22 @@ async function authenticatedPost(path: string, body: Record<string, unknown>, co
   }
   let result: DarajaResponse
   try { result = await response.json() as DarajaResponse } catch { throw new DarajaRequestError(stage, 'unknown') }
-  if (!response.ok) throw new DarajaRequestError(stage, stage === 'stk_push' ? 'unknown' : 'rejected', safeProviderCode(result.errorCode))
+  if (!response.ok) throw new DarajaRequestError(stage, 'rejected', safeProviderCode(result.errorCode), response.status)
   return result
 }
 
-export async function initiateStkPush(input: { shortcode: string; phone: string; amount: number; accountReference: string }, dependencies: DarajaRequestDependencies = {}) {
+export async function initiateStkPush(input: { businessShortcode: string; partyB: string; phone: string; amount: number; accountReference: string }, dependencies: DarajaRequestDependencies = {}) {
   const configuration = dependencies.configuration ?? env
   const fetcher = dependencies.fetcher ?? fetch
   const timestamp = timestampNairobi(dependencies.now)
   const result = await authenticatedPost('/mpesa/stkpush/v1/processrequest', {
-    BusinessShortCode: input.shortcode,
-    Password: stkPassword(input.shortcode, timestamp, configuration.DARAJA_PASSKEY),
+    BusinessShortCode: input.businessShortcode,
+    Password: stkPassword(input.businessShortcode, timestamp, configuration.DARAJA_PASSKEY),
     Timestamp: timestamp,
     TransactionType: configuration.DARAJA_TRANSACTION_TYPE,
     Amount: input.amount,
     PartyA: input.phone,
-    PartyB: input.shortcode,
+    PartyB: input.partyB,
     PhoneNumber: input.phone,
     CallBackURL: darajaCallbackUrl(configuration),
     AccountReference: input.accountReference.slice(0, 12),
