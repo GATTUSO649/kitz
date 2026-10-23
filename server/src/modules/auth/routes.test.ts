@@ -399,24 +399,26 @@ test('production requires an explicit Daraja environment instead of silently sel
   assert.equal(resolveDarajaEnvironment('development'), 'sandbox')
   assert.equal(resolveDarajaEnvironment('test'), 'sandbox')
   assert.equal(resolveDarajaEnvironment('production'), undefined)
+  assert.equal(resolveDarajaEnvironment('production', 'sandbox'), undefined)
   assert.equal(resolveDarajaEnvironment('production', 'production'), 'production')
 })
 
 test('sandbox uses its Daraja shortcode instead of the production Till setting', () => {
-  assert.deepEqual(resolveDarajaShortcodes('sandbox', '174379', '4682146'), { businessShortcode: '174379', partyB: '174379' })
-  assert.deepEqual(resolveDarajaShortcodes('sandbox', undefined, '4682146'), { businessShortcode: '', partyB: '' })
+  assert.deepEqual(resolveDarajaShortcodes('sandbox', 'CustomerBuyGoodsOnline', '174379', '4682146'), { businessShortcode: '174379', partyB: '174379' })
+  assert.deepEqual(resolveDarajaShortcodes('sandbox', 'CustomerBuyGoodsOnline', undefined, '4682146'), { businessShortcode: '', partyB: '' })
 })
 
 test('production keeps business shortcode separate from receiving Till', () => {
-  assert.deepEqual(resolveDarajaShortcodes('production', '600001', '4682146'), { businessShortcode: '600001', partyB: '4682146' })
-  assert.deepEqual(resolveDarajaShortcodes('production', '600001', undefined), { businessShortcode: '600001', partyB: '' })
+  assert.deepEqual(resolveDarajaShortcodes('production', 'CustomerBuyGoodsOnline', '600001', '4682146'), { businessShortcode: '600001', partyB: '4682146' })
+  assert.deepEqual(resolveDarajaShortcodes('production', 'CustomerBuyGoodsOnline', '600001', undefined), { businessShortcode: '600001', partyB: '' })
+  assert.deepEqual(resolveDarajaShortcodes('production', 'CustomerPayBillOnline', '600001', '4682146'), { businessShortcode: '600001', partyB: '600001' })
 })
 
 test('Daraja accepts supported Kenyan payer phone formats and rejects malformed numbers', () => {
   for (const phone of ['0712345678', '0112345678', '+254712345678', '254112345678']) {
     assert.ok(normalizeKenyanPhone(phone), phone)
   }
-  for (const phone of ['0612345678', '254612345678', '071234567', '07123456789']) {
+  for (const phone of ['0612345678', '254612345678', '071234567', '07123456789', '07abc1234567', '07+12345678']) {
     assert.equal(normalizeKenyanPhone(phone), null, phone)
   }
 })
@@ -429,6 +431,8 @@ const mockDarajaConfiguration = {
   DARAJA_CALLBACK_BASE_URL: 'https://payments.example.test',
   DARAJA_CALLBACK_TOKEN: 'a'.repeat(40),
   DARAJA_TRANSACTION_TYPE: 'CustomerBuyGoodsOnline' as const,
+  MPESA_ACCOUNT_REFERENCE: 'KitZone',
+  MPESA_TRANSACTION_DESC: 'Jersey Purchase',
 }
 
 test('STK Push uses the business shortcode for password and PartyB for the receiving Till', async () => {
@@ -455,6 +459,8 @@ test('STK Push uses the business shortcode for password and PartyB for the recei
   assert.equal(body.Timestamp, '20261023100000')
   assert.equal(body.Password, Buffer.from(`600001test-passkey${body.Timestamp}`).toString('base64'))
   assert.equal(body.TransactionType, 'CustomerBuyGoodsOnline')
+  assert.equal(body.AccountReference, 'KitZone')
+  assert.equal(body.TransactionDesc, 'Jersey Purcha')
   assert.equal(body.Amount, 1250)
   assert.equal(body.PartyA, '254712345678')
   assert.equal(body.PhoneNumber, '254712345678')
@@ -501,6 +507,27 @@ test('Safaricom HTTP 400 rejection preserves a sanitized status and rejected out
       && error.outcome === 'rejected'
       && error.providerCode === 'InvalidParameter'
       && error.httpStatus === 400,
+  )
+  assert.equal(calls, 2)
+})
+
+test('Safaricom HTTP 502 remains an unknown outcome and must not be retried automatically', async () => {
+  let calls = 0
+  const fetcher: typeof fetch = async () => {
+    calls += 1
+    return calls === 1
+      ? new Response(JSON.stringify({ access_token: 'mock-access-token', expires_in: 3600 }), { status: 200 })
+      : new Response(JSON.stringify({ errorCode: 'GatewayError' }), { status: 502 })
+  }
+  await assert.rejects(
+    initiateStkPush({ businessShortcode: '600001', partyB: '4682146', phone: '254712345678', amount: 1200, accountReference: 'KC-1' }, {
+      configuration: { ...mockDarajaConfiguration, DARAJA_ENV: 'production', DARAJA_CONSUMER_KEY: 'http-502-test-consumer-key' },
+      fetcher,
+    }),
+    (error: unknown) => error instanceof DarajaRequestError
+      && error.stage === 'stk_push'
+      && error.outcome === 'unknown'
+      && error.httpStatus === 502,
   )
   assert.equal(calls, 2)
 })

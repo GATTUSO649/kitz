@@ -55,7 +55,7 @@ type CartLine = { productId: number; variantId?: number; name: string; price: nu
 type AccountUser = { id: number; email: string; fullName: string; phone: string | null }
 type AccountSummary = { orderCount: number; savedAddressCount: number; wishlistCount: number }
 type DeliveryZone = { id: number; name: string; fee: string }
-type MpesaPaymentOptions = { mpesaTillName: string; mpesaTillNumber: string; mpesaMobileNumber: string; stkPushAvailable: boolean }
+type MpesaPaymentOptions = { mpesaTillName: string; mpesaTillNumber: string; mpesaMobileNumber: string; mpesaTransactionType: string; stkPushAvailable: boolean }
 type CustomerOrder = { orderNumber: string; status: string; paymentMethod: 'pay_on_delivery' | 'mpesa'; currency: string; total: string; createdAt: string }
 
 const money = new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES', maximumFractionDigits: 0 })
@@ -120,8 +120,8 @@ function CheckoutPaymentOptions({ paymentMethod, onPaymentMethodChange, mpesaOpt
     <label className="checkout-payment-option"><input type="radio" name="paymentMethod" value="pay_on_delivery" checked={paymentMethod === 'pay_on_delivery'} onChange={() => onPaymentMethodChange('pay_on_delivery')} /><span><strong>Pay on Delivery</strong><small>Pay when your kit is delivered.</small></span></label>
     <label className="checkout-payment-option"><input type="radio" name="paymentMethod" value="mpesa" checked={paymentMethod === 'mpesa'} disabled={!mpesaReady} onChange={() => onPaymentMethodChange('mpesa')} /><span><strong>M-PESA Express (STK Push)</strong><small>{mpesaReady ? 'Approve the payment prompt on your chosen Kenyan number.' : 'Temporarily unavailable.'}</small></span></label>
     {paymentMethod === 'mpesa' ? <div className="checkout-mpesa-panel">
-      <div className="checkout-mpesa-merchant"><Smartphone size={19} /><span><strong>{mpesaOptions?.mpesaTillName || 'KitCulture'}</strong><small>Buy Goods Till</small></span></div>
-      <dl><div><dt>Till number</dt><dd>{mpesaOptions?.mpesaTillNumber || 'Not configured yet'}</dd></div></dl>
+      <div className="checkout-mpesa-merchant"><Smartphone size={19} /><span><strong>{mpesaOptions?.mpesaTillName || 'KitCulture'}</strong><small>{mpesaOptions?.mpesaTransactionType === 'CustomerPayBillOnline' ? 'PayBill' : 'Buy Goods Till'}</small></span></div>
+      <dl><div><dt>{mpesaOptions?.mpesaTransactionType === 'CustomerPayBillOnline' ? 'PayBill number' : 'Till number'}</dt><dd>{mpesaOptions?.mpesaTillNumber || 'Not configured yet'}</dd></div></dl>
       {mpesaOptions?.mpesaMobileNumber && <dl><div><dt>Manual payment to mobile</dt><dd>{mpesaOptions.mpesaMobileNumber}</dd></div></dl>}
       <label>M-PESA phone number<input type="tel" inputMode="tel" autoComplete="tel" required pattern="(?:0[17][0-9]{8}|\\+?254[17][0-9]{8})" title="Enter a valid Kenyan number, such as 0712345678 or +254712345678." maxLength={13} placeholder="0712345678 or +254712345678" value={payerPhone} onChange={(event) => onPayerPhoneChange(event.target.value)} /></label>
       <dl><div><dt>Paying customer</dt><dd>{accountUser?.fullName || 'Signed-in customer'}</dd></div><div><dt>Prompt destination</dt><dd>{payerPhone || 'Enter a Kenyan phone number'}</dd></div></dl>

@@ -136,7 +136,7 @@ ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, re
   if (input.data.paymentMethod === 'mpesa') {
     const [till] = await db.select({ value: applicationSettings.value }).from(applicationSettings)
       .where(eq(applicationSettings.key, 'mpesaTillNumber')).limit(1)
-    const shortcodes = resolveDarajaShortcodes(env.DARAJA_ENV, env.DARAJA_SHORTCODE, till?.value)
+    const shortcodes = resolveDarajaShortcodes(env.DARAJA_ENV, env.DARAJA_TRANSACTION_TYPE, env.DARAJA_SHORTCODE, till?.value)
     if (!isDarajaConfigured(shortcodes.businessShortcode) || !/^\d{5,20}$/.test(shortcodes.partyB)) {
       response.status(503).json({ error: { code: 'MPESA_NOT_CONFIGURED', message: 'M-Pesa payments are not configured yet.' } })
       return
@@ -301,7 +301,7 @@ ordersRouter.post('/orders/:orderNumber/mpesa/stk-push', rejectCrossOrigin, stkP
 
   const [settings] = await db.select({ value: applicationSettings.value }).from(applicationSettings)
     .where(eq(applicationSettings.key, 'mpesaTillNumber')).limit(1)
-  const shortcodes = resolveDarajaShortcodes(env.DARAJA_ENV, env.DARAJA_SHORTCODE, settings?.value)
+  const shortcodes = resolveDarajaShortcodes(env.DARAJA_ENV, env.DARAJA_TRANSACTION_TYPE, env.DARAJA_SHORTCODE, settings?.value)
   if (!isDarajaConfigured(shortcodes.businessShortcode) || !/^\d{5,20}$/.test(shortcodes.partyB)) return response.status(503).json({ error: { code: 'MPESA_NOT_CONFIGURED', message: 'M-Pesa payments are not configured yet. Complete the Daraja server settings first.' } })
 
   const phone = normalizeKenyanPhone(input.data.phone)

@@ -39,6 +39,7 @@ const schema = z.object({
   ADMIN_MYSQL_URL: z.string().min(1).optional(),
   MYSQL_SSL_CA: z.string().min(1).optional(),
   MYSQL_SSL_VERIFY: z.enum(['true', 'false']).default('true').transform((value) => value === 'true'),
+  APP_URL: z.string().url().optional(),
   CLOUDINARY_CLOUD_NAME: z.string().min(1).optional(),
   CLOUDINARY_API_KEY: z.string().min(1).optional(),
   CLOUDINARY_API_SECRET: z.string().min(1).optional(),
@@ -50,6 +51,8 @@ const schema = z.object({
   DARAJA_SHORTCODE: z.string().regex(/^\d{5,20}$/).optional(),
   DARAJA_CALLBACK_BASE_URL: z.string().url().optional(),
   DARAJA_CALLBACK_TOKEN: z.string().min(32).optional(),
+  MPESA_ACCOUNT_REFERENCE: z.string().trim().min(1).max(64).default('KitZone'),
+  MPESA_TRANSACTION_DESC: z.string().trim().min(1).max(64).default('Jersey Purchase'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 })
 
@@ -68,7 +71,7 @@ const parsed = schema.safeParse({
   DARAJA_PASSKEY: process.env.DARAJA_PASSKEY ?? process.env.MPESA_PASSKEY,
   DARAJA_TRANSACTION_TYPE: process.env.DARAJA_TRANSACTION_TYPE ?? process.env.MPESA_TRANSACTION_TYPE,
   DARAJA_SHORTCODE: process.env.DARAJA_SHORTCODE ?? process.env.MPESA_SHORTCODE,
-  DARAJA_CALLBACK_BASE_URL: process.env.DARAJA_CALLBACK_BASE_URL ?? legacyCallbackBaseUrl,
+  DARAJA_CALLBACK_BASE_URL: process.env.DARAJA_CALLBACK_BASE_URL ?? legacyCallbackBaseUrl ?? process.env.APP_URL,
   DARAJA_CALLBACK_TOKEN: process.env.DARAJA_CALLBACK_TOKEN ?? process.env.MPESA_CALLBACK_TOKEN,
 })
 if (!parsed.success) {
@@ -76,6 +79,7 @@ if (!parsed.success) {
 }
 
 export function resolveDarajaEnvironment(nodeEnvironment: string, configuredEnvironment?: 'sandbox' | 'production') {
+  if (nodeEnvironment === 'production') return configuredEnvironment === 'production' ? 'production' : undefined
   if (configuredEnvironment) return configuredEnvironment
   return nodeEnvironment === 'development' || nodeEnvironment === 'test' ? 'sandbox' : undefined
 }

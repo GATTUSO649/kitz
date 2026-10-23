@@ -13,11 +13,12 @@ catalogueRouter.get('/store/payment-options', async (_request, response) => {
   const settings = await db.select({ key: applicationSettings.key, value: applicationSettings.value }).from(applicationSettings)
     .where(inArray(applicationSettings.key, ['mpesaTillName', 'mpesaTillNumber', 'mpesaMobileNumber']))
   const values = Object.fromEntries(settings.map(({ key, value }) => [key, value]))
-  const shortcodes = resolveDarajaShortcodes(env.DARAJA_ENV, env.DARAJA_SHORTCODE, values.mpesaTillNumber)
-  const mpesaTillNumber = env.DARAJA_ENV === 'production' ? shortcodes.partyB : shortcodes.businessShortcode
+  const shortcodes = resolveDarajaShortcodes(env.DARAJA_ENV, env.DARAJA_TRANSACTION_TYPE, env.DARAJA_SHORTCODE, values.mpesaTillNumber)
+  const mpesaTillNumber = shortcodes.partyB
   response.json({ data: {
     mpesaTillName: values.mpesaTillName ?? '',
     mpesaTillNumber,
+    mpesaTransactionType: env.DARAJA_TRANSACTION_TYPE ?? '',
     mpesaMobileNumber: values.mpesaMobileNumber ?? '',
     stkPushAvailable: isDarajaConfigured(shortcodes.businessShortcode) && /^\d{5,20}$/.test(shortcodes.partyB),
   } })

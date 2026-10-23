@@ -25,7 +25,32 @@ Use `CustomerBuyGoodsOnline` only for a Buy Goods Till and `CustomerPayBillOnlin
 
 The HTTPS callback URL registered with Daraja is `${DARAJA_CALLBACK_BASE_URL}/api/v1/orders/mpesa/callback/${DARAJA_CALLBACK_TOKEN}`. The public host must route that path to this API. Localhost is not reachable by Safaricom; use a secure public development tunnel for sandbox callback testing.
 
-Select `sandbox` until the sandbox flow is tested. Use `production` only with production Daraja credentials and an approved business shortcode/Till. Restart the API after changing environment values. Checkout enables M-Pesa only when the Till and all required server settings are valid.
+Use `sandbox` only for development/testing. A production server requires `DARAJA_ENV=production` (or `MPESA_ENV=production`) and live credentials. Checkout enables STK Push only when the matching approved merchant details and all required server settings are valid.
+
+## Production on Render
+
+Set live payment values in Render's server environment, never in Vite variables, source files, or the local `.env`:
+
+```env
+NODE_ENV=production
+MPESA_ENV=production
+MPESA_CONSUMER_KEY=<live consumer key>
+MPESA_CONSUMER_SECRET=<live consumer secret>
+MPESA_SHORTCODE=<Safaricom-approved production shortcode>
+MPESA_PASSKEY=<live Lipa na M-Pesa Online passkey>
+MPESA_TRANSACTION_TYPE=CustomerBuyGoodsOnline
+APP_URL=https://your-production-domain
+MPESA_CALLBACK_TOKEN=<random secret of at least 32 characters>
+MPESA_ACCOUNT_REFERENCE=KitZone
+MPESA_TRANSACTION_DESC=Jersey Purchase
+CLIENT_ORIGIN=https://your-production-domain
+```
+
+`DARAJA_*` names are also supported. `MPESA_CALLBACK_URL` may be supplied instead of `APP_URL`; the application uses its HTTPS origin and builds the callback path. Register the exact generated callback URL with the matching live Daraja app. The account reference is limited to 12 characters and the transaction description is truncated to Daraja's 13-character limit. Do not enable live mode until Safaricom has issued the live credentials and confirmed the shortcode, passkey, product activation, and transaction type.
+
+For `CustomerBuyGoodsOnline`, set the approved shortcode in `MPESA_SHORTCODE` and the authorized receiving Till in Admin → Business settings. For `CustomerPayBillOnline`, set the approved PayBill shortcode in `MPESA_SHORTCODE`; the STK request uses that shortcode as `PartyB` and does not require a Till setting. The transaction type must match the Safaricom-approved account and product.
+
+A personal mobile number is not interchangeable with an STK business shortcode or Till. This integration cannot direct STK settlement to a plain personal MSISDN. Ask Safaricom to provision and authorize the appropriate PayBill, Till, or Lipa na M-Pesa Online merchant details and settlement destination; do not put a personal phone number in `MPESA_SHORTCODE` or use an unapproved transaction type. The repository cannot verify credentials or merchant approval, so code and mocked tests alone do not establish live readiness.
 
 ## Customer and Verification Rules
 
@@ -35,8 +60,8 @@ Select `sandbox` until the sandbox flow is tested. Use `production` only with pr
 - Duplicate callbacks are idempotent. A receipt cannot be reused because the provider receipt is unique.
 - Admin → Payments displays order, status, amount, receipt, transaction time, payer phone, provider result code, and sanitized diagnostics.
 - Daraja does not provide a cryptographic callback signature here. The callback uses an unguessable HTTPS path token and the backend verifies the STK query plus transaction identifiers, amount, payer phone, and time. Browser responses and user-entered receipts never mark an order paid.
-- A definite provider rejection is retryable. If the network times out after STK submission, the payment becomes `requires_review`; do not retry until its status is reconciled, because Safaricom may have received the first request.
+- A definite provider rejection is retryable. If the network times out or Safaricom returns HTTP 5xx after STK submission, the payment becomes `requires_review`; do not retry until its status is reconciled, because Safaricom may have received the first request.
 
 ## Before Production
 
-Run mocked tests, then a sandbox order from checkout through callback and confirm its status and receipt in Admin → Payments. The public callback route is `POST /api/v1/orders/mpesa/callback/:token` and does not require a customer session. Then configure production credentials, callback host, explicit transaction type, and approved Till, and verify against real Daraja responses before accepting live orders. Mocked tests and a successful build do not prove production payments work. Never mark an order paid based on a browser response or customer-entered receipt code.
+The public callback route is `POST /api/v1/orders/mpesa/callback/:token` and does not require a customer session. Before enabling live checkout, verify a controlled production transaction and its callback/query reconciliation using Safaricom-approved merchant procedures. Sandbox tests and mocked tests can verify code paths, but do not prove production credentials or merchant configuration work. Never mark an order paid based on a browser response or customer-entered receipt code.

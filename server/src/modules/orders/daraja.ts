@@ -2,7 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 import { env } from '../../config/env.js'
 
 type DarajaResponse = Record<string, unknown>
-type DarajaConfiguration = Pick<typeof env, 'DARAJA_ENV' | 'DARAJA_CONSUMER_KEY' | 'DARAJA_CONSUMER_SECRET' | 'DARAJA_PASSKEY' | 'DARAJA_CALLBACK_BASE_URL' | 'DARAJA_CALLBACK_TOKEN' | 'DARAJA_TRANSACTION_TYPE'>
+type DarajaConfiguration = Pick<typeof env, 'DARAJA_ENV' | 'DARAJA_CONSUMER_KEY' | 'DARAJA_CONSUMER_SECRET' | 'DARAJA_PASSKEY' | 'DARAJA_CALLBACK_BASE_URL' | 'DARAJA_CALLBACK_TOKEN' | 'DARAJA_TRANSACTION_TYPE' | 'MPESA_ACCOUNT_REFERENCE' | 'MPESA_TRANSACTION_DESC'>
 type DarajaRequestDependencies = { configuration?: DarajaConfiguration; fetcher?: typeof fetch; now?: Date }
 
 export class DarajaRequestError extends Error {
@@ -81,7 +81,9 @@ function apiBase(configuration: DarajaConfiguration) {
 const accessTokens = new Map<string, { token: string; expiresAt: number }>()
 
 export function normalizeKenyanPhone(value: string) {
-  const digits = value.replace(/[^0-9]/g, '')
+  const input = value.trim()
+  if (!/^\+?[0-9\s()-]+$/.test(input) || (input.includes('+') && !input.startsWith('+'))) return null
+  const digits = input.replace(/\D/g, '')
   const normalized = digits.startsWith('0') ? `254${digits.slice(1)}` : digits
   return /^254[17]\d{8}$/.test(normalized) ? normalized : null
 }
@@ -105,7 +107,6 @@ export function isDarajaConfigured(shortcode: string) {
   const effectiveShortcode = shortcode || env.DARAJA_SHORTCODE || ''
   if (!env.DARAJA_ENV || !env.DARAJA_TRANSACTION_TYPE || !env.DARAJA_CONSUMER_KEY || !env.DARAJA_CONSUMER_SECRET || !env.DARAJA_PASSKEY
     || !env.DARAJA_CALLBACK_BASE_URL || !env.DARAJA_CALLBACK_TOKEN || !/^\d{5,20}$/.test(effectiveShortcode)) return false
-  if (env.DARAJA_ENV === 'production' && env.DARAJA_TRANSACTION_TYPE !== 'CustomerBuyGoodsOnline') return false
   try {
     const callbackUrl = new URL(buildDarajaCallbackUrl(env.DARAJA_CALLBACK_BASE_URL, env.DARAJA_CALLBACK_TOKEN))
     return !/your-public-domain|example\.com|localhost/i.test(callbackUrl.hostname)
@@ -116,11 +117,14 @@ export function isDarajaConfigured(shortcode: string) {
 
 export function resolveDarajaShortcodes(
   environment: 'sandbox' | 'production' | undefined,
+  transactionType: 'CustomerPayBillOnline' | 'CustomerBuyGoodsOnline' | undefined,
   configuredBusinessShortcode: string | undefined,
   receivingTill: string | undefined,
 ) {
   const businessShortcode = configuredBusinessShortcode?.trim() ?? ''
-  const partyB = environment === 'production' ? receivingTill?.trim() ?? '' : businessShortcode
+  const partyB = environment === 'production' && transactionType === 'CustomerBuyGoodsOnline'
+    ? receivingTill?.trim() ?? ''
+    : businessShortcode
   return { businessShortcode, partyB }
 }
 
@@ -244,7 +248,10 @@ async function authenticatedPost(path: string, body: Record<string, unknown>, co
   }
   let result: DarajaResponse
   try { result = await response.json() as DarajaResponse } catch { throw new DarajaRequestError(stage, 'unknown') }
-  if (!response.ok) throw new DarajaRequestError(stage, 'rejected', safeProviderCode(result.errorCode), response.status)
+  if (!response.ok) {
+    const outcome = response.status >= 500 || response.status === 408 ? 'unknown' : 'rejected'
+    throw new DarajaRequestError(stage, outcome, safeProviderCode(result.errorCode), response.status)
+  }
   return result
 }
 
@@ -262,8 +269,8 @@ export async function initiateStkPush(input: { businessShortcode: string; partyB
     PartyB: input.partyB,
     PhoneNumber: input.phone,
     CallBackURL: darajaCallbackUrl(configuration),
-    AccountReference: input.accountReference.slice(0, 12),
-    TransactionDesc: `KitCulture ${input.accountReference}`.slice(0, 13),
+    AccountReference: configuration.MPESA_ACCOUNT_REFERENCE.slice(0, 12),
+    TransactionDesc: configuration.MPESA_TRANSACTION_DESC.slice(0, 13),
   }, configuration, fetcher, 'stk_push')
   if (result.ResponseCode !== '0') {
     throw new DarajaRequestError('stk_push', 'rejected', safeProviderCode(result.ResponseCode))
