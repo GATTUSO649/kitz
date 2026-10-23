@@ -44,6 +44,7 @@ test('development accepts the configured Vite fallback port 5175', () => {
 test('production MySQL connections require verified TLS and accept a custom CA', () => {
   assert.deepEqual(mysqlSslOptions('production'), { rejectUnauthorized: true })
   assert.deepEqual(mysqlSslOptions('production', 'test-ca'), { rejectUnauthorized: true, ca: 'test-ca' })
+  assert.deepEqual(mysqlSslOptions('production', undefined, false), { rejectUnauthorized: false })
   assert.equal(mysqlSslOptions('development'), undefined)
 })
 

@@ -3,6 +3,10 @@ import { env } from './config/env.js'
 import { logger } from './config/logger.js'
 import { adminPool, pool } from './config/database.js'
 
+if (env.NODE_ENV === 'production' && !env.MYSQL_SSL_VERIFY) {
+  logger.warn('MySQL TLS certificate verification is disabled; traffic is encrypted but server identity is not authenticated')
+}
+
 const server = app.listen(env.PORT, () => {
   logger.info({ port: env.PORT, databaseConfigured: Boolean(pool) }, 'KitCulture API listening')
 })

@@ -38,6 +38,7 @@ const schema = z.object({
   MYSQL_PUBLIC_URL: z.string().min(1).optional(),
   ADMIN_MYSQL_URL: z.string().min(1).optional(),
   MYSQL_SSL_CA: z.string().min(1).optional(),
+  MYSQL_SSL_VERIFY: z.enum(['true', 'false']).default('true').transform((value) => value === 'true'),
   CLOUDINARY_CLOUD_NAME: z.string().min(1).optional(),
   CLOUDINARY_API_KEY: z.string().min(1).optional(),
   CLOUDINARY_API_SECRET: z.string().min(1).optional(),
