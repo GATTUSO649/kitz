@@ -140,6 +140,11 @@ test('diagnoses nested MySQL TLS errors without logging Drizzle SQL or credentia
   assert.ok(result.errors.every(({ message }) => !message.includes('secret@example.com')))
 })
 
+test('preserves IP addresses in sanitized database connection errors', () => {
+  const result = inspectDatabaseError(Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:3306'), { code: 'ECONNREFUSED' }))
+  assert.equal(result.errors[0].message, 'connect ECONNREFUSED 127.0.0.1:3306')
+})
+
 test('distinguishes missing MySQL tables and columns from connection failures', () => {
   assert.equal(inspectDatabaseError(Object.assign(new Error("Table 'railway.products' doesn't exist"), { code: 'ER_NO_SUCH_TABLE' })).category, 'missing_table')
   assert.equal(inspectDatabaseError(Object.assign(new Error("Unknown column 'published' in 'where clause'"), { code: 'ER_BAD_FIELD_ERROR' })).category, 'missing_column')
@@ -162,10 +167,10 @@ test('returns temporary-unavailability responses when MySQL is unreachable', asy
   assert.equal(login.headers.get('set-cookie'), null)
 })
 
-test('trusts one Render proxy hop so forwarded IPs work with rate limiting', async () => {
-  assert.equal(app.get('trust proxy'), 1)
+test('trusts the observed Render and Cloudflare proxy chain for rate limiting', async () => {
+  assert.equal(app.get('trust proxy'), 3)
   const response = await fetch(`${baseUrl}/api/v1/missing`, {
-    headers: { 'x-forwarded-for': '198.51.100.24' },
+    headers: { 'x-forwarded-for': '198.51.100.24, 104.23.243.42, 10.24.90.146' },
   })
   assert.equal(response.status, 404)
   assert.ok(response.headers.has('ratelimit-policy'))

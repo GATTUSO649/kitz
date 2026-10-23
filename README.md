@@ -22,7 +22,7 @@ KitCulture is a React/TypeScript storefront with an Express API and a Drizzle/My
 - Persistent Cloudinary-backed product image galleries with validated JPEG/PNG/WebP uploads, alt text, ordering, primary-image selection, and deletion; product creation can upload a kit image in the same flow, and a failed image upload keeps the created product selected for retry. Administrators can manage scheduled homepage slides and the storefront reads published slides and available team collections from the catalogue API.
 - Catalogue sale pricing, trending flags, product-image galleries, paginated product responses, and live/liveness/readiness health endpoints.
 - Express security headers, restricted development CORS, JSON size limit, request rate limiting, structured request logs, input validation, and generic server errors.
-- Separate MySQL schemas and Drizzle migration workflows: `kitculture` holds customer/store data, while `kitculture_admin` holds administrator accounts, sessions, verification tokens, setup locks, and administrator audit logs.
+- One MySQL database for storefront and administrator data, with separate customer/admin authentication flows and role-protected routes.
 - Drizzle schema and migration tooling for customers, saved addresses, wishlists, categories, products, variants, inventory movements, carts, order snapshots, support conversations and location pins, payments, delivery zones, expenses, and application settings.
 
 ## Important limitations

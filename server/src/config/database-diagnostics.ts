@@ -43,7 +43,7 @@ function safeMessage(error: Error, code?: string, sqlState?: string): string {
     .replace(/mysql(?:s)?:\/\/[^\s'"`]+/gi, '[redacted-db-url]')
     .replace(/Access denied for user\s+'[^']+'@'[^']+'/gi, 'Access denied for user [redacted]')
     .replace(/[\w.+-]+@[\w.-]+\.[A-Z]{2,}/gi, '[redacted-email]')
-    .replace(/\+?\d[\d ().-]{7,}\d/g, '[redacted-number]')
+    .replace(/\b(?:phone|mobile|msisdn)(\s*[=:]\s*)\+?[\d ().-]{8,}/gi, '$1[redacted-number]')
     .replace(/(password\s*[=:]\s*)[^\s,;]+/gi, '$1[redacted]')
     .slice(0, 400)
 }
