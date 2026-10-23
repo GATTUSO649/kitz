@@ -5,7 +5,7 @@ import { mysqlSslOptions } from '../../config/database.js'
 import { isAllowedClientOrigin, resolveDarajaEnvironment, resolveDarajaTransactionType } from '../../config/env.js'
 import { loginSchema, registerSchema } from './routes.js'
 import { createOrderSchema, createTemporaryOrderNumber, exceedsProductQuantityLimit, ordersRouter } from '../orders/routes.js'
-import { buildDarajaCallbackUrl, callbackFailureStatus, canVerifySuccessfulStkPayment, DarajaRequestError, darajaCallbackRoute, initiateStkPush, isFinalDarajaPaymentStatus, isValidDarajaPaymentAmount, matchesCallbackToken, normalizeKenyanPhone, parseDarajaTimestamp, parseStkCallback } from '../orders/daraja.js'
+import { buildDarajaCallbackUrl, callbackFailureStatus, canVerifySuccessfulStkPayment, DarajaRequestError, darajaCallbackRoute, initiateStkPush, isFinalDarajaPaymentStatus, isValidDarajaPaymentAmount, matchesCallbackToken, normalizeKenyanPhone, parseDarajaTimestamp, parseStkCallback, resolveDarajaShortcode } from '../orders/daraja.js'
 import { createAddressSchema, passwordSchema, productReviewSchema, profileSchema, supportMessageSchema, supportRequestSchema } from '../account/routes.js'
 import { adminNotificationSchema, canTransitionOrderStatus, createProductSchema, homepageSlideBatchSchema, homepageSlideSchema, isDuplicateKeyError, settingsSchema, supportUpdateSchema } from '../admin/routes.js'
 import { detectImageFormat } from '../admin/image-storage.js'
@@ -400,6 +400,16 @@ test('production requires an explicit Daraja environment instead of silently sel
   assert.equal(resolveDarajaEnvironment('test'), 'sandbox')
   assert.equal(resolveDarajaEnvironment('production'), undefined)
   assert.equal(resolveDarajaEnvironment('production', 'production'), 'production')
+})
+
+test('sandbox uses its Daraja shortcode instead of the production Till setting', () => {
+  assert.equal(resolveDarajaShortcode('sandbox', '174379', '4682146'), '174379')
+  assert.equal(resolveDarajaShortcode('sandbox', undefined, '4682146'), '')
+})
+
+test('production keeps the configured business Till and falls back to its environment value', () => {
+  assert.equal(resolveDarajaShortcode('production', '174379', '4682146'), '4682146')
+  assert.equal(resolveDarajaShortcode('production', '4682146', undefined), '4682146')
 })
 
 test('Daraja accepts supported Kenyan payer phone formats and rejects malformed numbers', () => {

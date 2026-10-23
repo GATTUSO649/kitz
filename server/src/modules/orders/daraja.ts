@@ -112,6 +112,16 @@ export function isDarajaConfigured(shortcode: string) {
   }
 }
 
+export function resolveDarajaShortcode(
+  environment: 'sandbox' | 'production' | undefined,
+  configuredShortcode: string | undefined,
+  businessShortcode: string | undefined,
+) {
+  const configured = configuredShortcode?.trim() ?? ''
+  const business = businessShortcode?.trim() ?? ''
+  return environment === 'production' ? business || configured : configured
+}
+
 export function buildDarajaCallbackUrl(baseOrCallbackUrl: string, token: string) {
   if (token.length < 32) throw new Error('The callback token must be at least 32 characters.')
   const callbackUrl = new URL(baseOrCallbackUrl)

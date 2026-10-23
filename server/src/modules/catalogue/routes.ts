@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { db } from '../../config/database.js'
 import { env } from '../../config/env.js'
 import { applicationSettings, categories, homepageSlides, jerseyCategories, leagues, orderItems, orders, productImages, productReviews, productVariants, products, productVideos, teams } from '../../database/schema.js'
-import { isDarajaConfigured } from '../orders/daraja.js'
+import { isDarajaConfigured, resolveDarajaShortcode } from '../orders/daraja.js'
 
 export const catalogueRouter = Router()
 
@@ -13,11 +13,12 @@ catalogueRouter.get('/store/payment-options', async (_request, response) => {
   const settings = await db.select({ key: applicationSettings.key, value: applicationSettings.value }).from(applicationSettings)
     .where(inArray(applicationSettings.key, ['mpesaTillName', 'mpesaTillNumber', 'mpesaMobileNumber']))
   const values = Object.fromEntries(settings.map(({ key, value }) => [key, value]))
+  const mpesaTillNumber = resolveDarajaShortcode(env.DARAJA_ENV, env.DARAJA_SHORTCODE, values.mpesaTillNumber)
   response.json({ data: {
     mpesaTillName: values.mpesaTillName ?? '',
-    mpesaTillNumber: values.mpesaTillNumber ?? env.DARAJA_SHORTCODE ?? '',
+    mpesaTillNumber,
     mpesaMobileNumber: values.mpesaMobileNumber ?? '',
-    stkPushAvailable: isDarajaConfigured(values.mpesaTillNumber ?? ''),
+    stkPushAvailable: isDarajaConfigured(mpesaTillNumber),
   } })
 })
 
