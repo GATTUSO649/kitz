@@ -11,8 +11,8 @@ export function resolveDatabaseUrl(primaryKey: 'DATABASE_URL' | 'ADMIN_DATABASE_
   }
 
   const directFromRailway = primaryKey === 'DATABASE_URL'
-    ? process.env.MYSQL_URL ?? process.env.MYSQL_URI
-    : process.env.ADMIN_MYSQL_URL ?? process.env.MYSQL_URL
+    ? process.env.MYSQL_URL ?? process.env.MYSQL_URI ?? process.env.MYSQL_PUBLIC_URL
+    : process.env.ADMIN_MYSQL_URL ?? process.env.MYSQL_URL ?? process.env.MYSQL_PUBLIC_URL
   if (directFromRailway && directFromRailway.trim()) return directFromRailway.trim()
 
   const host = process.env.MYSQLHOST ?? process.env.MYSQL_HOST
@@ -35,6 +35,7 @@ const schema = z.object({
   DATABASE_URL: z.string().min(1).optional(),
   ADMIN_DATABASE_URL: z.string().min(1).optional(),
   MYSQL_URL: z.string().min(1).optional(),
+  MYSQL_PUBLIC_URL: z.string().min(1).optional(),
   ADMIN_MYSQL_URL: z.string().min(1).optional(),
   MYSQL_SSL_CA: z.string().min(1).optional(),
   CLOUDINARY_CLOUD_NAME: z.string().min(1).optional(),
@@ -57,8 +58,8 @@ const legacyCallbackBaseUrl = (() => {
 
 const parsed = schema.safeParse({
   ...process.env,
-  DATABASE_URL: process.env.DATABASE_URL ?? resolveDatabaseUrl('DATABASE_URL', ['MYSQL_URL', 'MYSQL_URI']),
-  ADMIN_DATABASE_URL: process.env.ADMIN_DATABASE_URL ?? process.env.DATABASE_URL ?? resolveDatabaseUrl('ADMIN_DATABASE_URL', ['ADMIN_MYSQL_URL', 'MYSQL_URL']),
+  DATABASE_URL: process.env.DATABASE_URL ?? resolveDatabaseUrl('DATABASE_URL', ['MYSQL_URL', 'MYSQL_URI', 'MYSQL_PUBLIC_URL']),
+  ADMIN_DATABASE_URL: process.env.ADMIN_DATABASE_URL ?? process.env.DATABASE_URL ?? resolveDatabaseUrl('ADMIN_DATABASE_URL', ['ADMIN_MYSQL_URL', 'MYSQL_URL', 'MYSQL_PUBLIC_URL']),
   DARAJA_ENV: process.env.DARAJA_ENV ?? process.env.MPESA_ENV,
   DARAJA_CONSUMER_KEY: process.env.DARAJA_CONSUMER_KEY ?? process.env.MPESA_CONSUMER_KEY,
   DARAJA_CONSUMER_SECRET: process.env.DARAJA_CONSUMER_SECRET ?? process.env.MPESA_CONSUMER_SECRET,

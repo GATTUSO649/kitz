@@ -57,6 +57,30 @@ test('reads Railway-style MYSQL_URL values when DATABASE_URL is not set', async 
   }
 })
 
+test('reads Railway MYSQL_PUBLIC_URL when the private URL is unavailable', () => {
+  const previous = process.env.DATABASE_URL
+  const mysqlPrevious = process.env.MYSQL_URL
+  const mysqlUriPrevious = process.env.MYSQL_URI
+  const publicUrlPrevious = process.env.MYSQL_PUBLIC_URL
+  process.env.DATABASE_URL = ''
+  process.env.MYSQL_URL = ''
+  process.env.MYSQL_URI = ''
+  process.env.MYSQL_PUBLIC_URL = 'mysql://root:secret@iriguchi.proxy.rlwy.net:14915/railway'
+
+  try {
+    assert.equal(resolveDatabaseUrl('DATABASE_URL', ['MYSQL_URL', 'MYSQL_URI', 'MYSQL_PUBLIC_URL']), 'mysql://root:secret@iriguchi.proxy.rlwy.net:14915/railway')
+  } finally {
+    if (previous === undefined) delete process.env.DATABASE_URL
+    else process.env.DATABASE_URL = previous
+    if (mysqlPrevious === undefined) delete process.env.MYSQL_URL
+    else process.env.MYSQL_URL = mysqlPrevious
+    if (mysqlUriPrevious === undefined) delete process.env.MYSQL_URI
+    else process.env.MYSQL_URI = mysqlUriPrevious
+    if (publicUrlPrevious === undefined) delete process.env.MYSQL_PUBLIC_URL
+    else process.env.MYSQL_PUBLIC_URL = publicUrlPrevious
+  }
+})
+
 test('serves the built homepage and Vite assets without production NODE_ENV', { skip: !hasClientBuild }, async () => {
   const html = readFileSync(`${clientDist}/index.html`, 'utf8')
   const scriptPath = /<script[^>]+src="([^"]+\.js)"/.exec(html)?.[1]
