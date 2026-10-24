@@ -23,14 +23,15 @@ test('registration normalizes email and accepts a long password', () => {
   if (result.success) assert.equal(result.data.email, 'fan@example.com')
 })
 
-test('registration rejects a short password and malformed email', () => {
-  const result = registerSchema.safeParse({
+test('customer registration accepts an eight-character password and rejects shorter passwords', () => {
+  const base = {
     fullName: 'Supporter Name',
-    email: 'not-an-email',
-    password: 'short',
-  })
+    email: 'fan@example.com',
+  }
 
-  assert.equal(result.success, false)
+  assert.equal(registerSchema.safeParse({ ...base, password: 'password' }).success, true)
+  assert.equal(registerSchema.safeParse({ ...base, password: 'pass123' }).success, false)
+  assert.equal(registerSchema.safeParse({ ...base, email: 'not-an-email', password: 'password' }).success, false)
 })
 
 test('login rejects an empty password', () => {

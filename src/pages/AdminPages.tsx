@@ -285,11 +285,9 @@ export function AdminRegisterPage() {
       ? <><p>Account created. Use the one-time verification link below to activate the administrator account. It expires in 30 minutes.</p><Link className="button button-green" to={verificationUrl}>Verify administrator email <ArrowRight size={16} /></Link></>
       : setupQuery.isPending
         ? <p>Checking administrator setup…</p>
-        : setupQuery.isError
-          ? <p className="admin-error" role="alert">{setupQuery.error.message}</p>
-          : !setupQuery.data?.available
+        : !setupQuery.isError && !setupQuery.data?.available
             ? <><p>Administrator signup is unavailable. The site owner must configure the signup key before accounts can be created.</p><Link className="button button-green" to="/admin/login" onClick={(event) => transitionAdminAuth(event, navigate, '/admin/login')}>Go to administrator sign in <ArrowRight size={16} /></Link></>
-            : <form onSubmit={(event) => void submit(event)}>
+            : <>{setupQuery.isError && <p className="admin-error" role="alert">{setupQuery.error.message}</p>}<form onSubmit={(event) => void submit(event)}>
               <p>Enter the setup key configured by the site owner. Every administrator account must be verified before sign-in.</p>
               <label>Full name<input name="fullName" autoComplete="name" required minLength={2} maxLength={160} /></label>
               <label>Email<input name="email" type="email" autoComplete="email" required maxLength={254} /></label>
@@ -298,7 +296,7 @@ export function AdminRegisterPage() {
               <label>Administrator setup key<input name="secretKey" type="password" autoComplete="off" required maxLength={512} /></label>
               {error && <p className="admin-error" role="alert">{error}</p>}
               <button className="button button-green" type="submit" disabled={busy}>{busy ? 'Creating account…' : 'Create administrator account'} <ArrowRight size={16} /></button>
-            </form>}
+            </form></>}
   </section></AdminAuthLayout>
 }
 

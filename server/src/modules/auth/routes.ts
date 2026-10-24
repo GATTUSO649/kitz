@@ -14,7 +14,7 @@ const sessionDurationMs = 1000 * 60 * 60 * 24 * 30
 
 export const registerSchema = z.object({
   email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
-  password: bcryptPasswordSchema(12),
+  password: bcryptPasswordSchema(8),
   fullName: z.string().trim().min(2).max(160),
   phone: z.string().trim().max(20).optional(),
 })
