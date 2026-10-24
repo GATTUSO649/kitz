@@ -905,7 +905,7 @@ function App() {
   }
 
   return (
-    <div className="public-storefront">
+    <div className={`public-storefront${isHomePage ? ' is-home' : ''}`}>
       {introVisible && <div className="brand-intro" aria-label="KitCulture introduction">
         <div className="intro-identity">
           <img className="intro-logo" src={cultureLogo} alt="" />

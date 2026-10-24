@@ -1,4 +1,4 @@
-.public-storefront {
+.public-storefront:not(.is-home) {
   --green: #3984d8;
   --green-dark: #2468b2;
   --paper: #f5f8fc;
@@ -16,262 +16,239 @@
   color-scheme: light;
 }
 
-.public-storefront .announcement {
+.public-storefront:not(.is-home) .announcement {
   background: #2672bd;
   color: #fff;
 }
 
-.public-storefront .announcement span {
+.public-storefront:not(.is-home) .announcement span {
   color: #d8eaff;
 }
 
-.public-storefront .site-header {
+.public-storefront:not(.is-home) .site-header {
   border-color: #1c3553;
   background: #071a33;
   color: #f5f8fc;
 }
 
-.public-storefront .wordmark,
-.public-storefront .main-nav a,
-.public-storefront .header-actions .icon-button {
+.public-storefront:not(.is-home) .wordmark,
+.public-storefront:not(.is-home) .main-nav a,
+.public-storefront:not(.is-home) .header-actions .icon-button {
   color: #f3f7fc;
 }
 
-.public-storefront .main-nav a:hover,
-.public-storefront .store-home .main-nav a:first-child,
-.public-storefront .store-home .main-nav a:hover {
+.public-storefront:not(.is-home) .main-nav a:hover {
   color: #73b6ff;
 }
 
-.public-storefront .bag-count {
+.public-storefront:not(.is-home) .bag-count {
   background: #3984d8;
   color: #fff;
 }
 
-.public-storefront main,
-.public-storefront .shop-page,
-.public-storefront .standalone-page,
-.public-storefront .shop-section,
-.public-storefront .values-section {
-  background-color: #f5f8fc;
-  color: #122641;
-}
-
-.public-storefront .store-home {
-  --home-ink: #10213a;
-  --home-muted: #667991;
-  --home-line: #dbe5ef;
-  --home-green: #3984d8;
-  background: #f5f8fc;
-  color: #10213a;
-}
-
-.public-storefront .button-green,
-.public-storefront .quick-add,
-.public-storefront .product-add,
-.public-storefront .bag-count,
-.public-storefront .category-tab.active,
-.public-storefront .catalogue-category.active,
-.public-storefront .catalogue-category:hover {
-  border-color: #2468b2;
-  background: #2468b2;
-  color: #fff;
-}
-
-.public-storefront .button-green:hover,
-.public-storefront .quick-add:hover:not(:disabled),
-.public-storefront .product-add:hover {
-  border-color: #1b5595;
-  background: #1b5595;
-  color: #fff;
-}
-
-.public-storefront .store-home > .hero.home-hero .hero-actions .button,
-.public-storefront .store-home > .hero.home-hero .hero-actions .button-green {
-  border-color: #2468b2;
-  background: #2468b2;
-  color: #fff;
-}
-
-.public-storefront .store-home > .hero.home-hero .hero-actions .button:hover {
-  border-color: #1b5595;
-  background: #1b5595;
-  color: #fff;
-}
-
-.public-storefront .text-link,
-.public-storefront .product-back,
-.public-storefront .standalone-back,
-.public-storefront .home-view-all,
-.public-storefront .home-club-link,
-.public-storefront .home-category-card > small,
-.public-storefront .home-section-heading .eyebrow,
-.public-storefront .shop-section .section-heading .eyebrow,
-.public-storefront .product-team-name {
-  color: #286bb3 !important;
-}
-
-.public-storefront .home-hero .eyebrow,
-.public-storefront .home-hero h1 em,
-.public-storefront .store-home > .hero.home-hero .hero-copy h1 em {
-  color: #80baff;
-}
-
-.public-storefront .store-home .announcement {
-  background: #2468b2;
-}
-
-.public-storefront .store-home .home-section-heading .eyebrow,
-.public-storefront .store-home .shop-section .section-heading .eyebrow,
-.public-storefront .store-home .home-featured-pair .section-heading .eyebrow,
-.public-storefront .store-home .home-categories .home-category-group .section-heading .eyebrow,
-.public-storefront .store-home #special-offers .section-heading .eyebrow,
-.public-storefront .store-home #new-arrivals .section-heading .eyebrow {
-  color: #70a9e5;
-}
-
-.public-storefront .store-home .home-view-all,
-.public-storefront .store-home .home-club-link,
-.public-storefront .store-home .home-club-expand:hover,
-.public-storefront .store-home .home-category-card > small,
-.public-storefront .store-home .product-card .product-info h3 a:hover {
-  color: #80baff;
-}
-
-.public-storefront .store-home .home-club-card:hover,
-.public-storefront .store-home .home-category-card:hover,
-.public-storefront .store-home .home-clubs-card .home-club-card,
-.public-storefront .store-home .shop-section-card .product-card,
-.public-storefront .store-home .home-categories .home-category-group,
-.public-storefront .store-home .home-categories .home-category-group .product-card,
-.public-storefront .store-home #special-offers .product-card,
-.public-storefront .store-home #new-arrivals .product-card {
-  border-color: #315d88;
-}
-
-.public-storefront .store-home .home-clubs-card .home-club-card:hover,
-.public-storefront .store-home .home-club-expand:hover {
-  border-color: #78b7f7;
-  box-shadow: 0 6px 18px #2468b233;
-}
-
-.public-storefront .store-home .home-service-strip svg,
-.public-storefront .store-home .stock-label,
-.public-storefront .store-home .product-card .stock-label {
-  color: #80baff;
-}
-
-.public-storefront .shop-category-group > header > div > span,
-.public-storefront .shop-category-group > header > a,
-.public-storefront .shop-category-group .product-card:hover,
-.public-storefront .product-recommend-heading .eyebrow,
-.public-storefront .product-review-success,
-.public-storefront .product-review-error a {
-  color: #80baff;
-}
-
-.public-storefront .shop-category-group .product-card:hover {
-  border-color: #78b7f7;
-}
-
-.public-storefront .store-home .hero-empty-lineup span {
-  color: #80baff;
-}
-
-.public-storefront .store-home .home-clubs-card,
-.public-storefront .store-home .shop-section-card,
-.public-storefront .store-home .home-categories,
-.public-storefront .store-home #special-offers,
-.public-storefront .store-home #new-arrivals {
-  box-shadow: 0 8px 24px #2468b224;
-}
-
-.public-storefront .store-home .home-section-heading .eyebrow,
-.public-storefront .store-home .shop-section .section-heading .eyebrow,
-.public-storefront .store-home .category-tab.active {
-  color: #286bb3;
-}
-
-.public-storefront .store-home .category-tab.active {
-  border-color: #3984d8;
-}
-
-.public-storefront .store-home .quick-add,
-.public-storefront .store-home .product-card .quick-add,
-.public-storefront .store-home .product-tag,
-.public-storefront .store-home .shop-section .quick-add {
-  border-color: #2468b2;
-  background: #2468b2;
-  color: #fff;
-}
-
-.public-storefront .store-home .home-club-card:hover,
-.public-storefront .store-home .home-category-card:hover,
-.public-storefront .product-card:hover {
-  border-color: #78afe8;
-}
-
-.public-storefront .store-home .stock-label,
-.public-storefront .store-home .home-service-strip svg {
-  color: #3984d8;
-}
-
-.public-storefront .store-home .home-service-strip {
-  background: #0c2948;
-}
-
-.public-storefront .store-home .site-footer,
-.public-storefront .site-footer {
+.public-storefront:not(.is-home) {
+  --paper: #071a33;
+  --ink: #f3f7fc;
+  --muted: #bdcde0;
+  --line: #31506f;
+  --dark-surface: #0d2540;
+  --dark-raised: #153756;
+  --dark-border: #315d88;
+  --dark-text: #f3f7fc;
+  --dark-muted: #bdcde0;
+  --navy: #f3f7fc;
   background: #071a33;
   color: #f3f7fc;
 }
 
-.public-storefront .site-footer .footer-bottom a,
-.public-storefront .site-footer .footer-links a:hover {
-  color: #82baff;
+.public-storefront:not(.is-home) main,
+.public-storefront:not(.is-home) .shop-page,
+.public-storefront:not(.is-home) .standalone-page,
+.public-storefront:not(.is-home) .shop-section,
+.public-storefront:not(.is-home) .values-section {
+  background: #071a33;
+  color: #f3f7fc;
 }
 
-.public-storefront .standalone-card,
-.public-storefront .product-card,
-.public-storefront .catalogue-state,
-.public-storefront .product-review-form,
-.public-storefront .product-description-card {
-  border-color: #d7e2ed;
-  background: #fff;
-  color: #142a45;
-}
-
-.public-storefront .catalogue-filters label,
-.public-storefront .checkout-form label {
-  color: #344b66;
-}
-
-.public-storefront input:not([type="checkbox"]):not([type="radio"]),
-.public-storefront select,
-.public-storefront textarea {
-  border-color: #c7d7e7;
-  background: #fff;
-  color: #142a45;
-}
-
-.public-storefront input::placeholder,
-.public-storefront textarea::placeholder {
-  color: #7589a0;
-}
-
-.public-storefront .size-options button {
-  border-color: #c9d7e5;
-  background: #fff;
-  color: #17314f;
-}
-
-.public-storefront .size-options button[aria-pressed="true"] {
+.public-storefront:not(.is-home) .button-green,
+.public-storefront:not(.is-home) .quick-add,
+.public-storefront:not(.is-home) .product-add,
+.public-storefront:not(.is-home) .bag-count,
+.public-storefront:not(.is-home) .category-tab.active,
+.public-storefront:not(.is-home) .catalogue-category.active,
+.public-storefront:not(.is-home) .catalogue-category:hover {
   border-color: #2468b2;
   background: #2468b2;
   color: #fff;
 }
 
-.public-storefront :is(button, a, input, select, textarea):focus-visible {
+.public-storefront:not(.is-home) .button-green:hover,
+.public-storefront:not(.is-home) .quick-add:hover:not(:disabled),
+.public-storefront:not(.is-home) .product-add:hover {
+  border-color: #1b5595;
+  background: #1b5595;
+  color: #fff;
+}
+
+.public-storefront:not(.is-home) .text-link,
+.public-storefront:not(.is-home) .product-back,
+.public-storefront:not(.is-home) .standalone-back,
+.public-storefront:not(.is-home) .section-heading .eyebrow,
+.public-storefront:not(.is-home) .product-team-name {
+  color: #286bb3 !important;
+}
+
+.public-storefront:not(.is-home) .shop-category-group > header > div > span,
+.public-storefront:not(.is-home) .shop-category-group > header > a,
+.public-storefront:not(.is-home) .product-recommend-heading .eyebrow,
+.public-storefront:not(.is-home) .product-review-success,
+.public-storefront:not(.is-home) .product-review-error a {
+  color: #80baff;
+}
+
+.public-storefront:not(.is-home) .shop-category-group .product-card:hover {
+  border-color: #78b7f7;
+}
+.public-storefront:not(.is-home) .product-card:hover {
+  border-color: #78afe8;
+  box-shadow: 0 8px 20px #06172a26;
+}
+
+.public-storefront:not(.is-home) .site-footer {
+  background: #071a33;
+  color: #f3f7fc;
+}
+
+.public-storefront:not(.is-home) .site-footer .footer-bottom a,
+.public-storefront:not(.is-home) .site-footer .footer-links a:hover {
+  color: #82baff;
+}
+
+.public-storefront:not(.is-home) .standalone-card,
+.public-storefront:not(.is-home) .product-card,
+.public-storefront:not(.is-home) .catalogue-state,
+.public-storefront:not(.is-home) .product-review-form,
+.public-storefront:not(.is-home) .product-description-card,
+.public-storefront:not(.is-home) .shop-category-group,
+.public-storefront:not(.is-home) .marketplace-filter-panel,
+.public-storefront:not(.is-home) .marketplace-league,
+.public-storefront:not(.is-home) .home-league-card {
+  border-color: #315d88;
+  background: #0d2540;
+  color: #f3f7fc;
+}
+
+.public-storefront:not(.is-home) .product-media,
+.public-storefront:not(.is-home) .product-image-empty,
+.public-storefront:not(.is-home) .product-detail-image,
+.public-storefront:not(.is-home) .product-skeleton > div {
+  border-color: #315d88;
+  background: linear-gradient(145deg, #102f50, #0a1d35);
+  color: #d9eaff;
+}
+
+.public-storefront:not(.is-home) .product-image-empty span,
+.public-storefront:not(.is-home) .product-image-empty small {
+  color: #d9eaff;
+}
+
+.public-storefront:not(.is-home) .product-info h3,
+.public-storefront:not(.is-home) .product-info h3 a,
+.public-storefront:not(.is-home) .product-price,
+.public-storefront:not(.is-home) .product-detail-copy h1,
+.public-storefront:not(.is-home) .product-detail-copy h2,
+.public-storefront:not(.is-home) .product-reviews h2,
+.public-storefront:not(.is-home) .marketplace-results-heading h2,
+.public-storefront:not(.is-home) .shop-category-group > header h2,
+.public-storefront:not(.is-home) .home-league-card,
+.public-storefront:not(.is-home) .home-league-title,
+.public-storefront:not(.is-home) .shop-page-title h1,
+.public-storefront:not(.is-home) .standalone-page > h1 {
+  color: #f3f7fc;
+}
+
+.public-storefront:not(.is-home) .shop-page > .eyebrow {
+  color: #fff;
+}
+
+.public-storefront:not(.is-home) .shop-page > .eyebrow .eyebrow-line {
+  background: #3984d8;
+}
+
+.public-storefront:not(.is-home) .shop-page-title p,
+.public-storefront:not(.is-home) .standalone-intro,
+.public-storefront:not(.is-home) .section-heading p,
+.public-storefront:not(.is-home) .product-detail-copy > p,
+.public-storefront:not(.is-home) .product-description-scroll p,
+.public-storefront:not(.is-home) .marketplace-results-heading p,
+.public-storefront:not(.is-home) .product-category,
+.public-storefront:not(.is-home) .product-meta,
+.public-storefront:not(.is-home) .product-review-list article p {
+  color: #bdcde0;
+}
+
+.public-storefront:not(.is-home) .catalogue-filters label,
+.public-storefront:not(.is-home) .checkout-form label,
+.public-storefront:not(.is-home) .product-review-form label,
+.public-storefront:not(.is-home) .product-review-form legend {
+  color: #d6e3f1;
+}
+
+.public-storefront:not(.is-home) input:not([type="checkbox"]):not([type="radio"]),
+.public-storefront:not(.is-home) select,
+.public-storefront:not(.is-home) textarea,
+.public-storefront:not(.is-home) .catalogue-search-control,
+.public-storefront:not(.is-home) .size-options button {
+  border-color: #315d88;
+  background: #102f50;
+  color: #f3f7fc;
+}
+
+.public-storefront:not(.is-home) input::placeholder,
+.public-storefront:not(.is-home) textarea::placeholder {
+  color: #aabed5;
+}
+
+.public-storefront:not(.is-home) .catalogue-category,
+.public-storefront:not(.is-home) .marketplace-collection-options button,
+.public-storefront:not(.is-home) .marketplace-reset {
+  border-color: #315d88;
+  background: #102f50;
+  color: #dcecff;
+}
+
+.public-storefront:not(.is-home) .size-options button[aria-pressed="true"],
+.public-storefront:not(.is-home) .catalogue-category.active,
+.public-storefront:not(.is-home) .marketplace-collection-options button.is-selected {
+  border-color: #2468b2;
+  background: #2468b2;
+  color: #fff;
+}
+
+.public-storefront:not(.is-home) .catalogue-state strong,
+.public-storefront:not(.is-home) .product-review-summary strong,
+.public-storefront:not(.is-home) .product-review-author,
+.public-storefront:not(.is-home) .product-detail-price,
+.public-storefront:not(.is-home) .product-purchase-total strong {
+  color: #f3f7fc;
+}
+
+.public-storefront:not(.is-home) .product-section-nav {
+  border-color: #315d88;
+  background: #071a33f2;
+}
+
+.public-storefront:not(.is-home) .product-section-nav a {
+  color: #c4d6e9;
+}
+
+.public-storefront:not(.is-home) .product-section-nav a.is-active {
+  border-color: #3984d8;
+  background: #16395f;
+  color: #fff;
+}
+
+.public-storefront:not(.is-home) :is(button, a, input, select, textarea):focus-visible {
   outline-color: #3984d8;
 }
 
