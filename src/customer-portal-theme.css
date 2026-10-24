@@ -189,3 +189,127 @@
   border-color: #3984d8;
   color: #80baff;
 }
+
+.portal-shell .portal-featured-kits .product-grid,
+.portal-shell .portal-marketplace-page .product-grid,
+.portal-shell .portal-product-page .product-recommend-section .product-grid,
+.portal-shell .portal-wishlist-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.portal-shell .portal-featured-kits .product-card,
+.portal-shell .portal-marketplace-page .product-card,
+.portal-shell .portal-product-page .product-recommend-section .product-card {
+  min-width: 0;
+}
+
+.portal-shell .portal-featured-kits .product-media,
+.portal-shell .portal-marketplace-page .product-media,
+.portal-shell .portal-product-page .product-recommend-section .product-media {
+  aspect-ratio: 1 / 0.92;
+}
+
+.portal-shell .portal-featured-kits .product-info,
+.portal-shell .portal-marketplace-page .product-info,
+.portal-shell .portal-product-page .product-recommend-section .product-info {
+  gap: 5px;
+  padding: 9px 10px 0;
+}
+
+.portal-shell .portal-featured-kits .product-info h3,
+.portal-shell .portal-marketplace-page .product-info h3,
+.portal-shell .portal-product-page .product-recommend-section .product-info h3 {
+  font-size: 12px;
+}
+
+.portal-shell .portal-featured-kits .product-card-actions,
+.portal-shell .portal-marketplace-page .product-card .quick-add,
+.portal-shell .portal-product-page .product-recommend-section .product-card .quick-add {
+  margin-right: 9px;
+  margin-left: 9px;
+}
+
+.portal-shell .portal-featured-kits .product-card-actions {
+  margin-bottom: 9px;
+}
+
+.portal-shell .portal-wishlist-card {
+  min-width: 0;
+  gap: 8px;
+  padding: 9px;
+}
+
+.portal-shell .portal-wishlist-card img,
+.portal-shell .portal-wishlist-card .product-image-empty {
+  aspect-ratio: 1 / 1.08;
+}
+
+.portal-shell .portal-wishlist-card > button {
+  width: 100%;
+}
+
+.portal-shell .portal-marketplace-page,
+.portal-shell .portal-product-page {
+  width: min(100%, 1240px);
+  padding: 20px 0 36px;
+}
+
+.portal-shell .portal-product-page .product-detail {
+  grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
+  gap: clamp(22px, 3.5vw, 50px);
+}
+
+.portal-shell .portal-product-page .product-detail-image {
+  aspect-ratio: 1 / 1.03;
+}
+
+.portal-shell .portal-product-page .product-detail-copy {
+  min-width: 0;
+  padding-top: 5px;
+}
+
+.portal-shell .portal-product-page .product-detail-copy h1 {
+  font-size: clamp(30px, 3.2vw, 44px);
+}
+
+.portal-shell .portal-product-page .product-size-card {
+  margin-top: 16px;
+}
+
+@media (max-width: 900px) {
+  .portal-shell .portal-product-page .product-detail {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 0.9fr);
+    gap: 22px;
+  }
+}
+
+@media (max-width: 700px) {
+  .portal-shell .portal-product-page .product-detail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .portal-shell .portal-product-page .product-detail-image {
+    max-width: 620px;
+    margin-inline: auto;
+  }
+
+  .portal-shell .portal-wishlist-skeleton {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 380px) {
+  .portal-shell .portal-featured-kits .product-grid,
+  .portal-shell .portal-marketplace-page .product-grid,
+  .portal-shell .portal-product-page .product-recommend-section .product-grid,
+  .portal-shell .portal-wishlist-grid {
+    gap: 8px;
+  }
+
+  .portal-shell .portal-featured-kits .product-info,
+  .portal-shell .portal-marketplace-page .product-info,
+  .portal-shell .portal-product-page .product-recommend-section .product-info {
+    padding: 8px 7px 0;
+  }
+}
