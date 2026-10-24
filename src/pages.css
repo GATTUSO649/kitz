@@ -877,6 +877,7 @@
 }
 /* Product cards and actions stay visible on touchscreens as well as hover devices. */
 .product-grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,170px),1fr));gap:12px;justify-content:start}
+@media(max-width:600px){.product-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}}
 .product-card{display:flex;min-width:0;height:100%;flex-direction:column;overflow:hidden;border:1px solid #d5dfd7;border-radius:8px;background:#fff;box-shadow:0 4px 14px #101b350c;transition:border-color .2s,box-shadow .2s,transform .2s}
 .product-card:hover{transform:translateY(-2px);border-color:#7ea58a;box-shadow:0 10px 22px #101b3518}
 .product-media{flex:none;aspect-ratio:1/1.08;background:#f0f3ef}
