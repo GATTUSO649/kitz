@@ -8,7 +8,7 @@ The frontend uses relative `/api/...` requests. Keeping the storefront and API o
 
 ## Render
 
-Create one Node web service from the repository root. Use build command `npm ci --include=dev && npm run build:deploy`, start command `npm run start:server`, and health check path `/health`. The explicit `--include=dev` is required because `NODE_ENV=production` otherwise makes npm omit TypeScript, Vite, and other build-time dependencies during `npm ci`. Set `NODE_ENV=production`; Render supplies `PORT` automatically. The database URL must point to TLS-enabled MySQL; this app does not use Render's PostgreSQL databases.
+Create one Node web service from the repository root. Use build command `npm ci --include=dev && npm run build:deploy`, start command `npm run start:server`, and health check path `/health/ready`. The readiness endpoint returns 503 when MySQL is unavailable so Render does not route traffic to an instance that cannot serve commerce requests. Use `/health/live` for process liveness checks. The explicit `--include=dev` is required because `NODE_ENV=production` otherwise makes npm omit TypeScript, Vite, and other build-time dependencies during `npm ci`. Set `NODE_ENV=production`; Render supplies `PORT` automatically. The database URL must point to TLS-enabled MySQL; this app does not use Render's PostgreSQL databases.
 
 Set `CLIENT_ORIGIN` and `DARAJA_CALLBACK_BASE_URL` to the service's public HTTPS origin (for example, `https://your-service.onrender.com`). Keep the storefront and API on that same origin. Add database and payment credentials as Render environment variables, never as `VITE_` variables or committed files. If Railway's public MySQL endpoint presents its self-signed CA, set `MYSQL_SSL_CA` in Render to a trusted PEM CA certificate. If no trusted CA is available, `MYSQL_SSL_VERIFY=false` is an explicit compatibility option: TLS stays encrypted, but the server certificate is not verified, leaving the connection vulnerable to server impersonation. The secure default is `MYSQL_SSL_VERIFY=true`; prefer a verifiable CA whenever possible.
 
@@ -51,7 +51,7 @@ The app appends `/api/v1/orders/mpesa/callback/<token>` to `DARAJA_CALLBACK_BASE
 
 Set `DARAJA_TRANSACTION_TYPE` to `CustomerBuyGoodsOnline` only for an approved Buy Goods setup or `CustomerPayBillOnline` only for an approved PayBill shortcode. Production requires both `DARAJA_ENV` and `DARAJA_TRANSACTION_TYPE` explicitly and rejects sandbox mode. Set live values only after Safaricom approves the app and supplies matching credentials and merchant details. Register the resulting callback URL in the live Daraja app. Never mix sandbox and production values.
 
-Use `/health` for liveness and `/health/ready` to check both MySQL connections. Run Drizzle migrations as an explicit release step after a backup; do not run migrations automatically at API startup. Store database credentials in the hosting secret manager and use dedicated least-privilege database users. The compose file is for local development only.
+Use `/health/live` for liveness and `/health/ready` to check both MySQL connections. Run Drizzle migrations as an explicit release step after a backup; do not run migrations automatically at API startup. Store database credentials in the hosting secret manager and use dedicated least-privilege database users. The compose file is for local development only.
 
 ## Commerce readiness
 

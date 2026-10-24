@@ -127,6 +127,19 @@ test('allows HTTPS-hosted images under the content security policy', async () =>
   assert.match(policy, /frame-src[^;]*https:\/\/www\.google\.com/)
 })
 
+test('readiness reflects unavailable MySQL while liveness remains healthy', async () => {
+  const [liveness, readiness] = await Promise.all([
+    fetch(`${baseUrl}/health/live`),
+    fetch(`${baseUrl}/health/ready`),
+  ])
+  assert.equal(liveness.status, 200)
+  assert.equal(readiness.status, 503)
+  const result = await readiness.json() as { status: string; checks: { storeDatabase: string; adminDatabase: string } }
+  assert.equal(result.status, 'not_ready')
+  assert.equal(result.checks.storeDatabase, 'unavailable')
+  assert.equal(result.checks.adminDatabase, 'unavailable')
+})
+
 test('diagnoses nested MySQL TLS errors without logging Drizzle SQL or credentials', () => {
   const tlsError = Object.assign(new Error('self-signed certificate in certificate chain'), { code: 'HANDSHAKE_SSL_ERROR' })
   const aggregate = new AggregateError([tlsError], 'Connection failed')
@@ -194,4 +207,15 @@ test('limits repeated M-PESA STK initiation attempts per forwarded client IP', a
   }))
   assert.equal(statuses.filter((status) => status === 429).length, 1)
   assert.equal(statuses.filter((status) => status === 401).length, 5)
+})
+
+test('rejects cross-origin administrator mutations before checking authentication', async () => {
+  const response = await fetch(`${baseUrl}/api/v1/admin/categories`, {
+    method: 'POST',
+    headers: { origin: 'https://attacker.invalid', 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'Test', slug: 'test' }),
+  })
+  assert.equal(response.status, 403)
+  const result = await response.json() as { error: { code: string } }
+  assert.equal(result.error.code, 'ORIGIN_REJECTED')
 })

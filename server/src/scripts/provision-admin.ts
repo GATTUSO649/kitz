@@ -1,15 +1,17 @@
 import { hash } from 'bcryptjs'
 import { eq } from 'drizzle-orm'
 import { adminDb, adminPool } from '../config/database.js'
+import { bcryptPasswordSchema } from '../config/password-policy.js'
 import { adminUsers } from '../database/admin-schema.js'
 
 async function main() {
   const email = process.env.ADMIN_EMAIL?.trim().toLowerCase()
   const fullName = process.env.ADMIN_NAME?.trim()
   const password = process.env.ADMIN_PASSWORD
+  const passwordIsValid = bcryptPasswordSchema(14).safeParse(password).success
   if (!adminDb) throw new Error('Set DATABASE_URL before provisioning an administrator in the shared Railway database.')
-  if (!email || !fullName || !password || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || fullName.length < 2 || password.length < 14 || password.length > 128) {
-    throw new Error('Set ADMIN_EMAIL, ADMIN_NAME, and a unique ADMIN_PASSWORD of 14 to 128 characters.')
+  if (!email || !fullName || !password || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || fullName.length < 2 || !passwordIsValid) {
+    throw new Error('Set ADMIN_EMAIL, ADMIN_NAME, and a unique ADMIN_PASSWORD of 14 to 72 UTF-8 bytes.')
   }
 
   const [existing] = await adminDb.select({ id: adminUsers.id }).from(adminUsers).where(eq(adminUsers.email, email)).limit(1)

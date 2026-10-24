@@ -83,7 +83,7 @@ const homepageTrendingClubBadges: Record<string, number> = {
   roma: 100,
 }
 const homepageTrendingClubOrder = new Map(Object.keys(homepageTrendingClubBadges).map((slug, index) => [slug, index]))
-const registrationSchema = z.object({ fullName: z.string().trim().min(2, 'Enter your name.'), email: z.string().trim().email('Enter a valid email address.'), password: z.string().min(12, 'Use at least 12 characters.'), passwordConfirmation: z.string().min(1, 'Confirm your password.') }).refine((values) => values.password === values.passwordConfirmation, { message: 'Passwords do not match.', path: ['passwordConfirmation'] })
+const registrationSchema = z.object({ fullName: z.string().trim().min(2, 'Enter your name.'), email: z.string().trim().email('Enter a valid email address.'), password: z.string().min(12, 'Use at least 12 characters.').refine((value) => new TextEncoder().encode(value).length <= 72, 'Use a password no longer than 72 UTF-8 bytes.'), passwordConfirmation: z.string().min(1, 'Confirm your password.') }).refine((values) => values.password === values.passwordConfirmation, { message: 'Passwords do not match.', path: ['passwordConfirmation'] })
 const signInSchema = z.object({ email: z.string().trim().email('Enter a valid email address.'), password: z.string().min(1, 'Enter your password.') })
 
 async function loadHomepageProducts(path: string) {
@@ -263,6 +263,7 @@ function App() {
   const [accountUser, setAccountUser] = useState<AccountUser | null>(null)
   const [authChecked, setAuthChecked] = useState(false)
   const [authError, setAuthError] = useState('')
+  const [authFieldErrors, setAuthFieldErrors] = useState<Partial<Record<'fullName' | 'email' | 'password' | 'passwordConfirmation', string>>>({})
   const [authBusy, setAuthBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const [introVisible, setIntroVisible] = useState(() => {
@@ -534,21 +535,37 @@ function App() {
   async function submitAuth(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setAuthError('')
+    setAuthFieldErrors({})
     const submittedForm = event.currentTarget
     const form = new FormData(event.currentTarget)
     const raw = Object.fromEntries(form.entries())
+    const showValidationErrors = (issues: { path: PropertyKey[]; message: string }[]) => {
+      const fieldErrors: Partial<Record<'fullName' | 'email' | 'password' | 'passwordConfirmation', string>> = {}
+      for (const issue of issues) {
+        const field = issue.path[0]
+        if (typeof field === 'string' && ['fullName', 'email', 'password', 'passwordConfirmation'].includes(field)) {
+          fieldErrors[field as keyof typeof fieldErrors] ??= issue.message
+        }
+      }
+      setAuthFieldErrors(fieldErrors)
+      const firstField = issues[0]?.path[0]
+      if (typeof firstField === 'string') {
+        const control = submittedForm.elements.namedItem(firstField)
+        if (control instanceof HTMLElement) control.focus()
+      }
+    }
     let payload: { email: string; password: string; fullName?: string }
     if (activeAuthMode === 'register') {
       const parsed = registrationSchema.safeParse(raw)
       if (!parsed.success) {
-        setAuthError(parsed.error.issues[0]?.message ?? 'Check the supplied details.')
+        showValidationErrors(parsed.error.issues)
         return
       }
       payload = { email: parsed.data.email, password: parsed.data.password, fullName: parsed.data.fullName }
     } else {
       const parsed = signInSchema.safeParse(raw)
       if (!parsed.success) {
-        setAuthError(parsed.error.issues[0]?.message ?? 'Check the supplied details.')
+        showValidationErrors(parsed.error.issues)
         return
       }
       payload = parsed.data
@@ -582,6 +599,11 @@ function App() {
     } finally {
       setAuthBusy(false)
     }
+  }
+
+  function clearAuthFieldError(field: 'fullName' | 'email' | 'password' | 'passwordConfirmation') {
+    setAuthFieldErrors((current) => ({ ...current, [field]: undefined }))
+    setAuthError('')
   }
 
   async function signOut() {
@@ -805,10 +827,11 @@ function App() {
     if (isLoginPage && accountUser) return null
     const authPage = isLoginPage
       ? <CustomerAuthForm
-          key={activeAuthMode}
           mode={activeAuthMode}
           busy={authBusy}
           error={authError}
+          fieldErrors={authFieldErrors}
+          onFieldChange={clearAuthFieldError}
           registered={new URLSearchParams(location.search).get('registered') === '1'}
           email={new URLSearchParams(location.search).get('email') ?? ''}
           returnTo={safeCustomerReturnTo(new URLSearchParams(location.search).get('returnTo')) ?? ''}

@@ -4,6 +4,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { db } from '../../config/database.js'
+import { bcryptPasswordSchema } from '../../config/password-policy.js'
 import { auditLogs, customerAddresses, notificationCampaigns, notificationRecipients, orders, productReviews, products, supportMessages, supportRequests, users, userSessions, wishlists } from '../../database/schema.js'
 import { authenticate, authenticatedUser } from '../../middleware/authenticate.js'
 import { isAdminOnline, publishChatMessage, publishMessageReceipt, registerCustomerStream } from '../../realtime/chat-events.js'
@@ -55,7 +56,7 @@ export const updateAddressSchema = z.object({
 })
 export const passwordSchema = z.object({
   currentPassword: z.string().min(1).max(128),
-  newPassword: z.string().min(12).max(128),
+  newPassword: bcryptPasswordSchema(12),
 }).refine((value) => value.currentPassword !== value.newPassword, { path: ['newPassword'], message: 'Choose a password different from your current one.' })
 export const supportRequestSchema = z.object({
   category: z.enum(['order', 'payment', 'delivery', 'product', 'account', 'other']),

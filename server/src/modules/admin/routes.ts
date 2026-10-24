@@ -3,6 +3,7 @@ import { Router } from 'express'
 import express from 'express'
 import { z } from 'zod'
 import { adminDb, db } from '../../config/database.js'
+import { isAllowedClientOrigin } from '../../config/env.js'
 import { adminAuditLogs, adminUsers } from '../../database/admin-schema.js'
 import { applicationSettings, categories, deliveryZones, expenseCategories, expenses, homepageSlides, inventoryMovements, jerseyCategories, leagues, notificationCampaigns, notificationRecipients, orderItems, orders, payments, productImages, productVariants, productVideos, products, supportMessages, supportRequests, teams, users } from '../../database/schema.js'
 import { authenticateAdmin, authenticatedAdmin } from '../../middleware/authenticate.js'
@@ -11,6 +12,13 @@ import { recordAdminAudit } from './auth.js'
 import { deleteProductImage, ImageStorageError, uploadHomepageSlideImage, uploadProductImage } from './image-storage.js'
 
 export const adminRouter = Router()
+adminRouter.use((request, response, next) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(request.method) || isAllowedClientOrigin(request.get('origin'))) {
+    next()
+    return
+  }
+  response.status(403).json({ error: { code: 'ORIGIN_REJECTED', message: 'Request origin is not allowed.' } })
+})
 adminRouter.use(authenticateAdmin)
 
 adminRouter.get('/me', (request, response) => {

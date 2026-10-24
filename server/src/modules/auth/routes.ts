@@ -5,6 +5,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { db } from '../../config/database.js'
+import { bcryptPasswordSchema } from '../../config/password-policy.js'
 import { userSessions, users } from '../../database/schema.js'
 
 export const authRouter = Router()
@@ -13,7 +14,7 @@ const sessionDurationMs = 1000 * 60 * 60 * 24 * 30
 
 export const registerSchema = z.object({
   email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
-  password: z.string().min(12).max(128),
+  password: bcryptPasswordSchema(12),
   fullName: z.string().trim().min(2).max(160),
   phone: z.string().trim().max(20).optional(),
 })

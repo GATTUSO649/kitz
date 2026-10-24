@@ -13,7 +13,6 @@ export function AuthBrandPanel({ audience = 'customer' }: { audience?: 'customer
 
 export function AuthLayout({ children }: { children: ReactNode }) {
   return <main className="auth-layout">
-    <AuthBrandPanel />
     <section className="auth-content">
       <div className="auth-content-inner">
         <Link className="auth-return-link" to="/"><ArrowLeft size={16} /> <span>Back to the shop</span></Link>

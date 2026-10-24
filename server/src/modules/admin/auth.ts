@@ -5,6 +5,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { adminDb } from '../../config/database.js'
+import { bcryptPasswordSchema } from '../../config/password-policy.js'
 import { adminAuditLogs, adminSessions, adminSetupLocks, adminUsers, adminVerificationTokens } from '../../database/admin-schema.js'
 import { authenticatedAdmin } from '../../middleware/authenticate.js'
 
@@ -17,7 +18,7 @@ const loginSchema = z.object({
 })
 const registerSchema = z.object({
   email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
-  password: z.string().min(14).max(128),
+  password: bcryptPasswordSchema(14),
   fullName: z.string().trim().min(2).max(160),
 })
 

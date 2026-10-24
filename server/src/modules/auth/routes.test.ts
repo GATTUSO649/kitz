@@ -3,6 +3,7 @@ import test from 'node:test'
 import express from 'express'
 import { mysqlSslOptions } from '../../config/database.js'
 import { isAllowedClientOrigin, resolveDarajaEnvironment, resolveDarajaTransactionType } from '../../config/env.js'
+import { bcryptPasswordSchema } from '../../config/password-policy.js'
 import { loginSchema, registerSchema } from './routes.js'
 import { createOrderSchema, createTemporaryOrderNumber, exceedsProductQuantityLimit, ordersRouter } from '../orders/routes.js'
 import { buildDarajaCallbackUrl, callbackFailureStatus, canVerifySuccessfulStkPayment, DarajaRequestError, darajaCallbackRoute, initiateStkPush, isFinalDarajaPaymentStatus, isValidDarajaPaymentAmount, matchesCallbackToken, normalizeKenyanPhone, parseDarajaTimestamp, parseStkCallback, resolveDarajaShortcodes } from '../orders/daraja.js'
@@ -34,6 +35,14 @@ test('registration rejects a short password and malformed email', () => {
 test('login rejects an empty password', () => {
   const result = loginSchema.safeParse({ email: 'fan@example.com', password: '' })
   assert.equal(result.success, false)
+  assert.equal(loginSchema.safeParse({ email: 'fan@example.com', password: 'é'.repeat(40) }).success, true)
+})
+
+test('bcrypt password validation accepts long passphrases but rejects inputs over its UTF-8 byte limit', () => {
+  assert.equal(bcryptPasswordSchema(12).safeParse('a'.repeat(72)).success, true)
+  assert.equal(bcryptPasswordSchema(12).safeParse('é'.repeat(37)).success, false)
+  assert.equal(registerSchema.safeParse({ email: 'fan@example.com', password: 'é'.repeat(37), fullName: 'Fan Name' }).success, false)
+  assert.equal(passwordSchema.safeParse({ currentPassword: 'é'.repeat(40), newPassword: 'a-secure-new-passphrase' }).success, true)
 })
 
 test('development accepts the configured Vite fallback port 5175', () => {
