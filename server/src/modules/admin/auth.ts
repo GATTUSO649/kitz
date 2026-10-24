@@ -1,17 +1,18 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { compare, hash } from 'bcryptjs'
 import { and, eq, gt, isNull } from 'drizzle-orm'
-import { Router } from 'express'
+import { Router, type Response } from 'express'
 import { z } from 'zod'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { adminDb } from '../../config/database.js'
 import { bcryptPasswordSchema } from '../../config/password-policy.js'
 import { adminAuditLogs, adminSessions, adminSetupLocks, adminUsers, adminVerificationTokens } from '../../database/admin-schema.js'
 import { authenticatedAdmin } from '../../middleware/authenticate.js'
+import { authenticateAdmin } from '../../middleware/authenticate.js'
 
 export const adminAuthRouter = Router()
 const cookieName = 'kc_admin_session'
-const sessionDurationMs = 1000 * 60 * 60 * 24 * 8
+export const adminIdleTimeoutMs = 3 * 60_000
 const loginSchema = z.object({
   email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
   password: z.string().min(1).max(128),
@@ -30,6 +31,16 @@ function cookieToken(header?: string) {
   const value = header?.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${cookieName}=`))
   if (!value) return null
   try { return decodeURIComponent(value.slice(cookieName.length + 1)) } catch { return null }
+}
+
+function setAdminSessionCookie(response: Response, token: string) {
+  response.cookie(cookieName, token, {
+    httpOnly: true,
+    secure: env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/api/v1/admin',
+    maxAge: adminIdleTimeoutMs,
+  })
 }
 
 function isLocalDevelopmentRequest(request: Parameters<Parameters<typeof adminAuthRouter.post>[1]>[0]) {
@@ -195,18 +206,13 @@ adminAuthRouter.post('/login', async (request, response) => {
   }
 
   const token = randomBytes(32).toString('base64url')
+  const expiresAt = new Date(Date.now() + adminIdleTimeoutMs)
   await adminDb.insert(adminSessions).values({
     adminUserId: admin.id,
     tokenHash: hashToken(token),
-    expiresAt: new Date(Date.now() + sessionDurationMs),
+    expiresAt,
   })
-  response.cookie(cookieName, token, {
-    httpOnly: true,
-    secure: env.NODE_ENV === 'production',
-    sameSite: 'strict',
-    path: '/api/v1/admin',
-    maxAge: sessionDurationMs,
-  })
+  setAdminSessionCookie(response, token)
   await adminDb.insert(adminAuditLogs).values({
     adminUserId: admin.id,
     action: 'admin.login',
@@ -223,6 +229,28 @@ adminAuthRouter.get('/me', async (request, response) => {
     return
   }
   response.json({ data: { user: admin } })
+})
+
+adminAuthRouter.post('/session/activity', rejectCrossOrigin, authenticateAdmin, async (request, response) => {
+  const token = cookieToken(request.headers.cookie)
+  if (!token || !adminDb) {
+    response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Administrator sign in is required.' } })
+    return
+  }
+  const now = new Date()
+  const [refreshed] = await adminDb.update(adminSessions).set({
+    expiresAt: new Date(now.getTime() + adminIdleTimeoutMs),
+  }).where(and(
+    eq(adminSessions.tokenHash, hashToken(token)),
+    gt(adminSessions.expiresAt, now),
+  ))
+  if (refreshed.affectedRows !== 1) {
+    response.clearCookie(cookieName, { httpOnly: true, secure: env.NODE_ENV === 'production', sameSite: 'strict', path: '/api/v1/admin' })
+    response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Administrator sign in is required.' } })
+    return
+  }
+  setAdminSessionCookie(response, token)
+  response.status(204).end()
 })
 
 adminAuthRouter.post('/logout', async (request, response) => {

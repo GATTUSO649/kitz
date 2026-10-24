@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
-import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type MouseEvent, type ReactNode } from 'react'
+import { Link, Navigate, useLocation, useNavigate, type NavigateFunction } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowRight, ArrowUpDown, BarChart3, Bell, Copy, Filter, Image as ImageIcon, LayoutDashboard, LogOut, MapPin, Menu, MessageCircle, Package, Search, Send, Star, Trash2, Trophy, Upload, Users, X } from 'lucide-react'
 import { GoogleMapView } from '../components/GoogleMapView'
-import { AuthBrandPanel } from '../layouts/AuthLayout'
 import { matchesNationalTeam, NATIONAL_TEAM_NAMES } from '../nationalTeams'
 
 type AdminRecord = Record<string, unknown>
@@ -165,8 +164,35 @@ function AdminDashboardCharts({ data }: { data: AdminRecord }) {
   </section>
 }
 
+const adminAuthTransitionDurationMs = 620
+
+function transitionAdminAuth(event: MouseEvent<HTMLAnchorElement>, navigate: NavigateFunction, destination: string) {
+  event.preventDefault()
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    navigate(destination)
+    return
+  }
+  const root = document.documentElement
+  if (root.dataset.adminAuthTransition) return
+  root.dataset.adminAuthTransition = 'cover'
+  window.setTimeout(() => {
+    navigate(destination)
+    window.requestAnimationFrame(() => {
+      root.dataset.adminAuthTransition = 'reveal'
+      window.setTimeout(() => delete root.dataset.adminAuthTransition, adminAuthTransitionDurationMs)
+    })
+  }, adminAuthTransitionDurationMs)
+}
+
 function AdminAuthLayout({ children }: { children: ReactNode }) {
-  return <main className="admin-login-page"><AuthBrandPanel audience="admin" /><section className="admin-auth-content">{children}<span className="auth-legal">© 2026 KitCulture · Restricted administrator access.</span></section></main>
+  return <main className="admin-login-page"><section className="admin-auth-content"><div className="admin-auth-split">
+    <aside className="admin-auth-side">
+      <Link to="/" className="admin-auth-brand"><img src="/culture-mark.png" alt="" /><span>KitCulture</span></Link>
+      <div className="admin-auth-side-copy"><span>RESTRICTED ADMIN ACCESS</span><h2>Matchday starts<br /><em>behind the scenes.</em></h2><p>Keep the catalogue, orders, and supporter experience in sync.</p></div>
+      <span className="admin-auth-side-footer">KITCULTURE OPERATIONS</span>
+    </aside>
+    <div className="admin-auth-fields">{children}</div>
+  </div><span className="auth-legal">© 2026 KitCulture · Restricted administrator access.</span></section></main>
 }
 
 export function AdminLoginPage() {
@@ -200,15 +226,17 @@ export function AdminLoginPage() {
     <Link to="/" className="admin-back">← KitCulture storefront</Link><span className="admin-kicker">RESTRICTED ADMIN ACCESS</span><h1>Administrator sign in</h1>
     <p>Only a verified administrator account can access the dashboard. First-time setup is limited to local development.</p>
     {new URLSearchParams(location.search).get('verified') === '1' && <p className="admin-success" role="status">Administrator email verified. You can sign in now.</p>}
+    {new URLSearchParams(location.search).get('reason') === 'idle' && <p className="admin-success" role="status">You were signed out after three minutes of inactivity.</p>}
     <label>Email<input name="email" type="email" autoComplete="username" required maxLength={254} /></label>
     <label>Password<input name="password" type="password" autoComplete="current-password" required /></label>
     {error && <p className="admin-error" role="alert">{error}</p>}
     <button className="button button-green" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'} <ArrowRight size={16} /></button>
-    {setupQuery.data?.available && <p className="auth-switch">First time setup? <Link to="/admin/register">Create the administrator account</Link></p>}
+    {setupQuery.data?.available && <p className="auth-switch">First time setup? <Link to="/admin/register" onClick={(event) => transitionAdminAuth(event, navigate, '/admin/register')}>Create the administrator account</Link></p>}
   </form></AdminAuthLayout>
 }
 
 export function AdminRegisterPage() {
+  const navigate = useNavigate()
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [verificationUrl, setVerificationUrl] = useState('')
@@ -246,7 +274,7 @@ export function AdminRegisterPage() {
   }
 
   return <AdminAuthLayout><section className="admin-login-card">
-    <Link to="/admin/login" className="admin-back">← Administrator sign in</Link><span className="admin-kicker">FIRST-TIME LOCAL SETUP</span><h1>Create administrator account</h1>
+    <Link to="/admin/login" className="admin-back" onClick={(event) => transitionAdminAuth(event, navigate, '/admin/login')}>← Administrator sign in</Link><span className="admin-kicker">FIRST-TIME LOCAL SETUP</span><h1>Create administrator account</h1>
     {verificationUrl
       ? <><p>Account created. Email delivery is not configured for local testing; use the one-time verification link below. It expires in 30 minutes.</p><Link className="button button-green" to={verificationUrl}>Verify administrator email <ArrowRight size={16} /></Link></>
       : setupQuery.isPending
@@ -254,7 +282,7 @@ export function AdminRegisterPage() {
         : setupQuery.isError
           ? <p className="admin-error" role="alert">{setupQuery.error.message}</p>
           : !setupQuery.data?.available
-            ? <><p>Administrator setup is unavailable or an administrator account has already been created.</p><Link className="button button-green" to="/admin/login">Go to administrator sign in <ArrowRight size={16} /></Link></>
+            ? <><p>Administrator setup is unavailable or an administrator account has already been created.</p><Link className="button button-green" to="/admin/login" onClick={(event) => transitionAdminAuth(event, navigate, '/admin/login')}>Go to administrator sign in <ArrowRight size={16} /></Link></>
             : <form onSubmit={(event) => void submit(event)}>
               <p>This one-time setup is limited to local development. After creating the account, verify it before signing in.</p>
               <label>Full name<input name="fullName" autoComplete="name" required minLength={2} maxLength={160} /></label>
@@ -1534,6 +1562,39 @@ export function AdminConsole() {
   useEffect(() => {
     if (sectionQuery.error?.message.includes('Sign in')) navigate('/admin/login', { replace: true })
   }, [sectionQuery.error, navigate])
+
+  useEffect(() => {
+    const idleTimeoutMs = 3 * 60_000
+    const keepAliveThrottleMs = 30_000
+    let idleTimer = 0
+    let lastKeepAlive = Date.now()
+    let signingOut = false
+    const leaveAdmin = () => {
+      if (signingOut) return
+      signingOut = true
+      void api('/api/v1/admin/logout', { method: 'POST' })
+        .catch(() => undefined)
+        .finally(() => navigate('/admin/login?reason=idle', { replace: true }))
+    }
+    const resetIdleTimer = () => {
+      if (signingOut) return
+      window.clearTimeout(idleTimer)
+      idleTimer = window.setTimeout(leaveAdmin, idleTimeoutMs)
+      const now = Date.now()
+      if (now - lastKeepAlive < keepAliveThrottleMs) return
+      lastKeepAlive = now
+      void api('/api/v1/admin/session/activity', { method: 'POST' }).catch((issue: unknown) => {
+        if (issue instanceof Error && issue.message.toLowerCase().includes('administrator sign in')) leaveAdmin()
+      })
+    }
+    const events: Array<keyof WindowEventMap> = ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart']
+    events.forEach((eventName) => window.addEventListener(eventName, resetIdleTimer, { passive: true }))
+    resetIdleTimer()
+    return () => {
+      window.clearTimeout(idleTimer)
+      events.forEach((eventName) => window.removeEventListener(eventName, resetIdleTimer))
+    }
+  }, [navigate])
 
   async function logout() {
     try { await api('/api/v1/admin/logout', { method: 'POST' }) } finally { navigate('/admin/login', { replace: true }) }

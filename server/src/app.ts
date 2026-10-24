@@ -88,7 +88,7 @@ const authLimiter = rateLimit({
   limit: env.NODE_ENV === 'production' ? 10 : 60,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
-  skip: (request) => request.method === 'GET' || request.path === '/logout',
+  skip: (request) => request.method === 'GET' || request.path === '/logout' || request.path === '/session/activity',
 })
 app.use('/api/v1', apiLimiter)
 app.use('/api/v1/auth', authLimiter, authRouter)

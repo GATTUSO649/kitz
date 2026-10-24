@@ -1,0 +1,386 @@
+.admin-app {
+  --green: #3984d8;
+  --green-dark: #2468b2;
+  --paper: #101827;
+  --ink: #f5f7f2;
+  --muted: #d5e0ef;
+  --line: #3b4a60;
+  --dark-surface: #182537;
+  --dark-raised: #202e43;
+  --dark-border: #3b4a60;
+  --dark-text: #f5f7f2;
+  --dark-muted: #d5e0ef;
+}
+
+.admin-login-page {
+  --green: #3984d8;
+  --green-dark: #2468b2;
+}
+
+.admin-app .admin-brand span,
+.admin-app .admin-notification-heading > svg {
+  color: #9bcaff;
+}
+
+.admin-app .admin-kicker,
+.admin-app .admin-sort-direction:hover,
+.admin-app .admin-pagination button:not(:disabled):hover,
+.admin-app .admin-analytics-heading,
+.admin-app .admin-size-picker > div > label.is-selected span,
+.admin-app .admin-category-suggestions > div > button span,
+.admin-app .admin-icon-action:hover,
+.admin-app .admin-icon-action.is-primary {
+  color: #3984d8;
+}
+
+.admin-app .admin-sort-direction:hover,
+.admin-app .admin-pagination button:not(:disabled):hover,
+.admin-app .admin-size-picker > div > label.is-selected span,
+.admin-app .admin-category-suggestions > div > button:hover,
+.admin-app .admin-icon-action:hover,
+.admin-app .admin-icon-action.is-primary {
+  border-color: #3984d8;
+}
+
+.admin-app .admin-bar-row i {
+  background: linear-gradient(90deg, #2468b2, #80baff);
+}
+
+.admin-app .admin-size-picker > div > label.is-selected span {
+  background: #eaf2fb;
+}
+
+.admin-app .admin-size-picker > div > label input:focus-visible + span {
+  outline-color: #3984d8;
+}
+
+.admin-app .admin-category-suggestions {
+  border-color: #d8e5f2;
+  background: #f5f8fc;
+}
+
+.admin-app .admin-category-suggestions > div > button:hover {
+  background: #edf4fb;
+}
+
+.admin-app .admin-category-suggestions > div > button:hover span {
+  color: #2468b2;
+}
+
+.admin-app .admin-notification-list article {
+  background: #141f30;
+}
+
+.admin-app .admin-success {
+  background: #eaf2fb;
+  color: #275f96;
+}
+
+.admin-app :is(button, a, input, select, textarea):focus-visible,
+.admin-login-page :is(button, a, input, select, textarea):focus-visible {
+  outline-color: #80baff;
+}
+
+.admin-app .admin-products-page .admin-size-picker > div > label.is-selected span {
+  border-color: #3984d8;
+  background: #20364a;
+  color: #a9d2ff;
+}
+
+.admin-app .admin-products-page .admin-category-suggestions {
+  border-color: #385a7b;
+  background: #1b293a;
+}
+
+.admin-app .admin-products-page .admin-category-suggestions > div > button:hover {
+  border-color: #3984d8;
+  background: #26394e;
+}
+
+.admin-app .admin-products-page .admin-icon-action.is-primary,
+.admin-app .admin-products-page .admin-icon-action:hover {
+  border-color: #80baff;
+  color: #80baff;
+}
+
+.admin-app .admin-products-page .admin-existing-kit {
+  border-color: #705c37;
+}
+
+.admin-app .admin-main .button-green,
+.admin-login-page .button-green {
+  border-color: #2468b2;
+  background-color: #2468b2;
+  color: #fff;
+}
+
+.admin-app .admin-main .button-green:hover,
+.admin-login-page .button-green:hover {
+  border-color: #1b5595;
+  background-color: #1b5595;
+  color: #fff;
+}
+
+.admin-login-page .auth-brand-copy > span,
+.admin-login-page .auth-brand-copy h2 em,
+.admin-login-page .auth-brand-footer,
+.admin-login-page .admin-login-card .admin-kicker,
+.admin-login-page .admin-login-card .admin-back,
+.admin-login-page .admin-login-card .auth-switch a {
+  color: #9bcaff;
+}
+
+.admin-login-page .admin-login-card input:focus {
+  border-color: #3984d8;
+  outline-color: #3984d855;
+}
+
+.admin-login-page .admin-login-card .admin-success {
+  border-color: #355c80;
+  background: #142a40;
+  color: #b8d8f5;
+}
+
+.admin-login-page {
+  position: relative;
+  isolation: isolate;
+  display: block;
+  min-height: 100vh;
+  min-height: 100svh;
+  background: #f5f8fc;
+}
+
+.admin-login-page .admin-auth-content {
+  display: flex;
+  min-height: 100vh;
+  min-height: 100svh;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 36px 28px 64px;
+  background: radial-gradient(ellipse at 50% 0%, #fff 0%, #edf4fb 72%);
+}
+
+.admin-auth-split {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  width: min(100%, 1040px);
+  min-height: 600px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid #dfe4eb;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 26px 72px #1025401a;
+}
+
+.admin-auth-side {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+  padding: 46px 40px 44px 48px;
+  clip-path: polygon(0 0, 100% 0, 88% 100%, 0 100%);
+  background: #102540;
+  color: #fff;
+}
+
+.admin-auth-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  margin-bottom: 56px;
+  color: #fff;
+  font-family: var(--display);
+  font-size: 19px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.admin-auth-brand img {
+  width: 42px;
+  height: 38px;
+  object-fit: contain;
+}
+
+.admin-auth-side-copy > span,
+.admin-auth-side-footer {
+  color: #9bcaff;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .13em;
+}
+
+.admin-auth-side-copy h2 {
+  margin: 15px 0;
+  color: #fff;
+  font-family: var(--display);
+  font-size: 46px;
+  line-height: 1.03;
+}
+
+.admin-auth-side-copy h2 em {
+  color: #9bcaff;
+  font-weight: 500;
+}
+
+.admin-auth-side-copy p {
+  max-width: 290px;
+  color: #d4dce7;
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.admin-auth-fields {
+  display: grid;
+  min-width: 0;
+  align-content: center;
+  padding: 42px 52px 40px 30px;
+  background: #fff;
+}
+
+.admin-auth-fields > .admin-login-card {
+  width: 100%;
+  gap: 15px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #142a45;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.admin-auth-fields .admin-login-card h1 {
+  color: #102540;
+  font-size: clamp(28px, 3.2vw, 38px);
+  line-height: 1.08;
+}
+
+.admin-auth-fields .admin-login-card > p {
+  color: #667991;
+}
+
+.admin-auth-fields .admin-login-card label {
+  color: #303d34;
+}
+
+.admin-auth-fields .admin-login-card input {
+  height: 44px;
+  border-color: #c7d7e7;
+  background: #fff;
+  color: #142a45;
+}
+
+.admin-auth-fields .admin-login-card input:focus {
+  border-color: #3984d8;
+  outline: 2px solid #3984d855;
+}
+
+.admin-auth-fields .admin-login-card .auth-switch {
+  color: #667991;
+}
+
+.admin-auth-fields .admin-login-card .auth-switch a,
+.admin-auth-fields .admin-login-card .admin-back,
+.admin-auth-fields .admin-login-card .admin-kicker {
+  color: #286bb3;
+}
+
+.admin-auth-fields .admin-login-card .admin-success {
+  border: 1px solid #c5daef;
+  background: #eaf2fb;
+  color: #275f96;
+}
+
+html[data-admin-auth-transition="cover"] .admin-auth-split::before,
+html[data-admin-auth-transition="reveal"] .admin-auth-split::before {
+  position: absolute;
+  z-index: 10;
+  inset: 0;
+  pointer-events: none;
+  background: #102540;
+  content: "";
+}
+
+html[data-admin-auth-transition="cover"] .admin-auth-split::before {
+  animation: admin-blue-cover .62s cubic-bezier(.65, 0, .35, 1) forwards;
+}
+
+html[data-admin-auth-transition="reveal"] .admin-auth-split::before {
+  clip-path: polygon(0 0, 150% 0, 144% 100%, 0 100%);
+  animation: admin-blue-reveal .62s cubic-bezier(.65, 0, .35, 1) forwards;
+}
+
+@keyframes admin-blue-cover {
+  from { clip-path: polygon(0 0, 50% 0, 44% 100%, 0 100%); }
+  to { clip-path: polygon(0 0, 150% 0, 144% 100%, 0 100%); }
+}
+
+@keyframes admin-blue-reveal {
+  from { clip-path: polygon(0 0, 150% 0, 144% 100%, 0 100%); }
+  to { clip-path: polygon(0 0, 50% 0, 44% 100%, 0 100%); }
+}
+
+@media (max-width: 700px) {
+  .admin-login-page .admin-auth-content {
+    padding: 22px 15px 58px;
+  }
+
+  .admin-auth-split {
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-auth-side {
+    min-height: 210px;
+    padding: 22px 24px 27px;
+    clip-path: polygon(0 0, 100% 0, 100% 84%, 0 100%);
+  }
+
+  .admin-auth-brand {
+    margin-bottom: 22px;
+    font-size: 16px;
+  }
+
+  .admin-auth-brand img {
+    width: 35px;
+    height: 32px;
+  }
+
+  .admin-auth-side-copy h2 {
+    margin: 8px 0;
+    font-size: 30px;
+  }
+
+  .admin-auth-side-copy p {
+    display: none;
+  }
+
+  .admin-auth-fields {
+    padding: 24px 22px 26px;
+  }
+}
+
+@media (max-width: 420px) {
+  .admin-auth-side {
+    min-height: 190px;
+    padding-right: 18px;
+    padding-left: 20px;
+  }
+
+  .admin-auth-fields {
+    padding-right: 18px;
+    padding-left: 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-admin-auth-transition] .admin-auth-split::before {
+    animation-duration: 1ms !important;
+  }
+}
