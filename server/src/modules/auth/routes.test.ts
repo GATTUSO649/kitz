@@ -406,11 +406,11 @@ test('order status transitions allow Pay on Delivery and reject invalid jumps', 
   assert.equal(canTransitionOrderStatus('delivered', 'cancelled', 'pay_on_delivery'), false)
 })
 
-test('production requires an explicit Daraja environment instead of silently selecting sandbox', () => {
+test('production honors an explicit Daraja environment and never silently selects sandbox', () => {
   assert.equal(resolveDarajaEnvironment('development'), 'sandbox')
   assert.equal(resolveDarajaEnvironment('test'), 'sandbox')
   assert.equal(resolveDarajaEnvironment('production'), undefined)
-  assert.equal(resolveDarajaEnvironment('production', 'sandbox'), undefined)
+  assert.equal(resolveDarajaEnvironment('production', 'sandbox'), 'sandbox')
   assert.equal(resolveDarajaEnvironment('production', 'production'), 'production')
 })
 

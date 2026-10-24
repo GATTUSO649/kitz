@@ -534,6 +534,14 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
     event?.preventDefault()
     if (event && !event.currentTarget.reportValidity()) return
     if (buyFlowStep === 1) {
+      if (deliveryZonesQuery.isError || !deliveryZonesQuery.data?.length) {
+        setBuyFlowError(deliveryZonesQuery.error?.message ?? 'Delivery areas are unavailable. Please try again later.')
+        return
+      }
+      if (!selectedZone) {
+        setBuyFlowError('Choose a delivery area before continuing.')
+        return
+      }
       if (!deliveryPin) {
         setBuyFlowError('Pin your delivery location before continuing.')
         return
@@ -555,7 +563,12 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
       setBuyFlowStep(3)
       return
     }
-    if (buyFlowStep !== 3 || !selectedItems.length || !selectedZone || !deliveryPin) return
+    if (buyFlowStep !== 3 || !selectedItems.length) return
+    if (!selectedZone || !deliveryPin) {
+      setBuyFlowError('Your delivery details are incomplete. Go back and confirm the area and location pin.')
+      setBuyFlowStep(1)
+      return
+    }
     setBuyFlowBusy(true)
     setBuyFlowError('')
     try {

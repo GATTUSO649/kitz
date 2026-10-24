@@ -80,7 +80,6 @@ if (!parsed.success) {
 }
 
 export function resolveDarajaEnvironment(nodeEnvironment: string, configuredEnvironment?: 'sandbox' | 'production') {
-  if (nodeEnvironment === 'production') return configuredEnvironment === 'production' ? 'production' : undefined
   if (configuredEnvironment) return configuredEnvironment
   return nodeEnvironment === 'development' || nodeEnvironment === 'test' ? 'sandbox' : undefined
 }

@@ -510,8 +510,14 @@ function App() {
         },
       }),
     })
-    const result = await response.json() as { data?: { orderNumber: string; total: string }; error?: { message?: string } }
-    if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'We could not create your order.')
+    const result = await response.json().catch(() => null) as { data?: { orderNumber: string; total: string }; error?: { message?: string } } | null
+    if (!response.ok || !result?.data) {
+      const message = result?.error?.message
+        ?? (response.status >= 500
+          ? `The order service is temporarily unavailable (HTTP ${response.status}). Check your orders before trying again.`
+          : 'We could not create your order. Check your details and try again.')
+      throw new Error(message)
+    }
 
     let noticeMessage = `Order ${result.data.orderNumber} placed. Pay on Delivery selected.`
     if (details.paymentMethod === 'mpesa') {
