@@ -10,6 +10,7 @@ export type ShopPurchaseSelection = { variant: ShopVariant; quantity: number }
 export type BuyNowCheckoutDetails = {
   idempotencyKey: string
   deliveryZoneId: number
+  paymentMethod: 'pay_on_delivery' | 'mpesa'
   payerPhone: string
   recipientName: string
   phone: string
@@ -54,11 +55,11 @@ type MarketplaceDirectory = { leagues: MarketplaceLeague[]; jerseyCategories: { 
 const money = new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES', maximumFractionDigits: 0 })
 const noProducts: ShopProduct[] = []
 
-function RatingDisplay({ rating = 0, count = 0 }: { rating?: number; count?: number }) {
-  return <div className="product-rating" aria-label={count ? `${rating.toFixed(1)} out of 5 from ${count} reviews` : 'No customer reviews yet'}>
+function RatingDisplay({ rating = 0, count = 0, to, productName }: { rating?: number; count?: number; to: string; productName: string }) {
+  return <Link className="product-rating product-rating-link" to={to} aria-label={count ? `${rating.toFixed(1)} out of 5 rating for ${productName}. Open to rate.` : `Rate ${productName}`}>
     <span className="product-rating-stars" aria-hidden="true">{[1, 2, 3, 4, 5].map((star) => <Star key={star} size={13} fill={star <= Math.round(rating) ? 'currentColor' : 'none'} />)}</span>
-    <span>{count ? `${rating.toFixed(1)} (${count})` : 'No reviews'}</span>
-  </div>
+    {count > 0 && <span>{rating.toFixed(1)}</span>}
+  </Link>
 }
 
 export function ProductCategoryLine({ team, league, jerseyCategory, category, fallback }: {
@@ -123,7 +124,7 @@ function ProductsGrid({ products, onSave, portalMode = false }: { products: Shop
         <button className="product-favourite" type="button" aria-label={`Save ${product.name} to your wishlist`} onClick={() => onSave(product.id)}><Heart size={14} /></button>
       </div>
       <div className="product-info"><div><ProductCategoryLine team={product.team?.name} league={product.league?.name} jerseyCategory={product.jerseyCategory?.name} category={product.category?.name} fallback="Football kit" /><h3><Link to={productPath(product.slug)}>{product.name}</Link></h3></div><span className="product-price">{product.salePrice ? <><del>{money.format(Number(product.price))}</del><strong className="sale-price">{money.format(Number(product.salePrice))}</strong></> : money.format(Number(product.price))}</span></div>
-      <RatingDisplay rating={product.ratingAverage} count={product.reviewCount} />
+      <RatingDisplay to={`${productPath(product.slug)}#product-reviews`} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />
       <div className="product-meta"><div className="product-sizes">{product.variants.length ? product.variants.map((variant) => <span className={!variant.stock ? 'is-sold-out' : ''} key={variant.id}>{variant.size}</span>) : <span>Sizes unavailable</span>}</div><span className={stock > 0 ? 'stock-label' : 'stock-label sold-out'}>{stock > 0 ? 'In stock' : 'Out of stock'}</span></div>
       <Link className="quick-add quick-add-preview" to={productPath(product.slug)} state={{ openBuyFlow: true }}><ShoppingCart size={13} />Buy</Link>
     </article>
@@ -353,6 +354,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
   const [zoomOpen, setZoomOpen] = useState(false)
   const [buyFlowOpen, setBuyFlowOpen] = useState(false)
   const [buyFlowStep, setBuyFlowStep] = useState(0)
+  const [buyFlowPaymentMethod, setBuyFlowPaymentMethod] = useState<'pay_on_delivery' | 'mpesa'>('pay_on_delivery')
   const [buyFlowError, setBuyFlowError] = useState('')
   const [buyFlowBusy, setBuyFlowBusy] = useState(false)
   const [buyFlowIdempotencyKey, setBuyFlowIdempotencyKey] = useState(() => crypto.randomUUID())
@@ -387,6 +389,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
     setBuyFlowStep(0)
     setBuyFlowError('')
     setBuyFlowIdempotencyKey(crypto.randomUUID())
+    setBuyFlowPaymentMethod('pay_on_delivery')
     setPayerPhone(accountUser?.phone ?? '')
     setDeliveryPhone(accountUser?.phone ?? '')
     setBuyFlowOpen(true)
@@ -422,6 +425,11 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
     const frame = window.requestAnimationFrame(() => window.scrollTo(0, restoreScrollY))
     return () => window.cancelAnimationFrame(frame)
   }, [pathname, restoreScrollY, productQuery.data?.id])
+  useEffect(() => {
+    if (location.hash !== '#product-reviews' || !productQuery.data) return
+    const frame = window.requestAnimationFrame(() => document.getElementById('product-reviews')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+    return () => window.cancelAnimationFrame(frame)
+  }, [location.hash, productQuery.data?.id])
   const recommendationsQuery = useQuery({
     queryKey: ['product-recommendations', productQuery.data?.id, productQuery.data?.team?.slug],
     enabled: Boolean(productQuery.data),
@@ -535,6 +543,14 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
       return
     }
     if (buyFlowStep === 2) {
+      if (buyFlowPaymentMethod === 'mpesa' && !paymentOptionsQuery.data?.stkPushAvailable) {
+        setBuyFlowError('M-Pesa prompts are not available right now. Choose Pay on Delivery or try again later.')
+        return
+      }
+      if (buyFlowPaymentMethod === 'mpesa' && !/^(?:0[17]\d{8}|\+?254[17]\d{8})$/.test(payerPhone.replace(/[\s()-]/g, ''))) {
+        setBuyFlowError('Enter a valid Kenyan M-PESA phone number.')
+        return
+      }
       setBuyFlowError('')
       setBuyFlowStep(3)
       return
@@ -546,6 +562,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
       await onBuyNow(product, selectedItems, {
         idempotencyKey: buyFlowIdempotencyKey,
         deliveryZoneId: selectedZone.id,
+        paymentMethod: buyFlowPaymentMethod,
         payerPhone,
         recipientName: accountUser?.fullName ?? '',
         phone: deliveryPhone,
@@ -555,7 +572,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
         ...(deliveryPin.accuracy !== null ? { accuracy: deliveryPin.accuracy } : {}),
       })
     } catch (issue) {
-      setBuyFlowError(issue instanceof Error ? issue.message : 'We could not start your payment.')
+      setBuyFlowError(issue instanceof Error ? issue.message : 'We could not complete your order.')
       setBuyFlowBusy(false)
     }
   }
@@ -632,7 +649,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
         })}</div><small className="product-size-limit">Choose multiple sizes if needed. Maximum 5 kits total, limited by available stock.</small></section>}
         <p className="product-purchase-total"><span>{selectedQuantity} {selectedQuantity === 1 ? 'kit' : 'kits'} selected</span><strong>{money.format(selectedSubtotal)}</strong></p>
         <button className="button button-outline product-add" type="button" disabled={!selectedItems.length} onClick={() => selectedItems.length && onAdd(product, selectedItems)}>Add to bag<ArrowRight size={16} /></button>
-        <button className="button button-green product-buy-now" type="button" disabled={!product.variants.some((variant) => variant.stock > 0)} onClick={() => { setBuyFlowStep(0); setBuyFlowError(''); setBuyFlowIdempotencyKey(crypto.randomUUID()); setPayerPhone(accountUser?.phone ?? ''); setBuyFlowOpen(true) }}>Buy now <ArrowRight size={16} /></button>
+        <button className="button button-green product-buy-now" type="button" disabled={!product.variants.some((variant) => variant.stock > 0)} onClick={() => { setBuyFlowStep(0); setBuyFlowPaymentMethod('pay_on_delivery'); setBuyFlowError(''); setBuyFlowIdempotencyKey(crypto.randomUUID()); setPayerPhone(accountUser?.phone ?? ''); setBuyFlowOpen(true) }}>Buy now <ArrowRight size={16} /></button>
         <div className="product-secondary-actions"><button className="wishlist-add" type="button" onClick={() => onSave(product.id)}>Save to wishlist</button>
         {portalMode && <button className="product-chat-button" type="button" onClick={() => navigate('/account/chat', { state: {
           draft: `Hi KitCulture Admin, I’m interested in ${product.name}. The listed price is ${money.format(startingPrice)}. Is it available?`,
@@ -643,7 +660,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
       </div>
     </div>
     {buyFlowOpen && <div className="buy-flow-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !buyFlowBusy) setBuyFlowOpen(false) }}><section className="buy-flow-dialog" role="dialog" aria-modal="true" aria-labelledby="buy-flow-title">
-      <header className="buy-flow-heading"><div><span className="eyebrow">SECURE CHECKOUT · STEP {buyFlowStep + 1} OF 4</span><h2 id="buy-flow-title">{['Your kit', 'Delivery location', 'Payment number', 'Review and pay'][buyFlowStep]}</h2></div><button className="icon-button" type="button" aria-label="Close checkout" disabled={buyFlowBusy} onClick={() => setBuyFlowOpen(false)}><X /></button></header>
+      <header className="buy-flow-heading"><div><span className="eyebrow">SECURE CHECKOUT · STEP {buyFlowStep + 1} OF 4</span><h2 id="buy-flow-title">{['Your kit', 'Delivery location', 'Payment method', 'Review order'][buyFlowStep]}</h2></div><button className="icon-button" type="button" aria-label="Close checkout" disabled={buyFlowBusy} onClick={() => setBuyFlowOpen(false)}><X /></button></header>
       <div className="buy-flow-progress" aria-label={`Step ${buyFlowStep + 1} of 4`}><span style={{ width: `${(buyFlowStep + 1) * 25}%` }} /></div>
       {buyFlowStep === 0 ? <div className="buy-flow-content">
         <div className="buy-flow-product">{imageUrl ? <img src={imageUrl} alt={product.name} /> : <div className="cart-image-placeholder">KC</div>}<div><span className="product-category">{[product.team?.name, product.jerseyCategory?.name, product.category?.name].filter(Boolean).join(' · ') || 'Football kit'}</span><h3>{product.name}</h3><p>{product.description}</p></div></div>
@@ -667,20 +684,25 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
           {deliveryPin && <GoogleMapView latitude={deliveryPin.latitude} longitude={deliveryPin.longitude} title="Pinned delivery location" />}
         </>}
         {buyFlowStep === 2 && <>
-          <div className="buy-flow-payment-merchant"><Smartphone size={20} /><div><strong>{paymentOptionsQuery.data?.mpesaTillName || 'KitCulture'}</strong><span>Secure M-Pesa prompt · Buy Goods Till</span></div></div>
-          <label>Phone number to pay from<input type="tel" inputMode="tel" autoComplete="tel" required pattern="(?:0[17][0-9]{8}|\+?254[17][0-9]{8})" title="Enter a valid Kenyan number, such as 0712345678 or +254712345678." maxLength={13} placeholder="0712345678 or +254712345678" value={payerPhone} onChange={(event) => setPayerPhone(event.target.value)} /></label>
-          <p className="buy-flow-hint">The payment prompt will be sent to this Kenyan number. Delivery contact details are entered separately.</p>
-          {!paymentOptionsQuery.data?.stkPushAvailable && !paymentOptionsQuery.isPending && <p className="buy-flow-error">M-Pesa prompts are not available right now.</p>}
+          <fieldset className="checkout-payment-options">
+            <legend>Payment method</legend>
+            <label className="checkout-payment-option"><input type="radio" name="buyFlowPaymentMethod" value="pay_on_delivery" checked={buyFlowPaymentMethod === 'pay_on_delivery'} onChange={() => { setBuyFlowPaymentMethod('pay_on_delivery'); setBuyFlowError('') }} /><span><strong>Pay on Delivery</strong><small>Pay when your kit is delivered.</small></span></label>
+            <label className="checkout-payment-option"><input type="radio" name="buyFlowPaymentMethod" value="mpesa" checked={buyFlowPaymentMethod === 'mpesa'} disabled={!paymentOptionsQuery.data?.stkPushAvailable} onChange={() => { setBuyFlowPaymentMethod('mpesa'); setBuyFlowError('') }} /><span><strong>M-PESA Express</strong><small>{paymentOptionsQuery.data?.stkPushAvailable ? 'Approve a payment prompt on your phone.' : 'Temporarily unavailable.'}</small></span></label>
+          </fieldset>
+          {buyFlowPaymentMethod === 'mpesa' ? <>
+            <div className="buy-flow-payment-merchant"><Smartphone size={20} /><div><strong>{paymentOptionsQuery.data?.mpesaTillName || 'KitCulture'}</strong><span>Secure M-Pesa prompt · Buy Goods Till</span></div></div>
+            <label>Phone number to pay from<input type="tel" inputMode="tel" autoComplete="tel" required pattern="(?:0[17][0-9]{8}|\+?254[17][0-9]{8})" title="Enter a valid Kenyan number, such as 0712345678 or +254712345678." maxLength={13} placeholder="0712345678 or +254712345678" value={payerPhone} onChange={(event) => setPayerPhone(event.target.value)} /></label>
+            <p className="buy-flow-hint">The payment prompt will be sent to this Kenyan number. Delivery contact details are entered separately.</p>
+          </> : <p className="buy-flow-hint">Pay {money.format(buyFlowTotal)} when your order is delivered.</p>}
         </>}
         {buyFlowStep === 3 && <>
-          <div className="buy-flow-review"><h3>Order summary</h3>{selectedItems.map(({ variant, quantity }) => <div key={variant.id}><span>{product.name} · size {variant.size} × {quantity}</span><strong>{money.format(Number(variant.price ?? product.salePrice ?? product.price) * quantity)}</strong></div>)}<div><span>Delivery · {selectedZone?.name}</span><strong>{money.format(Number(selectedZone?.fee ?? 0))}</strong></div><div className="buy-flow-grand-total"><span>Amount to approve</span><strong>{money.format(buyFlowTotal)}</strong></div></div>
-          <div className="buy-flow-review buy-flow-payee"><h3>Payment details</h3><div><span>Expected recipient</span><strong>{paymentOptionsQuery.data?.mpesaTillName || 'KitCulture'}</strong></div><div><span>Buy Goods Till</span><strong>{paymentOptionsQuery.data?.mpesaTillNumber || 'Not configured'}</strong></div><div><span>Prompt sent to</span><strong>{payerPhone}</strong></div><div><span>Account name</span><strong>{accountUser?.fullName || 'Sign in required'}</strong></div></div>
-          <p className="buy-flow-hint">Tap Proceed to send the payment request. Confirm the displayed merchant and amount on your phone before approving.</p>
+          <div className="buy-flow-review"><h3>Order summary</h3>{selectedItems.map(({ variant, quantity }) => <div key={variant.id}><span>{product.name} · size {variant.size} × {quantity}</span><strong>{money.format(Number(variant.price ?? product.salePrice ?? product.price) * quantity)}</strong></div>)}<div><span>Delivery · {selectedZone?.name}</span><strong>{money.format(Number(selectedZone?.fee ?? 0))}</strong></div><div className="buy-flow-grand-total"><span>{buyFlowPaymentMethod === 'mpesa' ? 'Amount to approve' : 'Total due on delivery'}</span><strong>{money.format(buyFlowTotal)}</strong></div></div>
+          {buyFlowPaymentMethod === 'mpesa' ? <div className="buy-flow-review buy-flow-payee"><h3>Payment details</h3><div><span>Expected recipient</span><strong>{paymentOptionsQuery.data?.mpesaTillName || 'KitCulture'}</strong></div><div><span>Buy Goods Till</span><strong>{paymentOptionsQuery.data?.mpesaTillNumber || 'Not configured'}</strong></div><div><span>Prompt sent to</span><strong>{payerPhone}</strong></div><div><span>Account name</span><strong>{accountUser?.fullName || 'Sign in required'}</strong></div></div> : <div className="buy-flow-review buy-flow-payee"><h3>Payment method</h3><div><span>Selected option</span><strong>Pay on Delivery</strong></div><div><span>Delivery area</span><strong>{selectedZone?.name}</strong></div></div>}
+          <p className="buy-flow-hint">{buyFlowPaymentMethod === 'mpesa' ? 'Tap Proceed to send the payment request. Confirm the displayed merchant and amount on your phone before approving.' : 'Place your order now and pay when it arrives.'}</p>
           {!accountUser && <Link className="buy-flow-signin" to={`/login?returnTo=${encodeURIComponent(pathname)}`}>Sign in to place this order <ArrowRight size={14} /></Link>}
-          {!paymentOptionsQuery.data?.stkPushAvailable && <p className="buy-flow-error">M-Pesa prompts are not available right now.</p>}
         </>}
         {buyFlowError && <p className="buy-flow-error" role="alert">{buyFlowError}</p>}
-        <div className="buy-flow-actions"><button className="button button-outline" type="button" disabled={buyFlowBusy} onClick={() => { setBuyFlowError(''); setBuyFlowStep(buyFlowStep - 1) }}>Back</button>{buyFlowStep < 3 ? <button className="button button-green" type="submit" disabled={(buyFlowStep === 1 && deliveryZonesQuery.isPending) || (buyFlowStep === 2 && (!payerPhone || !paymentOptionsQuery.data?.stkPushAvailable))}>Continue <ArrowRight size={16} /></button> : <button className="button button-green" type="button" disabled={buyFlowBusy || !paymentOptionsQuery.data?.stkPushAvailable} onClick={() => void submitBuyFlow()}>{buyFlowBusy ? 'Sending prompt…' : 'Proceed' } <ArrowRight size={16} /></button>}</div>
+        <div className="buy-flow-actions"><button className="button button-outline" type="button" disabled={buyFlowBusy} onClick={() => { setBuyFlowError(''); setBuyFlowStep(buyFlowStep - 1) }}>Back</button>{buyFlowStep < 3 ? <button className="button button-green" type="submit" disabled={(buyFlowStep === 1 && deliveryZonesQuery.isPending) || (buyFlowStep === 2 && buyFlowPaymentMethod === 'mpesa' && (!payerPhone || !paymentOptionsQuery.data?.stkPushAvailable))}>Continue <ArrowRight size={16} /></button> : <button className="button button-green" type="button" disabled={buyFlowBusy || (buyFlowPaymentMethod === 'mpesa' && !paymentOptionsQuery.data?.stkPushAvailable)} onClick={() => void submitBuyFlow()}>{buyFlowBusy ? 'Placing order…' : buyFlowPaymentMethod === 'mpesa' ? 'Send M-Pesa prompt' : 'Place order'} <ArrowRight size={16} /></button>}</div>
       </form>}
     </section></div>}
     {zoomOpen && imageUrl && <div className="product-lightbox" role="dialog" aria-modal="true" aria-label={`${product.name} image preview`} onClick={(event) => { if (event.target === event.currentTarget) setZoomOpen(false) }}>

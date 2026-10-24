@@ -109,11 +109,11 @@ async function loadAllCatalogProducts() {
   }
 }
 
-function ProductRating({ rating = 0, count = 0 }: { rating?: number; count?: number }) {
-  return <div className="product-rating" aria-label={count ? `${rating.toFixed(1)} out of 5 from ${count} reviews` : 'No customer reviews yet'}>
+function ProductRating({ rating = 0, count = 0, to, productName }: { rating?: number; count?: number; to: string; productName: string }) {
+  return <Link className="product-rating product-rating-link" to={to} aria-label={count ? `${rating.toFixed(1)} out of 5 rating for ${productName}. Open to rate.` : `Rate ${productName}`}>
     <span className="product-rating-stars" aria-hidden="true">{[1, 2, 3, 4, 5].map((star) => <Star key={star} size={13} fill={star <= Math.round(rating) ? 'currentColor' : 'none'} />)}</span>
-    <span>{count ? `${rating.toFixed(1)} (${count})` : 'No reviews'}</span>
-  </div>
+    {count > 0 && <span>{rating.toFixed(1)}</span>}
+  </Link>
 }
 
 function CheckoutPaymentOptions({ paymentMethod, onPaymentMethodChange, mpesaOptions, accountUser, payerPhone, onPayerPhoneChange }: { paymentMethod: 'pay_on_delivery' | 'mpesa'; onPaymentMethodChange: (method: 'pay_on_delivery' | 'mpesa') => void; mpesaOptions?: MpesaPaymentOptions; accountUser: AccountUser | null; payerPhone: string; onPayerPhoneChange: (phone: string) => void }) {
@@ -163,8 +163,8 @@ function HomepageProductSection({ title, kicker, products, error, onAdd, onSave,
           {(product.salePrice || product.trending) && <span className={`product-tag${product.salePrice ? ' product-tag-sale' : ''}`}>{product.salePrice ? 'SALE' : 'TRENDING'}</span>}
           <button className="product-favourite" type="button" aria-label={`Save ${product.name} to your wishlist`} onClick={() => onSave(product.id)}><Heart size={14} /></button>
         </div>
-        <div className={`product-info${portalMode ? ' portal-kit-info' : ''}`}><div><ProductCategoryLine team={product.team?.name} league={product.league?.name} jerseyCategory={product.jerseyCategory?.name} category={portalMode ? undefined : product.category?.name} fallback="KitCulture" /><h3><Link to={productPath(product.slug)}>{product.name}</Link></h3></div><span className="product-price">{product.salePrice ? <><del>{money.format(Number(product.price))}</del><strong className="sale-price">{money.format(Number(product.salePrice))}</strong></> : money.format(Number(product.price))}</span>{portalMode && <ProductRating rating={product.ratingAverage} count={product.reviewCount} />}</div>
-        {!portalMode && <ProductRating rating={product.ratingAverage} count={product.reviewCount} />}
+        <div className={`product-info${portalMode ? ' portal-kit-info' : ''}`}><div><ProductCategoryLine team={product.team?.name} league={product.league?.name} jerseyCategory={product.jerseyCategory?.name} category={portalMode ? undefined : product.category?.name} fallback="KitCulture" /><h3><Link to={productPath(product.slug)}>{product.name}</Link></h3></div><span className="product-price">{product.salePrice ? <><del>{money.format(Number(product.price))}</del><strong className="sale-price">{money.format(Number(product.salePrice))}</strong></> : money.format(Number(product.price))}</span>{portalMode && <ProductRating to={`${productPath(product.slug)}#product-reviews`} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />}</div>
+        {!portalMode && <ProductRating to={`${productPath(product.slug)}#product-reviews`} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />}
         <div className="product-meta"><div className="product-sizes">{product.variants.length ? product.variants.map((variant) => <span className={!variant.stock ? 'is-sold-out' : ''} key={variant.id}>{variant.size}</span>) : <span>Unavailable</span>}</div><span className={inStock ? 'stock-label' : 'stock-label sold-out'}>{inStock ? 'In stock' : 'Out of stock'}</span></div>
         {inStock ? <div className={showBuyButton ? 'product-card-actions' : undefined}><button className="quick-add" type="button" onClick={() => onAdd(product)}><ShoppingCart size={13} />Add to Cart</button>{showBuyButton && <Link className="product-card-buy" to={productPath(product.slug)}>Buy <ArrowRight size={14} /></Link>}</div> : <Link className="quick-add quick-add-preview" to={productPath(product.slug)}><ShoppingCart size={13} />View kit</Link>}
       </article>
@@ -495,10 +495,10 @@ function App() {
       body: JSON.stringify({
         items: selections.map(({ variant, quantity }) => ({ variantId: variant.id, quantity })),
         deliveryZoneId: details.deliveryZoneId,
-        paymentMethod: 'mpesa',
+        paymentMethod: details.paymentMethod,
         address: {
-          recipientName: accountUser.fullName,
-          phone: accountUser.phone,
+          recipientName: details.recipientName,
+          phone: details.phone,
           address: details.address,
           county: details.county,
           town: details.town,
@@ -513,19 +513,22 @@ function App() {
     const result = await response.json() as { data?: { orderNumber: string; total: string }; error?: { message?: string } }
     if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'We could not create your order.')
 
-    let noticeMessage = `Order ${result.data.orderNumber} was created, but the payment prompt could not start. Try again from order details.`
-    try {
-      const promptResponse = await fetch(`/api/v1/orders/${encodeURIComponent(result.data.orderNumber)}/mpesa/stk-push`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: details.payerPhone }),
-      })
-      const promptResult = await promptResponse.json() as { data?: { message?: string }; error?: { message?: string } }
-      noticeMessage = promptResponse.ok
-        ? `M-Pesa prompt sent to ${details.payerPhone}. Confirm ${money.format(Number(result.data.total))} to KitCulture.`
-        : `Order ${result.data.orderNumber} was created, but the prompt could not start: ${promptResult.error?.message ?? 'Try again from order details.'}`
-    } catch {
-      // The order is already created; keep it available for payment retry.
+    let noticeMessage = `Order ${result.data.orderNumber} placed. Pay on Delivery selected.`
+    if (details.paymentMethod === 'mpesa') {
+      noticeMessage = `Order ${result.data.orderNumber} was created, but the payment prompt could not start. Try again from order details.`
+      try {
+        const promptResponse = await fetch(`/api/v1/orders/${encodeURIComponent(result.data.orderNumber)}/mpesa/stk-push`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: details.payerPhone }),
+        })
+        const promptResult = await promptResponse.json() as { data?: { message?: string }; error?: { message?: string } }
+        noticeMessage = promptResponse.ok
+          ? `M-Pesa prompt sent to ${details.payerPhone}. Confirm ${money.format(Number(result.data.total))} to KitCulture.`
+          : `Order ${result.data.orderNumber} was created, but the prompt could not start: ${promptResult.error?.message ?? 'Try again from order details.'}`
+      } catch {
+        // The order is already created; keep it available for payment retry.
+      }
     }
     setNotice(noticeMessage)
     navigate(`/account/orders/${encodeURIComponent(result.data.orderNumber)}`)
@@ -1027,7 +1030,7 @@ function App() {
                 <button className="product-favourite" type="button" aria-label={`Save ${product.name} to your wishlist`} onClick={() => void saveToWishlist(product.id)}><Heart size={14} /></button>
               </div>
               <div className="product-info"><div><ProductCategoryLine team={product.team?.name} league={product.league?.name} jerseyCategory={product.jerseyCategory?.name} category={product.category?.name} fallback="KitCulture" /><h3><Link to={`/products/${product.slug}`}>{product.name}</Link></h3></div><span className="product-price">{product.salePrice ? <><del>{money.format(Number(product.price))}</del><strong className="sale-price">{money.format(Number(product.salePrice))}</strong></> : money.format(Number(product.price))}</span></div>
-              <ProductRating rating={product.ratingAverage} count={product.reviewCount} />
+              <ProductRating to={`/products/${product.slug}#product-reviews`} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />
               <div className="product-meta"><div className="product-sizes">{product.variants.length ? product.variants.map((variant) => <span className={!variant.stock ? 'is-sold-out' : ''} key={variant.id}>{variant.size}</span>) : <span>Unavailable</span>}</div><span className={inStock ? 'stock-label' : 'stock-label sold-out'}>{inStock ? 'In stock' : 'Out of stock'}</span></div>
               {inStock ? <button className="quick-add" type="button" onClick={() => addToCart(product)} aria-label={`Add ${product.name} to cart`}><ShoppingCart size={13} />Add to Cart</button> : <Link className="quick-add quick-add-preview" to={`/products/${product.slug}`}><ShoppingCart size={13} />Buy</Link>}
             </article>
