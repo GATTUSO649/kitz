@@ -86,6 +86,17 @@
   color: #3984d8;
 }
 
+.portal-shell .portal-topbar-actions > a,
+.portal-shell .portal-account-menu > button {
+  color: #071a33;
+}
+
+.portal-shell .portal-topbar-actions > a:hover,
+.portal-shell .portal-account-menu > button:hover {
+  border-color: #2468b2;
+  color: #2468b2;
+}
+
 .portal-shell .portal-cart-count {
   border-color: #071a33;
   background: #3984d8;
@@ -198,6 +209,53 @@
   gap: 12px;
 }
 
+.portal-shell .portal-marketplace-page .marketplace-filter-panel,
+.portal-shell .portal-marketplace-page .marketplace-collections,
+.portal-shell .portal-marketplace-page .marketplace-discovery-section,
+.portal-shell .portal-marketplace-page .marketplace-results,
+.portal-shell .portal-wishlist-grid {
+  padding: 14px;
+  border: 1px solid #31506f;
+  background: #0c223d;
+}
+
+.portal-shell .portal-marketplace-page .marketplace-collections,
+.portal-shell .portal-marketplace-page .marketplace-results {
+  margin: 16px 0;
+}
+
+.portal-shell .portal-marketplace-page .marketplace-discovery-section {
+  min-width: 0;
+}
+
+.portal-shell .portal-wishlist-grid {
+  gap: 12px;
+}
+
+.portal-shell .portal-cart-panel {
+  padding: 14px;
+  border: 1px solid #31506f;
+  background: #0c223d;
+}
+
+.portal-shell .portal-cart-panel .cart-page-lines {
+  border-top: 0;
+}
+
+.portal-shell .portal-cart-panel .cart-page-total {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #31506f;
+}
+
+.portal-shell .portal-checkout-page .checkout-form label,
+.portal-shell .portal-checkout-page .checkout-form label > span,
+.portal-shell .portal-checkout-page .checkout-disclaimer,
+.portal-shell .portal-checkout-page .checkout-total,
+.portal-shell .portal-checkout-page .checkout-total.checkout-fee {
+  color: #f5f7f2;
+}
+
 .portal-shell .portal-dashboard-kits .portal-featured-kits {
   margin: 16px 0;
   padding: 14px;
@@ -244,13 +302,34 @@
 
 .portal-shell .portal-dashboard-kits .portal-kit-info {
   display: grid;
-  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "identity rating"
+    "price price";
+  align-items: start;
+  gap: 5px 8px;
   padding: 9px 10px 0;
 }
 
 .portal-shell .portal-dashboard-kits .portal-kit-info > div {
+  grid-area: identity;
   display: grid;
   gap: 4px;
+}
+
+.portal-shell .portal-dashboard-kits .portal-kit-info .product-rating {
+  grid-area: rating;
+  min-height: 0;
+  justify-content: flex-end;
+  gap: 4px;
+  margin: 0;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.portal-shell .portal-dashboard-kits .portal-kit-info .product-rating-stars svg {
+  width: 11px;
+  height: 11px;
 }
 
 .portal-shell .portal-dashboard-kits .portal-kit-info .product-category {
@@ -275,6 +354,8 @@
 }
 
 .portal-shell .portal-dashboard-kits .portal-kit-info .product-price {
+  grid-area: price;
+  justify-self: start;
   color: var(--dark-text);
   font-size: 13px;
   font-weight: 750;
