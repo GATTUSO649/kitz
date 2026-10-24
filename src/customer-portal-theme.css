@@ -458,7 +458,7 @@
   .portal-shell .portal-product-page .product-recommend-section .product-grid,
   .portal-shell .portal-wishlist-grid,
   .portal-shell .portal-wishlist-skeleton {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .portal-shell .portal-product-page .product-detail {
