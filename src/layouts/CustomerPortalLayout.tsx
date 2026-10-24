@@ -63,7 +63,7 @@ export function CustomerPortalLayout({
   })
   const unreadNotifications = unreadNotificationsQuery.data ?? 0
 
-  return <div className="portal-shell" style={{ backgroundImage: 'url(https://i.pinimg.com/736x/81/13/c2/8113c26c3d058b2beef401b32e1d3bde.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' }}>
+  return <div className="portal-shell">
     {drawerOpen && <button className="portal-drawer-scrim" type="button" aria-label="Close customer navigation" onClick={() => setDrawerOpen(false)} />}
     <aside className={drawerOpen ? 'portal-sidebar is-open' : 'portal-sidebar'}>
       <Link to="/account/dashboard" className="portal-sidebar-brand" onClick={() => setDrawerOpen(false)}><img src="/culture-mark.png" alt="" /><span>KitCulture</span><small>PORTAL</small></Link>

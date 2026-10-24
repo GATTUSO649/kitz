@@ -1,0 +1,191 @@
+.portal-shell {
+  --portal-navy: #071a33;
+  --portal-green: #3984d8;
+  --green: #3984d8;
+  --green-dark: #2468b2;
+  --paper: #101827;
+  --ink: #f5f7f2;
+  --muted: #d5e0ef;
+  --line: #3b4a60;
+  --dark-surface: #182537;
+  --dark-raised: #202e43;
+  --dark-border: #3b4a60;
+  --dark-text: #f5f7f2;
+  --dark-muted: #d5e0ef;
+  background: #071a33;
+  background-image: none;
+  color: #f5f7f2;
+}
+
+.portal-shell .portal-sidebar,
+.portal-shell .portal-workspace,
+.portal-shell .portal-topbar,
+.portal-shell .portal-footer {
+  background-color: #071a33;
+  color: #f5f7f2;
+}
+
+.portal-shell .portal-sidebar {
+  border-right-color: #31506f;
+}
+
+.portal-shell .portal-avatar {
+  background: #9bcaff;
+  color: #071a33;
+}
+
+.portal-shell .portal-sidebar-brand small,
+.portal-shell .portal-sidebar .portal-shop-link,
+.portal-shell .portal-sidebar-identity > button:hover {
+  color: #9bcaff;
+}
+
+.portal-shell .portal-topbar,
+.portal-shell .portal-footer,
+.portal-shell .portal-sidebar-identity {
+  border-color: #31506f;
+}
+
+.portal-shell .portal-topbar-title small,
+.portal-shell .portal-footer,
+.portal-shell .portal-sidebar-user small,
+.portal-shell .portal-sidebar-identity small {
+  color: #bdcde0;
+}
+
+.portal-shell .portal-sidebar nav a.active {
+  box-shadow: inset 3px 0 #3984d8;
+}
+
+.portal-shell .portal-sidebar nav a:hover,
+.portal-shell .portal-sidebar nav a.active {
+  background: #ffffff12;
+  color: #fff;
+}
+
+.portal-shell .portal-topbar-actions > a,
+.portal-shell .portal-account-menu > button,
+.portal-shell .portal-footer a,
+.portal-shell .portal-profile-link,
+.portal-shell .portal-section-heading > a,
+.portal-shell .portal-order-actions a,
+.portal-shell .portal-summary-card > a,
+.portal-shell .portal-placeholder > a,
+.portal-shell .portal-query-error button,
+.portal-shell .portal-secondary-error button,
+.portal-shell .portal-inline-state button,
+.portal-shell .portal-retry-link,
+.portal-shell .portal-settings-links > a,
+.portal-shell .portal-notification-row-actions a,
+.portal-shell .portal-messenger-state button {
+  color: #80baff;
+}
+
+.portal-shell .portal-account-dropdown > a,
+.portal-shell .portal-cart-continue {
+  color: #3984d8;
+}
+
+.portal-shell .portal-cart-count {
+  border-color: #071a33;
+  background: #3984d8;
+  color: #fff;
+}
+
+.portal-shell .portal-metric > span svg,
+.portal-shell .portal-placeholder > svg {
+  color: #80baff;
+}
+
+.portal-shell .portal-note,
+.portal-shell .portal-message,
+.portal-shell .portal-default {
+  border-color: #315d88;
+  background: #eaf2fb;
+  color: #275f96;
+}
+
+.portal-shell .portal-default {
+  color: #275f96 !important;
+}
+
+.portal-shell .portal-status-delivered {
+  background: #eaf2fb;
+  color: #275f96;
+}
+
+.portal-shell .portal-profile-link:hover,
+.portal-shell .portal-row-actions button:hover,
+.portal-shell .portal-wishlist-card > button:hover,
+.portal-shell .wishlist-add:hover {
+  border-color: #3984d8;
+  background: #162a40;
+  color: #9bcaff;
+}
+
+.portal-shell .portal-metric:hover,
+.portal-shell .portal-wishlist-card:hover {
+  border-color: #78b7f7;
+}
+
+.portal-shell .portal-form input:focus {
+  border-color: #3984d8;
+  outline: 2px solid #80baff;
+  outline-offset: 1px;
+}
+
+.portal-shell .portal-support-response {
+  border-left-color: #3984d8;
+  background: #162a40;
+}
+
+.portal-shell .portal-notification-list article.is-unread {
+  border-left-color: #3984d8;
+  background: #162a40;
+}
+
+.portal-shell .portal-notification-filter button[aria-pressed="true"] {
+  border-color: #3984d8;
+  background: #16395f;
+  color: #fff;
+}
+
+.portal-shell .portal-notification-row-actions a,
+.portal-shell .portal-notification-list article .product-category,
+.portal-shell .portal-notification-list article.is-unread .portal-notification-copy > div::after {
+  color: #80baff;
+}
+
+.portal-shell .portal-featured-kits .product-card-buy {
+  border-color: #2468b2;
+  background: #2468b2;
+  color: #fff;
+}
+
+.portal-shell .portal-featured-kits .product-card-buy:hover {
+  border-color: #1b5595;
+  background: #1b5595;
+}
+
+.portal-shell .portal-chat-message.from-customer {
+  border-color: #c5daef;
+  background: #edf4fb;
+}
+
+.portal-shell .portal-chat-toggle:hover {
+  border-color: #78b7f7;
+  background: #edf4fb;
+}
+
+.portal-shell .portal-form input:focus,
+.portal-shell .portal-address-form input:focus,
+.portal-shell .portal-support-form textarea:focus {
+  outline-color: #80baff;
+}
+
+.portal-shell .portal-row-actions button:hover,
+.portal-shell .portal-wishlist-card > button:hover,
+.portal-shell .wishlist-add:hover {
+  border-color: #3984d8;
+  color: #80baff;
+}
