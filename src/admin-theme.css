@@ -278,18 +278,19 @@
 }
 
 .admin-auth-fields .admin-login-card > p {
-  color: #667991;
+  color: #000;
 }
 
 .admin-auth-fields .admin-login-card label {
-  color: #303d34;
+  color: #000;
 }
 
 .admin-auth-fields .admin-login-card input {
   height: 44px;
   border-color: #c7d7e7;
   background: #fff;
-  color: #142a45;
+  color: #000;
+  color-scheme: light;
 }
 
 .admin-auth-fields .admin-login-card input:focus {
@@ -298,7 +299,7 @@
 }
 
 .admin-auth-fields .admin-login-card .auth-switch {
-  color: #667991;
+  color: #000;
 }
 
 .admin-auth-fields .admin-login-card .auth-switch a,

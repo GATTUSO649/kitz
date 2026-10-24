@@ -198,10 +198,29 @@
   gap: 12px;
 }
 
+.portal-shell .portal-dashboard-kits .portal-featured-kits {
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid #31506f;
+  background: #0c223d;
+}
+
+.portal-shell .portal-dashboard-kits .portal-featured-kits .section-heading {
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #31506f;
+}
+
+.portal-shell .portal-dashboard-kits .portal-featured-kits .section-heading h2 {
+  font-size: 20px;
+}
+
 .portal-shell .portal-featured-kits .product-card,
 .portal-shell .portal-marketplace-page .product-card,
 .portal-shell .portal-product-page .product-recommend-section .product-card {
   min-width: 0;
+  border-color: #3b4a60;
+  background: var(--dark-surface);
 }
 
 .portal-shell .portal-featured-kits .product-media,
@@ -223,6 +242,52 @@
   font-size: 12px;
 }
 
+.portal-shell .portal-dashboard-kits .portal-kit-info {
+  display: grid;
+  gap: 6px;
+  padding: 9px 10px 0;
+}
+
+.portal-shell .portal-dashboard-kits .portal-kit-info > div {
+  display: grid;
+  gap: 4px;
+}
+
+.portal-shell .portal-dashboard-kits .portal-kit-info .product-category {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--dark-muted);
+  font-size: 9px;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.portal-shell .portal-dashboard-kits .portal-kit-info .product-team-name {
+  color: #9bcaff;
+}
+
+.portal-shell .portal-dashboard-kits .portal-kit-info h3 {
+  margin: 0;
+  color: var(--dark-text);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.portal-shell .portal-dashboard-kits .portal-kit-info .product-price {
+  color: var(--dark-text);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.portal-shell .portal-dashboard-kits .portal-kit-info .product-price del {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--dark-muted);
+  font-size: 10px;
+  font-weight: 400;
+}
+
 .portal-shell .portal-featured-kits .product-card-actions,
 .portal-shell .portal-marketplace-page .product-card .quick-add,
 .portal-shell .portal-product-page .product-recommend-section .product-card .quick-add {
@@ -232,6 +297,17 @@
 
 .portal-shell .portal-featured-kits .product-card-actions {
   margin-bottom: 9px;
+}
+
+.portal-shell .portal-dashboard-kits .portal-featured-kits .product-rating {
+  margin: 7px 10px 0;
+}
+
+.portal-shell .portal-dashboard-kits .portal-featured-kits .product-meta {
+  margin: 8px 10px 0;
+  padding-top: 7px;
+  border-color: #3b4a60;
+  color: var(--dark-muted);
 }
 
 .portal-shell .portal-wishlist-card {
