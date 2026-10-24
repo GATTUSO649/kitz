@@ -205,7 +205,7 @@
 .portal-shell .portal-marketplace-page .product-grid,
 .portal-shell .portal-product-page .product-recommend-section .product-grid,
 .portal-shell .portal-wishlist-grid {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -233,7 +233,7 @@
 }
 
 .portal-shell .portal-wishlist-skeleton {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
 .portal-shell .portal-cart-panel {
@@ -445,13 +445,23 @@
   }
 }
 
+@media (max-width: 1100px) {
+  .portal-shell .portal-featured-kits .product-grid,
+  .portal-shell .portal-marketplace-page .product-grid,
+  .portal-shell .portal-product-page .product-recommend-section .product-grid,
+  .portal-shell .portal-wishlist-grid,
+  .portal-shell .portal-wishlist-skeleton {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 700px) {
   .portal-shell .portal-featured-kits .product-grid,
   .portal-shell .portal-marketplace-page .product-grid,
   .portal-shell .portal-product-page .product-recommend-section .product-grid,
   .portal-shell .portal-wishlist-grid,
   .portal-shell .portal-wishlist-skeleton {
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .portal-shell .portal-product-page .product-detail {
@@ -463,6 +473,16 @@
     margin-inline: auto;
   }
 
+}
+
+@media (max-width: 520px) {
+  .portal-shell .portal-featured-kits .product-grid,
+  .portal-shell .portal-marketplace-page .product-grid,
+  .portal-shell .portal-product-page .product-recommend-section .product-grid,
+  .portal-shell .portal-wishlist-grid,
+  .portal-shell .portal-wishlist-skeleton {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 380px) {
@@ -478,7 +498,7 @@
   .portal-shell .portal-product-page .product-recommend-section .product-grid,
   .portal-shell .portal-wishlist-grid,
   .portal-shell .portal-wishlist-skeleton {
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
+    grid-template-columns: repeat(1, minmax(0, 1fr));
   }
 
   .portal-shell .portal-featured-kits .product-info,
