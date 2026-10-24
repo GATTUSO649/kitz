@@ -230,7 +230,6 @@ export function AdminLoginPage() {
     <Link to="/" className="admin-back">← KitCulture storefront</Link><span className="admin-kicker">RESTRICTED ADMIN ACCESS</span><h1>Administrator sign in</h1>
     <p>Sign in with the email and password for your verified administrator account.</p>
     {new URLSearchParams(location.search).get('verified') === '1' && <p className="admin-success" role="status">Administrator email verified. You can sign in now.</p>}
-    {new URLSearchParams(location.search).get('reason') === 'idle' && <p className="admin-success" role="status">You were signed out after 30 minutes of inactivity.</p>}
     {new URLSearchParams(location.search).get('reason') === 'expired' && <p className="admin-success" role="status">Your administrator session expired. Please sign in again.</p>}
     <label>Email<input name="email" type="email" autoComplete="username" required maxLength={254} /></label>
     <label>Password<input name="password" type="password" autoComplete="current-password" required /></label>
