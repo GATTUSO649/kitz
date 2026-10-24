@@ -69,9 +69,14 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: { ...(init?.body ? { 'Content-Type': 'application/json' } : {}), ...init?.headers },
   })
-  const payload = response.status === 204 ? null : await response.json() as AdminPayload<T>
-  if (!response.ok) throw new Error(payload && 'error' in payload ? payload.error?.message ?? 'Request failed.' : 'Request failed.')
-  return (payload && 'data' in payload ? payload.data : undefined) as T
+  if (response.status === 204) return undefined as T
+  if (!response.headers.get('content-type')?.includes('application/json')) {
+    throw new Error(response.ok ? 'The administrator service returned an unexpected response.' : `The administrator service is unavailable (HTTP ${response.status}).`)
+  }
+  const payload = await response.json() as AdminPayload<T>
+  if (!response.ok) throw new Error('error' in payload ? payload.error?.message ?? 'Request failed.' : 'Request failed.')
+  if (!('data' in payload) || payload.data === undefined) throw new Error('The administrator service returned an invalid response.')
+  return payload.data
 }
 
 const adminVerificationRequests = new Map<string, Promise<unknown>>()
@@ -200,11 +205,6 @@ export function AdminLoginPage() {
   const location = useLocation()
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const setupQuery = useQuery({
-    queryKey: ['admin-registration-status'],
-    queryFn: () => api<{ available: boolean }>('/api/v1/admin/registration-status'),
-    retry: false,
-  })
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setBusy(true)
@@ -213,7 +213,11 @@ export function AdminLoginPage() {
     try {
       await api('/api/v1/admin/login', {
         method: 'POST',
-        body: JSON.stringify({ email: String(form.get('email')), password: String(form.get('password')) }),
+        body: JSON.stringify({
+          email: String(form.get('email')),
+          password: String(form.get('password')),
+          secretKey: String(form.get('secretKey')),
+        }),
       })
       navigate('/admin', { replace: true })
     } catch (issue) {
@@ -224,14 +228,15 @@ export function AdminLoginPage() {
   }
   return <AdminAuthLayout><form className="admin-login-card" onSubmit={(event) => void submit(event)}>
     <Link to="/" className="admin-back">← KitCulture storefront</Link><span className="admin-kicker">RESTRICTED ADMIN ACCESS</span><h1>Administrator sign in</h1>
-    <p>Only a verified administrator account can access the dashboard. First-time setup requires a key configured by the site owner.</p>
+    <p>Sign in with your administrator key, email, and password. Only verified administrator accounts can access the dashboard.</p>
     {new URLSearchParams(location.search).get('verified') === '1' && <p className="admin-success" role="status">Administrator email verified. You can sign in now.</p>}
     {new URLSearchParams(location.search).get('reason') === 'idle' && <p className="admin-success" role="status">You were signed out after three minutes of inactivity.</p>}
     <label>Email<input name="email" type="email" autoComplete="username" required maxLength={254} /></label>
+    <label>Administrator secret key<input name="secretKey" type="password" autoComplete="off" required maxLength={512} /></label>
     <label>Password<input name="password" type="password" autoComplete="current-password" required /></label>
     {error && <p className="admin-error" role="alert">{error}</p>}
     <button className="button button-green" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'} <ArrowRight size={16} /></button>
-    {setupQuery.data?.available && <p className="auth-switch">First time setup? <Link to="/admin/register" onClick={(event) => transitionAdminAuth(event, navigate, '/admin/register')}>Create the administrator account</Link></p>}
+    <p className="auth-switch">Need an administrator account? <Link to="/admin/register" onClick={(event) => transitionAdminAuth(event, navigate, '/admin/register')}>Create one</Link></p>
   </form></AdminAuthLayout>
 }
 
@@ -283,9 +288,9 @@ export function AdminRegisterPage() {
         : setupQuery.isError
           ? <p className="admin-error" role="alert">{setupQuery.error.message}</p>
           : !setupQuery.data?.available
-            ? <><p>Administrator setup is unavailable or an administrator account has already been created.</p><Link className="button button-green" to="/admin/login" onClick={(event) => transitionAdminAuth(event, navigate, '/admin/login')}>Go to administrator sign in <ArrowRight size={16} /></Link></>
+            ? <><p>Administrator signup is unavailable. The site owner must configure the signup key before accounts can be created.</p><Link className="button button-green" to="/admin/login" onClick={(event) => transitionAdminAuth(event, navigate, '/admin/login')}>Go to administrator sign in <ArrowRight size={16} /></Link></>
             : <form onSubmit={(event) => void submit(event)}>
-              <p>Enter the setup key configured by the site owner. Only the first administrator account can be created.</p>
+              <p>Enter the setup key configured by the site owner. Every administrator account must be verified before sign-in.</p>
               <label>Full name<input name="fullName" autoComplete="name" required minLength={2} maxLength={160} /></label>
               <label>Email<input name="email" type="email" autoComplete="email" required maxLength={254} /></label>
               <label>Administrator setup key<input name="secretKey" type="password" autoComplete="off" required maxLength={512} /></label>

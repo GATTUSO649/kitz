@@ -6,16 +6,17 @@ import { z } from 'zod'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { adminDb } from '../../config/database.js'
 import { bcryptPasswordSchema } from '../../config/password-policy.js'
-import { adminAuditLogs, adminSessions, adminSetupLocks, adminUsers, adminVerificationTokens } from '../../database/admin-schema.js'
+import { adminAuditLogs, adminSessions, adminUsers, adminVerificationTokens } from '../../database/admin-schema.js'
 import { authenticatedAdmin } from '../../middleware/authenticate.js'
 import { authenticateAdmin } from '../../middleware/authenticate.js'
 
 export const adminAuthRouter = Router()
 const cookieName = 'kc_admin_session'
 export const adminIdleTimeoutMs = 3 * 60_000
-const loginSchema = z.object({
+export const adminLoginSchema = z.object({
   email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
   password: z.string().min(1).max(128),
+  secretKey: z.string().min(1).max(512),
 })
 const registerSchema = z.object({
   email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
@@ -68,8 +69,7 @@ adminAuthRouter.get('/registration-status', async (_request, response) => {
     response.status(503).json({ error: { code: 'ADMIN_DATABASE_UNAVAILABLE', message: 'Administrator database is not configured.' } })
     return
   }
-  const [admin] = await adminDb.select({ id: adminUsers.id }).from(adminUsers).limit(1)
-  response.json({ data: { available: !admin } })
+  response.json({ data: { available: true } })
 })
 
 adminAuthRouter.post('/register', async (request, response) => {
@@ -95,13 +95,6 @@ adminAuthRouter.post('/register', async (request, response) => {
   const passwordHash = await hash(input.data.password, 12)
   const verificationToken = randomBytes(32).toString('base64url')
   const registration = await adminDb.transaction(async (transaction) => {
-    await transaction.insert(adminSetupLocks).values({ id: 1, purpose: 'first-admin-bootstrap' })
-      .onDuplicateKeyUpdate({ set: { purpose: 'first-admin-bootstrap' } })
-    await transaction.select({ id: adminSetupLocks.id }).from(adminSetupLocks)
-      .where(eq(adminSetupLocks.id, 1)).for('update')
-    const [existingAdmin] = await transaction.select({ id: adminUsers.id }).from(adminUsers).limit(1)
-    if (existingAdmin) return 'already-configured' as const
-
     const [existingUser] = await transaction.select({ id: adminUsers.id }).from(adminUsers)
       .where(eq(adminUsers.email, input.data.email)).limit(1)
     if (existingUser) return 'email-unavailable' as const
@@ -118,10 +111,6 @@ adminAuthRouter.post('/register', async (request, response) => {
     })
     return 'created' as const
   })
-  if (registration === 'already-configured') {
-    response.status(409).json({ error: { code: 'ADMIN_ALREADY_CONFIGURED', message: 'An administrator account already exists. Sign in instead.' } })
-    return
-  }
   if (registration === 'email-unavailable') {
     response.status(409).json({ error: { code: 'ACCOUNT_UNAVAILABLE', message: 'Unable to create an administrator account with those details.' } })
     return
@@ -182,9 +171,13 @@ adminAuthRouter.post('/verify', async (request, response) => {
 
 adminAuthRouter.post('/login', async (request, response) => {
   if (rejectCrossOrigin(request, response)) return
-  const input = loginSchema.safeParse(request.body)
+  const input = adminLoginSchema.safeParse(request.body)
   if (!input.success) {
-    response.status(400).json({ error: { code: 'INVALID_INPUT', message: 'Email or password is invalid.' } })
+    response.status(400).json({ error: { code: 'INVALID_INPUT', message: 'Email, password, or administrator key is invalid.' } })
+    return
+  }
+  if (!matchesAdminSignupSecret(input.data.secretKey)) {
+    response.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Email, password, or administrator key is invalid.' } })
     return
   }
   if (!adminDb) {
@@ -199,7 +192,7 @@ adminAuthRouter.post('/login', async (request, response) => {
     emailVerifiedAt: adminUsers.emailVerifiedAt,
   }).from(adminUsers).where(eq(adminUsers.email, input.data.email)).limit(1)
   if (!admin || !(await compare(input.data.password, admin.passwordHash))) {
-    response.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Email or password is invalid.' } })
+    response.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Email, password, or administrator key is invalid.' } })
     return
   }
   if (!admin.emailVerifiedAt) {

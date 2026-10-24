@@ -4,7 +4,7 @@ import express from 'express'
 import { mysqlSslOptions } from '../../config/database.js'
 import { isAllowedClientOrigin, resolveDarajaEnvironment, resolveDarajaTransactionType } from '../../config/env.js'
 import { bcryptPasswordSchema } from '../../config/password-policy.js'
-import { adminIdleTimeoutMs, matchesAdminSignupSecret } from '../admin/auth.js'
+import { adminIdleTimeoutMs, adminLoginSchema, matchesAdminSignupSecret } from '../admin/auth.js'
 import { loginSchema, registerSchema } from './routes.js'
 import { createOrderSchema, createTemporaryOrderNumber, exceedsProductQuantityLimit, ordersRouter } from '../orders/routes.js'
 import { buildDarajaCallbackUrl, callbackFailureStatus, canVerifySuccessfulStkPayment, DarajaRequestError, darajaCallbackRoute, initiateStkPush, isFinalDarajaPaymentStatus, isValidDarajaPaymentAmount, matchesCallbackToken, normalizeKenyanPhone, parseDarajaTimestamp, parseStkCallback, resolveDarajaShortcodes } from '../orders/daraja.js'
@@ -597,4 +597,10 @@ test('administrator signup requires an exact configured setup secret', () => {
   assert.equal(matchesAdminSignupSecret(configuredSecret, configuredSecret), true)
   assert.equal(matchesAdminSignupSecret(`${configuredSecret}x`, configuredSecret), false)
   assert.equal(matchesAdminSignupSecret(configuredSecret, undefined), false)
+})
+
+test('administrator login requires the setup secret alongside email and password', () => {
+  const credentials = { email: 'admin@example.com', password: 'test-password' }
+  assert.equal(adminLoginSchema.safeParse(credentials).success, false)
+  assert.equal(adminLoginSchema.safeParse({ ...credentials, secretKey: 'render-generated-admin-setup-secret-0123456789' }).success, true)
 })
