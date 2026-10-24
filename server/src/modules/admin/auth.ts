@@ -12,7 +12,7 @@ import { authenticateAdmin } from '../../middleware/authenticate.js'
 
 export const adminAuthRouter = Router()
 const cookieName = 'kc_admin_session'
-export const adminIdleTimeoutMs = 3 * 60_000
+export const adminIdleTimeoutMs = 30 * 60_000
 export const adminLoginSchema = z.object({
   email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
   password: z.string().min(1).max(128),
@@ -212,7 +212,7 @@ adminAuthRouter.post('/login', async (request, response) => {
   response.json({ data: { user: { id: admin.id, email: admin.email, fullName: admin.fullName } } })
 })
 
-adminAuthRouter.get('/me', async (request, response) => {
+adminAuthRouter.get('/me', authenticateAdmin, async (request, response) => {
   const admin = authenticatedAdmin(request)
   if (!admin) {
     response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Administrator sign in is required.' } })

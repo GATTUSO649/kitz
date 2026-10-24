@@ -130,6 +130,13 @@ test('does not apply the authentication limit to regular admin writes', async ()
   assert.deepEqual([...new Set(responses.map((response) => response.status))], [403])
 })
 
+test('admin session endpoint rejects requests without an administrator cookie', async () => {
+  const response = await fetch(`${baseUrl}/api/v1/admin/me`)
+  assert.equal(response.status, 401)
+  const payload = await response.json() as { error: { code: string } }
+  assert.equal(payload.error.code, 'UNAUTHENTICATED')
+})
+
 test('allows HTTPS-hosted images under the content security policy', async () => {
   const response = await fetch(`${baseUrl}/health/live`)
   const policy = response.headers.get('content-security-policy') ?? ''

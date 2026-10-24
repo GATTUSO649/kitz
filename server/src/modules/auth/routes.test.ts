@@ -589,8 +589,8 @@ test('production requires the configured Daraja transaction type', () => {
   assert.equal(resolveDarajaTransactionType('production', 'CustomerPayBillOnline'), 'CustomerPayBillOnline')
 })
 
-test('administrator sessions use a three-minute idle timeout', () => {
-  assert.equal(adminIdleTimeoutMs, 3 * 60_000)
+test('administrator sessions use a 30-minute idle timeout', () => {
+  assert.equal(adminIdleTimeoutMs, 30 * 60_000)
 })
 
 test('administrator signup requires an exact configured setup secret', () => {

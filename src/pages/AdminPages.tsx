@@ -230,7 +230,8 @@ export function AdminLoginPage() {
     <Link to="/" className="admin-back">← KitCulture storefront</Link><span className="admin-kicker">RESTRICTED ADMIN ACCESS</span><h1>Administrator sign in</h1>
     <p>Sign in with the email and password for your verified administrator account.</p>
     {new URLSearchParams(location.search).get('verified') === '1' && <p className="admin-success" role="status">Administrator email verified. You can sign in now.</p>}
-    {new URLSearchParams(location.search).get('reason') === 'idle' && <p className="admin-success" role="status">You were signed out after three minutes of inactivity.</p>}
+    {new URLSearchParams(location.search).get('reason') === 'idle' && <p className="admin-success" role="status">You were signed out after 30 minutes of inactivity.</p>}
+    {new URLSearchParams(location.search).get('reason') === 'expired' && <p className="admin-success" role="status">Your administrator session expired. Please sign in again.</p>}
     <label>Email<input name="email" type="email" autoComplete="username" required maxLength={254} /></label>
     <label>Password<input name="password" type="password" autoComplete="current-password" required /></label>
     {error && <p className="admin-error" role="alert">{error}</p>}
@@ -1564,11 +1565,13 @@ export function AdminConsole() {
   })
 
   useEffect(() => {
-    if (sectionQuery.error?.message.includes('Sign in')) navigate('/admin/login', { replace: true })
+    if (/sign in/i.test(sectionQuery.error?.message ?? '')) {
+      navigate('/admin/login?reason=expired', { replace: true })
+    }
   }, [sectionQuery.error, navigate])
 
   useEffect(() => {
-    const idleTimeoutMs = 3 * 60_000
+    const idleTimeoutMs = 30 * 60_000
     const keepAliveThrottleMs = 30_000
     let idleTimer = 0
     let lastKeepAlive = Date.now()
@@ -1662,9 +1665,24 @@ export function AdminConsole() {
 
 export function AdminRoute() {
   const location = useLocation()
+  const isAdminPortalRoute = location.pathname === '/admin' || location.pathname.startsWith('/admin/')
+  const sessionQuery = useQuery({
+    queryKey: ['admin-session'],
+    queryFn: () => api<{ user: { id: number } }>('/api/v1/admin/me'),
+    enabled: isAdminPortalRoute,
+    retry: false,
+  })
+
   if (location.pathname === '/admin/login') return <AdminLoginPage />
   if (location.pathname === '/admin/register') return <AdminRegisterPage />
   if (location.pathname === '/admin/verify') return <AdminVerifyPage />
-  if (location.pathname === '/admin' || location.pathname.startsWith('/admin/')) return <AdminConsole />
+  if (isAdminPortalRoute) {
+    if (sessionQuery.isPending) return <main className="auth-checking" role="status">Checking administrator session…</main>
+    if (sessionQuery.isError) {
+      if (/sign in/i.test(sessionQuery.error.message)) return <Navigate to="/admin/login?reason=expired" replace />
+      return <main className="auth-checking"><p role="alert">Administrator service unavailable: {sessionQuery.error.message}</p><button type="button" onClick={() => void sessionQuery.refetch()}>Retry</button></main>
+    }
+    return <AdminConsole />
+  }
   return <Navigate to="/admin/login" replace />
 }
