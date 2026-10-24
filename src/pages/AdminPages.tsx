@@ -232,8 +232,8 @@ export function AdminLoginPage() {
     {new URLSearchParams(location.search).get('verified') === '1' && <p className="admin-success" role="status">Administrator email verified. You can sign in now.</p>}
     {new URLSearchParams(location.search).get('reason') === 'idle' && <p className="admin-success" role="status">You were signed out after three minutes of inactivity.</p>}
     <label>Email<input name="email" type="email" autoComplete="username" required maxLength={254} /></label>
-    <label>Administrator secret key<input name="secretKey" type="password" autoComplete="off" required maxLength={512} /></label>
     <label>Password<input name="password" type="password" autoComplete="current-password" required /></label>
+    <label>Administrator secret key<input name="secretKey" type="password" autoComplete="off" required maxLength={512} /></label>
     {error && <p className="admin-error" role="alert">{error}</p>}
     <button className="button button-green" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'} <ArrowRight size={16} /></button>
     <p className="auth-switch">Need an administrator account? <Link to="/admin/register" onClick={(event) => transitionAdminAuth(event, navigate, '/admin/register')}>Create one</Link></p>
@@ -293,9 +293,9 @@ export function AdminRegisterPage() {
               <p>Enter the setup key configured by the site owner. Every administrator account must be verified before sign-in.</p>
               <label>Full name<input name="fullName" autoComplete="name" required minLength={2} maxLength={160} /></label>
               <label>Email<input name="email" type="email" autoComplete="email" required maxLength={254} /></label>
-              <label>Administrator setup key<input name="secretKey" type="password" autoComplete="off" required maxLength={512} /></label>
               <label>Password<input name="password" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label>
               <label>Confirm password<input name="passwordConfirmation" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label>
+              <label>Administrator setup key<input name="secretKey" type="password" autoComplete="off" required maxLength={512} /></label>
               {error && <p className="admin-error" role="alert">{error}</p>}
               <button className="button button-green" type="submit" disabled={busy}>{busy ? 'Creating account…' : 'Create administrator account'} <ArrowRight size={16} /></button>
             </form>}
