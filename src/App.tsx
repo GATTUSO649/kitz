@@ -9,6 +9,7 @@ import './brand.css'
 import './pages.css'
 import './theme.css'
 import './homepage.css'
+import './public-theme.css'
 import { AdminRoute } from './pages/AdminPages'
 import { MarketplacePage, ProductCategoryLine, ProductPage, ShopPage, type BuyNowCheckoutDetails, type ShopProduct, type ShopPurchaseSelection, type ShopVariant } from './pages/ShopPages'
 import { CustomerChatPage, CustomerPortalOverview, CustomerPortalOrdersPage, CustomerPortalPage } from './pages/CustomerPortalPages'
@@ -904,7 +905,7 @@ function App() {
   }
 
   return (
-    <>
+    <div className="public-storefront">
       {introVisible && <div className="brand-intro" aria-label="KitCulture introduction">
         <div className="intro-identity">
           <img className="intro-logo" src={cultureLogo} alt="" />
@@ -925,6 +926,7 @@ function App() {
           <Link to="/shop" onClick={() => setMobileOpen(false)}>Shop Jerseys <ChevronDown size={13} /></Link>
           <Link to="/marketplace" onClick={() => setMobileOpen(false)}>Clubs <ChevronDown size={13} /></Link>
           <Link to="/categories/national-team-kits" onClick={() => setMobileOpen(false)}>National Teams <ChevronDown size={13} /></Link>
+          <Link to={accountUser ? '/account' : '/login'} onClick={() => setMobileOpen(false)}>Account</Link>
           <Link to="/new-arrivals" onClick={() => setMobileOpen(false)}>New Arrivals</Link>
         </nav>
         <div className="header-actions">
@@ -1110,7 +1112,7 @@ function App() {
           </form>}
         </div> : cart.length === 0 ? <div className="empty-cart"><ShoppingBag size={28} /><strong>Nothing in your bag. Yet.</strong><span>Your next favourite shirt is waiting in the shop.</span><button className="button button-green" type="button" onClick={() => setCartOpen(false)}>Explore the shop <ArrowRight size={15} /></button></div> : <><div className="cart-lines">{cart.map((line) => <article className="cart-line" key={`${line.productId}-${line.size}`}>{line.imageUrl ? <img src={line.imageUrl} alt="" /> : <div className="cart-image-placeholder">KC</div>}<div className="cart-line-info"><strong>{line.name}</strong><span>Size {line.size}</span><span>{money.format(line.price)}</span><div className="quantity-control"><button type="button" aria-label={`Remove one ${line.name}`} onClick={() => updateQuantity(line.productId, line.size, line.quantity - 1)}>−</button><span>{line.quantity}</span><button type="button" aria-label={`Add one ${line.name}`} onClick={() => updateQuantity(line.productId, line.size, line.quantity + 1)}>+</button></div></div><button className="remove-line" type="button" onClick={() => updateQuantity(line.productId, line.size, 0)}>Remove</button></article>)}</div><div className="drawer-total"><div><span>Subtotal</span><strong>{money.format(subtotal)}</strong></div><p>Delivery calculated at checkout.</p><button className="button button-green" type="button" onClick={beginCheckout}>Continue to checkout <ArrowRight size={16} /></button><small>Sign in is required. Your bag stays saved in this browser.</small></div></>}
       </aside></div>}
-    </>
+    </div>
   )
 }
 
