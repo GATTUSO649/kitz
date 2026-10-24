@@ -12,6 +12,22 @@
   --dark-muted: #d5e0ef;
 }
 
+.admin-app,
+.admin-app .admin-main {
+  background-color: #071a33;
+  color: #f5f7f2;
+}
+
+.admin-app .admin-sidebar {
+  border-right-color: #31506f;
+  background-color: #071a33;
+}
+
+.admin-app .admin-table {
+  background-color: #0d2540;
+  color: #f5f7f2;
+}
+
 .admin-login-page {
   --green: #3984d8;
   --green-dark: #2468b2;
