@@ -181,8 +181,8 @@
   position: relative;
   isolation: isolate;
   display: grid;
-  width: min(100%, 1040px);
-  min-height: 600px;
+  width: min(100%, 900px);
+  min-height: 560px;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid #dfe4eb;
@@ -261,8 +261,9 @@
 }
 
 .admin-auth-fields > .admin-login-card {
-  width: 100%;
-  gap: 15px;
+  width: min(100%, 420px);
+  gap: 12px;
+  margin-inline: auto;
   padding: 0;
   border: 0;
   background: transparent;
@@ -286,11 +287,15 @@
 }
 
 .admin-auth-fields .admin-login-card input {
-  height: 44px;
+  height: 40px;
   border-color: #c7d7e7;
   background: #fff;
   color: #000;
   color-scheme: light;
+}
+
+.admin-auth-fields .admin-login-card form {
+  gap: 10px;
 }
 
 .admin-auth-fields .admin-login-card input:focus {
