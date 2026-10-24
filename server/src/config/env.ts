@@ -34,6 +34,7 @@ const schema = z.object({
   CLIENT_ORIGIN: z.string().url().default('http://localhost:5173'),
   DATABASE_URL: z.string().min(1).optional(),
   ADMIN_DATABASE_URL: z.string().min(1).optional(),
+  ADMIN_SIGNUP_SECRET: z.string().min(32).max(512).optional(),
   MYSQL_URL: z.string().min(1).optional(),
   MYSQL_PUBLIC_URL: z.string().min(1).optional(),
   ADMIN_MYSQL_URL: z.string().min(1).optional(),

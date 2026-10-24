@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { compare, hash } from 'bcryptjs'
 import { and, eq, gt, isNull } from 'drizzle-orm'
 import { Router, type Response } from 'express'
@@ -21,6 +21,7 @@ const registerSchema = z.object({
   email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
   password: bcryptPasswordSchema(14),
   fullName: z.string().trim().min(2).max(160),
+  secretKey: z.string().min(1).max(512),
 })
 
 function hashToken(token: string) {
@@ -43,10 +44,11 @@ function setAdminSessionCookie(response: Response, token: string) {
   })
 }
 
-function isLocalDevelopmentRequest(request: Parameters<Parameters<typeof adminAuthRouter.post>[1]>[0]) {
-  const address = request.socket.remoteAddress
-  return env.NODE_ENV === 'development'
-    && (address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1')
+export function matchesAdminSignupSecret(candidate: string, configuredSecret = env.ADMIN_SIGNUP_SECRET) {
+  if (!configuredSecret) return false
+  const candidateDigest = createHash('sha256').update(candidate).digest()
+  const configuredDigest = createHash('sha256').update(configuredSecret).digest()
+  return timingSafeEqual(candidateDigest, configuredDigest)
 }
 
 function rejectCrossOrigin(request: Parameters<Parameters<typeof adminAuthRouter.post>[1]>[0], response: Parameters<Parameters<typeof adminAuthRouter.post>[1]>[1]) {
@@ -57,8 +59,8 @@ function rejectCrossOrigin(request: Parameters<Parameters<typeof adminAuthRouter
   return false
 }
 
-adminAuthRouter.get('/registration-status', async (request, response) => {
-  if (!isLocalDevelopmentRequest(request)) {
+adminAuthRouter.get('/registration-status', async (_request, response) => {
+  if (!env.ADMIN_SIGNUP_SECRET) {
     response.json({ data: { available: false } })
     return
   }
@@ -72,13 +74,17 @@ adminAuthRouter.get('/registration-status', async (request, response) => {
 
 adminAuthRouter.post('/register', async (request, response) => {
   if (rejectCrossOrigin(request, response)) return
-  if (!isLocalDevelopmentRequest(request)) {
+  if (!env.ADMIN_SIGNUP_SECRET) {
     response.status(404).json({ error: { code: 'NOT_FOUND', message: 'Administrator setup is not available.' } })
     return
   }
   const input = registerSchema.safeParse(request.body)
   if (!input.success) {
     response.status(400).json({ error: { code: 'INVALID_INPUT', message: 'Check the administrator account details. Passwords must be at least 14 characters.' } })
+    return
+  }
+  if (!matchesAdminSignupSecret(input.data.secretKey)) {
+    response.status(403).json({ error: { code: 'INVALID_ADMIN_SETUP_KEY', message: 'Administrator setup key is invalid.' } })
     return
   }
   if (!adminDb) {
@@ -130,10 +136,6 @@ adminAuthRouter.post('/register', async (request, response) => {
 
 adminAuthRouter.post('/verify', async (request, response) => {
   if (rejectCrossOrigin(request, response)) return
-  if (!isLocalDevelopmentRequest(request)) {
-    response.status(404).json({ error: { code: 'NOT_FOUND', message: 'Administrator verification is not available.' } })
-    return
-  }
   const input = z.object({ token: z.string().min(32).max(128) }).safeParse(request.body)
   if (!input.success) {
     response.status(400).json({ error: { code: 'INVALID_TOKEN', message: 'The verification link is invalid or expired.' } })

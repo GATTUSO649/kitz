@@ -224,7 +224,7 @@ export function AdminLoginPage() {
   }
   return <AdminAuthLayout><form className="admin-login-card" onSubmit={(event) => void submit(event)}>
     <Link to="/" className="admin-back">← KitCulture storefront</Link><span className="admin-kicker">RESTRICTED ADMIN ACCESS</span><h1>Administrator sign in</h1>
-    <p>Only a verified administrator account can access the dashboard. First-time setup is limited to local development.</p>
+    <p>Only a verified administrator account can access the dashboard. First-time setup requires a key configured by the site owner.</p>
     {new URLSearchParams(location.search).get('verified') === '1' && <p className="admin-success" role="status">Administrator email verified. You can sign in now.</p>}
     {new URLSearchParams(location.search).get('reason') === 'idle' && <p className="admin-success" role="status">You were signed out after three minutes of inactivity.</p>}
     <label>Email<input name="email" type="email" autoComplete="username" required maxLength={254} /></label>
@@ -263,6 +263,7 @@ export function AdminRegisterPage() {
           email: String(form.get('email')),
           fullName: String(form.get('fullName')),
           password,
+          secretKey: String(form.get('secretKey')),
         }),
       })
       setVerificationUrl(result.verificationUrl)
@@ -274,9 +275,9 @@ export function AdminRegisterPage() {
   }
 
   return <AdminAuthLayout><section className="admin-login-card">
-    <Link to="/admin/login" className="admin-back" onClick={(event) => transitionAdminAuth(event, navigate, '/admin/login')}>← Administrator sign in</Link><span className="admin-kicker">FIRST-TIME LOCAL SETUP</span><h1>Create administrator account</h1>
+    <Link to="/admin/login" className="admin-back" onClick={(event) => transitionAdminAuth(event, navigate, '/admin/login')}>← Administrator sign in</Link><span className="admin-kicker">RESTRICTED ADMIN SETUP</span><h1>Create administrator account</h1>
     {verificationUrl
-      ? <><p>Account created. Email delivery is not configured for local testing; use the one-time verification link below. It expires in 30 minutes.</p><Link className="button button-green" to={verificationUrl}>Verify administrator email <ArrowRight size={16} /></Link></>
+      ? <><p>Account created. Use the one-time verification link below to activate the administrator account. It expires in 30 minutes.</p><Link className="button button-green" to={verificationUrl}>Verify administrator email <ArrowRight size={16} /></Link></>
       : setupQuery.isPending
         ? <p>Checking administrator setup…</p>
         : setupQuery.isError
@@ -284,9 +285,10 @@ export function AdminRegisterPage() {
           : !setupQuery.data?.available
             ? <><p>Administrator setup is unavailable or an administrator account has already been created.</p><Link className="button button-green" to="/admin/login" onClick={(event) => transitionAdminAuth(event, navigate, '/admin/login')}>Go to administrator sign in <ArrowRight size={16} /></Link></>
             : <form onSubmit={(event) => void submit(event)}>
-              <p>This one-time setup is limited to local development. After creating the account, verify it before signing in.</p>
+              <p>Enter the setup key configured by the site owner. Only the first administrator account can be created.</p>
               <label>Full name<input name="fullName" autoComplete="name" required minLength={2} maxLength={160} /></label>
               <label>Email<input name="email" type="email" autoComplete="email" required maxLength={254} /></label>
+              <label>Administrator setup key<input name="secretKey" type="password" autoComplete="off" required maxLength={512} /></label>
               <label>Password<input name="password" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label>
               <label>Confirm password<input name="passwordConfirmation" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label>
               {error && <p className="admin-error" role="alert">{error}</p>}

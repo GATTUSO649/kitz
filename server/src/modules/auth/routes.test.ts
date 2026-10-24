@@ -4,7 +4,7 @@ import express from 'express'
 import { mysqlSslOptions } from '../../config/database.js'
 import { isAllowedClientOrigin, resolveDarajaEnvironment, resolveDarajaTransactionType } from '../../config/env.js'
 import { bcryptPasswordSchema } from '../../config/password-policy.js'
-import { adminIdleTimeoutMs } from '../admin/auth.js'
+import { adminIdleTimeoutMs, matchesAdminSignupSecret } from '../admin/auth.js'
 import { loginSchema, registerSchema } from './routes.js'
 import { createOrderSchema, createTemporaryOrderNumber, exceedsProductQuantityLimit, ordersRouter } from '../orders/routes.js'
 import { buildDarajaCallbackUrl, callbackFailureStatus, canVerifySuccessfulStkPayment, DarajaRequestError, darajaCallbackRoute, initiateStkPush, isFinalDarajaPaymentStatus, isValidDarajaPaymentAmount, matchesCallbackToken, normalizeKenyanPhone, parseDarajaTimestamp, parseStkCallback, resolveDarajaShortcodes } from '../orders/daraja.js'
@@ -590,4 +590,11 @@ test('production requires the configured Daraja transaction type', () => {
 
 test('administrator sessions use a three-minute idle timeout', () => {
   assert.equal(adminIdleTimeoutMs, 3 * 60_000)
+})
+
+test('administrator signup requires an exact configured setup secret', () => {
+  const configuredSecret = 'render-generated-admin-setup-secret-0123456789'
+  assert.equal(matchesAdminSignupSecret(configuredSecret, configuredSecret), true)
+  assert.equal(matchesAdminSignupSecret(`${configuredSecret}x`, configuredSecret), false)
+  assert.equal(matchesAdminSignupSecret(configuredSecret, undefined), false)
 })
