@@ -600,8 +600,8 @@ test('administrator signup requires an exact configured setup secret', () => {
   assert.equal(matchesAdminSignupSecret(configuredSecret, undefined), false)
 })
 
-test('administrator login requires the setup secret alongside email and password', () => {
+test('administrator login uses email and password without the signup secret', () => {
   const credentials = { email: 'admin@example.com', password: 'test-password' }
-  assert.equal(adminLoginSchema.safeParse(credentials).success, false)
-  assert.equal(adminLoginSchema.safeParse({ ...credentials, secretKey: 'render-generated-admin-setup-secret-0123456789' }).success, true)
+  assert.equal(adminLoginSchema.safeParse(credentials).success, true)
+  assert.equal(adminLoginSchema.safeParse({ ...credentials, password: '' }).success, false)
 })

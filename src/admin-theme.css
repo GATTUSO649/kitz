@@ -62,6 +62,10 @@
   background: linear-gradient(90deg, #2468b2, #80baff);
 }
 
+.admin-app .admin-analytics :is(.admin-kicker, .admin-analytics-heading > svg, .admin-chart-card h3, .admin-chart-card p, .admin-bar-row, .admin-bar-row strong, .admin-chart-empty) {
+  color: #fff;
+}
+
 .admin-app .admin-size-picker > div > label.is-selected span {
   background: #eaf2fb;
 }

@@ -16,7 +16,6 @@ export const adminIdleTimeoutMs = 3 * 60_000
 export const adminLoginSchema = z.object({
   email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
   password: z.string().min(1).max(128),
-  secretKey: z.string().min(1).max(512),
 })
 const registerSchema = z.object({
   email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
@@ -173,11 +172,7 @@ adminAuthRouter.post('/login', async (request, response) => {
   if (rejectCrossOrigin(request, response)) return
   const input = adminLoginSchema.safeParse(request.body)
   if (!input.success) {
-    response.status(400).json({ error: { code: 'INVALID_INPUT', message: 'Email, password, or administrator key is invalid.' } })
-    return
-  }
-  if (!matchesAdminSignupSecret(input.data.secretKey)) {
-    response.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Email, password, or administrator key is invalid.' } })
+    response.status(400).json({ error: { code: 'INVALID_INPUT', message: 'Enter a valid administrator email and password.' } })
     return
   }
   if (!adminDb) {

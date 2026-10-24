@@ -67,6 +67,7 @@ const sections = [
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...init,
+    credentials: 'include',
     headers: { ...(init?.body ? { 'Content-Type': 'application/json' } : {}), ...init?.headers },
   })
   if (response.status === 204) return undefined as T
@@ -216,7 +217,6 @@ export function AdminLoginPage() {
         body: JSON.stringify({
           email: String(form.get('email')),
           password: String(form.get('password')),
-          secretKey: String(form.get('secretKey')),
         }),
       })
       navigate('/admin', { replace: true })
@@ -228,12 +228,11 @@ export function AdminLoginPage() {
   }
   return <AdminAuthLayout><form className="admin-login-card" onSubmit={(event) => void submit(event)}>
     <Link to="/" className="admin-back">← KitCulture storefront</Link><span className="admin-kicker">RESTRICTED ADMIN ACCESS</span><h1>Administrator sign in</h1>
-    <p>Sign in with your administrator key, email, and password. Only verified administrator accounts can access the dashboard.</p>
+    <p>Sign in with the email and password for your verified administrator account.</p>
     {new URLSearchParams(location.search).get('verified') === '1' && <p className="admin-success" role="status">Administrator email verified. You can sign in now.</p>}
     {new URLSearchParams(location.search).get('reason') === 'idle' && <p className="admin-success" role="status">You were signed out after three minutes of inactivity.</p>}
     <label>Email<input name="email" type="email" autoComplete="username" required maxLength={254} /></label>
     <label>Password<input name="password" type="password" autoComplete="current-password" required /></label>
-    <label>Administrator secret key<input name="secretKey" type="password" autoComplete="off" required maxLength={512} /></label>
     {error && <p className="admin-error" role="alert">{error}</p>}
     <button className="button button-green" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'} <ArrowRight size={16} /></button>
     <p className="auth-switch">Need an administrator account? <Link to="/admin/register" onClick={(event) => transitionAdminAuth(event, navigate, '/admin/register')}>Create one</Link></p>
