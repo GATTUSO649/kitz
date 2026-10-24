@@ -1,3 +1,5 @@
+DARAJA_TRANSACTION_TYPE=CustomerPayBillOnline
+The Sandbox test shortcode `174379` uses `CustomerPayBillOnline`; keep its matching Sandbox passkey with that setting. Use `CustomerBuyGoodsOnline` only for an approved Buy Goods Till and `CustomerPayBillOnline` for a PayBill shortcode. Production requires an explicit `DARAJA_ENV` and `DARAJA_TRANSACTION_TYPE`; development/test defaults to the Sandbox PayBill configuration.
 # M-Pesa Daraja Setup
 
 The checkout uses a server-side Daraja STK Push. Orders stay `pending_payment` until the API receives a callback, queries Daraja for the same checkout request, and verifies the receipt, amount, transaction time, payer phone, and order association. The payer phone can differ from the delivery recipient phone.
@@ -15,13 +17,13 @@ DARAJA_ENV=sandbox
 DARAJA_CONSUMER_KEY=
 DARAJA_CONSUMER_SECRET=
 DARAJA_PASSKEY=
-DARAJA_TRANSACTION_TYPE=CustomerBuyGoodsOnline
+DARAJA_TRANSACTION_TYPE=CustomerPayBillOnline
 DARAJA_SHORTCODE=
 DARAJA_CALLBACK_BASE_URL=https://your-public-api.example.com
 DARAJA_CALLBACK_TOKEN=use-a-random-secret-at-least-32-characters-long
 ```
 
-Use `CustomerBuyGoodsOnline` only for a Buy Goods Till and `CustomerPayBillOnline` only for a PayBill shortcode. Production requires an explicit `DARAJA_ENV` and `DARAJA_TRANSACTION_TYPE`; only development/test defaults to sandbox and Buy Goods.
+For the Sandbox test shortcode `174379`, use `CustomerPayBillOnline` with its matching Sandbox passkey. Use `CustomerBuyGoodsOnline` only for an approved Buy Goods Till. Production requires explicit `DARAJA_ENV` and `DARAJA_TRANSACTION_TYPE`; development/test defaults to Sandbox PayBill.
 
 The HTTPS callback URL registered with Daraja is `${DARAJA_CALLBACK_BASE_URL}/api/v1/orders/mpesa/callback/${DARAJA_CALLBACK_TOKEN}`. The public host must route that path to this API. Localhost is not reachable by Safaricom; use a secure public development tunnel for sandbox callback testing.
 

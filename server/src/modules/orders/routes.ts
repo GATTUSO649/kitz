@@ -379,7 +379,11 @@ ordersRouter.post('/orders/:orderNumber/mpesa/stk-push', rejectCrossOrigin, stkP
       stage: error instanceof DarajaRequestError ? error.stage : 'payment_record_update',
       outcome: unknownOutcome ? 'unknown' : error instanceof DarajaRequestError ? error.outcome : 'unknown',
       providerCode: resultCode,
+      providerMessage: error instanceof DarajaRequestError ? error.providerMessage : undefined,
+      providerRequestId: error instanceof DarajaRequestError ? error.providerRequestId : undefined,
+      networkCode: error instanceof DarajaRequestError ? error.networkCode : undefined,
       httpStatus: error instanceof DarajaRequestError ? error.httpStatus : undefined,
+      durationMs: error instanceof DarajaRequestError ? error.durationMs : undefined,
     }, 'Daraja STK request did not complete normally')
     await db.update(payments).set({
       status: unknownOutcome ? 'requires_review' : 'failed',
@@ -395,14 +399,17 @@ ordersRouter.post('/orders/:orderNumber/mpesa/stk-push', rejectCrossOrigin, stkP
         : error instanceof DarajaRequestError && error.stage === 'stk_push'
           ? 'MPESA_STK_REJECTED'
           : 'MPESA_PROMPT_FAILED'
+    const definiteStkRejection = error instanceof DarajaRequestError && error.stage === 'stk_push' && error.outcome === 'rejected'
     const message = unknownOutcome
       ? 'We could not confirm whether the prompt was sent. Check its status before trying again.'
+      : definiteStkRejection
+        ? 'Safaricom rejected the payment request. Check the Sandbox shortcode and transaction type, then try again.'
       : error instanceof DarajaRequestError && error.stage === 'oauth'
         ? 'Safaricom authentication failed. Check the configured Daraja environment and credentials.'
         : error instanceof DarajaRequestError && error.stage === 'stk_push'
           ? 'Safaricom rejected the STK request. Check the configured shortcode, transaction type, and product activation.'
           : 'The STK request could not be completed. Check the payment status before retrying.'
-    response.status(502).json({ error: { code: failureCode, message } })
+    response.status(definiteStkRejection ? 422 : 502).json({ error: { code: failureCode, message } })
   }
 })
 

@@ -415,8 +415,8 @@ test('production honors an explicit Daraja environment and never silently select
 })
 
 test('sandbox uses its Daraja shortcode instead of the production Till setting', () => {
-  assert.deepEqual(resolveDarajaShortcodes('sandbox', 'CustomerBuyGoodsOnline', '174379', '4682146'), { businessShortcode: '174379', partyB: '174379' })
-  assert.deepEqual(resolveDarajaShortcodes('sandbox', 'CustomerBuyGoodsOnline', undefined, '4682146'), { businessShortcode: '', partyB: '' })
+  assert.deepEqual(resolveDarajaShortcodes('sandbox', 'CustomerPayBillOnline', '174379', '4682146'), { businessShortcode: '174379', partyB: '174379' })
+  assert.deepEqual(resolveDarajaShortcodes('sandbox', 'CustomerPayBillOnline', undefined, '4682146'), { businessShortcode: '', partyB: '' })
 })
 
 test('production keeps business shortcode separate from receiving Till', () => {
@@ -479,6 +479,32 @@ test('STK Push uses the business shortcode for password and PartyB for the recei
   assert.equal(result.checkoutRequestId, 'checkout-id')
 })
 
+test('Sandbox STK Push uses the 174379 PayBill merchant configuration', async () => {
+  const requests: { url: string; init?: RequestInit }[] = []
+  const fetcher: typeof fetch = async (input, init) => {
+    const url = String(input)
+    requests.push({ url, init })
+    return url.includes('/oauth/')
+      ? new Response(JSON.stringify({ access_token: 'mock-access-token', expires_in: 3600 }), { status: 200 })
+      : new Response(JSON.stringify({ ResponseCode: '0', MerchantRequestID: 'sandbox-merchant', CheckoutRequestID: 'sandbox-checkout' }), { status: 200 })
+  }
+  const result = await initiateStkPush({ businessShortcode: '174379', partyB: '174379', phone: '254712345678', amount: 1200, accountReference: 'KC-2026-000001' }, {
+    configuration: { ...mockDarajaConfiguration, DARAJA_ENV: 'sandbox', DARAJA_TRANSACTION_TYPE: 'CustomerPayBillOnline' },
+    fetcher,
+    now: new Date('2026-10-23T07:00:00.000Z'),
+  })
+  const body = JSON.parse(String(requests[1]?.init?.body)) as Record<string, unknown>
+  assert.equal(requests[0]?.url, 'https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials')
+  assert.equal(requests[1]?.url, 'https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest')
+  assert.equal(body.BusinessShortCode, '174379')
+  assert.equal(body.PartyB, '174379')
+  assert.equal(body.TransactionType, 'CustomerPayBillOnline')
+  assert.equal(body.PartyA, '254712345678')
+  assert.equal(body.PhoneNumber, '254712345678')
+  assert.equal(body.Amount, 1200)
+  assert.equal(result.checkoutRequestId, 'sandbox-checkout')
+})
+
 test('missing Daraja credentials fail before any provider request', async () => {
   let fetchCalled = false
   const fetcher: typeof fetch = async () => { fetchCalled = true; return new Response('{}') }
@@ -500,13 +526,13 @@ test('invalid Daraja credentials fail safely at OAuth', async () => {
   )
 })
 
-test('Safaricom HTTP 400 rejection preserves a sanitized status and rejected outcome', async () => {
+test('Safaricom HTTP 400 rejection preserves safe provider diagnostics', async () => {
   let calls = 0
   const fetcher: typeof fetch = async () => {
     calls += 1
     return calls === 1
       ? new Response(JSON.stringify({ access_token: 'mock-access-token', expires_in: 3600 }), { status: 200 })
-      : new Response(JSON.stringify({ errorCode: 'InvalidParameter' }), { status: 400 })
+      : new Response(JSON.stringify({ errorCode: '400.002.02', errorMessage: 'Invalid transaction type', requestId: 'sandbox-request-400' }), { status: 400 })
   }
   await assert.rejects(
     initiateStkPush({ businessShortcode: '600001', partyB: '4682146', phone: '254712345678', amount: 1200, accountReference: 'KC-1' }, {
@@ -516,8 +542,11 @@ test('Safaricom HTTP 400 rejection preserves a sanitized status and rejected out
     (error: unknown) => error instanceof DarajaRequestError
       && error.stage === 'stk_push'
       && error.outcome === 'rejected'
-      && error.providerCode === 'InvalidParameter'
-      && error.httpStatus === 400,
+      && error.providerCode === '400.002.02'
+      && error.providerMessage === 'Invalid transaction type'
+      && error.providerRequestId === 'sandbox-request-400'
+      && error.httpStatus === 400
+      && typeof error.durationMs === 'number',
   )
   assert.equal(calls, 2)
 })
@@ -583,8 +612,8 @@ test('callback parser validates required identifiers and maps cancellation and e
   assert.equal(callbackFailureStatus(1), 'failed')
 })
 
-test('production requires the configured Daraja transaction type', () => {
-  assert.equal(resolveDarajaTransactionType('development'), 'CustomerBuyGoodsOnline')
+test('development defaults to Sandbox PayBill and production requires explicit transaction type', () => {
+  assert.equal(resolveDarajaTransactionType('development'), 'CustomerPayBillOnline')
   assert.equal(resolveDarajaTransactionType('production'), undefined)
   assert.equal(resolveDarajaTransactionType('production', 'CustomerPayBillOnline'), 'CustomerPayBillOnline')
 })

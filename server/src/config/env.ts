@@ -86,7 +86,7 @@ export function resolveDarajaEnvironment(nodeEnvironment: string, configuredEnvi
 
 export function resolveDarajaTransactionType(nodeEnvironment: string, configuredType?: 'CustomerPayBillOnline' | 'CustomerBuyGoodsOnline') {
   if (configuredType) return configuredType
-  return nodeEnvironment === 'development' || nodeEnvironment === 'test' ? 'CustomerBuyGoodsOnline' : undefined
+  return nodeEnvironment === 'development' || nodeEnvironment === 'test' ? 'CustomerPayBillOnline' : undefined
 }
 
 export const env = {
