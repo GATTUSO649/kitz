@@ -92,6 +92,7 @@ test('serves the built homepage and Vite assets without production NODE_ENV', { 
   const homepage = await fetch(baseUrl)
   assert.equal(homepage.status, 200)
   assert.match(homepage.headers.get('content-type') ?? '', /text\/html/)
+  assert.match(homepage.headers.get('cache-control') ?? '', /no-cache/)
   assert.match(await homepage.text(), /<div id="root"><\/div>/)
 
   const route = await fetch(`${baseUrl}/shop`, { headers: { accept: 'text/html' } })
@@ -117,6 +118,16 @@ test('keeps unknown API routes as JSON 404s', async () => {
   assert.match(response.headers.get('content-type') ?? '', /application\/json/)
   const result = await response.json() as { error: { code: string } }
   assert.equal(result.error.code, 'NOT_FOUND')
+})
+
+test('does not apply the authentication limit to regular admin writes', async () => {
+  const responses = await Promise.all(Array.from({ length: 65 }, () => fetch(`${baseUrl}/api/v1/admin/orders/1/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'processing' }),
+  })))
+
+  assert.deepEqual([...new Set(responses.map((response) => response.status))], [403])
 })
 
 test('allows HTTPS-hosted images under the content security policy', async () => {

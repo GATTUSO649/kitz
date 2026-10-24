@@ -93,7 +93,13 @@ const authLimiter = rateLimit({
 app.use('/api/v1', apiLimiter)
 app.use('/api/v1/auth', authLimiter, authRouter)
 app.use('/api/v1/account', accountRouter)
-app.use('/api/v1/admin', authLimiter, adminAuthRouter)
+app.use('/api/v1/admin', (request, response, next) => {
+  if (request.method === 'POST' && /^\/api\/v1\/admin\/(?:register|verify|login)\/?(?:\?|$)/.test(request.originalUrl)) {
+    authLimiter(request, response, next)
+    return
+  }
+  next()
+}, adminAuthRouter)
 app.use('/api/v1/admin', adminRouter)
 app.use('/api/v1', catalogueRouter)
 app.use('/api/v1', ordersRouter)
@@ -114,7 +120,7 @@ if (existsSync(clientDist)) {
       next()
       return
     }
-    response.sendFile('index.html', { root: clientDist }, (error) => {
+    response.sendFile('index.html', { root: clientDist, headers: { 'Cache-Control': 'no-cache' } }, (error) => {
       if (error) next(error)
     })
   }
