@@ -576,6 +576,11 @@
 .portal-featured-kits .product-card-buy{display:flex;min-height:34px;align-items:center;justify-content:center;gap:6px;border:1px solid #00a96b;border-radius:4px;background:#00a96b;color:#fff;font-size:10px;font-weight:700;text-decoration:none}
 .portal-featured-kits .product-card-buy:hover{border-color:#008c5c;background:#008c5c}
 .portal-featured-kits .product-card-buy:focus-visible{outline:3px solid #83c99b;outline-offset:3px}
+.public-product-card-actions{display:grid;gap:6px;margin:8px 12px 12px;margin-top:auto}
+.public-product-card-actions .quick-add{position:static;width:100%;min-height:34px;margin:0;justify-content:center}
+.public-product-card-shop{display:flex;min-height:34px;align-items:center;justify-content:center;gap:6px;border:1px solid #2468b2;border-radius:4px;background:#2468b2;color:#fff;font-size:10px;font-weight:700;text-decoration:none}
+.public-product-card-shop:hover{border-color:#1b5595;background:#1b5595}
+.public-product-card-shop:focus-visible{outline:3px solid #80baff;outline-offset:3px}
 .football-catalogue-manager{display:grid;gap:16px;margin:22px 0}
 .football-catalogue-intro{padding:18px;background:#f0f4f0}
 .football-catalogue-intro h2{margin:7px 0;color:var(--navy);font-family:var(--display);font-size:22px}

@@ -166,7 +166,7 @@ function HomepageProductSection({ title, kicker, products, error, onAdd, onSave,
         <div className={`product-info${portalMode ? ' portal-kit-info' : ''}`}><div><ProductCategoryLine team={product.team?.name} league={product.league?.name} jerseyCategory={product.jerseyCategory?.name} category={portalMode ? undefined : product.category?.name} fallback="KitCulture" /><h3><Link to={productPath(product.slug)}>{product.name}</Link></h3></div><span className="product-price">{product.salePrice ? <><del>{money.format(Number(product.price))}</del><strong className="sale-price">{money.format(Number(product.salePrice))}</strong></> : money.format(Number(product.price))}</span>{portalMode && <ProductRating to={`${productPath(product.slug)}#product-reviews`} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />}</div>
         {!portalMode && <ProductRating to={`${productPath(product.slug)}#product-reviews`} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />}
         <div className="product-meta"><div className="product-sizes">{product.variants.length ? product.variants.map((variant) => <span className={!variant.stock ? 'is-sold-out' : ''} key={variant.id}>{variant.size}</span>) : <span>Unavailable</span>}</div><span className={inStock ? 'stock-label' : 'stock-label sold-out'}>{inStock ? 'In stock' : 'Out of stock'}</span></div>
-        {inStock ? <div className={showBuyButton ? 'product-card-actions' : undefined}><button className="quick-add" type="button" onClick={() => onAdd(product)}><ShoppingCart size={13} />Add to Cart</button>{showBuyButton && <Link className="product-card-buy" to={productPath(product.slug)}>Buy <ArrowRight size={14} /></Link>}</div> : <Link className="quick-add quick-add-preview" to={productPath(product.slug)}><ShoppingCart size={13} />View kit</Link>}
+        {inStock ? <div className={showBuyButton || !portalMode ? `product-card-actions${portalMode ? '' : ' public-product-card-actions'}` : undefined}><button className="quick-add" type="button" onClick={() => onAdd(product)}><ShoppingCart size={13} />Add to Cart</button>{(showBuyButton || !portalMode) && <Link className={portalMode ? 'product-card-buy' : 'product-card-buy public-product-card-shop'} state={portalMode ? undefined : { openBuyFlow: true }} to={productPath(product.slug)}>Shop <ArrowRight size={14} /></Link>}</div> : <Link className="quick-add quick-add-preview" to={productPath(product.slug)}><ShoppingCart size={13} />View kit</Link>}
       </article>
     })}</div>
   </section>
@@ -485,9 +485,41 @@ function App() {
 
   async function buyNow(_product: ShopProduct, selections: ShopPurchaseSelection[], details: BuyNowCheckoutDetails) {
     if (!accountUser) {
-      navigate(`/login?returnTo=${encodeURIComponent(`${location.pathname}${location.search}`)}`)
-      setNotice('Sign in to place your order. Your checkout details will need to be entered again.')
-      return
+      const guestResponse = await fetch('/api/v1/orders/guest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': details.idempotencyKey },
+        body: JSON.stringify({
+          items: selections.map(({ variant, quantity }) => ({ variantId: variant.id, quantity })),
+          deliveryZoneId: details.deliveryZoneId,
+          email: details.email,
+          payerPhone: details.payerPhone,
+          address: {
+            recipientName: details.recipientName,
+            phone: details.phone,
+            address: details.address,
+            county: details.county,
+            town: details.town,
+            estate: details.estate,
+            landmark: details.landmark,
+            latitude: details.latitude,
+            longitude: details.longitude,
+            ...(details.accuracy !== undefined ? { accuracy: details.accuracy } : {}),
+          },
+        }),
+      })
+      const guestResult = await guestResponse.json().catch(() => null) as { data?: { orderNumber: string }; error?: { message?: string } } | null
+      if (!guestResponse.ok || !guestResult?.data) throw new Error(guestResult?.error?.message ?? 'We could not create your guest order.')
+      const promptResponse = await fetch(`/api/v1/orders/guest/${encodeURIComponent(guestResult.data.orderNumber)}/mpesa/stk-push`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: details.payerPhone }),
+      })
+      const promptResult = await promptResponse.json().catch(() => null) as { data?: { message?: string }; error?: { message?: string } } | null
+      const guestConfirmation = promptResponse.ok
+        ? `M-PESA prompt sent to ${details.payerPhone}. Order ${guestResult.data.orderNumber} remains pending until payment is confirmed.`
+        : `Guest order ${guestResult.data.orderNumber} was created, but the payment prompt could not start: ${promptResult?.error?.message ?? 'Try again later.'}`
+      setNotice(guestConfirmation)
+      return guestConfirmation
     }
     const response = await fetch('/api/v1/orders', {
       method: 'POST',
@@ -1038,7 +1070,7 @@ function App() {
               <div className="product-info"><div><ProductCategoryLine team={product.team?.name} league={product.league?.name} jerseyCategory={product.jerseyCategory?.name} category={product.category?.name} fallback="KitCulture" /><h3><Link to={`/products/${product.slug}`}>{product.name}</Link></h3></div><span className="product-price">{product.salePrice ? <><del>{money.format(Number(product.price))}</del><strong className="sale-price">{money.format(Number(product.salePrice))}</strong></> : money.format(Number(product.price))}</span></div>
               <ProductRating to={`/products/${product.slug}#product-reviews`} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />
               <div className="product-meta"><div className="product-sizes">{product.variants.length ? product.variants.map((variant) => <span className={!variant.stock ? 'is-sold-out' : ''} key={variant.id}>{variant.size}</span>) : <span>Unavailable</span>}</div><span className={inStock ? 'stock-label' : 'stock-label sold-out'}>{inStock ? 'In stock' : 'Out of stock'}</span></div>
-              {inStock ? <button className="quick-add" type="button" onClick={() => addToCart(product)} aria-label={`Add ${product.name} to cart`}><ShoppingCart size={13} />Add to Cart</button> : <Link className="quick-add quick-add-preview" to={`/products/${product.slug}`}><ShoppingCart size={13} />Buy</Link>}
+              {inStock ? <div className="product-card-actions public-product-card-actions"><button className="quick-add" type="button" onClick={() => addToCart(product)} aria-label={`Add ${product.name} to cart`}><ShoppingCart size={13} />Add to Cart</button><Link className="product-card-buy public-product-card-shop" to={`/products/${product.slug}`} state={{ openBuyFlow: true }}>Shop <ArrowRight size={14} /></Link></div> : <Link className="quick-add quick-add-preview" to={`/products/${product.slug}`}><ShoppingCart size={13} />View kit</Link>}
             </article>
           })}</div>}
           {!catalogueError && !loading && homeFeaturedProducts.length === 0 && <div className="catalogue-state"><span className="catalogue-mark">KC</span><strong>{products.length ? 'No kits found for that search.' : 'A fresh season starts here.'}</strong><span>{products.length ? 'Try another phrase or collection.' : 'New pieces will appear here once inventory is added in the admin catalogue.'}</span></div>}
@@ -1059,8 +1091,8 @@ function App() {
           <div><Star size={28} /><span><strong>Football Culture</strong><small>More than just jerseys</small></span></div>
         </section>
         </div>}
-        {isShopPage && <ShopPage key={pagePath} onSave={(productId) => void saveToWishlist(productId)} />}
-        {isMarketplacePage && <MarketplacePage onSave={(productId) => void saveToWishlist(productId)} />}
+        {isShopPage && <ShopPage key={pagePath} onSave={(productId) => void saveToWishlist(productId)} onAdd={(product) => addToCart(product)} />}
+        {isMarketplacePage && <MarketplacePage onSave={(productId) => void saveToWishlist(productId)} onAdd={(product) => addToCart(product)} />}
         {isProductPage && <ProductPage onAdd={addToCart} onBuyNow={buyNow} accountUser={accountUser} onSave={(productId) => void saveToWishlist(productId)} />}
         {isCartPage && <section className="standalone-page page-width cart-page"><Link to="/shop" className="standalone-back"><ArrowDown size={14} /> Continue shopping</Link><h1>Your matchday bag</h1>
           {cart.length === 0 ? <div className="catalogue-state"><strong>Your bag is empty.</strong><span>Browse the team catalogue and find your colours.</span><Link className="button button-green" to="/shop">Shop teams <ArrowRight size={15} /></Link></div> : <><div className="cart-page-lines">{cart.map((line) => <article className="cart-line" key={`${line.productId}-${line.size}`}>{line.imageUrl ? <img src={line.imageUrl} alt="" /> : <div className="cart-image-placeholder">KC</div>}<div className="cart-line-info"><strong>{line.name}</strong><span>Size {line.size}</span><span>{money.format(line.price)}</span><div className="quantity-control"><button type="button" aria-label={`Remove one ${line.name}`} onClick={() => updateQuantity(line.productId, line.size, line.quantity - 1)}>−</button><span>{line.quantity}</span><button type="button" aria-label={`Add one ${line.name}`} onClick={() => updateQuantity(line.productId, line.size, line.quantity + 1)}>+</button></div></div><button className="remove-line" type="button" onClick={() => updateQuantity(line.productId, line.size, 0)}>Remove</button></article>)}</div><div className="cart-page-total"><span>Subtotal (delivery calculated at checkout)</span><strong>{money.format(subtotal)}</strong><Link to="/checkout" className="button button-green">Continue to checkout <ArrowRight size={15} /></Link></div></>}

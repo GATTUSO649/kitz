@@ -120,6 +120,24 @@ test('keeps unknown API routes as JSON 404s', async () => {
   assert.equal(result.error.code, 'NOT_FOUND')
 })
 
+test('guest checkout endpoints validate publicly without requiring a customer session', async () => {
+  const orderResponse = await fetch(`${baseUrl}/api/v1/orders/guest`, {
+    method: 'POST',
+    headers: { origin: process.env.CLIENT_ORIGIN!, 'content-type': 'application/json' },
+    body: JSON.stringify({}),
+  })
+  assert.equal(orderResponse.status, 400)
+  assert.equal((await orderResponse.json() as { error: { code: string } }).error.code, 'INVALID_ORDER')
+
+  const paymentResponse = await fetch(`${baseUrl}/api/v1/orders/guest/not-a-reference/mpesa/stk-push`, {
+    method: 'POST',
+    headers: { origin: process.env.CLIENT_ORIGIN!, 'content-type': 'application/json' },
+    body: JSON.stringify({ phone: '0712345678' }),
+  })
+  assert.equal(paymentResponse.status, 400)
+  assert.equal((await paymentResponse.json() as { error: { code: string } }).error.code, 'INVALID_PAYMENT_REQUEST')
+})
+
 test('does not apply the authentication limit to regular admin writes', async () => {
   const responses = await Promise.all(Array.from({ length: 65 }, () => fetch(`${baseUrl}/api/v1/admin/orders/1/status`, {
     method: 'PATCH',

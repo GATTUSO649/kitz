@@ -42,8 +42,9 @@ adminRouter.get('/dashboard', async (_request, response) => {
     db.select({ total: count() }).from(orders).where(eq(orders.status, 'pending_payment')),
     db.select({
       orderNumber: orders.orderNumber, status: orders.status, total: orders.total, createdAt: orders.createdAt,
-      customerName: users.fullName, customerEmail: users.email,
-    }).from(orders).innerJoin(users, eq(orders.userId, users.id)).orderBy(desc(orders.createdAt)).limit(8),
+      customerName: sql<string | null>`COALESCE(${users.fullName}, JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.recipientName')))`,
+      customerEmail: sql<string | null>`COALESCE(${users.email}, JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.email')))`,
+    }).from(orders).leftJoin(users, eq(orders.userId, users.id)).orderBy(desc(orders.createdAt)).limit(8),
     db.select({ name: orderItems.productNameSnapshot, units: sum(orderItems.quantity) })
       .from(orderItems).innerJoin(orders, eq(orderItems.orderId, orders.id))
       .where(sql`${orders.status} NOT IN ('cancelled', 'refunded')`)
@@ -763,8 +764,9 @@ adminRouter.get('/orders', async (_request, response) => {
   const rows = await db.select({
     id: orders.id, orderNumber: orders.orderNumber, status: orders.status, paymentMethod: orders.paymentMethod, total: orders.total,
     subtotal: orders.subtotal, deliveryFee: orders.deliveryFee, createdAt: orders.createdAt,
-    customerName: users.fullName, customerEmail: users.email,
-  }).from(orders).innerJoin(users, eq(orders.userId, users.id)).orderBy(desc(orders.createdAt)).limit(200)
+    customerName: sql<string | null>`COALESCE(${users.fullName}, JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.recipientName')))`,
+    customerEmail: sql<string | null>`COALESCE(${users.email}, JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.email')))`,
+  }).from(orders).leftJoin(users, eq(orders.userId, users.id)).orderBy(desc(orders.createdAt)).limit(200)
   response.json({ data: rows })
 })
 
@@ -808,7 +810,7 @@ adminRouter.patch('/orders/:id/status', async (request, response) => {
       href: `/account/orders/${encodeURIComponent(order.orderNumber)}`,
       audienceType: 'system',
     }).$returningId()
-    await transaction.insert(notificationRecipients).values({ campaignId: notificationId, userId: order.userId })
+    if (order.userId !== null) await transaction.insert(notificationRecipients).values({ campaignId: notificationId, userId: order.userId })
     return 'updated' as const
   })
   if (result === 'missing') return response.status(404).json({ error: { code: 'ORDER_NOT_FOUND', message: 'Order not found.' } })

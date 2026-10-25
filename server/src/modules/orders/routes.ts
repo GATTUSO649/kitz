@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { and, desc, eq, gte, isNotNull, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, isNotNull, isNull, sql } from 'drizzle-orm'
 import { Router, type RequestHandler } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
@@ -33,21 +33,31 @@ const addressSchema = z.object({
   accuracy: z.number().min(0).max(100000).optional(),
 })
 
-export const createOrderSchema = z.object({
+const orderRequestBaseSchema = z.object({
   items: z.array(z.object({
     variantId: z.number().int().positive(),
     quantity: z.number().int().min(1).max(5),
     customization: z.string().trim().max(180).optional(),
   })).min(1).max(30),
   deliveryZoneId: z.number().int().positive(),
-  paymentMethod: z.enum(['pay_on_delivery', 'mpesa']).default('pay_on_delivery'),
   address: addressSchema,
-}).superRefine((value, context) => {
+})
+
+function validateUniqueVariants(value: { items: { variantId: number }[] }, context: z.RefinementCtx) {
   const ids = value.items.map(({ variantId }) => variantId)
   if (new Set(ids).size !== ids.length) {
     context.addIssue({ code: 'custom', message: 'Each product variant may appear only once.', path: ['items'] })
   }
-})
+}
+
+export const createOrderSchema = orderRequestBaseSchema.extend({
+  paymentMethod: z.enum(['pay_on_delivery', 'mpesa']).default('pay_on_delivery'),
+}).superRefine(validateUniqueVariants)
+
+const guestOrderSchema = orderRequestBaseSchema.extend({
+  email: z.string().trim().email().max(254),
+  payerPhone: z.string().trim().min(7).max(20),
+}).superRefine(validateUniqueVariants)
 
 export function exceedsProductQuantityLimit(items: readonly { productId: number; quantity: number }[]) {
   const quantities = new Map<number, number>()
@@ -92,6 +102,12 @@ const stkPushLimiter = rateLimit({
   standardHeaders: 'draft-8',
   legacyHeaders: false,
 })
+const guestCheckoutLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 10,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+})
 
 export function createTemporaryOrderNumber() {
   return `pending-${randomUUID().replaceAll('-', '').slice(0, 24)}`
@@ -105,6 +121,85 @@ ordersRouter.get('/delivery/zones', async (_request, response) => {
   const zones = await db.select({ id: deliveryZones.id, name: deliveryZones.name, fee: deliveryZones.fee })
     .from(deliveryZones).where(eq(deliveryZones.active, true))
   response.json({ data: zones })
+})
+
+ordersRouter.post('/orders/guest', rejectCrossOrigin, guestCheckoutLimiter, async (request, response) => {
+  response.locals.databaseOperation = 'orders.guest.create'
+  const input = guestOrderSchema.safeParse(request.body)
+  if (!input.success) return response.status(400).json({ error: { code: 'INVALID_ORDER', message: 'Check the delivery details and order items.' } })
+  if (!db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Order services are not configured.' } })
+  const idempotencyKey = z.string().uuid().safeParse(request.get('idempotency-key'))
+  if (!idempotencyKey.success) return response.status(400).json({ error: { code: 'IDEMPOTENCY_KEY_REQUIRED', message: 'Refresh checkout and try again.' } })
+  const [existingOrder] = await db.select({ orderNumber: orders.orderNumber, status: orders.status, total: orders.total })
+    .from(orders).where(and(isNull(orders.userId), eq(orders.idempotencyKey, idempotencyKey.data))).limit(1)
+  if (existingOrder) return response.status(200).json({ data: { ...existingOrder, replayed: true } })
+  const paymentSettings = await db.select({ key: applicationSettings.key, value: applicationSettings.value }).from(applicationSettings)
+    .where(sql`${applicationSettings.key} IN ('mpesaTillNumber', 'mpesaTillName')`)
+  const settings = Object.fromEntries(paymentSettings.map(({ key, value }) => [key, value])) as Record<string, string>
+  const shortcodes = resolveDarajaShortcodes(env.DARAJA_ENV, env.DARAJA_TRANSACTION_TYPE, env.DARAJA_SHORTCODE, settings.mpesaTillNumber)
+  if (!isDarajaConfigured(shortcodes.businessShortcode) || !/^\d{5,20}$/.test(shortcodes.partyB)) {
+    return response.status(503).json({ error: { code: 'MPESA_NOT_CONFIGURED', message: 'Online M-Pesa payments are not available right now.' } })
+  }
+  const payerPhone = normalizeKenyanPhone(input.data.payerPhone)
+  if (!payerPhone) return response.status(400).json({ error: { code: 'MPESA_PHONE_REQUIRED', message: 'Enter a valid Kenyan phone number for the payment prompt.' } })
+  try {
+    const order = await db.transaction(async (transaction) => {
+      const [zone] = await transaction.select({ id: deliveryZones.id, name: deliveryZones.name, fee: deliveryZones.fee })
+        .from(deliveryZones).where(and(eq(deliveryZones.id, input.data.deliveryZoneId), eq(deliveryZones.active, true))).limit(1)
+      if (!zone) throw new OrderRequestError(400, 'INVALID_DELIVERY_ZONE', 'This delivery area is unavailable.')
+      const itemSnapshots = []
+      let subtotalCents = 0
+      for (const requested of input.data.items) {
+        const [row] = await transaction.select({
+          variantId: productVariants.id,
+          productId: products.id,
+          productName: products.name,
+          price: sql<string>`COALESCE(${productVariants.price}, ${products.salePrice}, ${products.price})`,
+          size: productVariants.size,
+        }).from(productVariants).innerJoin(products, eq(productVariants.productId, products.id))
+          .where(and(eq(productVariants.id, requested.variantId), eq(products.published, true))).limit(1)
+        if (!row) throw new OrderRequestError(400, 'PRODUCT_UNAVAILABLE', 'One or more selected products are no longer available.')
+        const priceCents = toCents(row.price)
+        subtotalCents += priceCents * requested.quantity
+        itemSnapshots.push({ ...requested, ...row, priceCents })
+      }
+      if (exceedsProductQuantityLimit(itemSnapshots)) throw new OrderRequestError(400, 'PRODUCT_QUANTITY_LIMIT', 'You can order up to five kits per product across all sizes.')
+      const deliveryFeeCents = toCents(zone.fee)
+      const totalCents = subtotalCents + deliveryFeeCents
+      if (!Number.isSafeInteger(totalCents) || totalCents < 100 || totalCents > 999_999_999_999 || totalCents % 100 !== 0) {
+        throw new OrderRequestError(400, 'MPESA_AMOUNT_INVALID', 'The total must be a whole number of Kenyan shillings for M-Pesa.')
+      }
+      const orderNumber = `G${randomUUID().replaceAll('-', '').slice(0, 31)}`
+      const [{ id: orderId }] = await transaction.insert(orders).values({
+        orderNumber,
+        idempotencyKey: idempotencyKey.data,
+        userId: null,
+        status: 'pending_payment',
+        paymentMethod: 'mpesa',
+        currency: 'KES',
+        subtotal: (subtotalCents / 100).toFixed(2),
+        deliveryFee: (deliveryFeeCents / 100).toFixed(2),
+        discount: '0.00',
+        total: (totalCents / 100).toFixed(2),
+        deliveryAddressSnapshot: JSON.stringify({ ...input.data.address, email: input.data.email, deliveryZone: zone.name }),
+      }).$returningId()
+      for (const item of itemSnapshots) {
+        const [updated] = await transaction.update(productVariants).set({ stock: sql`${productVariants.stock} - ${item.quantity}` })
+          .where(and(eq(productVariants.id, item.variantId), gte(productVariants.stock, item.quantity)))
+        if (updated.affectedRows !== 1) throw new OrderRequestError(409, 'INSUFFICIENT_STOCK', `${item.productName} (${item.size}) no longer has enough stock.`)
+        await transaction.insert(inventoryMovements).values({ variantId: item.variantId, movementType: 'reservation', quantityChange: -item.quantity, note: `Reserved for guest order ${orderId}` })
+        await transaction.insert(orderItems).values({
+          orderId, productId: item.productId, variantId: item.variantId, productNameSnapshot: item.productName,
+          sizeSnapshot: item.size, customizationSnapshot: null, quantity: item.quantity, unitPrice: (item.priceCents / 100).toFixed(2),
+        })
+      }
+      return { orderNumber, status: 'pending_payment' as const, paymentMethod: 'mpesa' as const, total: (totalCents / 100).toFixed(2) }
+    })
+    response.status(201).json({ data: order })
+  } catch (error) {
+    if (error instanceof OrderRequestError) return response.status(error.status).json({ error: { code: error.code, message: error.message } })
+    throw error
+  }
 })
 
 ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, response) => {
@@ -290,6 +385,48 @@ ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, re
 })
 
 const stkPushSchema = z.object({ phone: z.string().trim().min(7).max(20) }).strict()
+
+ordersRouter.post('/orders/guest/:orderNumber/mpesa/stk-push', rejectCrossOrigin, stkPushLimiter, async (request, response) => {
+  response.locals.databaseOperation = 'orders.guest.mpesa.stk-push'
+  const orderNumber = z.string().regex(/^G[a-f0-9]{31}$/).safeParse(request.params.orderNumber)
+  const input = stkPushSchema.safeParse(request.body)
+  if (!orderNumber.success || !input.success) return response.status(400).json({ error: { code: 'INVALID_PAYMENT_REQUEST', message: 'Payment details are invalid.' } })
+  if (!db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Payment services are unavailable.' } })
+  const [settings] = await db.select({ value: applicationSettings.value }).from(applicationSettings).where(eq(applicationSettings.key, 'mpesaTillNumber')).limit(1)
+  const shortcodes = resolveDarajaShortcodes(env.DARAJA_ENV, env.DARAJA_TRANSACTION_TYPE, env.DARAJA_SHORTCODE, settings?.value)
+  if (!isDarajaConfigured(shortcodes.businessShortcode) || !/^\d{5,20}$/.test(shortcodes.partyB)) return response.status(503).json({ error: { code: 'MPESA_NOT_CONFIGURED', message: 'Online M-Pesa payments are not available right now.' } })
+  const phone = normalizeKenyanPhone(input.data.phone)
+  if (!phone) return response.status(400).json({ error: { code: 'MPESA_PHONE_REQUIRED', message: 'Enter a valid Kenyan phone number for the payment prompt.' } })
+  let order: { id: number; orderNumber: string; total: string }
+  let paymentId: number | undefined
+  try {
+    const creation = await db.transaction(async (transaction) => {
+      const [guestOrder] = await transaction.select({ id: orders.id, orderNumber: orders.orderNumber, status: orders.status, paymentMethod: orders.paymentMethod, total: orders.total })
+        .from(orders).where(and(isNull(orders.userId), eq(orders.orderNumber, orderNumber.data))).limit(1).for('update')
+      if (!guestOrder) throw new OrderRequestError(404, 'ORDER_NOT_FOUND', 'Guest order not found.')
+      if (guestOrder.paymentMethod !== 'mpesa' || guestOrder.status !== 'pending_payment') throw new OrderRequestError(409, 'ORDER_NOT_PAYABLE', 'This order is not awaiting M-Pesa payment.')
+      const amountCents = Math.round(Number(guestOrder.total) * 100)
+      if (!Number.isSafeInteger(amountCents) || amountCents % 100 !== 0 || amountCents < 1) throw new OrderRequestError(400, 'MPESA_AMOUNT_INVALID', 'The order total must be a whole number of Kenyan shillings for M-Pesa.')
+      const [existingPayment] = await transaction.select({ id: payments.id, status: payments.status, updatedAt: payments.updatedAt }).from(payments)
+        .where(and(eq(payments.orderId, guestOrder.id), eq(payments.provider, 'mpesa'))).orderBy(desc(payments.createdAt)).limit(1)
+      const retryable = existingPayment && ['failed', 'cancelled', 'expired'].includes(existingPayment.status)
+      const promptWindowElapsed = existingPayment?.status === 'pending' && Date.now() - existingPayment.updatedAt.getTime() >= mpesaPromptRetryDelayMs
+      if (existingPayment && !retryable && !promptWindowElapsed) throw new OrderRequestError(409, 'MPESA_REQUEST_ALREADY_EXISTS', 'A payment prompt is still active. Wait 59 seconds before requesting another.')
+      const [createdPayment] = await transaction.insert(payments).values({ orderId: guestOrder.id, provider: 'mpesa', amount: guestOrder.total, status: 'initiated', merchantShortcode: shortcodes.businessShortcode, payerPhone: phone }).$returningId()
+      return { order: guestOrder, amountCents, paymentId: createdPayment.id }
+    })
+    order = creation.order
+    paymentId = creation.paymentId
+    const result = await initiateStkPush({ businessShortcode: shortcodes.businessShortcode, partyB: shortcodes.partyB, phone, amount: creation.amountCents / 100, accountReference: order.orderNumber })
+    await db.update(payments).set({ providerRequestId: result.checkoutRequestId, merchantRequestId: result.merchantRequestId, status: 'pending', verificationMessage: 'Daraja accepted the STK request; waiting for verified payment confirmation.' }).where(eq(payments.id, paymentId))
+    return response.status(202).json({ data: { orderNumber: order.orderNumber, status: 'pending', message: result.customerMessage } })
+  } catch (error) {
+    if (error instanceof OrderRequestError) return response.status(error.status).json({ error: { code: error.code, message: error.message } })
+    const unknownOutcome = error instanceof DarajaRequestError && error.outcome === 'unknown'
+    if (paymentId !== undefined) await db.update(payments).set({ status: unknownOutcome ? 'requires_review' : 'failed', verificationMessage: unknownOutcome ? 'The payment request outcome is unknown. Check payment status or contact support before retrying.' : 'Daraja rejected the payment request before creating a customer prompt.' }).where(and(eq(payments.id, paymentId), eq(payments.status, 'initiated')))
+    return response.status(502).json({ error: { code: unknownOutcome ? 'MPESA_OUTCOME_UNKNOWN' : 'MPESA_PROMPT_FAILED', message: unknownOutcome ? 'We could not confirm whether the prompt was sent. Check its status before trying again.' : 'The M-Pesa prompt could not be started. Try again later.' } })
+  }
+})
 
 ordersRouter.post('/orders/:orderNumber/mpesa/stk-push', rejectCrossOrigin, stkPushLimiter, authenticate, async (request, response) => {
   response.locals.databaseOperation = 'orders.mpesa.stk-push'
@@ -546,7 +683,7 @@ ordersRouter.post(darajaCallbackRoute, async (request, response) => {
       href: `/account/orders/${encodeURIComponent(order.orderNumber)}`,
       audienceType: 'system',
     }).$returningId()
-    await transaction.insert(notificationRecipients).values({ campaignId: notificationId, userId: order.userId })
+    if (order.userId !== null) await transaction.insert(notificationRecipients).values({ campaignId: notificationId, userId: order.userId })
   })
   response.json({ ResultCode: 0, ResultDesc: 'Accepted' })
 })
