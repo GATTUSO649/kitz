@@ -1,12 +1,55 @@
 import { and, asc, count, desc, eq, inArray, like, or, sql, type SQL } from 'drizzle-orm'
 import { Router, type Response } from 'express'
+import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
 import { db } from '../../config/database.js'
-import { env } from '../../config/env.js'
-import { applicationSettings, categories, homepageSlides, jerseyCategories, leagues, orderItems, orders, productImages, productReviews, productVariants, products, productVideos, teams } from '../../database/schema.js'
+import { env, isAllowedClientOrigin } from '../../config/env.js'
+import { applicationSettings, categories, homepageSlides, jerseyCategories, leagues, orderItems, orders, productImages, productRatings, productReviews, productVariants, products, productVideos, teams } from '../../database/schema.js'
 import { isDarajaConfigured, resolveDarajaShortcodes } from '../orders/daraja.js'
 
 export const catalogueRouter = Router()
+const productRatingLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false })
+export const quickProductRatingSchema = z.object({ rating: z.number().int().min(1).max(5), visitorId: z.string().uuid() })
+
+export function combinedRating(reviewAverage: unknown, reviewCount: unknown, quickAverage: unknown, quickCount: unknown) {
+  const reviews = Number(reviewCount ?? 0)
+  const quickRatings = Number(quickCount ?? 0)
+  const total = reviews + quickRatings
+  const average = total
+    ? (Number(reviewAverage ?? 0) * reviews + Number(quickAverage ?? 0) * quickRatings) / total
+    : 0
+  return { ratingAverage: average, reviewCount: total }
+}
+
+catalogueRouter.post('/products/:productId/ratings', productRatingLimiter, async (request, response) => {
+  if (!isAllowedClientOrigin(request.get('origin'))) {
+    response.status(403).json({ error: { code: 'ORIGIN_REJECTED', message: 'Request origin is not allowed.' } })
+    return
+  }
+  const productId = z.coerce.number().int().positive().safeParse(request.params.productId)
+  const input = quickProductRatingSchema.safeParse(request.body)
+  if (!productId.success || !input.success) {
+    response.status(400).json({ error: { code: 'INVALID_PRODUCT_RATING', message: 'Choose a 1 to 5 star rating.' } })
+    return
+  }
+  if (!db) {
+    response.status(503).json({ error: { code: 'CATALOGUE_UNAVAILABLE', message: 'The catalogue database is not configured.' } })
+    return
+  }
+  const [product] = await db.select({ id: products.id }).from(products)
+    .where(and(eq(products.id, productId.data), eq(products.published, true))).limit(1)
+  if (!product) {
+    response.status(404).json({ error: { code: 'PRODUCT_NOT_FOUND', message: 'Product not found.' } })
+    return
+  }
+  await db.insert(productRatings).values({ productId: product.id, visitorId: input.data.visitorId, rating: input.data.rating })
+    .onDuplicateKeyUpdate({ set: { rating: input.data.rating, updatedAt: new Date() } })
+  const [reviews, quickRatings] = await Promise.all([
+    db.select({ average: sql<number>`AVG(${productReviews.rating})`, count: count() }).from(productReviews).where(eq(productReviews.productId, product.id)),
+    db.select({ average: sql<number>`AVG(${productRatings.rating})`, count: count() }).from(productRatings).where(eq(productRatings.productId, product.id)),
+  ])
+  response.json({ data: combinedRating(reviews[0]?.average, reviews[0]?.count, quickRatings[0]?.average, quickRatings[0]?.count) })
+})
 
 catalogueRouter.get('/store/payment-options', async (_request, response) => {
   if (!db) return response.status(503).json({ error: { code: 'PAYMENT_OPTIONS_UNAVAILABLE', message: 'Payment options are unavailable.' } })
@@ -122,7 +165,13 @@ async function getProducts(
     average: sql<number>`AVG(${productReviews.rating})`,
     reviewCount: count(),
   }).from(productReviews).where(inArray(productReviews.productId, ids)).groupBy(productReviews.productId) : []
+  const quickRatings = ids.length ? await db.select({
+    productId: productRatings.productId,
+    average: sql<number>`AVG(${productRatings.rating})`,
+    ratingCount: count(),
+  }).from(productRatings).where(inArray(productRatings.productId, ids)).groupBy(productRatings.productId) : []
   const ratingsByProduct = new Map(ratings.map((rating) => [rating.productId, rating]))
+  const quickRatingsByProduct = new Map(quickRatings.map((rating) => [rating.productId, rating]))
   const pageRows = rows.slice(0, options.limit ?? 48)
   const sortedRows = options.orderIds?.length
     ? [...pageRows].sort((left, right) => options.orderIds!.indexOf(left.id) - options.orderIds!.indexOf(right.id))
@@ -135,8 +184,7 @@ async function getProducts(
     jerseyCategory: product.jerseyCategoryId ? { id: product.jerseyCategoryId, name: product.jerseyCategoryName, slug: product.jerseyCategorySlug } : null,
     variants: (variantsByProduct.get(product.id) ?? []).map(({ id, size, stock, price }) => ({ id, size, stock, price })),
     images: (imagesByProduct.get(product.id) ?? []).map(({ id, imageUrl, altText, sortOrder, isPrimary }) => ({ id, imageUrl, altText, sortOrder, isPrimary })),
-    ratingAverage: Number(ratingsByProduct.get(product.id)?.average ?? 0),
-    reviewCount: Number(ratingsByProduct.get(product.id)?.reviewCount ?? 0),
+    ...combinedRating(ratingsByProduct.get(product.id)?.average, ratingsByProduct.get(product.id)?.reviewCount, quickRatingsByProduct.get(product.id)?.average, quickRatingsByProduct.get(product.id)?.ratingCount),
   })), pagination: { page: options.page ?? 1, limit: options.limit ?? 48, hasMore: rows.length > (options.limit ?? 48) } })
 }
 
@@ -284,14 +332,16 @@ catalogueRouter.get('/products/:slug', async (request, response) => {
     .from(productVariants).where(eq(productVariants.productId, product.id))
   const images = await db.select({ id: productImages.id, imageUrl: productImages.imageUrl, altText: productImages.altText, sortOrder: productImages.sortOrder, isPrimary: productImages.isPrimary })
     .from(productImages).where(eq(productImages.productId, product.id)).orderBy(asc(productImages.sortOrder))
-  const [videos, reviews, [ratingSummary]] = await Promise.all([
+  const [videos, reviews, [ratingSummary], [quickRatingSummary]] = await Promise.all([
     db.select().from(productVideos).where(eq(productVideos.productId, product.id)).orderBy(asc(productVideos.sortOrder)),
     db.select({ id: productReviews.id, rating: productReviews.rating, body: productReviews.body, createdAt: productReviews.createdAt })
       .from(productReviews).where(eq(productReviews.productId, product.id)).orderBy(desc(productReviews.createdAt)).limit(100),
     db.select({ average: sql<number>`AVG(${productReviews.rating})`, reviewCount: count() })
       .from(productReviews).where(eq(productReviews.productId, product.id)),
+    db.select({ average: sql<number>`AVG(${productRatings.rating})`, reviewCount: count() })
+      .from(productRatings).where(eq(productRatings.productId, product.id)),
   ])
-  const ratingAverage = Number(ratingSummary?.average ?? 0)
+  const ratingSummaryCombined = combinedRating(ratingSummary?.average, ratingSummary?.reviewCount, quickRatingSummary?.average, quickRatingSummary?.reviewCount)
   response.json({ data: {
     ...product,
     category: product.categoryName ? { id: product.categoryId, name: product.categoryName, slug: product.categorySlug } : null,
@@ -302,8 +352,7 @@ catalogueRouter.get('/products/:slug', async (request, response) => {
     images,
     videos,
     reviews: reviews.map((review) => ({ ...review, reviewerName: 'Customer' })),
-    ratingAverage,
-    reviewCount: Number(ratingSummary?.reviewCount ?? 0),
+    ...ratingSummaryCombined,
   } })
 })
 

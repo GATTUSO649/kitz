@@ -30,6 +30,11 @@
 .checkout-mpesa-notice{margin:0;color:var(--dark-muted);font-size:10px;line-height:1.55}
 .checkout-mpesa-panel>.button{justify-content:center}
 .checkout-mpesa-panel>.button:disabled{opacity:.6;cursor:not-allowed}
+.kenyan-phone-field{display:grid;gap:7px}
+.kenyan-phone-input{display:flex;align-items:center;min-width:0;height:44px;border:1px solid #dce2dc;background:#fff;color:var(--navy)}
+.kenyan-phone-input>span{flex:none;padding:0 12px;border-right:1px solid #dce2dc;color:#47544d;font-size:13px;font-weight:700}
+.kenyan-phone-input input,.checkout-form .kenyan-phone-input input,.buy-flow-content .kenyan-phone-input input{flex:1;width:100%;min-width:0;height:100%;border:0;background:transparent;padding:0 11px;color:var(--navy);font:inherit;font-size:13px;outline:0}
+.kenyan-phone-input:focus-within{border-color:var(--green-dark);outline:2px solid #08733e24}
 .checkout-total{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);padding-top:16px;color:var(--navy);font-size:13px}
 .checkout-total.checkout-fee{padding-top:0;border-top:0;color:var(--muted);font-size:11px}
 .checkout-total.checkout-grand-total{margin-top:2px;padding-top:13px;border-top:1px solid var(--line);font-weight:800}
@@ -37,6 +42,9 @@
 .portal-checkout-page .checkout-total.checkout-grand-total,.portal-checkout-page .checkout-total.checkout-grand-total strong{color:#fff}
 .checkout-disclaimer{margin:0;color:var(--muted);font-size:11px;line-height:1.6}
 .checkout-form>.button{width:100%;justify-content:space-between}
+.checkout-form>.button-green{min-height:56px;padding:15px 18px;border-color:#075d34;background:#08733e;color:#fff;font-size:14px;font-weight:800}
+.checkout-form>.button-green:hover{background:#075d34}
+.checkout-form>.button-green:focus-visible{outline:3px solid #f4bd42;outline-offset:3px}
 .buy-flow-backdrop{position:fixed;z-index:80;inset:0;display:grid;place-items:center;padding:20px;background:#050a07d9;animation:buy-flow-in .18s ease}
 .buy-flow-dialog{display:grid;grid-template-rows:auto 3px minmax(0,1fr);width:min(100%,620px);max-height:min(92vh,820px);overflow:hidden;border:1px solid var(--dark-border);border-radius:6px;background:var(--dark-surface);color:var(--dark-text);box-shadow:0 24px 80px #000b}
 .buy-flow-heading{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:20px 24px 15px}

@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, ArrowRight, Copy, Heart, LockKeyhole, MapPin, Package, Search, Send, ShieldCheck, Smartphone, Trash2, UserRound } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { GoogleMapView } from '../components/GoogleMapView'
+import { KenyanPhoneInput } from '../components/KenyanPhoneInput'
 
 type Customer = { id: number; email: string; fullName: string }
 type Profile = Customer & { phone: string | null; emailVerifiedAt: string | null; createdAt: string }
@@ -831,7 +832,7 @@ export function CustomerPortalPage({ path, user, onProfileUpdate }: { path: stri
                 {orderQuery.data.payment?.transactionAt && <p><strong>Paid at:</strong> {new Date(orderQuery.data.payment.transactionAt).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}</p>}
                 <p>{orderQuery.data.payment?.verificationMessage ?? 'Payment is only confirmed after Daraja verifies the transaction against this order and your account phone.'}</p>
                 {orderQuery.data.status === 'pending_payment' && (!orderQuery.data.payment || ['failed', 'cancelled', 'expired', 'pending'].includes(orderQuery.data.payment.status)) && <>
-                  <label>Phone number to pay from<input type="tel" inputMode="tel" autoComplete="tel" required pattern="(?:0[17][0-9]{8}|\\+?254[17][0-9]{8})" maxLength={13} value={paymentPhone} onChange={(event) => setPaymentPhone(event.target.value)} /></label>
+                  <KenyanPhoneInput label="Phone number to pay from" value={paymentPhone} onChange={setPaymentPhone} />
                   {orderQuery.data.payment?.status === 'pending' && <p role="status">If the prompt has not arrived, you can request another in {Math.ceil(paymentRetryRemainingMs / 1000)} seconds.</p>}
                   <button type="button" className="button button-green" disabled={paymentBusy || !paymentPhone || (orderQuery.data.payment?.status === 'pending' && paymentRetryRemainingMs > 0)} onClick={() => void retryMpesaPayment()}>{paymentBusy ? 'Requesting prompt…' : orderQuery.data.payment?.status === 'pending' ? paymentRetryRemainingMs > 0 ? `Retry in ${Math.ceil(paymentRetryRemainingMs / 1000)}s` : 'Retry payment prompt' : 'Send payment prompt'} <Smartphone size={15} /></button>
                 </>}

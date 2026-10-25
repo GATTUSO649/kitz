@@ -16,6 +16,8 @@ import { AdminRoute } from './pages/AdminPages'
 import { MarketplacePage, ProductCategoryLine, ProductPage, ShopPage, type BuyNowCheckoutDetails, type ShopProduct, type ShopPurchaseSelection, type ShopVariant } from './pages/ShopPages'
 import { CustomerChatPage, CustomerPortalOverview, CustomerPortalOrdersPage, CustomerPortalPage } from './pages/CustomerPortalPages'
 import { GoogleMapView } from './components/GoogleMapView'
+import { KenyanPhoneInput } from './components/KenyanPhoneInput'
+import { KitRating } from './components/KitRating'
 import { CustomerPortalLayout } from './layouts/CustomerPortalLayout'
 import { AuthLayout } from './layouts/AuthLayout'
 import { CustomerAuthForm, CustomerAuthInfoPage } from './pages/AuthPages'
@@ -109,13 +111,6 @@ async function loadAllCatalogProducts() {
   }
 }
 
-function ProductRating({ rating = 0, count = 0, to, productName }: { rating?: number; count?: number; to: string; productName: string }) {
-  return <Link className="product-rating product-rating-link" to={to} aria-label={count ? `${rating.toFixed(1)} out of 5 rating for ${productName}. Open to rate.` : `Rate ${productName}`}>
-    <span className="product-rating-stars" aria-hidden="true">{[1, 2, 3, 4, 5].map((star) => <Star key={star} size={13} fill={star <= Math.round(rating) ? 'currentColor' : 'none'} />)}</span>
-    {count > 0 && <span>{rating.toFixed(1)}</span>}
-  </Link>
-}
-
 function CheckoutPaymentOptions({ paymentMethod, onPaymentMethodChange, mpesaOptions, accountUser, payerPhone, onPayerPhoneChange }: { paymentMethod: 'pay_on_delivery' | 'mpesa'; onPaymentMethodChange: (method: 'pay_on_delivery' | 'mpesa') => void; mpesaOptions?: MpesaPaymentOptions; accountUser: AccountUser | null; payerPhone: string; onPayerPhoneChange: (phone: string) => void }) {
   const mpesaReady = Boolean(mpesaOptions?.stkPushAvailable)
   return <fieldset className="checkout-payment-options">
@@ -126,10 +121,10 @@ function CheckoutPaymentOptions({ paymentMethod, onPaymentMethodChange, mpesaOpt
       <div className="checkout-mpesa-merchant"><Smartphone size={19} /><span><strong>{mpesaOptions?.mpesaTillName || 'KitCulture'}</strong><small>{mpesaOptions?.mpesaTransactionType === 'CustomerPayBillOnline' ? 'PayBill' : 'Buy Goods Till'}</small></span></div>
       <dl><div><dt>{mpesaOptions?.mpesaTransactionType === 'CustomerPayBillOnline' ? 'PayBill number' : 'Till number'}</dt><dd>{mpesaOptions?.mpesaTillNumber || 'Not configured yet'}</dd></div></dl>
       {mpesaOptions?.mpesaMobileNumber && <dl><div><dt>Manual payment to mobile</dt><dd>{mpesaOptions.mpesaMobileNumber}</dd></div></dl>}
-      <label>M-PESA phone number<input type="tel" inputMode="tel" autoComplete="tel" required pattern="(?:0[17][0-9]{8}|\\+?254[17][0-9]{8})" title="Enter a valid Kenyan number, such as 0712345678 or +254712345678." maxLength={13} placeholder="0712345678 or +254712345678" value={payerPhone} onChange={(event) => onPayerPhoneChange(event.target.value)} /></label>
+      <KenyanPhoneInput label="M-PESA phone number" value={payerPhone} onChange={onPayerPhoneChange} />
       <dl><div><dt>Paying customer</dt><dd>{accountUser?.fullName || 'Signed-in customer'}</dd></div><div><dt>Prompt destination</dt><dd>{payerPhone || 'Enter a Kenyan phone number'}</dd></div></dl>
       <p className="checkout-mpesa-notice">The prompt is sent to this number. Enter your PIN only on your phone; KitCulture never asks for or receives your M-PESA PIN.</p>
-    </div> : <p>A delivery location pin is required before placing the order.</p>}
+    </div> : <p>Choose a delivery area before placing the order. A map pin is optional.</p>}
   </fieldset>
 }
 
@@ -163,8 +158,8 @@ function HomepageProductSection({ title, kicker, products, error, onAdd, onSave,
           {(product.salePrice || product.trending) && <span className={`product-tag${product.salePrice ? ' product-tag-sale' : ''}`}>{product.salePrice ? 'SALE' : 'TRENDING'}</span>}
           <button className="product-favourite" type="button" aria-label={`Save ${product.name} to your wishlist`} onClick={() => onSave(product.id)}><Heart size={14} /></button>
         </div>
-        <div className={`product-info${portalMode ? ' portal-kit-info' : ''}`}><div><ProductCategoryLine team={product.team?.name} league={product.league?.name} jerseyCategory={product.jerseyCategory?.name} category={portalMode ? undefined : product.category?.name} fallback="KitCulture" /><h3><Link to={productPath(product.slug)}>{product.name}</Link></h3></div><span className="product-price">{product.salePrice ? <><del>{money.format(Number(product.price))}</del><strong className="sale-price">{money.format(Number(product.salePrice))}</strong></> : money.format(Number(product.price))}</span>{portalMode && <ProductRating to={`${productPath(product.slug)}#product-reviews`} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />}</div>
-        {!portalMode && <ProductRating to={`${productPath(product.slug)}#product-reviews`} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />}
+        <div className={`product-info${portalMode ? ' portal-kit-info' : ''}`}><div><ProductCategoryLine team={product.team?.name} league={product.league?.name} jerseyCategory={product.jerseyCategory?.name} category={portalMode ? undefined : product.category?.name} fallback="KitCulture" /><h3><Link to={productPath(product.slug)}>{product.name}</Link></h3></div><span className="product-price">{product.salePrice ? <><del>{money.format(Number(product.price))}</del><strong className="sale-price">{money.format(Number(product.salePrice))}</strong></> : money.format(Number(product.price))}</span>{portalMode && <KitRating productId={product.id} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />}</div>
+        {!portalMode && <KitRating productId={product.id} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />}
         <div className="product-meta"><div className="product-sizes">{product.variants.length ? product.variants.map((variant) => <span className={!variant.stock ? 'is-sold-out' : ''} key={variant.id}>{variant.size}</span>) : <span>Unavailable</span>}</div><span className={inStock ? 'stock-label' : 'stock-label sold-out'}>{inStock ? 'In stock' : 'Out of stock'}</span></div>
         {inStock ? <div className={showBuyButton || !portalMode ? `product-card-actions${portalMode ? '' : ' public-product-card-actions'}` : undefined}><button className="quick-add" type="button" onClick={() => onAdd(product)}><ShoppingCart size={13} />Add to Cart</button>{(showBuyButton || !portalMode) && <Link className={portalMode ? 'product-card-buy' : 'product-card-buy public-product-card-shop'} state={portalMode ? undefined : { openBuyFlow: true }} to={productPath(product.slug)}>Shop <ArrowRight size={14} /></Link>}</div> : <Link className="quick-add quick-add-preview" to={productPath(product.slug)}><ShoppingCart size={13} />View kit</Link>}
       </article>
@@ -497,12 +492,7 @@ function App() {
             recipientName: details.recipientName,
             phone: details.phone,
             address: details.address,
-            county: details.county,
-            town: details.town,
-            estate: details.estate,
-            landmark: details.landmark,
-            latitude: details.latitude,
-            longitude: details.longitude,
+            ...(details.latitude !== undefined && details.longitude !== undefined ? { latitude: details.latitude, longitude: details.longitude } : {}),
             ...(details.accuracy !== undefined ? { accuracy: details.accuracy } : {}),
           },
         }),
@@ -532,12 +522,7 @@ function App() {
           recipientName: details.recipientName,
           phone: details.phone,
           address: details.address,
-          county: details.county,
-          town: details.town,
-          estate: details.estate,
-          landmark: details.landmark,
-          latitude: details.latitude,
-          longitude: details.longitude,
+          ...(details.latitude !== undefined && details.longitude !== undefined ? { latitude: details.latitude, longitude: details.longitude } : {}),
           ...(details.accuracy !== undefined ? { accuracy: details.accuracy } : {}),
         },
       }),
@@ -727,37 +712,10 @@ function App() {
         setCheckoutPinStatus(`Pin saved with approximately ${Math.round(position.coords.accuracy)} m accuracy. Pin again outdoors for a more precise location.`)
       },
       (error) => setCheckoutPinStatus(error.code === error.PERMISSION_DENIED
-        ? 'Allow location access in your browser to pin the delivery address.'
-        : 'Your delivery location could not be found. Enter the address and try again.'),
+        ? 'Allow location access in your browser to add an optional delivery pin.'
+        : 'Your delivery location could not be found. You can continue without a pin.'),
       { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 },
     )
-  }
-
-  function updateDeliveryCoordinate(form: HTMLFormElement, axis: 'latitude' | 'longitude') {
-    const latitude = form.elements.namedItem('latitude')
-    const longitude = form.elements.namedItem('longitude')
-    const accuracy = form.elements.namedItem('accuracy')
-    if (!(latitude instanceof HTMLInputElement) || !(longitude instanceof HTMLInputElement)) return
-    if (accuracy instanceof HTMLInputElement) accuracy.value = ''
-    const latitudeValue = latitude.value.trim()
-    const longitudeValue = longitude.value.trim()
-    setCheckoutLatitude(latitudeValue)
-    setCheckoutLongitude(longitudeValue)
-    setCheckoutAccuracy(null)
-    if (!latitudeValue || !longitudeValue) {
-      setCheckoutLocation(null)
-      setCheckoutPinStatus('Enter both coordinates to preview the delivery pin.')
-      return
-    }
-    const latitudeNumber = Number(latitudeValue)
-    const longitudeNumber = Number(longitudeValue)
-    if (latitudeNumber < -90 || latitudeNumber > 90 || longitudeNumber < -180 || longitudeNumber > 180) {
-      setCheckoutLocation(null)
-      setCheckoutPinStatus('Latitude must be between -90 and 90; longitude between -180 and 180.')
-      return
-    }
-    setCheckoutLocation({ latitude: latitudeNumber, longitude: longitudeNumber, accuracy: null })
-    setCheckoutPinStatus(`Pin adjusted manually from the ${axis} field. GPS accuracy is not available for manual coordinates.`)
   }
 
   async function submitCheckout(event: FormEvent<HTMLFormElement>) {
@@ -776,11 +734,6 @@ function App() {
     }
     if (paymentMethod === 'mpesa' && !/^(?:0[17]\d{8}|\+?254[17]\d{8})$/.test(mpesaPhone.replace(/[\s()-]/g, ''))) {
       setCheckoutError('Enter a valid Kenyan M-PESA phone number.')
-      return
-    }
-    if (!latitudeValue || !longitudeValue) {
-      setCheckoutError('Pin your delivery location before placing the order.')
-      setCheckoutPinStatus('A delivery pin is required.')
       return
     }
     const items = checkoutCart.flatMap((line) => {
@@ -807,11 +760,6 @@ function App() {
           address: {
             recipientName: String(form.get('recipientName') ?? ''),
             phone: String(form.get('phone') ?? ''),
-            address: String(form.get('address') ?? ''),
-            county: String(form.get('county') ?? ''),
-            town: String(form.get('town') ?? ''),
-            estate: String(form.get('estate') ?? ''),
-            landmark: String(form.get('landmark') ?? ''),
             instructions: String(form.get('instructions') ?? ''),
             ...(latitudeValue && longitudeValue ? { latitude: Number(latitudeValue), longitude: Number(longitudeValue) } : {}),
             ...(accuracyValue ? { accuracy: Number(accuracyValue) } : {}),
@@ -915,16 +863,14 @@ function App() {
               <CheckoutPaymentOptions paymentMethod={checkoutPaymentMethod} onPaymentMethodChange={setCheckoutPaymentMethod} mpesaOptions={mpesaPaymentOptions} accountUser={accountUser} payerPhone={mpesaPhone} onPayerPhoneChange={setMpesaPhone} />
               <div className="checkout-fields"><label>Recipient full name<input key={`recipient-${checkoutPaymentMethod}-${accountUser.id}`} name="recipientName" autoComplete="name" defaultValue={accountUser.fullName} required minLength={2} maxLength={160} /></label><label>Delivery phone number<input key={`phone-${checkoutPaymentMethod}-${accountUser.id}`} name="phone" type="tel" autoComplete="tel" defaultValue={accountUser.phone ?? ''} required minLength={7} maxLength={20} /></label></div>
               <label>Email address<input type="email" autoComplete="email" value={accountUser.email} readOnly /></label>
-              <label>Street address or building<input name="address" autoComplete="street-address" required minLength={3} maxLength={180} /></label>
-              <div className="checkout-fields"><label>County<input name="county" autoComplete="address-level1" defaultValue="Machakos" required maxLength={80} /></label><label>Town<input name="town" autoComplete="address-level2" defaultValue="Machakos" required maxLength={100} /></label></div>
-              <label>Estate <span>(optional)</span><input name="estate" maxLength={100} /></label><label>Landmark <span>(optional)</span><input name="landmark" maxLength={180} /></label><label>Delivery instructions <span>(optional)</span><textarea name="instructions" rows={2} maxLength={500} /></label>
-              <div className="checkout-fields"><label>Latitude<input name="latitude" type="number" step="any" min="-90" max="90" required value={checkoutLatitude} onChange={(event) => { setCheckoutLatitude(event.target.value); if (event.currentTarget.form) updateDeliveryCoordinate(event.currentTarget.form, 'latitude') }} /></label><label>Longitude<input name="longitude" type="number" step="any" min="-180" max="180" required value={checkoutLongitude} onChange={(event) => { setCheckoutLongitude(event.target.value); if (event.currentTarget.form) updateDeliveryCoordinate(event.currentTarget.form, 'longitude') }} /></label></div><input type="hidden" name="accuracy" value={checkoutAccuracy ?? ''} readOnly />
+              <label>Delivery instructions <span>(optional)</span><textarea name="instructions" rows={2} maxLength={500} /></label>
+              <input type="hidden" name="latitude" value={checkoutLatitude} readOnly /><input type="hidden" name="longitude" value={checkoutLongitude} readOnly /><input type="hidden" name="accuracy" value={checkoutAccuracy ?? ''} readOnly />
               <button className="button button-outline checkout-location-button" type="button" onClick={(event) => { if (event.currentTarget.form) captureDeliveryLocation(event.currentTarget.form) }}><MapPin size={15} /> Pin this delivery location</button>
               {checkoutPinStatus && <p className="checkout-location-status" role="status">{checkoutPinStatus}</p>}
               {checkoutLocation && <GoogleMapView latitude={checkoutLocation.latitude} longitude={checkoutLocation.longitude} title="Pinned delivery location" />}
               {checkoutError && <p className="auth-message" role="alert">{checkoutError}</p>}
               <div className="checkout-total"><span>Items subtotal</span><strong>{money.format(checkoutSubtotal)}</strong></div><div className="checkout-total checkout-fee"><span>Delivery</span><strong>{money.format(checkoutDeliveryFee)}</strong></div><div className="checkout-total checkout-grand-total"><span>Total due</span><strong>{money.format(checkoutSubtotal + checkoutDeliveryFee)}</strong></div>
-              <p className="checkout-disclaimer">Your contact details and delivery pin are attached to the order. Stock and delivery fees are rechecked before confirmation.</p>
+              <p className="checkout-disclaimer">Your selected delivery area is attached to the order. A map pin is optional. Stock and delivery fees are rechecked before confirmation.</p>
               <button className="button button-green" type="submit" disabled={checkoutBusy || checkoutCart.length === 0}>{checkoutBusy ? 'Creating order…' : `Place order · ${checkoutPaymentMethod === 'pay_on_delivery' ? 'Pay on Delivery' : 'M-Pesa'}`} <ArrowRight size={16} /></button>
             </form>}
           </section>
@@ -1062,13 +1008,13 @@ function App() {
           {!catalogueError && !loading && homeFeaturedProducts.length > 0 && <div className="product-grid">{homeFeaturedProducts.slice(0, 6).map((product) => {
             const inStock = product.variants.some((variant) => variant.stock > 0)
             return <article className="product-card" key={product.id}>
-              <div className="product-media">{product.imageUrl ? <img src={product.imageUrl} alt={product.name} loading="lazy" /> : <div className="product-image-empty"><span>KC</span><small>IMAGE TO BE ADDED</small></div>}
+              <div className="product-media"><Link className="shop-product-link" to={`/products/${product.slug}`} aria-label={`View ${product.name}`}>{product.imageUrl ? <img src={product.imageUrl} alt={product.name} loading="lazy" /> : <div className="product-image-empty"><span>KC</span><small>IMAGE TO BE ADDED</small></div>}</Link>
                 {(product.featured || product.trending) && <span className="product-tag">{product.trending ? 'TRENDING' : 'FEATURED'}</span>}
                 {(product.salePrice || product.featured || product.trending) && <span className={`product-tag${product.salePrice ? ' product-tag-sale' : ''}`}>{product.salePrice ? 'SALE' : product.trending ? 'TRENDING' : 'FEATURED'}</span>}
                 <button className="product-favourite" type="button" aria-label={`Save ${product.name} to your wishlist`} onClick={() => void saveToWishlist(product.id)}><Heart size={14} /></button>
               </div>
               <div className="product-info"><div><ProductCategoryLine team={product.team?.name} league={product.league?.name} jerseyCategory={product.jerseyCategory?.name} category={product.category?.name} fallback="KitCulture" /><h3><Link to={`/products/${product.slug}`}>{product.name}</Link></h3></div><span className="product-price">{product.salePrice ? <><del>{money.format(Number(product.price))}</del><strong className="sale-price">{money.format(Number(product.salePrice))}</strong></> : money.format(Number(product.price))}</span></div>
-              <ProductRating to={`/products/${product.slug}#product-reviews`} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />
+              <KitRating productId={product.id} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />
               <div className="product-meta"><div className="product-sizes">{product.variants.length ? product.variants.map((variant) => <span className={!variant.stock ? 'is-sold-out' : ''} key={variant.id}>{variant.size}</span>) : <span>Unavailable</span>}</div><span className={inStock ? 'stock-label' : 'stock-label sold-out'}>{inStock ? 'In stock' : 'Out of stock'}</span></div>
               {inStock ? <div className="product-card-actions public-product-card-actions"><button className="quick-add" type="button" onClick={() => addToCart(product)} aria-label={`Add ${product.name} to cart`}><ShoppingCart size={13} />Add to Cart</button><Link className="product-card-buy public-product-card-shop" to={`/products/${product.slug}`} state={{ openBuyFlow: true }}>Shop <ArrowRight size={14} /></Link></div> : <Link className="quick-add quick-add-preview" to={`/products/${product.slug}`}><ShoppingCart size={13} />View kit</Link>}
             </article>
@@ -1103,10 +1049,8 @@ function App() {
             <CheckoutPaymentOptions paymentMethod={checkoutPaymentMethod} onPaymentMethodChange={setCheckoutPaymentMethod} mpesaOptions={mpesaPaymentOptions} accountUser={accountUser} payerPhone={mpesaPhone} onPayerPhoneChange={setMpesaPhone} />
             <div className="checkout-fields"><label>Recipient full name<input key={`recipient-${checkoutPaymentMethod}-${accountUser?.id ?? 'guest'}`} name="recipientName" autoComplete="name" defaultValue={accountUser?.fullName ?? ''} readOnly={checkoutPaymentMethod === 'mpesa'} required minLength={2} maxLength={160} /></label><label>Phone number<input key={`phone-${checkoutPaymentMethod}-${accountUser?.id ?? 'guest'}`} name="phone" type="tel" autoComplete="tel" defaultValue={accountUser?.phone ?? ''} readOnly={checkoutPaymentMethod === 'mpesa'} required minLength={7} maxLength={20} /></label></div>
             <label>Email address<input type="email" autoComplete="email" value={accountUser?.email ?? ''} readOnly /></label>
-            <label>Street address or building<input name="address" autoComplete="street-address" required minLength={3} maxLength={180} /></label>
-            <div className="checkout-fields"><label>County<input name="county" autoComplete="address-level1" defaultValue="Machakos" required maxLength={80} /></label><label>Town<input name="town" autoComplete="address-level2" defaultValue="Machakos" required maxLength={100} /></label></div>
-            <label>Estate <span>(optional)</span><input name="estate" maxLength={100} /></label><label>Landmark <span>(optional)</span><input name="landmark" maxLength={180} /></label><label>Delivery instructions <span>(optional)</span><textarea name="instructions" rows={2} maxLength={500} /></label>
-            <div className="checkout-fields"><label>Latitude<input name="latitude" type="number" step="any" min="-90" max="90" required value={checkoutLatitude} onChange={(event) => { setCheckoutLatitude(event.target.value); if (event.currentTarget.form) updateDeliveryCoordinate(event.currentTarget.form, 'latitude') }} /></label><label>Longitude<input name="longitude" type="number" step="any" min="-180" max="180" required value={checkoutLongitude} onChange={(event) => { setCheckoutLongitude(event.target.value); if (event.currentTarget.form) updateDeliveryCoordinate(event.currentTarget.form, 'longitude') }} /></label></div><input type="hidden" name="accuracy" value={checkoutAccuracy ?? ''} readOnly />
+            <label>Delivery instructions <span>(optional)</span><textarea name="instructions" rows={2} maxLength={500} /></label>
+            <input type="hidden" name="latitude" value={checkoutLatitude} readOnly /><input type="hidden" name="longitude" value={checkoutLongitude} readOnly /><input type="hidden" name="accuracy" value={checkoutAccuracy ?? ''} readOnly />
             <button className="button button-outline checkout-location-button" type="button" onClick={(event) => { if (event.currentTarget.form) captureDeliveryLocation(event.currentTarget.form) }}><MapPin size={15} /> Pin this delivery location</button>
             {checkoutPinStatus && <p className="checkout-location-status" role="status">{checkoutPinStatus}</p>}
             {checkoutLocation && <GoogleMapView latitude={checkoutLocation.latitude} longitude={checkoutLocation.longitude} title="Pinned delivery location" />}
@@ -1114,7 +1058,7 @@ function App() {
             <div className="checkout-total"><span>Items subtotal</span><strong>{money.format(checkoutSubtotal)}</strong></div>
             <div className="checkout-total checkout-fee"><span>Delivery</span><strong>{money.format(checkoutDeliveryFee)}</strong></div>
             <div className="checkout-total checkout-grand-total"><span>Total due</span><strong>{money.format(checkoutSubtotal + checkoutDeliveryFee)}</strong></div>
-            <p className="checkout-disclaimer">Your contact details and delivery pin are attached to the order. Stock and delivery fees are rechecked before confirmation.</p>
+            <p className="checkout-disclaimer">Your selected delivery area is attached to the order. A map pin is optional. Stock and delivery fees are rechecked before confirmation.</p>
             <button className="button button-green" type="submit" disabled={checkoutBusy || checkoutCart.length === 0}>{checkoutBusy ? 'Creating order…' : `Place order · ${checkoutPaymentMethod === 'pay_on_delivery' ? 'Pay on Delivery' : 'M-Pesa'}`} <ArrowRight size={16} /></button>
           </form>}
         </section>}
@@ -1138,12 +1082,8 @@ function App() {
             <CheckoutPaymentOptions paymentMethod={checkoutPaymentMethod} onPaymentMethodChange={setCheckoutPaymentMethod} mpesaOptions={mpesaPaymentOptions} accountUser={accountUser} payerPhone={mpesaPhone} onPayerPhoneChange={setMpesaPhone} />
             <div className="checkout-fields"><label>Recipient full name<input key={`recipient-${checkoutPaymentMethod}-${accountUser?.id ?? 'guest'}`} name="recipientName" autoComplete="name" defaultValue={accountUser?.fullName ?? ''} readOnly={checkoutPaymentMethod === 'mpesa'} required minLength={2} maxLength={160} /></label><label>Phone number<input key={`phone-${checkoutPaymentMethod}-${accountUser?.id ?? 'guest'}`} name="phone" type="tel" autoComplete="tel" defaultValue={accountUser?.phone ?? ''} readOnly={checkoutPaymentMethod === 'mpesa'} required minLength={7} maxLength={20} /></label></div>
             <label>Email address<input type="email" autoComplete="email" value={accountUser?.email ?? ''} readOnly /></label>
-            <label>Street address or building<input name="address" autoComplete="street-address" required minLength={3} maxLength={180} /></label>
-            <div className="checkout-fields"><label>County<input name="county" autoComplete="address-level1" defaultValue="Machakos" required maxLength={80} /></label><label>Town<input name="town" autoComplete="address-level2" defaultValue="Machakos" required maxLength={100} /></label></div>
-            <label>Estate <span>(optional)</span><input name="estate" maxLength={100} /></label>
-            <label>Landmark <span>(optional)</span><input name="landmark" maxLength={180} /></label>
             <label>Delivery instructions <span>(optional)</span><textarea name="instructions" rows={2} maxLength={500} /></label>
-            <div className="checkout-fields"><label>Latitude<input name="latitude" type="number" step="any" min="-90" max="90" required value={checkoutLatitude} onChange={(event) => { setCheckoutLatitude(event.target.value); if (event.currentTarget.form) updateDeliveryCoordinate(event.currentTarget.form, 'latitude') }} /></label><label>Longitude<input name="longitude" type="number" step="any" min="-180" max="180" required value={checkoutLongitude} onChange={(event) => { setCheckoutLongitude(event.target.value); if (event.currentTarget.form) updateDeliveryCoordinate(event.currentTarget.form, 'longitude') }} /></label></div><input type="hidden" name="accuracy" value={checkoutAccuracy ?? ''} readOnly />
+            <input type="hidden" name="latitude" value={checkoutLatitude} readOnly /><input type="hidden" name="longitude" value={checkoutLongitude} readOnly /><input type="hidden" name="accuracy" value={checkoutAccuracy ?? ''} readOnly />
             <button className="button button-outline checkout-location-button" type="button" onClick={(event) => { if (event.currentTarget.form) captureDeliveryLocation(event.currentTarget.form) }}><MapPin size={15} /> Pin this delivery location</button>
             {checkoutPinStatus && <p className="checkout-location-status" role="status">{checkoutPinStatus}</p>}
             {checkoutLocation && <GoogleMapView latitude={checkoutLocation.latitude} longitude={checkoutLocation.longitude} title="Pinned delivery location" />}
@@ -1151,7 +1091,7 @@ function App() {
             <div className="checkout-total"><span>Items subtotal</span><strong>{money.format(checkoutSubtotal)}</strong></div>
             <div className="checkout-total checkout-fee"><span>Delivery</span><strong>{money.format(checkoutDeliveryFee)}</strong></div>
             <div className="checkout-total checkout-grand-total"><span>Total due</span><strong>{money.format(checkoutSubtotal + checkoutDeliveryFee)}</strong></div>
-            <p className="checkout-disclaimer">Your contact details and delivery pin are attached to the order. Stock and delivery fees are rechecked before confirmation.</p>
+            <p className="checkout-disclaimer">Your selected delivery area is attached to the order. A map pin is optional. Stock and delivery fees are rechecked before confirmation.</p>
             <button className="button button-green" type="submit" disabled={checkoutBusy || checkoutCart.length === 0}>{checkoutBusy ? 'Creating order…' : `Place order · ${checkoutPaymentMethod === 'pay_on_delivery' ? 'Pay on Delivery' : 'M-Pesa'}`} <ArrowRight size={16} /></button>
           </form>}
         </div> : cart.length === 0 ? <div className="empty-cart"><ShoppingBag size={28} /><strong>Nothing in your bag. Yet.</strong><span>Your next favourite shirt is waiting in the shop.</span><button className="button button-green" type="button" onClick={() => setCartOpen(false)}>Explore the shop <ArrowRight size={15} /></button></div> : <><div className="cart-lines">{cart.map((line) => <article className="cart-line" key={`${line.productId}-${line.size}`}>{line.imageUrl ? <img src={line.imageUrl} alt="" /> : <div className="cart-image-placeholder">KC</div>}<div className="cart-line-info"><strong>{line.name}</strong><span>Size {line.size}</span><span>{money.format(line.price)}</span><div className="quantity-control"><button type="button" aria-label={`Remove one ${line.name}`} onClick={() => updateQuantity(line.productId, line.size, line.quantity - 1)}>−</button><span>{line.quantity}</span><button type="button" aria-label={`Add one ${line.name}`} onClick={() => updateQuantity(line.productId, line.size, line.quantity + 1)}>+</button></div></div><button className="remove-line" type="button" onClick={() => updateQuantity(line.productId, line.size, 0)}>Remove</button></article>)}</div><div className="drawer-total"><div><span>Subtotal</span><strong>{money.format(subtotal)}</strong></div><p>Delivery calculated at checkout.</p><button className="button button-green" type="button" onClick={beginCheckout}>Continue to checkout <ArrowRight size={16} /></button><small>Sign in is required. Your bag stays saved in this browser.</small></div></>}

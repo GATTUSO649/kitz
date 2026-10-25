@@ -174,6 +174,18 @@ export const productReviews = mysqlTable('product_reviews', {
   index('product_reviews_product_created_idx').on(table.productId, table.createdAt),
 ])
 
+export const productRatings = mysqlTable('product_ratings', {
+  id: int('id').autoincrement().primaryKey(),
+  productId: int('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  visitorId: varchar('visitor_id', { length: 36 }).notNull(),
+  rating: int('rating').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  unique('product_ratings_product_visitor_unique').on(table.productId, table.visitorId),
+  index('product_ratings_product_created_idx').on(table.productId, table.createdAt),
+])
+
 export const inventoryMovements = mysqlTable('inventory_movements', {
   id: int('id').autoincrement().primaryKey(),
   variantId: int('variant_id').notNull().references(() => productVariants.id),

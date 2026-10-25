@@ -22,15 +22,19 @@ function validCoordinate(value: unknown, minimum: number, maximum: number): numb
 const addressSchema = z.object({
   recipientName: z.string().trim().min(2).max(160),
   phone: z.string().trim().min(7).max(20),
-  address: z.string().trim().min(3).max(180),
-  county: z.string().trim().min(2).max(80),
-  town: z.string().trim().min(2).max(100),
+  address: z.string().trim().min(3).max(180).optional(),
+  county: z.string().trim().min(2).max(80).optional(),
+  town: z.string().trim().min(2).max(100).optional(),
   estate: z.string().trim().max(100).optional(),
   landmark: z.string().trim().max(180).optional(),
   instructions: z.string().trim().max(500).optional(),
-  latitude: z.number().min(-90).max(90),
-  longitude: z.number().min(-180).max(180),
+  latitude: z.number().min(-90).max(90).optional(),
+  longitude: z.number().min(-180).max(180).optional(),
   accuracy: z.number().min(0).max(100000).optional(),
+}).superRefine((address, context) => {
+  if ((address.latitude === undefined) !== (address.longitude === undefined)) {
+    context.addIssue({ code: 'custom', message: 'Provide both location coordinates or neither.', path: ['latitude'] })
+  }
 })
 
 const orderRequestBaseSchema = z.object({

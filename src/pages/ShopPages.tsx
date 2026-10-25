@@ -3,6 +3,8 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-do
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, Filter, Heart, MapPin, Maximize2, MessageCircle, Search, ShoppingCart, Smartphone, Star, X } from 'lucide-react'
 import { GoogleMapView } from '../components/GoogleMapView'
+import { KenyanPhoneInput } from '../components/KenyanPhoneInput'
+import { KitRating } from '../components/KitRating'
 import { matchesNationalTeam, NATIONAL_TEAM_NAMES } from '../nationalTeams'
 
 export type ShopVariant = { id: number; size: string; stock: number; price?: string | null }
@@ -15,13 +17,13 @@ export type BuyNowCheckoutDetails = {
   payerPhone: string
   recipientName: string
   phone: string
-  address: string
-  county: string
-  town: string
-  estate: string
-  landmark: string
-  latitude: number
-  longitude: number
+  address?: string
+  county?: string
+  town?: string
+  estate?: string
+  landmark?: string
+  latitude?: number
+  longitude?: number
   accuracy?: number
 }
 type ShopImage = { id: number; imageUrl: string; altText: string; sortOrder: number; isPrimary: boolean }
@@ -55,13 +57,6 @@ type MarketplaceDirectory = { leagues: MarketplaceLeague[]; jerseyCategories: { 
 
 const money = new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES', maximumFractionDigits: 0 })
 const noProducts: ShopProduct[] = []
-
-function RatingDisplay({ rating = 0, count = 0, to, productName }: { rating?: number; count?: number; to: string; productName: string }) {
-  return <Link className="product-rating product-rating-link" to={to} aria-label={count ? `${rating.toFixed(1)} out of 5 rating for ${productName}. Open to rate.` : `Rate ${productName}`}>
-    <span className="product-rating-stars" aria-hidden="true">{[1, 2, 3, 4, 5].map((star) => <Star key={star} size={13} fill={star <= Math.round(rating) ? 'currentColor' : 'none'} />)}</span>
-    {count > 0 && <span>{rating.toFixed(1)}</span>}
-  </Link>
-}
 
 export function ProductCategoryLine({ team, league, jerseyCategory, category, fallback }: {
   team?: string | null
@@ -125,7 +120,7 @@ function ProductsGrid({ products, onSave, onAdd, portalMode = false }: { product
         <button className="product-favourite" type="button" aria-label={`Save ${product.name} to your wishlist`} onClick={() => onSave(product.id)}><Heart size={14} /></button>
       </div>
       <div className="product-info"><div><ProductCategoryLine team={product.team?.name} league={product.league?.name} jerseyCategory={product.jerseyCategory?.name} category={product.category?.name} fallback="Football kit" /><h3><Link to={productPath(product.slug)}>{product.name}</Link></h3></div><span className="product-price">{product.salePrice ? <><del>{money.format(Number(product.price))}</del><strong className="sale-price">{money.format(Number(product.salePrice))}</strong></> : money.format(Number(product.price))}</span></div>
-      <RatingDisplay to={`${productPath(product.slug)}#product-reviews`} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />
+      {!portalMode && <KitRating productId={product.id} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />}
       <div className="product-meta"><div className="product-sizes">{product.variants.length ? product.variants.map((variant) => <span className={!variant.stock ? 'is-sold-out' : ''} key={variant.id}>{variant.size}</span>) : <span>Sizes unavailable</span>}</div><span className={stock > 0 ? 'stock-label' : 'stock-label sold-out'}>{stock > 0 ? 'In stock' : 'Out of stock'}</span></div>
       {portalMode ? <Link className="quick-add quick-add-preview" to={productPath(product.slug)} state={{ openBuyFlow: true }}><ShoppingCart size={13} />Buy</Link>
         : <div className="product-card-actions public-product-card-actions"><button className="quick-add" type="button" disabled={!stock || !onAdd} onClick={() => onAdd?.(product)}><ShoppingCart size={13} />Add to Cart</button><Link className="product-card-buy public-product-card-shop" to={productPath(product.slug)} state={{ openBuyFlow: true }}>Shop <ArrowRight size={14} /></Link></div>}
@@ -363,9 +358,6 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
   const [deliveryZoneId, setDeliveryZoneId] = useState('')
   const [deliveryPinStatus, setDeliveryPinStatus] = useState('')
   const [deliveryPin, setDeliveryPin] = useState<{ latitude: number; longitude: number; accuracy: number | null } | null>(null)
-  const [deliveryLatitude, setDeliveryLatitude] = useState('')
-  const [deliveryLongitude, setDeliveryLongitude] = useState('')
-  const [deliveryAddress, setDeliveryAddress] = useState({ address: '', county: 'Machakos', town: 'Machakos', estate: '', landmark: '' })
   const [deliveryPhone, setDeliveryPhone] = useState(accountUser?.phone ?? '')
   const [guestRecipientName, setGuestRecipientName] = useState(accountUser?.fullName ?? '')
   const [guestEmail, setGuestEmail] = useState(accountUser?.email ?? '')
@@ -502,37 +494,19 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
     setDeliveryPin(null)
     setDeliveryPinStatus('Finding your delivery location…')
     if (!navigator.geolocation) {
-      setDeliveryPinStatus('Location sharing is not available in this browser. Enter the coordinates manually.')
+      setDeliveryPinStatus('Location sharing is not available in this browser. You can continue without a pin.')
       return
     }
     navigator.geolocation.getCurrentPosition(
       (position) => {
         setDeliveryPin({ latitude: position.coords.latitude, longitude: position.coords.longitude, accuracy: position.coords.accuracy })
-        setDeliveryLatitude(String(position.coords.latitude))
-        setDeliveryLongitude(String(position.coords.longitude))
         setDeliveryPinStatus(`Location pinned with approximately ${Math.round(position.coords.accuracy)} m accuracy.`)
       },
       (error) => setDeliveryPinStatus(error.code === error.PERMISSION_DENIED
-        ? 'Allow location access in your browser to pin the delivery address.'
-        : 'Your location could not be found. Enter the coordinates manually.'),
+        ? 'Allow location access in your browser to pin the delivery location.'
+        : 'Your location could not be found. You can continue without a pin.'),
       { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 },
     )
-  }
-
-  function updatePinCoordinate(axis: 'latitude' | 'longitude', value: string) {
-    const latitudeValue = axis === 'latitude' ? value : deliveryLatitude
-    const longitudeValue = axis === 'longitude' ? value : deliveryLongitude
-    if (axis === 'latitude') setDeliveryLatitude(value)
-    else setDeliveryLongitude(value)
-    const latitude = Number(latitudeValue)
-    const longitude = Number(longitudeValue)
-    if (!latitudeValue || !longitudeValue || !Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
-      setDeliveryPin(null)
-      setDeliveryPinStatus('Enter valid latitude and longitude coordinates to preview the pin.')
-      return
-    }
-    setDeliveryPin({ latitude, longitude, accuracy: null })
-    setDeliveryPinStatus('Delivery pin adjusted manually. GPS accuracy is not available for manual coordinates.')
   }
 
   async function submitBuyFlow(event?: FormEvent<HTMLFormElement>) {
@@ -545,10 +519,6 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
       }
       if (!selectedZone) {
         setBuyFlowError('Choose a delivery area before continuing.')
-        return
-      }
-      if (!deliveryPin) {
-        setBuyFlowError('Pin your delivery location before continuing.')
         return
       }
       setBuyFlowError('')
@@ -573,8 +543,8 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
       return
     }
     if (buyFlowStep !== 3 || !selectedItems.length) return
-    if (!selectedZone || !deliveryPin) {
-      setBuyFlowError('Your delivery details are incomplete. Go back and confirm the area and location pin.')
+    if (!selectedZone) {
+      setBuyFlowError('Choose a delivery area before continuing.')
       setBuyFlowStep(1)
       return
     }
@@ -589,10 +559,8 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
         payerPhone,
         recipientName: accountUser?.fullName ?? guestRecipientName,
         phone: deliveryPhone,
-        ...deliveryAddress,
-        latitude: deliveryPin.latitude,
-        longitude: deliveryPin.longitude,
-        ...(deliveryPin.accuracy !== null ? { accuracy: deliveryPin.accuracy } : {}),
+        ...(deliveryPin ? { latitude: deliveryPin.latitude, longitude: deliveryPin.longitude } : {}),
+        ...(deliveryPin?.accuracy !== null && deliveryPin ? { accuracy: deliveryPin.accuracy } : {}),
       })
       if (!portalMode && !accountUser) {
         setBuyFlowConfirmation(confirmation ?? 'Your guest order was created. Check your phone for the M-PESA prompt.')
@@ -704,12 +672,9 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
           {!portalMode && !accountUser && <label>Recipient full name<input autoComplete="name" required minLength={2} maxLength={160} value={guestRecipientName} onChange={(event) => setGuestRecipientName(event.target.value)} /></label>}
           {!portalMode && !accountUser && <label>Email address<input type="email" autoComplete="email" required maxLength={254} value={guestEmail} onChange={(event) => setGuestEmail(event.target.value)} /></label>}
           <label>Delivery recipient phone<input type="tel" inputMode="tel" autoComplete="tel" required minLength={7} maxLength={20} value={deliveryPhone} onChange={(event) => setDeliveryPhone(event.target.value)} /></label>
-          <label>Street address or building<input required minLength={3} maxLength={180} value={deliveryAddress.address} onChange={(event) => setDeliveryAddress({ ...deliveryAddress, address: event.target.value })} /></label>
-          <div className="checkout-fields"><label>County<input required maxLength={80} value={deliveryAddress.county} onChange={(event) => setDeliveryAddress({ ...deliveryAddress, county: event.target.value })} /></label><label>Town<input required maxLength={100} value={deliveryAddress.town} onChange={(event) => setDeliveryAddress({ ...deliveryAddress, town: event.target.value })} /></label></div>
-          <div className="checkout-fields"><label>Estate <span>(optional)</span><input maxLength={100} value={deliveryAddress.estate} onChange={(event) => setDeliveryAddress({ ...deliveryAddress, estate: event.target.value })} /></label><label>Landmark <span>(optional)</span><input maxLength={180} value={deliveryAddress.landmark} onChange={(event) => setDeliveryAddress({ ...deliveryAddress, landmark: event.target.value })} /></label></div>
+          <p className="buy-flow-hint">Choose a delivery area. Pinning your exact location is optional.</p>
           <button className="button button-outline checkout-location-button" type="button" onClick={pinDeliveryLocation}><MapPin size={15} /> Pin my delivery location</button>
           {deliveryPinStatus && <p className="checkout-location-status" role="status">{deliveryPinStatus}</p>}
-          <div className="checkout-fields"><label>Latitude<input type="number" step="any" min="-90" max="90" required value={deliveryLatitude} onChange={(event) => updatePinCoordinate('latitude', event.target.value)} /></label><label>Longitude<input type="number" step="any" min="-180" max="180" required value={deliveryLongitude} onChange={(event) => updatePinCoordinate('longitude', event.target.value)} /></label></div>
           {deliveryPin && <GoogleMapView latitude={deliveryPin.latitude} longitude={deliveryPin.longitude} title="Pinned delivery location" />}
         </>}
         {buyFlowStep === 2 && <>
@@ -721,7 +686,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
           {!portalMode && !accountUser && <p className="buy-flow-hint">Guest checkout requires online payment. <Link to={`/login?returnTo=${encodeURIComponent(pathname)}`}>Sign up or sign in</Link> to use Pay on Delivery.</p>}
           {buyFlowPaymentMethod === 'mpesa' ? <>
             <div className="buy-flow-payment-merchant"><Smartphone size={20} /><div><strong>{paymentOptionsQuery.data?.mpesaTillName || 'KitCulture'}</strong><span>Secure M-Pesa prompt · Buy Goods Till</span></div></div>
-            <label>Phone number to pay from<input type="tel" inputMode="tel" autoComplete="tel" required pattern="(?:0[17][0-9]{8}|\+?254[17][0-9]{8})" title="Enter a valid Kenyan number, such as 0712345678 or +254712345678." maxLength={13} placeholder="0712345678 or +254712345678" value={payerPhone} onChange={(event) => setPayerPhone(event.target.value)} /></label>
+            <KenyanPhoneInput label="Phone number to pay from" value={payerPhone} onChange={setPayerPhone} />
             <p className="buy-flow-hint">The payment prompt will be sent to this Kenyan number. Delivery contact details are entered separately.</p>
           </> : <p className="buy-flow-hint">Pay {money.format(buyFlowTotal)} when your order is delivered.</p>}
         </>}

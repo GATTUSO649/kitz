@@ -7,6 +7,7 @@ import { bcryptPasswordSchema } from '../../config/password-policy.js'
 import { adminIdleTimeoutMs, adminLoginSchema, matchesAdminSignupSecret } from '../admin/auth.js'
 import { loginSchema, registerSchema } from './routes.js'
 import { createOrderSchema, createTemporaryOrderNumber, exceedsProductQuantityLimit, ordersRouter } from '../orders/routes.js'
+import { combinedRating, quickProductRatingSchema } from '../catalogue/routes.js'
 import { buildDarajaCallbackUrl, callbackFailureStatus, canVerifySuccessfulStkPayment, DarajaRequestError, darajaCallbackRoute, initiateStkPush, isFinalDarajaPaymentStatus, isValidDarajaPaymentAmount, matchesCallbackToken, normalizeKenyanPhone, parseDarajaTimestamp, parseStkCallback, resolveDarajaShortcodes } from '../orders/daraja.js'
 import { createAddressSchema, passwordSchema, productReviewSchema, profileSchema, supportMessageSchema, supportRequestSchema } from '../account/routes.js'
 import { adminNotificationSchema, canTransitionOrderStatus, createProductSchema, homepageSlideBatchSchema, homepageSlideSchema, isDuplicateKeyError, settingsSchema, supportUpdateSchema } from '../admin/routes.js'
@@ -85,12 +86,13 @@ test('customer order mutations reject cross-origin requests before authenticatio
   }
 })
 
-test('order input requires paired, geographically valid coordinates', () => {
+test('order input accepts zone-only delivery and validates optional coordinate pairs', () => {
   const input = {
     items: [{ variantId: 3, quantity: 2 }],
     deliveryZoneId: 1,
     address: { recipientName: 'Supporter Name', phone: '0712345678', address: 'Main Street', county: 'Machakos', town: 'Machakos', latitude: -1.5 },
   }
+  assert.equal(createOrderSchema.safeParse({ ...input, address: { recipientName: 'Supporter Name', phone: '0712345678' } }).success, true)
   assert.equal(createOrderSchema.safeParse(input).success, false)
   assert.equal(createOrderSchema.safeParse({
     ...input,
@@ -634,4 +636,11 @@ test('administrator login uses email and password without the signup secret', ()
   const credentials = { email: 'admin@example.com', password: 'test-password' }
   assert.equal(adminLoginSchema.safeParse(credentials).success, true)
   assert.equal(adminLoginSchema.safeParse({ ...credentials, password: '' }).success, false)
+})
+
+test('quick product ratings validate stars and combine with written reviews', () => {
+  assert.equal(quickProductRatingSchema.safeParse({ rating: 5, visitorId: '550e8400-e29b-41d4-a716-446655440000' }).success, true)
+  assert.equal(quickProductRatingSchema.safeParse({ rating: 0, visitorId: '550e8400-e29b-41d4-a716-446655440000' }).success, false)
+  assert.deepEqual(combinedRating(4, 2, 3, 2), { ratingAverage: 3.5, reviewCount: 4 })
+  assert.deepEqual(combinedRating(null, 0, null, 0), { ratingAverage: 0, reviewCount: 0 })
 })
