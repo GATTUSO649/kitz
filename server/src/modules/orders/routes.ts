@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import { and, desc, eq, gte, isNotNull, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, isNotNull, isNull, sql } from 'drizzle-orm'
 import { Router, type RequestHandler } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
 import { db } from '../../config/database.js'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
-import { applicationSettings, auditLogs, deliveryZones, inventoryMovements, notificationCampaigns, notificationRecipients, orderItems, orders, payments, productVariants, products, supportMessages, supportRequests, users } from '../../database/schema.js'
-import { authenticate, authenticatedUser } from '../../middleware/authenticate.js'
+import { applicationSettings, auditLogs, deliveryZones, inventoryMovements, notificationCampaigns, notificationRecipients, orderItems, orders, payments, productVariants, products, supportMessages, supportRequests } from '../../database/schema.js'
+import { authenticate, authenticateOptional, authenticatedUser } from '../../middleware/authenticate.js'
 import { isAdminOnline, publishChatMessage } from '../../realtime/chat-events.js'
 import { callbackFailureStatus, canVerifySuccessfulStkPayment, DarajaRequestError, darajaCallbackRoute, initiateStkPush, isDarajaConfigured, isFinalDarajaPaymentStatus, isValidCallbackToken, normalizeKenyanPhone, parseDarajaTimestamp, parseStkCallback, queryStkPush, resolveDarajaShortcodes } from './daraja.js'
 
@@ -107,7 +107,7 @@ ordersRouter.get('/delivery/zones', async (_request, response) => {
   response.json({ data: zones })
 })
 
-ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, response) => {
+ordersRouter.post('/orders', rejectCrossOrigin, authenticateOptional, async (request, response) => {
   response.locals.databaseOperation = 'orders.create'
   const input = createOrderSchema.safeParse(request.body)
   if (!input.success) {
@@ -119,7 +119,7 @@ ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, re
     return
   }
   const auth = authenticatedUser(request)
-  if (!auth) {
+  if (!auth && input.data.paymentMethod !== 'mpesa') {
     response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Sign in to place an order.' } })
     return
   }
@@ -128,10 +128,11 @@ ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, re
     response.status(400).json({ error: { code: 'IDEMPOTENCY_KEY_REQUIRED', message: 'Refresh checkout and try again.' } })
     return
   }
+  const orderOwnerCondition = auth ? eq(orders.userId, auth.userId) : isNull(orders.userId)
   const [existingOrder] = await db.select({ orderNumber: orders.orderNumber, status: orders.status, paymentMethod: orders.paymentMethod, subtotal: orders.subtotal, deliveryFee: orders.deliveryFee, total: orders.total })
-    .from(orders).where(and(eq(orders.userId, auth.userId), eq(orders.idempotencyKey, idempotencyKey.data))).limit(1)
+    .from(orders).where(and(orderOwnerCondition, eq(orders.idempotencyKey, idempotencyKey.data))).limit(1)
   if (existingOrder) {
-    response.status(200).json({ data: { ...existingOrder, replayed: true } })
+    response.status(200).json({ data: { ...existingOrder, ...(auth ? {} : { guestAccessToken: idempotencyKey.data }), replayed: true } })
     return
   }
   if (input.data.paymentMethod === 'mpesa') {
@@ -187,7 +188,7 @@ ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, re
       const [{ id: orderId }] = await transaction.insert(orders).values({
         orderNumber: temporaryNumber,
         idempotencyKey: idempotencyKey.data,
-        userId: auth.userId,
+        userId: auth?.userId ?? null,
         status: 'pending_payment',
         paymentMethod: input.data.paymentMethod,
         currency: 'KES',
@@ -227,19 +228,21 @@ ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, re
       const orderNumber = `KC-${new Date().getFullYear()}-${String(orderId).padStart(6, '0')}`
       await transaction.update(orders).set({ orderNumber }).where(eq(orders.id, orderId))
       await transaction.insert(auditLogs).values({
-        actorUserId: auth.userId,
+        actorUserId: auth?.userId ?? null,
         action: 'order.created',
         targetType: 'order',
         targetId: String(orderId),
       })
-      const [{ id: notificationId }] = await transaction.insert(notificationCampaigns).values({
-        type: 'order',
-        title: 'Order received',
-        body: `Your order ${orderNumber} has been received and is pending payment.`,
-        href: `/account/orders/${encodeURIComponent(orderNumber)}`,
-        audienceType: 'system',
-      }).$returningId()
-      await transaction.insert(notificationRecipients).values({ campaignId: notificationId, userId: auth.userId })
+      if (auth) {
+        const [{ id: notificationId }] = await transaction.insert(notificationCampaigns).values({
+          type: 'order',
+          title: 'Order received',
+          body: `Your order ${orderNumber} has been received and is pending payment.`,
+          href: `/account/orders/${encodeURIComponent(orderNumber)}`,
+          audienceType: 'system',
+        }).$returningId()
+        await transaction.insert(notificationRecipients).values({ campaignId: notificationId, userId: auth.userId })
+      }
       const address = input.data.address
       const addressLines = [address.address, address.estate, address.town, address.county].filter(Boolean)
       const message = [
@@ -253,25 +256,29 @@ ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, re
         `Delivery pin: ${address.latitude}, ${address.longitude}`,
         `Subtotal: KES ${(subtotalCents / 100).toFixed(2)}; delivery: KES ${(deliveryFeeCents / 100).toFixed(2)}; total: KES ${(totalCents / 100).toFixed(2)}`,
       ].join('\n')
-      const [{ id: conversationId }] = await transaction.insert(supportRequests).values({
-        userId: auth.userId,
-        orderId,
-        category: 'delivery',
-        subject: `Delivery tracking · ${orderNumber}`,
-        message,
-      }).$returningId()
-      await transaction.insert(supportMessages).values({
-        supportRequestId: conversationId,
-        senderType: 'customer',
-        body: message,
-        latitude: String(address.latitude),
-        longitude: String(address.longitude),
-        deliveredAt: isAdminOnline() ? new Date() : null,
-      })
+      let conversationId: number | null = null
+      if (auth) {
+        const [{ id }] = await transaction.insert(supportRequests).values({
+          userId: auth.userId,
+          orderId,
+          category: 'delivery',
+          subject: `Delivery tracking · ${orderNumber}`,
+          message,
+        }).$returningId()
+        conversationId = id
+        await transaction.insert(supportMessages).values({
+          supportRequestId: conversationId,
+          senderType: 'customer',
+          body: message,
+          latitude: String(address.latitude),
+          longitude: String(address.longitude),
+          deliveredAt: isAdminOnline() ? new Date() : null,
+        })
+      }
       return { orderNumber, conversationId, status: 'pending_payment' as const, paymentMethod: input.data.paymentMethod, subtotal: (subtotalCents / 100).toFixed(2), deliveryFee: (deliveryFeeCents / 100).toFixed(2), total: (totalCents / 100).toFixed(2) }
     })
-    publishChatMessage({ conversationId: order.conversationId, customerId: auth.userId, senderType: 'customer' })
-    response.status(201).json({ data: order })
+    if (auth && order.conversationId) publishChatMessage({ conversationId: order.conversationId, customerId: auth.userId, senderType: 'customer' })
+    response.status(201).json({ data: { ...order, ...(auth ? {} : { guestAccessToken: idempotencyKey.data }) } })
   } catch (error) {
     if (error instanceof OrderRequestError) {
       response.status(error.status).json({ error: { code: error.code, message: error.message } })
@@ -279,9 +286,9 @@ ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, re
     }
     if (hasMysqlErrorCode(error, 'ER_DUP_ENTRY')) {
       const [replayedOrder] = await db.select({ orderNumber: orders.orderNumber, status: orders.status, paymentMethod: orders.paymentMethod, subtotal: orders.subtotal, deliveryFee: orders.deliveryFee, total: orders.total })
-        .from(orders).where(and(eq(orders.userId, auth.userId), eq(orders.idempotencyKey, idempotencyKey.data))).limit(1)
+        .from(orders).where(and(orderOwnerCondition, eq(orders.idempotencyKey, idempotencyKey.data))).limit(1)
       if (replayedOrder) {
-        response.status(200).json({ data: { ...replayedOrder, replayed: true } })
+        response.status(200).json({ data: { ...replayedOrder, ...(auth ? {} : { guestAccessToken: idempotencyKey.data }), replayed: true } })
         return
       }
     }
@@ -289,16 +296,16 @@ ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, re
   }
 })
 
-const stkPushSchema = z.object({ phone: z.string().trim().min(7).max(20) }).strict()
+const stkPushSchema = z.object({ phone: z.string().trim().min(7).max(20), guestAccessToken: z.string().uuid().optional() }).strict()
 
-ordersRouter.post('/orders/:orderNumber/mpesa/stk-push', rejectCrossOrigin, stkPushLimiter, authenticate, async (request, response) => {
+ordersRouter.post('/orders/:orderNumber/mpesa/stk-push', rejectCrossOrigin, stkPushLimiter, authenticateOptional, async (request, response) => {
   response.locals.databaseOperation = 'orders.mpesa.stk-push'
   const orderNumber = z.string().min(1).max(32).safeParse(request.params.orderNumber)
   const input = stkPushSchema.safeParse(request.body)
   if (!orderNumber.success || !input.success) return response.status(400).json({ error: { code: 'INVALID_PAYMENT_REQUEST', message: 'Payment details are invalid.' } })
   if (!db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Payment services are unavailable.' } })
   const auth = authenticatedUser(request)
-  if (!auth) return response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Sign in to pay for this order.' } })
+  if (!auth && !input.data.guestAccessToken) return response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Guest order authorization is required.' } })
 
   const [settings] = await db.select({ value: applicationSettings.value }).from(applicationSettings)
     .where(eq(applicationSettings.key, 'mpesaTillNumber')).limit(1)
@@ -319,7 +326,10 @@ ordersRouter.post('/orders/:orderNumber/mpesa/stk-push', rejectCrossOrigin, stkP
         paymentMethod: orders.paymentMethod,
         total: orders.total,
       }).from(orders)
-        .where(and(eq(orders.userId, auth.userId), eq(orders.orderNumber, orderNumber.data)))
+        .where(and(
+          eq(orders.orderNumber, orderNumber.data),
+          auth ? eq(orders.userId, auth.userId) : and(isNull(orders.userId), eq(orders.idempotencyKey, input.data.guestAccessToken!)),
+        ))
         .limit(1)
         .for('update')
       if (!lockedOrder) throw new OrderRequestError(404, 'ORDER_NOT_FOUND', 'Order not found.')
@@ -496,7 +506,7 @@ ordersRouter.post(darajaCallbackRoute, async (request, response) => {
   }
 
   const [order] = await db.select({ id: orders.id, userId: orders.userId, orderNumber: orders.orderNumber, total: orders.total, currency: orders.currency, status: orders.status })
-    .from(orders).innerJoin(users, eq(orders.userId, users.id)).where(eq(orders.id, payment.orderId)).limit(1)
+    .from(orders).where(eq(orders.id, payment.orderId)).limit(1)
   const transactionMatchesOrder = order !== undefined && canVerifySuccessfulStkPayment({
     orderStatus: order.status,
     currency: order.currency,
@@ -539,14 +549,16 @@ ordersRouter.post(darajaCallbackRoute, async (request, response) => {
       targetType: 'payment',
       targetId: String(payment.id),
     })
-    const [{ id: notificationId }] = await transaction.insert(notificationCampaigns).values({
-      type: 'order',
-      title: 'M-Pesa payment confirmed',
-      body: `Payment ${receipt} for order ${order.orderNumber} has been verified.`,
-      href: `/account/orders/${encodeURIComponent(order.orderNumber)}`,
-      audienceType: 'system',
-    }).$returningId()
-    await transaction.insert(notificationRecipients).values({ campaignId: notificationId, userId: order.userId })
+    if (order.userId) {
+      const [{ id: notificationId }] = await transaction.insert(notificationCampaigns).values({
+        type: 'order',
+        title: 'M-Pesa payment confirmed',
+        body: `Payment ${receipt} for order ${order.orderNumber} has been verified.`,
+        href: `/account/orders/${encodeURIComponent(order.orderNumber)}`,
+        audienceType: 'system',
+      }).$returningId()
+      await transaction.insert(notificationRecipients).values({ campaignId: notificationId, userId: order.userId })
+    }
   })
   response.json({ ResultCode: 0, ResultDesc: 'Accepted' })
 })

@@ -203,7 +203,7 @@ export const orders = mysqlTable('orders', {
   id: int('id').autoincrement().primaryKey(),
   orderNumber: varchar('order_number', { length: 32 }).notNull().unique(),
   idempotencyKey: varchar('idempotency_key', { length: 36 }).unique(),
-  userId: int('user_id').notNull().references(() => users.id),
+  userId: int('user_id').references(() => users.id),
   status: mysqlEnum('status', ['pending_payment', 'paid', 'processing', 'dispatched', 'delivered', 'cancelled', 'refunded']).default('pending_payment').notNull(),
   paymentMethod: mysqlEnum('payment_method', ['pay_on_delivery', 'mpesa']).default('pay_on_delivery').notNull(),
   currency: varchar('currency', { length: 3 }).default('KES').notNull(),

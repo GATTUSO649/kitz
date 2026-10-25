@@ -23,6 +23,7 @@ export type BuyNowCheckoutDetails = {
   longitude: number
   accuracy?: number
 }
+export type BuyNowCheckoutResult = { orderNumber: string; message: string }
 type ShopImage = { id: number; imageUrl: string; altText: string; sortOrder: number; isPrimary: boolean }
 type ShopVideo = { id: number; videoUrl: string; title: string; sortOrder: number }
 type ProductReview = { id: number; reviewerName: string; rating: number; body: string; createdAt: string }
@@ -113,7 +114,7 @@ async function readAllProducts(path: string): Promise<ShopProduct[]> {
   }
 }
 
-function ProductsGrid({ products, onSave, portalMode = false }: { products: ShopProduct[]; onSave: (productId: number) => void; portalMode?: boolean }) {
+function ProductsGrid({ products, onSave, onAdd, portalMode = false }: { products: ShopProduct[]; onSave: (productId: number) => void; onAdd?: (product: ShopProduct) => void; portalMode?: boolean }) {
   const productPath = (slug: string) => portalMode ? `/account/marketplace/products/${slug}` : `/products/${slug}`
   if (!products.length) return <div className="catalogue-state"><strong>No jerseys match these filters.</strong><span>Try another team, collection or price range.</span></div>
   return <div className="product-grid">{products.map((product) => {
@@ -126,12 +127,12 @@ function ProductsGrid({ products, onSave, portalMode = false }: { products: Shop
       <div className="product-info"><div><ProductCategoryLine team={product.team?.name} league={product.league?.name} jerseyCategory={product.jerseyCategory?.name} category={product.category?.name} fallback="Football kit" /><h3><Link to={productPath(product.slug)}>{product.name}</Link></h3></div><span className="product-price">{product.salePrice ? <><del>{money.format(Number(product.price))}</del><strong className="sale-price">{money.format(Number(product.salePrice))}</strong></> : money.format(Number(product.price))}</span></div>
       <RatingDisplay to={`${productPath(product.slug)}#product-reviews`} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />
       <div className="product-meta"><div className="product-sizes">{product.variants.length ? product.variants.map((variant) => <span className={!variant.stock ? 'is-sold-out' : ''} key={variant.id}>{variant.size}</span>) : <span>Sizes unavailable</span>}</div><span className={stock > 0 ? 'stock-label' : 'stock-label sold-out'}>{stock > 0 ? 'In stock' : 'Out of stock'}</span></div>
-      <Link className="quick-add quick-add-preview" to={productPath(product.slug)} state={{ openBuyFlow: true }}><ShoppingCart size={13} />Buy</Link>
+      {stock > 0 && !portalMode ? <div className="product-card-actions"><button className="quick-add" type="button" onClick={() => onAdd?.(product)}><ShoppingCart size={13} />Add to Cart</button><Link className="product-card-buy" to={productPath(product.slug)} state={{ openBuyFlow: true }}>Buy <ArrowRight size={14} /></Link></div> : <Link className="quick-add quick-add-preview" to={productPath(product.slug)} state={stock > 0 ? { openBuyFlow: true } : undefined}><ShoppingCart size={13} />{stock > 0 ? 'Buy' : 'View kit'}</Link>}
     </article>
   })}</div>
 }
 
-export function MarketplacePage({ onSave, portalMode = false }: { onSave: (productId: number) => void; portalMode?: boolean }) {
+export function MarketplacePage({ onSave, onAdd, portalMode = false }: { onSave: (productId: number) => void; onAdd: (product: ShopProduct) => void; portalMode?: boolean }) {
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -225,20 +226,20 @@ export function MarketplacePage({ onSave, portalMode = false }: { onSave: (produ
             <div className="marketplace-collection-options"><button type="button" className={!collectionSlug ? 'is-selected' : ''} aria-pressed={!collectionSlug} onClick={() => updateFilters({ category: '' })}>All kits</button>{categories.map((category) => <button type="button" className={collectionSlug === category.slug ? 'is-selected' : ''} aria-pressed={collectionSlug === category.slug} key={category.id} onClick={() => updateFilters({ category: category.slug })}>{category.name}<ArrowRight size={13} /></button>)}</div>
           </section>
           {!hasFilters && <div className="marketplace-discovery">
-            <section className="marketplace-discovery-section"><div className="marketplace-results-heading"><div><span className="eyebrow">Picked for you</span><h2>Featured kits</h2></div></div>{featuredQuery.isPending ? <div className="catalogue-state"><strong>Loading featured kits…</strong></div> : featuredQuery.isError ? <div className="catalogue-state error-state"><strong>Featured kits are unavailable</strong><span>{featuredQuery.error.message}</span></div> : <ProductsGrid products={featuredQuery.data ?? []} onSave={onSave} portalMode={portalMode} />}</section>
-            <section className="marketplace-discovery-section"><div className="marketplace-results-heading"><div><span className="eyebrow">Popular right now</span><h2>Trending kits</h2></div></div>{trendingQuery.isPending ? <div className="catalogue-state"><strong>Loading trending kits…</strong></div> : trendingQuery.isError ? <div className="catalogue-state error-state"><strong>Trending kits are unavailable</strong><span>{trendingQuery.error.message}</span></div> : <ProductsGrid products={trendingQuery.data ?? []} onSave={onSave} portalMode={portalMode} />}</section>
+            <section className="marketplace-discovery-section"><div className="marketplace-results-heading"><div><span className="eyebrow">Picked for you</span><h2>Featured kits</h2></div></div>{featuredQuery.isPending ? <div className="catalogue-state"><strong>Loading featured kits…</strong></div> : featuredQuery.isError ? <div className="catalogue-state error-state"><strong>Featured kits are unavailable</strong><span>{featuredQuery.error.message}</span></div> : <ProductsGrid products={featuredQuery.data ?? []} onSave={onSave} onAdd={onAdd} portalMode={portalMode} />}</section>
+            <section className="marketplace-discovery-section"><div className="marketplace-results-heading"><div><span className="eyebrow">Popular right now</span><h2>Trending kits</h2></div></div>{trendingQuery.isPending ? <div className="catalogue-state"><strong>Loading trending kits…</strong></div> : trendingQuery.isError ? <div className="catalogue-state error-state"><strong>Trending kits are unavailable</strong><span>{trendingQuery.error.message}</span></div> : <ProductsGrid products={trendingQuery.data ?? []} onSave={onSave} onAdd={onAdd} portalMode={portalMode} />}</section>
           </div>}
           <div className="marketplace-results">
             <div className="marketplace-results-heading"><div><span className="eyebrow">{hasFilters ? 'Your results' : 'The full lineup'}</span><h2>{selectedTeam?.name ?? selectedLeague?.name ?? (hasFilters ? 'Filtered kits' : 'All kits')}{selectedCategory ? ` · ${selectedCategory.name}` : ''}{selectedCollection ? ` · ${selectedCollection.name}` : ''}</h2><p>{selectedLeague ? `${selectedLeague.country} · ${selectedLeague.season}` : hasFilters ? 'Matching kits from across the catalogue.' : 'Browse every available club and national team jersey.'}</p></div></div>
             {productsQuery.isPending ? <div className="catalogue-state"><strong>Finding your colours…</strong></div>
               : productsQuery.isError ? <div className="catalogue-state error-state"><strong>Jerseys could not be loaded</strong><span>{productsQuery.error.message}</span></div>
-                : <><p className="catalogue-results">{productsQuery.data.length} {productsQuery.data.length === 1 ? 'jersey' : 'jerseys'} shown</p><ProductsGrid products={productsQuery.data} onSave={onSave} portalMode={portalMode} /></>}
+                : <><p className="catalogue-results">{productsQuery.data.length} {productsQuery.data.length === 1 ? 'jersey' : 'jerseys'} shown</p><ProductsGrid products={productsQuery.data} onSave={onSave} onAdd={onAdd} portalMode={portalMode} /></>}
           </div>
         </>}
   </section>
 }
 
-export function ShopPage({ onSave }: { onSave: (productId: number) => void }) {
+export function ShopPage({ onSave, onAdd }: { onSave: (productId: number) => void; onAdd: (product: ShopProduct) => void }) {
   const { pathname } = useLocation()
   const routeCategory = pathname.match(/^\/categories\/([^/]+)\/?$/)?.[1]
   const isNationalTeamsPage = routeCategory === 'national-team-kits'
@@ -338,11 +339,11 @@ export function ShopPage({ onSave }: { onSave: (productId: number) => void }) {
       <label>Maximum price (KES)<input type="number" min="0" inputMode="numeric" placeholder="Any price" value={maxPrice} onChange={(event) => setMaxPrice(event.target.value)} /></label>
       <label>Sort<select value={sort} onChange={(event) => setSort(event.target.value)}><option value="featured">Featured</option><option value="price-low">Price: low to high</option><option value="price-high">Price: high to low</option><option value="name">Name</option></select></label>
     </div>
-    {resultsPending ? <div className="catalogue-state"><strong>Loading teams and kits…</strong></div> : resultsError ? <div className="catalogue-state error-state"><strong>Catalogue unavailable</strong><span>{resultsError.message}. Check the API and MySQL configuration.</span></div> : routeCategory && !selectedCategory ? <div className="catalogue-state"><strong>We could not find that team or collection.</strong><span>Browse all available teams instead.</span><Link to="/shop">View all teams <ArrowRight size={15} /></Link></div> : <><p className="catalogue-results">{visible.length} {visible.length === 1 ? 'jersey' : 'jerseys'}</p><div className="shop-category-groups">{categoryGroups.map((group) => <section className="shop-category-group" key={group.slug ?? group.name}><header><div><span>COLLECTION</span><h2>{group.name}</h2></div>{group.slug && !isNewArrivalsPage && <Link to={`/categories/${group.slug}`}>Shop collection <ArrowRight size={14} /></Link>}</header><ProductsGrid products={group.products} onSave={onSave} /></section>)}{categoryGroups.length === 0 && <ProductsGrid products={visible} onSave={onSave} />}</div></>}
+    {resultsPending ? <div className="catalogue-state"><strong>Loading teams and kits…</strong></div> : resultsError ? <div className="catalogue-state error-state"><strong>Catalogue unavailable</strong><span>{resultsError.message}. Check the API and MySQL configuration.</span></div> : routeCategory && !selectedCategory ? <div className="catalogue-state"><strong>We could not find that team or collection.</strong><span>Browse all available teams instead.</span><Link to="/shop">View all teams <ArrowRight size={15} /></Link></div> : <><p className="catalogue-results">{visible.length} {visible.length === 1 ? 'jersey' : 'jerseys'}</p><div className="shop-category-groups">{categoryGroups.map((group) => <section className="shop-category-group" key={group.slug ?? group.name}><header><div><span>COLLECTION</span><h2>{group.name}</h2></div>{group.slug && !isNewArrivalsPage && <Link to={`/categories/${group.slug}`}>Shop collection <ArrowRight size={14} /></Link>}</header><ProductsGrid products={group.products} onSave={onSave} onAdd={onAdd} /></section>)}{categoryGroups.length === 0 && <ProductsGrid products={visible} onSave={onSave} onAdd={onAdd} />}</div></>}
   </section>
 }
 
-export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode = false }: { onAdd: (product: ShopProduct, selections: ShopPurchaseSelection[]) => void; onBuyNow: (product: ShopProduct, selections: ShopPurchaseSelection[], details: BuyNowCheckoutDetails) => Promise<void>; onSave: (productId: number) => void; accountUser: { fullName: string; email: string; phone: string | null } | null; portalMode?: boolean }) {
+export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode = false }: { onAdd: (product: ShopProduct, selections?: ShopPurchaseSelection[]) => void; onBuyNow: (product: ShopProduct, selections: ShopPurchaseSelection[], details: BuyNowCheckoutDetails) => Promise<BuyNowCheckoutResult>; onSave: (productId: number) => void; accountUser: { fullName: string; email: string; phone: string | null } | null; portalMode?: boolean }) {
   const location = useLocation()
   const navigate = useNavigate()
   const pathname = location.pathname
@@ -356,6 +357,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
   const [buyFlowStep, setBuyFlowStep] = useState(0)
   const [buyFlowPaymentMethod, setBuyFlowPaymentMethod] = useState<'pay_on_delivery' | 'mpesa'>('pay_on_delivery')
   const [buyFlowError, setBuyFlowError] = useState('')
+  const [buyFlowConfirmation, setBuyFlowConfirmation] = useState<BuyNowCheckoutResult | null>(null)
   const [buyFlowBusy, setBuyFlowBusy] = useState(false)
   const [buyFlowIdempotencyKey, setBuyFlowIdempotencyKey] = useState(() => crypto.randomUUID())
   const [deliveryZoneId, setDeliveryZoneId] = useState('')
@@ -365,6 +367,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
   const [deliveryLongitude, setDeliveryLongitude] = useState('')
   const [deliveryAddress, setDeliveryAddress] = useState({ address: '', county: 'Machakos', town: 'Machakos', estate: '', landmark: '' })
   const [deliveryPhone, setDeliveryPhone] = useState(accountUser?.phone ?? '')
+  const [recipientName, setRecipientName] = useState(accountUser?.fullName ?? '')
   const [payerPhone, setPayerPhone] = useState(accountUser?.phone ?? '')
   const [reviewRating, setReviewRating] = useState(5)
   const [reviewBody, setReviewBody] = useState('')
@@ -388,10 +391,12 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
     if (!navigationState?.openBuyFlow || !productQuery.data) return
     setBuyFlowStep(0)
     setBuyFlowError('')
+    setBuyFlowConfirmation(null)
     setBuyFlowIdempotencyKey(crypto.randomUUID())
-    setBuyFlowPaymentMethod('pay_on_delivery')
+    setBuyFlowPaymentMethod(accountUser || portalMode ? 'pay_on_delivery' : 'mpesa')
     setPayerPhone(accountUser?.phone ?? '')
     setDeliveryPhone(accountUser?.phone ?? '')
+    setRecipientName(accountUser?.fullName ?? '')
     setBuyFlowOpen(true)
   }, [location.state, productQuery.data, accountUser?.phone])
   const deliveryZonesQuery = useQuery({
@@ -547,7 +552,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
         return
       }
       setBuyFlowError('')
-      setBuyFlowStep(2)
+      setBuyFlowStep(accountUser || portalMode ? 2 : 3)
       return
     }
     if (buyFlowStep === 2) {
@@ -561,7 +566,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
       }
       setBuyFlowError('')
       setBuyFlowStep(3)
-      return
+      setBuyFlowPaymentMethod(accountUser || portalMode ? 'pay_on_delivery' : 'mpesa')
     }
     if (buyFlowStep !== 3 || !selectedItems.length) return
     if (!selectedZone || !deliveryPin) {
@@ -572,18 +577,20 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
     setBuyFlowBusy(true)
     setBuyFlowError('')
     try {
-      await onBuyNow(product, selectedItems, {
+      const result = await onBuyNow(product, selectedItems, {
         idempotencyKey: buyFlowIdempotencyKey,
         deliveryZoneId: selectedZone.id,
         paymentMethod: buyFlowPaymentMethod,
         payerPhone,
-        recipientName: accountUser?.fullName ?? '',
+        recipientName,
         phone: deliveryPhone,
         ...deliveryAddress,
         latitude: deliveryPin.latitude,
         longitude: deliveryPin.longitude,
         ...(deliveryPin.accuracy !== null ? { accuracy: deliveryPin.accuracy } : {}),
       })
+      setBuyFlowConfirmation(result)
+      setBuyFlowBusy(false)
     } catch (issue) {
       setBuyFlowError(issue instanceof Error ? issue.message : 'We could not complete your order.')
       setBuyFlowBusy(false)
@@ -662,7 +669,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
         })}</div><small className="product-size-limit">Choose multiple sizes if needed. Maximum 5 kits total, limited by available stock.</small></section>}
         <p className="product-purchase-total"><span>{selectedQuantity} {selectedQuantity === 1 ? 'kit' : 'kits'} selected</span><strong>{money.format(selectedSubtotal)}</strong></p>
         <button className="button button-outline product-add" type="button" disabled={!selectedItems.length} onClick={() => selectedItems.length && onAdd(product, selectedItems)}>Add to bag<ArrowRight size={16} /></button>
-        <button className="button button-green product-buy-now" type="button" disabled={!product.variants.some((variant) => variant.stock > 0)} onClick={() => { setBuyFlowStep(0); setBuyFlowPaymentMethod('pay_on_delivery'); setBuyFlowError(''); setBuyFlowIdempotencyKey(crypto.randomUUID()); setPayerPhone(accountUser?.phone ?? ''); setBuyFlowOpen(true) }}>Buy now <ArrowRight size={16} /></button>
+        <button className="button button-green product-buy-now" type="button" disabled={!product.variants.some((variant) => variant.stock > 0)} onClick={() => { setBuyFlowStep(0); setBuyFlowPaymentMethod(accountUser || portalMode ? 'pay_on_delivery' : 'mpesa'); setBuyFlowError(''); setBuyFlowConfirmation(null); setBuyFlowIdempotencyKey(crypto.randomUUID()); setPayerPhone(accountUser?.phone ?? ''); setRecipientName(accountUser?.fullName ?? ''); setBuyFlowOpen(true) }}>Buy now <ArrowRight size={16} /></button>
         <div className="product-secondary-actions"><button className="wishlist-add" type="button" onClick={() => onSave(product.id)}>Save to wishlist</button>
         {portalMode && <button className="product-chat-button" type="button" onClick={() => navigate('/account/chat', { state: {
           draft: `Hi KitCulture Admin, I’m interested in ${product.name}. The listed price is ${money.format(startingPrice)}. Is it available?`,
@@ -673,9 +680,9 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
       </div>
     </div>
     {buyFlowOpen && <div className="buy-flow-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !buyFlowBusy) setBuyFlowOpen(false) }}><section className="buy-flow-dialog" role="dialog" aria-modal="true" aria-labelledby="buy-flow-title">
-      <header className="buy-flow-heading"><div><span className="eyebrow">SECURE CHECKOUT · STEP {buyFlowStep + 1} OF 4</span><h2 id="buy-flow-title">{['Your kit', 'Delivery location', 'Payment method', 'Review order'][buyFlowStep]}</h2></div><button className="icon-button" type="button" aria-label="Close checkout" disabled={buyFlowBusy} onClick={() => setBuyFlowOpen(false)}><X /></button></header>
-      <div className="buy-flow-progress" aria-label={`Step ${buyFlowStep + 1} of 4`}><span style={{ width: `${(buyFlowStep + 1) * 25}%` }} /></div>
-      {buyFlowStep === 0 ? <div className="buy-flow-content">
+      <header className="buy-flow-heading"><div><span className="eyebrow">{buyFlowConfirmation ? 'ORDER CONFIRMATION' : `SECURE CHECKOUT · STEP ${accountUser || portalMode ? buyFlowStep + 1 : buyFlowStep === 3 ? 3 : buyFlowStep + 1} OF ${accountUser || portalMode ? 4 : 3}`}</span><h2 id="buy-flow-title">{buyFlowConfirmation ? 'Payment prompt requested' : buyFlowStep === 0 ? 'Your kit' : buyFlowStep === 1 ? 'Delivery details' : buyFlowStep === 2 ? 'Payment method' : 'Review order'}</h2></div><button className="icon-button" type="button" aria-label="Close checkout" disabled={buyFlowBusy} onClick={() => setBuyFlowOpen(false)}><X /></button></header>
+      <div className="buy-flow-progress" aria-label={buyFlowConfirmation ? 'Order confirmed' : `Step ${buyFlowStep === 3 && !accountUser && !portalMode ? 3 : buyFlowStep + 1} of ${accountUser || portalMode ? 4 : 3}`}><span style={{ width: `${buyFlowConfirmation ? 100 : (accountUser || portalMode ? buyFlowStep + 1 : buyFlowStep === 3 ? 3 : buyFlowStep + 1) / (accountUser || portalMode ? 4 : 3) * 100}%` }} /></div>
+      {buyFlowConfirmation ? <div className="buy-flow-content"><div className="buy-flow-review"><h3>Order {buyFlowConfirmation.orderNumber}</h3><p className="buy-flow-hint">{buyFlowConfirmation.message}</p></div><button className="button button-green" type="button" onClick={() => setBuyFlowOpen(false)}>Continue shopping <ArrowRight size={16} /></button></div> : buyFlowStep === 0 ? <div className="buy-flow-content">
         <div className="buy-flow-product">{imageUrl ? <img src={imageUrl} alt={product.name} /> : <div className="cart-image-placeholder">KC</div>}<div><span className="product-category">{[product.team?.name, product.jerseyCategory?.name, product.category?.name].filter(Boolean).join(' · ') || 'Football kit'}</span><h3>{product.name}</h3><p>{product.description}</p></div></div>
         <div className="buy-flow-size-list"><h3>Choose size and quantity</h3>{product.variants.map((variant) => {
           const quantity = selectedQuantities[variant.id] ?? 0
@@ -686,8 +693,10 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
         <button className="button button-green" type="button" disabled={!selectedItems.length} onClick={() => { setBuyFlowStep(1); setBuyFlowError('') }}>Continue to delivery <ArrowRight size={16} /></button>
       </div> : <form className="buy-flow-content" onSubmit={(event) => void submitBuyFlow(event)} noValidate>
         {buyFlowStep === 1 && <>
+          {!accountUser && !portalMode && <label>Recipient full name<input required minLength={2} maxLength={160} autoComplete="name" value={recipientName} onChange={(event) => setRecipientName(event.target.value)} /></label>}
           {deliveryZonesQuery.isPending ? <p>Loading delivery areas…</p> : deliveryZonesQuery.isError ? <p className="buy-flow-error">{deliveryZonesQuery.error.message}</p> : <label>Delivery area<select required value={deliveryZoneId} onChange={(event) => setDeliveryZoneId(event.target.value)}><option value="">Choose an area</option>{deliveryZonesQuery.data?.map((zone) => <option key={zone.id} value={zone.id}>{zone.name} · {money.format(Number(zone.fee))}</option>)}</select></label>}
           <label>Delivery recipient phone<input type="tel" inputMode="tel" autoComplete="tel" required minLength={7} maxLength={20} value={deliveryPhone} onChange={(event) => setDeliveryPhone(event.target.value)} /></label>
+          {!accountUser && !portalMode && <><label>M-PESA phone number<input type="tel" inputMode="tel" autoComplete="tel" required pattern="(?:0[17][0-9]{8}|\+?254[17][0-9]{8})" title="Enter a valid Kenyan number, such as 0712345678 or +254712345678." maxLength={13} placeholder="0712345678 or +254712345678" value={payerPhone} onChange={(event) => setPayerPhone(event.target.value)} /></label><p className="buy-flow-hint">Guest orders are paid by M-PESA only. The prompt will be sent to this number.</p></>}
           <label>Street address or building<input required minLength={3} maxLength={180} value={deliveryAddress.address} onChange={(event) => setDeliveryAddress({ ...deliveryAddress, address: event.target.value })} /></label>
           <div className="checkout-fields"><label>County<input required maxLength={80} value={deliveryAddress.county} onChange={(event) => setDeliveryAddress({ ...deliveryAddress, county: event.target.value })} /></label><label>Town<input required maxLength={100} value={deliveryAddress.town} onChange={(event) => setDeliveryAddress({ ...deliveryAddress, town: event.target.value })} /></label></div>
           <div className="checkout-fields"><label>Estate <span>(optional)</span><input maxLength={100} value={deliveryAddress.estate} onChange={(event) => setDeliveryAddress({ ...deliveryAddress, estate: event.target.value })} /></label><label>Landmark <span>(optional)</span><input maxLength={180} value={deliveryAddress.landmark} onChange={(event) => setDeliveryAddress({ ...deliveryAddress, landmark: event.target.value })} /></label></div>
@@ -696,7 +705,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
           <div className="checkout-fields"><label>Latitude<input type="number" step="any" min="-90" max="90" required value={deliveryLatitude} onChange={(event) => updatePinCoordinate('latitude', event.target.value)} /></label><label>Longitude<input type="number" step="any" min="-180" max="180" required value={deliveryLongitude} onChange={(event) => updatePinCoordinate('longitude', event.target.value)} /></label></div>
           {deliveryPin && <GoogleMapView latitude={deliveryPin.latitude} longitude={deliveryPin.longitude} title="Pinned delivery location" />}
         </>}
-        {buyFlowStep === 2 && <>
+        {buyFlowStep === 2 && (accountUser || portalMode) && <>
           <fieldset className="checkout-payment-options">
             <legend>Payment method</legend>
             <label className="checkout-payment-option"><input type="radio" name="buyFlowPaymentMethod" value="pay_on_delivery" checked={buyFlowPaymentMethod === 'pay_on_delivery'} onChange={() => { setBuyFlowPaymentMethod('pay_on_delivery'); setBuyFlowError('') }} /><span><strong>Pay on Delivery</strong><small>Pay when your kit is delivered.</small></span></label>
@@ -709,13 +718,12 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
           </> : <p className="buy-flow-hint">Pay {money.format(buyFlowTotal)} when your order is delivered.</p>}
         </>}
         {buyFlowStep === 3 && <>
-          <div className="buy-flow-review"><h3>Order summary</h3>{selectedItems.map(({ variant, quantity }) => <div key={variant.id}><span>{product.name} · size {variant.size} × {quantity}</span><strong>{money.format(Number(variant.price ?? product.salePrice ?? product.price) * quantity)}</strong></div>)}<div><span>Delivery · {selectedZone?.name}</span><strong>{money.format(Number(selectedZone?.fee ?? 0))}</strong></div><div className="buy-flow-grand-total"><span>{buyFlowPaymentMethod === 'mpesa' ? 'Amount to approve' : 'Total due on delivery'}</span><strong>{money.format(buyFlowTotal)}</strong></div></div>
-          {buyFlowPaymentMethod === 'mpesa' ? <div className="buy-flow-review buy-flow-payee"><h3>Payment details</h3><div><span>Expected recipient</span><strong>{paymentOptionsQuery.data?.mpesaTillName || 'KitCulture'}</strong></div><div><span>Buy Goods Till</span><strong>{paymentOptionsQuery.data?.mpesaTillNumber || 'Not configured'}</strong></div><div><span>Prompt sent to</span><strong>{payerPhone}</strong></div><div><span>Account name</span><strong>{accountUser?.fullName || 'Sign in required'}</strong></div></div> : <div className="buy-flow-review buy-flow-payee"><h3>Payment method</h3><div><span>Selected option</span><strong>Pay on Delivery</strong></div><div><span>Delivery area</span><strong>{selectedZone?.name}</strong></div></div>}
+          <div className="buy-flow-review"><h3>Order summary</h3>{selectedItems.map(({ variant, quantity }) => <div key={variant.id}><span>{product.name} · size {variant.size} × {quantity}</span><strong>{money.format(Number(variant.price ?? product.salePrice ?? product.price) * quantity)}</strong></div>)}<div><span>Delivery · {selectedZone?.name}</span><strong>{money.format(Number(selectedZone?.fee ?? 0))}</strong></div>{!accountUser && !portalMode && <div><span>Payment method</span><strong>M-PESA Express</strong></div>}<div className="buy-flow-grand-total"><span>{buyFlowPaymentMethod === 'mpesa' ? 'Amount to approve' : 'Total due on delivery'}</span><strong>{money.format(buyFlowTotal)}</strong></div></div>
+          {buyFlowPaymentMethod === 'mpesa' ? <div className="buy-flow-review buy-flow-payee"><h3>Payment details</h3><div><span>Expected recipient</span><strong>{paymentOptionsQuery.data?.mpesaTillName || 'KitCulture'}</strong></div><div><span>Buy Goods Till</span><strong>{paymentOptionsQuery.data?.mpesaTillNumber || 'Not configured'}</strong></div><div><span>Prompt sent to</span><strong>{payerPhone}</strong></div><div><span>Recipient</span><strong>{recipientName}</strong></div></div> : <div className="buy-flow-review buy-flow-payee"><h3>Payment method</h3><div><span>Selected option</span><strong>Pay on Delivery</strong></div><div><span>Delivery area</span><strong>{selectedZone?.name}</strong></div></div>}
           <p className="buy-flow-hint">{buyFlowPaymentMethod === 'mpesa' ? 'Tap Proceed to send the payment request. Confirm the displayed merchant and amount on your phone before approving.' : 'Place your order now and pay when it arrives.'}</p>
-          {!accountUser && <Link className="buy-flow-signin" to={`/login?returnTo=${encodeURIComponent(pathname)}`}>Sign in to place this order <ArrowRight size={14} /></Link>}
         </>}
         {buyFlowError && <p className="buy-flow-error" role="alert">{buyFlowError}</p>}
-        <div className="buy-flow-actions"><button className="button button-outline" type="button" disabled={buyFlowBusy} onClick={() => { setBuyFlowError(''); setBuyFlowStep(buyFlowStep - 1) }}>Back</button>{buyFlowStep < 3 ? <button className="button button-green" type="submit" disabled={(buyFlowStep === 1 && deliveryZonesQuery.isPending) || (buyFlowStep === 2 && buyFlowPaymentMethod === 'mpesa' && (!payerPhone || !paymentOptionsQuery.data?.stkPushAvailable))}>Continue <ArrowRight size={16} /></button> : <button className="button button-green" type="button" disabled={buyFlowBusy || (buyFlowPaymentMethod === 'mpesa' && !paymentOptionsQuery.data?.stkPushAvailable)} onClick={() => void submitBuyFlow()}>{buyFlowBusy ? 'Placing order…' : buyFlowPaymentMethod === 'mpesa' ? 'Send M-Pesa prompt' : 'Place order'} <ArrowRight size={16} /></button>}</div>
+        <div className="buy-flow-actions">{buyFlowStep > 0 && <button className="button button-outline" type="button" disabled={buyFlowBusy} onClick={() => { setBuyFlowError(''); setBuyFlowStep(buyFlowStep === 3 && !accountUser && !portalMode ? 1 : buyFlowStep - 1) }}>Back</button>}{buyFlowStep < 3 ? <button className="button button-green" type="submit" disabled={(buyFlowStep === 1 && deliveryZonesQuery.isPending) || (buyFlowStep === 2 && buyFlowPaymentMethod === 'mpesa' && (!payerPhone || !paymentOptionsQuery.data?.stkPushAvailable))}>Continue <ArrowRight size={16} /></button> : <button className="button button-green" type="button" disabled={buyFlowBusy || (buyFlowPaymentMethod === 'mpesa' && !paymentOptionsQuery.data?.stkPushAvailable)} onClick={() => void submitBuyFlow()}>{buyFlowBusy ? 'Placing order…' : buyFlowPaymentMethod === 'mpesa' ? 'Send M-Pesa prompt' : 'Place order'} <ArrowRight size={16} /></button>}</div>
       </form>}
     </section></div>}
     {zoomOpen && imageUrl && <div className="product-lightbox" role="dialog" aria-modal="true" aria-label={`${product.name} image preview`} onClick={(event) => { if (event.target === event.currentTarget) setZoomOpen(false) }}>
@@ -731,6 +739,6 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
       <form className="product-review-form" onSubmit={(event) => void submitReview(event)}><h3>Rate this jersey</h3><fieldset><legend>Your rating</legend><div className="product-rating-picker">{[1, 2, 3, 4, 5].map((rating) => <button type="button" key={rating} aria-label={`${rating} ${rating === 1 ? 'star' : 'stars'}`} aria-pressed={reviewRating === rating} onClick={() => setReviewRating(rating)}><Star size={22} fill={rating <= reviewRating ? 'currentColor' : 'none'} /></button>)}</div></fieldset><label>Your review<textarea value={reviewBody} onChange={(event) => setReviewBody(event.target.value)} minLength={10} maxLength={2000} required rows={4} placeholder="What do you think of the fit, fabric, and finish?" /></label>{reviewError && <p className="product-review-error" role="alert">{reviewError}{reviewNeedsLogin && <> <Link to={`/login?returnTo=${encodeURIComponent(pathname)}`}>Sign in to continue</Link>.</>}</p>}{reviewMessage && <p className="product-review-success" role="status">{reviewMessage}</p>}<button className="button button-green" type="submit" disabled={reviewBusy}>{reviewBusy ? 'Submitting…' : 'Submit review'} <ArrowRight size={15} /></button><small>Sign in to submit. Your next review for this jersey will update your existing rating.</small></form>
     </section>
     <section className="product-description-section" id="product-description" aria-labelledby="product-description-title"><h2 id="product-description-title">About this kit</h2><div className="product-description-card"><div className="product-description-scroll" role="region" aria-label={`${product.name} description`} tabIndex={0}><p>{product.description}</p></div></div></section>
-    <section className="product-recommend-section" id="product-recommend" aria-labelledby="product-recommend-title"><div className="product-recommend-heading"><div><span className="eyebrow">Keep exploring</span><h2 id="product-recommend-title">Recommended kits</h2></div><Link className="text-link" to={portalMode ? '/account/marketplace' : '/marketplace'}>Browse all kits <ArrowRight size={14} /></Link></div>{recommendationsQuery.isPending ? <div className="catalogue-state"><strong>Finding more kits…</strong></div> : recommendationsQuery.isError ? <div className="catalogue-state error-state"><strong>Recommendations unavailable</strong><span>{recommendationsQuery.error.message}</span></div> : recommendationsQuery.data?.length ? <ProductsGrid products={recommendationsQuery.data} onSave={onSave} portalMode={portalMode} /> : <div className="catalogue-state"><strong>No other kits to recommend yet.</strong><span>Check back as more kits are added.</span></div>}</section>
+    <section className="product-recommend-section" id="product-recommend" aria-labelledby="product-recommend-title"><div className="product-recommend-heading"><div><span className="eyebrow">Keep exploring</span><h2 id="product-recommend-title">Recommended kits</h2></div><Link className="text-link" to={portalMode ? '/account/marketplace' : '/marketplace'}>Browse all kits <ArrowRight size={14} /></Link></div>{recommendationsQuery.isPending ? <div className="catalogue-state"><strong>Finding more kits…</strong></div> : recommendationsQuery.isError ? <div className="catalogue-state error-state"><strong>Recommendations unavailable</strong><span>{recommendationsQuery.error.message}</span></div> : recommendationsQuery.data?.length ? <ProductsGrid products={recommendationsQuery.data} onSave={onSave} onAdd={onAdd} portalMode={portalMode} /> : <div className="catalogue-state"><strong>No other kits to recommend yet.</strong><span>Check back as more kits are added.</span></div>}</section>
   </section>
 }
