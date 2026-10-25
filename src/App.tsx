@@ -530,7 +530,7 @@ function App() {
         })
         const promptResult = await promptResponse.json() as { data?: { message?: string }; error?: { message?: string } }
         noticeMessage = promptResponse.ok
-          ? `M-Pesa prompt sent to ${details.payerPhone}. Confirm ${money.format(Number(result.data.total))} to KitCulture.`
+          ? `M-PESA accepted the request for ${details.payerPhone}. Order ${result.data.orderNumber} remains pending until payment is confirmed. If no prompt appears, use the Daraja Sandbox test phone and simulator.`
           : `Order ${result.data.orderNumber} was created, but the prompt could not start: ${promptResult.error?.message ?? 'Try again from order details.'}`
       } catch {
         // The order is already created; keep it available for payment retry.

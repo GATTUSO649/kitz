@@ -11,6 +11,7 @@ import { isAdminOnline, publishChatMessage } from '../../realtime/chat-events.js
 import { callbackFailureStatus, canVerifySuccessfulStkPayment, DarajaRequestError, darajaCallbackRoute, initiateStkPush, isDarajaConfigured, isFinalDarajaPaymentStatus, isValidCallbackToken, normalizeKenyanPhone, parseDarajaTimestamp, parseStkCallback, queryStkPush, resolveDarajaShortcodes } from './daraja.js'
 
 export const ordersRouter = Router()
+const mpesaPromptRetryDelayMs = 59_000
 
 function validCoordinate(value: unknown, minimum: number, maximum: number): number | null {
   if (typeof value !== 'number' && typeof value !== 'string') return null
@@ -329,11 +330,14 @@ ordersRouter.post('/orders/:orderNumber/mpesa/stk-push', rejectCrossOrigin, stkP
       if (!Number.isSafeInteger(amountCents) || amountCents % 100 !== 0 || amountCents < 1) {
         throw new OrderRequestError(400, 'MPESA_AMOUNT_INVALID', 'The order total must be a whole number of Kenyan shillings for M-Pesa.')
       }
-      const [existingPayment] = await transaction.select({ id: payments.id, status: payments.status }).from(payments)
+      const [existingPayment] = await transaction.select({ id: payments.id, status: payments.status, updatedAt: payments.updatedAt }).from(payments)
         .where(and(eq(payments.orderId, lockedOrder.id), eq(payments.provider, 'mpesa')))
         .orderBy(desc(payments.createdAt)).limit(1)
-      if (existingPayment && existingPayment.status !== 'failed' && existingPayment.status !== 'cancelled' && existingPayment.status !== 'expired') {
-        throw new OrderRequestError(409, 'MPESA_REQUEST_ALREADY_EXISTS', 'A payment attempt is already active or requires review. Check its status before trying again.')
+      const retryableFinalStatus = existingPayment && ['failed', 'cancelled', 'expired'].includes(existingPayment.status)
+      const promptWindowElapsed = existingPayment?.status === 'pending'
+        && Date.now() - existingPayment.updatedAt.getTime() >= mpesaPromptRetryDelayMs
+      if (existingPayment && !retryableFinalStatus && !promptWindowElapsed) {
+        throw new OrderRequestError(409, 'MPESA_REQUEST_ALREADY_EXISTS', 'A payment prompt is still active. Wait 59 seconds before requesting a new prompt, or check its status.')
       }
       const [createdPayment] = await transaction.insert(payments).values({
         orderId: lockedOrder.id,
@@ -366,9 +370,18 @@ ordersRouter.post('/orders/:orderNumber/mpesa/stk-push', rejectCrossOrigin, stkP
       providerRequestId: result.checkoutRequestId,
       merchantRequestId: result.merchantRequestId,
       status: 'pending',
-      verificationMessage: 'STK prompt sent; waiting for Daraja confirmation.',
+      verificationMessage: 'Daraja accepted the STK request; waiting for verified payment confirmation.',
     }).where(eq(payments.id, paymentId))
     if (updated.affectedRows !== 1) throw new Error('STK request accepted but its payment record could not be updated.')
+    request.log.info({
+      requestId: request.id,
+      operation: 'orders.mpesa.stk-push',
+      stage: 'stk_push',
+      outcome: 'accepted',
+      providerRequestId: result.providerRequestId ?? result.checkoutRequestId,
+      httpStatus: result.httpStatus,
+      durationMs: result.durationMs,
+    }, 'Daraja accepted STK request; awaiting payment result')
     response.status(202).json({ data: { orderNumber: order.orderNumber, status: 'pending', message: result.customerMessage } })
   } catch (error) {
     const unknownOutcome = providerAccepted || (error instanceof DarajaRequestError && error.outcome === 'unknown')
@@ -604,6 +617,7 @@ ordersRouter.get('/orders/:orderNumber', authenticate, async (request, response)
     transactionAt: payments.transactionAt,
     verificationMessage: payments.verificationMessage,
     createdAt: payments.createdAt,
+    updatedAt: payments.updatedAt,
   }).from(payments).innerJoin(orders, eq(payments.orderId, orders.id))
     .where(and(eq(orders.userId, auth.userId), eq(orders.orderNumber, orderNumber.data), eq(payments.provider, 'mpesa')))
     .orderBy(desc(payments.createdAt)).limit(1) : []

@@ -331,7 +331,10 @@ export async function initiateStkPush(input: { businessShortcode: string; partyB
   return {
     checkoutRequestId: result.CheckoutRequestID,
     merchantRequestId: result.MerchantRequestID,
-    customerMessage: 'Payment prompt sent.',
+    customerMessage: 'M-PESA accepted the request. Order is pending until payment confirmation.',
+    httpStatus: response.httpStatus,
+    providerRequestId: response.providerRequestId,
+    durationMs: response.durationMs,
   }
 }
 

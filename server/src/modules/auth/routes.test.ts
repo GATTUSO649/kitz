@@ -503,6 +503,7 @@ test('Sandbox STK Push uses the 174379 PayBill merchant configuration', async ()
   assert.equal(body.PhoneNumber, '254712345678')
   assert.equal(body.Amount, 1200)
   assert.equal(result.checkoutRequestId, 'sandbox-checkout')
+  assert.equal(result.customerMessage, 'M-PESA accepted the request. Order is pending until payment confirmation.')
 })
 
 test('missing Daraja credentials fail before any provider request', async () => {
