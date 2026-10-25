@@ -1116,7 +1116,8 @@ adminRouter.get('/payments', async (_request, response) => {
     providerReceipt: payments.providerReceipt, transactionAt: payments.transactionAt, payerPhone: payments.payerPhone,
     verificationMessage: payments.verificationMessage, providerResultCode: payments.providerResultCode,
     createdAt: payments.createdAt, id: payments.id, providerRequestId: payments.providerRequestId, merchantRequestId: payments.merchantRequestId,
-  }).from(payments).innerJoin(orders, eq(payments.orderId, orders.id)).orderBy(desc(payments.createdAt)).limit(250)
+  }).from(payments).innerJoin(orders, eq(payments.orderId, orders.id))
+    .where(eq(payments.status, 'succeeded')).orderBy(desc(payments.createdAt)).limit(250)
   response.json({ data: rows })
 })
 
