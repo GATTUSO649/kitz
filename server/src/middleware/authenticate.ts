@@ -52,31 +52,6 @@ export const authenticate: RequestHandler = async (request, response, next) => {
   next()
 }
 
-export const authenticateOptional: RequestHandler = async (request, _response, next) => {
-  const token = sessionToken(request)
-  if (!token || !db) {
-    next()
-    return
-  }
-  const tokenHash = createHash('sha256').update(token).digest('hex')
-  const [session] = await db.select({ userId: userSessions.userId }).from(userSessions)
-    .where(and(eq(userSessions.tokenHash, tokenHash), gt(userSessions.expiresAt, new Date()))).limit(1)
-  if (!session) {
-    next()
-    return
-  }
-  const [user] = await db.select({ id: users.id, email: users.email, fullName: users.fullName })
-    .from(users).where(eq(users.id, session.userId)).limit(1)
-  if (!user) {
-    next()
-    return
-  }
-  const assignedRoles = await db.select({ key: roles.key }).from(userRoles)
-    .innerJoin(roles, eq(userRoles.roleId, roles.id)).where(eq(userRoles.userId, user.id))
-  ;(request as AuthenticatedRequest).auth = { userId: user.id, email: user.email, fullName: user.fullName, roles: assignedRoles.map(({ key }) => key) }
-  next()
-}
-
 export function requireRole(role: string): RequestHandler {
   return (request, response, next) => {
     const auth = (request as AuthenticatedRequest).auth

@@ -42,10 +42,8 @@ adminRouter.get('/dashboard', async (_request, response) => {
     db.select({ total: count() }).from(orders).where(eq(orders.status, 'pending_payment')),
     db.select({
       orderNumber: orders.orderNumber, status: orders.status, total: orders.total, createdAt: orders.createdAt,
-      customerName: sql<string | null>`COALESCE(${users.fullName}, JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.recipientName')))` ,
-      customerEmail: users.email,
-      customerPhone: sql<string | null>`COALESCE(${users.phone}, JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.phone')))`
-    }).from(orders).leftJoin(users, eq(orders.userId, users.id)).orderBy(desc(orders.createdAt)).limit(8),
+      customerName: users.fullName, customerEmail: users.email,
+    }).from(orders).innerJoin(users, eq(orders.userId, users.id)).orderBy(desc(orders.createdAt)).limit(8),
     db.select({ name: orderItems.productNameSnapshot, units: sum(orderItems.quantity) })
       .from(orderItems).innerJoin(orders, eq(orderItems.orderId, orders.id))
       .where(sql`${orders.status} NOT IN ('cancelled', 'refunded')`)
@@ -765,10 +763,8 @@ adminRouter.get('/orders', async (_request, response) => {
   const rows = await db.select({
     id: orders.id, orderNumber: orders.orderNumber, status: orders.status, paymentMethod: orders.paymentMethod, total: orders.total,
     subtotal: orders.subtotal, deliveryFee: orders.deliveryFee, createdAt: orders.createdAt,
-    customerName: sql<string | null>`COALESCE(${users.fullName}, JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.recipientName')))`,
-    customerEmail: users.email,
-    customerPhone: sql<string | null>`COALESCE(${users.phone}, JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.phone')))`
-  }).from(orders).leftJoin(users, eq(orders.userId, users.id)).orderBy(desc(orders.createdAt)).limit(200)
+    customerName: users.fullName, customerEmail: users.email,
+  }).from(orders).innerJoin(users, eq(orders.userId, users.id)).orderBy(desc(orders.createdAt)).limit(200)
   response.json({ data: rows })
 })
 
@@ -805,16 +801,14 @@ adminRouter.patch('/orders/:id/status', async (request, response) => {
     const statusLabel = input.data.status === 'processing' ? 'being prepared'
       : input.data.status === 'dispatched' ? 'on the way'
         : input.data.status === 'delivered' ? 'delivered' : 'cancelled'
-    if (order.userId) {
-      const [{ id: notificationId }] = await transaction.insert(notificationCampaigns).values({
-        type: 'order',
-        title: input.data.status === 'delivered' ? 'Order delivered' : input.data.status === 'cancelled' ? 'Order cancelled' : 'Order update',
-        body: `Your order ${order.orderNumber} is now ${statusLabel}.`,
-        href: `/account/orders/${encodeURIComponent(order.orderNumber)}`,
-        audienceType: 'system',
-      }).$returningId()
-      await transaction.insert(notificationRecipients).values({ campaignId: notificationId, userId: order.userId })
-    }
+    const [{ id: notificationId }] = await transaction.insert(notificationCampaigns).values({
+      type: 'order',
+      title: input.data.status === 'delivered' ? 'Order delivered' : input.data.status === 'cancelled' ? 'Order cancelled' : 'Order update',
+      body: `Your order ${order.orderNumber} is now ${statusLabel}.`,
+      href: `/account/orders/${encodeURIComponent(order.orderNumber)}`,
+      audienceType: 'system',
+    }).$returningId()
+    await transaction.insert(notificationRecipients).values({ campaignId: notificationId, userId: order.userId })
     return 'updated' as const
   })
   if (result === 'missing') return response.status(404).json({ error: { code: 'ORDER_NOT_FOUND', message: 'Order not found.' } })

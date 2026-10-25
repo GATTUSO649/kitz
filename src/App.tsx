@@ -13,8 +13,7 @@ import './public-theme.css'
 import './admin-theme.css'
 import './customer-portal-theme.css'
 import { AdminRoute } from './pages/AdminPages'
-import { MarketplacePage, ProductCategoryLine, ProductPage, ShopPage, type BuyNowCheckoutDetails, type BuyNowCheckoutResult, type QuickBuyProduct, type ShopProduct, type ShopPurchaseSelection, type ShopVariant } from './pages/ShopPages'
-import { PublicQuickBuyDialog } from './components/PublicQuickBuyDialog'
+import { MarketplacePage, ProductCategoryLine, ProductPage, ShopPage, type BuyNowCheckoutDetails, type ShopProduct, type ShopPurchaseSelection, type ShopVariant } from './pages/ShopPages'
 import { CustomerChatPage, CustomerPortalOverview, CustomerPortalOrdersPage, CustomerPortalPage } from './pages/CustomerPortalPages'
 import { GoogleMapView } from './components/GoogleMapView'
 import { CustomerPortalLayout } from './layouts/CustomerPortalLayout'
@@ -134,14 +133,13 @@ function CheckoutPaymentOptions({ paymentMethod, onPaymentMethodChange, mpesaOpt
   </fieldset>
 }
 
-function HomepageProductSection({ title, kicker, products, error, onAdd, onSave, onBuy, portalMode = false, showAll = false, showBuyButton = false, id, categoryImageUrl, shopAllHref, shopAllLabel }: {
+function HomepageProductSection({ title, kicker, products, error, onAdd, onSave, portalMode = false, showAll = false, showBuyButton = false, id, categoryImageUrl, shopAllHref, shopAllLabel }: {
   title: string
   kicker: string
   products: Product[]
   error?: string
   onAdd: (product: Product) => void
   onSave: (productId: number) => void
-  onBuy?: (product: QuickBuyProduct) => void
   portalMode?: boolean
   showAll?: boolean
   showBuyButton?: boolean
@@ -168,7 +166,7 @@ function HomepageProductSection({ title, kicker, products, error, onAdd, onSave,
         <div className={`product-info${portalMode ? ' portal-kit-info' : ''}`}><div><ProductCategoryLine team={product.team?.name} league={product.league?.name} jerseyCategory={product.jerseyCategory?.name} category={portalMode ? undefined : product.category?.name} fallback="KitCulture" /><h3><Link to={productPath(product.slug)}>{product.name}</Link></h3></div><span className="product-price">{product.salePrice ? <><del>{money.format(Number(product.price))}</del><strong className="sale-price">{money.format(Number(product.salePrice))}</strong></> : money.format(Number(product.price))}</span>{portalMode && <ProductRating to={`${productPath(product.slug)}#product-reviews`} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />}</div>
         {!portalMode && <ProductRating to={`${productPath(product.slug)}#product-reviews`} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />}
         <div className="product-meta"><div className="product-sizes">{product.variants.length ? product.variants.map((variant) => <span className={!variant.stock ? 'is-sold-out' : ''} key={variant.id}>{variant.size}</span>) : <span>Unavailable</span>}</div><span className={inStock ? 'stock-label' : 'stock-label sold-out'}>{inStock ? 'In stock' : 'Out of stock'}</span></div>
-        {inStock ? <div className={showBuyButton ? 'product-card-actions' : undefined}><button className="quick-add" type="button" onClick={() => onAdd(product)}><ShoppingCart size={13} />Add to Cart</button>{showBuyButton && onBuy ? <button className="product-card-buy" type="button" onClick={() => onBuy(product)}>Buy <ArrowRight size={14} /></button> : showBuyButton && <Link className="product-card-buy" to={productPath(product.slug)}>Buy <ArrowRight size={14} /></Link>}</div> : <Link className="quick-add quick-add-preview" to={productPath(product.slug)}><ShoppingCart size={13} />View kit</Link>}
+        {inStock ? <div className={showBuyButton ? 'product-card-actions' : undefined}><button className="quick-add" type="button" onClick={() => onAdd(product)}><ShoppingCart size={13} />Add to Cart</button>{showBuyButton && <Link className="product-card-buy" to={productPath(product.slug)}>Buy <ArrowRight size={14} /></Link>}</div> : <Link className="quick-add quick-add-preview" to={productPath(product.slug)}><ShoppingCart size={13} />View kit</Link>}
       </article>
     })}</div>
   </section>
@@ -245,7 +243,6 @@ function App() {
     try { return JSON.parse(localStorage.getItem('kitculture-cart') ?? '[]') as CartLine[] } catch { return [] }
   })
   const [buyNowItems, setBuyNowItems] = useState<CartLine[] | null>(null)
-  const [quickBuyProduct, setQuickBuyProduct] = useState<QuickBuyProduct | null>(null)
   const [query, setQuery] = useState('')
   const [activeCategory, setActiveCategory] = useState('All kits')
   const [activeSlideIndex, setActiveSlideIndex] = useState(0)
@@ -486,7 +483,12 @@ function App() {
     setNotice(`${selectedQuantity} ${product.name} ${selectedQuantity === 1 ? 'kit' : 'kits'} added to your bag`)
   }
 
-  async function buyNow(_product: QuickBuyProduct, selections: ShopPurchaseSelection[], details: BuyNowCheckoutDetails, stayOnPage = false): Promise<BuyNowCheckoutResult> {
+  async function buyNow(_product: ShopProduct, selections: ShopPurchaseSelection[], details: BuyNowCheckoutDetails) {
+    if (!accountUser) {
+      navigate(`/login?returnTo=${encodeURIComponent(`${location.pathname}${location.search}`)}`)
+      setNotice('Sign in to place your order. Your checkout details will need to be entered again.')
+      return
+    }
     const response = await fetch('/api/v1/orders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': details.idempotencyKey },
@@ -508,7 +510,7 @@ function App() {
         },
       }),
     })
-    const result = await response.json().catch(() => null) as { data?: { orderNumber: string; total: string; guestAccessToken?: string }; error?: { message?: string } } | null
+    const result = await response.json().catch(() => null) as { data?: { orderNumber: string; total: string }; error?: { message?: string } } | null
     if (!response.ok || !result?.data) {
       const message = result?.error?.message
         ?? (response.status >= 500
@@ -519,20 +521,23 @@ function App() {
 
     let noticeMessage = `Order ${result.data.orderNumber} placed. Pay on Delivery selected.`
     if (details.paymentMethod === 'mpesa') {
-      const promptResponse = await fetch(`/api/v1/orders/${encodeURIComponent(result.data.orderNumber)}/mpesa/stk-push`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: details.payerPhone, ...(result.data.guestAccessToken ? { guestAccessToken: result.data.guestAccessToken } : {}) }),
-      })
-      const promptResult = await promptResponse.json() as { data?: { message?: string }; error?: { message?: string } }
-      if (!promptResponse.ok) throw new Error(promptResult.error?.message ?? 'The payment prompt could not start. Review the order and try again.')
-      noticeMessage = `Order ${result.data.orderNumber} was created. ${promptResult.data?.message ?? `M-PESA prompt requested for ${details.payerPhone}.`} Approve it on your phone; payment is confirmed only after verification.`
+      noticeMessage = `Order ${result.data.orderNumber} was created, but the payment prompt could not start. Try again from order details.`
+      try {
+        const promptResponse = await fetch(`/api/v1/orders/${encodeURIComponent(result.data.orderNumber)}/mpesa/stk-push`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: details.payerPhone }),
+        })
+        const promptResult = await promptResponse.json() as { data?: { message?: string }; error?: { message?: string } }
+        noticeMessage = promptResponse.ok
+          ? `M-PESA accepted the request for ${details.payerPhone}. Order ${result.data.orderNumber} remains pending until payment is confirmed. If no prompt appears, use the Daraja Sandbox test phone and simulator.`
+          : `Order ${result.data.orderNumber} was created, but the prompt could not start: ${promptResult.error?.message ?? 'Try again from order details.'}`
+      } catch {
+        // The order is already created; keep it available for payment retry.
+      }
     }
-    if (accountUser && !stayOnPage) {
-      setNotice(noticeMessage)
-      navigate(`/account/orders/${encodeURIComponent(result.data.orderNumber)}`)
-    }
-    return { orderNumber: result.data.orderNumber, message: noticeMessage }
+    setNotice(noticeMessage)
+    navigate(`/account/orders/${encodeURIComponent(result.data.orderNumber)}`)
   }
 
   function updateQuantity(productId: number, size: string, quantity: number) {
@@ -892,7 +897,7 @@ function App() {
             </form>}
           </section>
       : pagePath === '/account/marketplace' || isPortalMarketplaceTeam
-        ? <MarketplacePage portalMode onSave={(productId) => void saveToWishlist(productId)} onAdd={addToCart} />
+        ? <MarketplacePage portalMode onSave={(productId) => void saveToWishlist(productId)} />
         : isPortalMarketplaceProduct
           ? <ProductPage portalMode onAdd={addToCart} onBuyNow={buyNow} accountUser={accountUser} onSave={(productId) => void saveToWishlist(productId)} />
       : pagePath === '/account/orders'
@@ -1026,13 +1031,14 @@ function App() {
             const inStock = product.variants.some((variant) => variant.stock > 0)
             return <article className="product-card" key={product.id}>
               <div className="product-media">{product.imageUrl ? <img src={product.imageUrl} alt={product.name} loading="lazy" /> : <div className="product-image-empty"><span>KC</span><small>IMAGE TO BE ADDED</small></div>}
+                {(product.featured || product.trending) && <span className="product-tag">{product.trending ? 'TRENDING' : 'FEATURED'}</span>}
                 {(product.salePrice || product.featured || product.trending) && <span className={`product-tag${product.salePrice ? ' product-tag-sale' : ''}`}>{product.salePrice ? 'SALE' : product.trending ? 'TRENDING' : 'FEATURED'}</span>}
                 <button className="product-favourite" type="button" aria-label={`Save ${product.name} to your wishlist`} onClick={() => void saveToWishlist(product.id)}><Heart size={14} /></button>
               </div>
               <div className="product-info"><div><ProductCategoryLine team={product.team?.name} league={product.league?.name} jerseyCategory={product.jerseyCategory?.name} category={product.category?.name} fallback="KitCulture" /><h3><Link to={`/products/${product.slug}`}>{product.name}</Link></h3></div><span className="product-price">{product.salePrice ? <><del>{money.format(Number(product.price))}</del><strong className="sale-price">{money.format(Number(product.salePrice))}</strong></> : money.format(Number(product.price))}</span></div>
               <ProductRating to={`/products/${product.slug}#product-reviews`} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />
               <div className="product-meta"><div className="product-sizes">{product.variants.length ? product.variants.map((variant) => <span className={!variant.stock ? 'is-sold-out' : ''} key={variant.id}>{variant.size}</span>) : <span>Unavailable</span>}</div><span className={inStock ? 'stock-label' : 'stock-label sold-out'}>{inStock ? 'In stock' : 'Out of stock'}</span></div>
-              {inStock ? <div className="product-card-actions"><button className="quick-add" type="button" onClick={() => addToCart(product)} aria-label={`Add ${product.name} to cart`}><ShoppingCart size={13} />Add to Cart</button><button className="product-card-buy" type="button" onClick={() => setQuickBuyProduct(product)}>Buy <ArrowRight size={14} /></button></div> : <Link className="quick-add quick-add-preview" to={`/products/${product.slug}`}><ShoppingCart size={13} />View kit</Link>}
+              {inStock ? <button className="quick-add" type="button" onClick={() => addToCart(product)} aria-label={`Add ${product.name} to cart`}><ShoppingCart size={13} />Add to Cart</button> : <Link className="quick-add quick-add-preview" to={`/products/${product.slug}`}><ShoppingCart size={13} />Buy</Link>}
             </article>
           })}</div>}
           {!catalogueError && !loading && homeFeaturedProducts.length === 0 && <div className="catalogue-state"><span className="catalogue-mark">KC</span><strong>{products.length ? 'No kits found for that search.' : 'A fresh season starts here.'}</strong><span>{products.length ? 'Try another phrase or collection.' : 'New pieces will appear here once inventory is added in the admin catalogue.'}</span></div>}
@@ -1041,10 +1047,10 @@ function App() {
 
         <section className="home-categories page-width">
           <div className="home-section-heading"><div><div className="eyebrow">Shop by Category</div><h2>Find the Perfect Jersey</h2></div></div>
-          <div className="home-category-groups">{homepageJerseyCategories.map((category) => <HomepageProductSection key={category.slug} title={category.name} kicker="KIT COLLECTION" products={products.filter((product) => product.jerseyCategory?.slug === category.slug).slice(0, 6)} onAdd={addToCart} onSave={(productId) => void saveToWishlist(productId)} onBuy={setQuickBuyProduct} categoryImageUrl={category.imageUrl} shopAllHref={`/shop?category=${encodeURIComponent(category.slug)}`} showAll showBuyButton />)}</div>
+          <div className="home-category-groups">{homepageJerseyCategories.map((category) => <HomepageProductSection key={category.slug} title={category.name} kicker="KIT COLLECTION" products={products.filter((product) => product.jerseyCategory?.slug === category.slug).slice(0, 6)} onAdd={addToCart} onSave={(productId) => void saveToWishlist(productId)} categoryImageUrl={category.imageUrl} shopAllHref={`/shop?category=${encodeURIComponent(category.slug)}`} showAll />)}</div>
         </section>
 
-        <HomepageProductSection id="new-arrivals" title="Latest Jerseys. Fresh Style." kicker="New Arrivals" products={newArrivalsQuery.data ?? []} error={newArrivalsQuery.isError ? newArrivalsQuery.error.message : undefined} onAdd={addToCart} onSave={(productId) => void saveToWishlist(productId)} onBuy={setQuickBuyProduct} shopAllHref="/new-arrivals" shopAllLabel="View all arrivals" showAll showBuyButton />
+        <HomepageProductSection id="new-arrivals" title="Latest Jerseys. Fresh Style." kicker="New Arrivals" products={newArrivalsQuery.data ?? []} error={newArrivalsQuery.isError ? newArrivalsQuery.error.message : undefined} onAdd={addToCart} onSave={(productId) => void saveToWishlist(productId)} shopAllHref="/new-arrivals" shopAllLabel="View all arrivals" showAll />
 
         <section className="home-service-strip" aria-label="Shopping benefits">
           <div><Truck size={28} /><span><strong>Convenient Delivery</strong><small>Machakos Town &amp; beyond</small></span></div>
@@ -1053,9 +1059,9 @@ function App() {
           <div><Star size={28} /><span><strong>Football Culture</strong><small>More than just jerseys</small></span></div>
         </section>
         </div>}
-        {isShopPage && <ShopPage key={pagePath} onSave={(productId) => void saveToWishlist(productId)} onAdd={addToCart} onBuy={setQuickBuyProduct} />}
-        {isMarketplacePage && <MarketplacePage onSave={(productId) => void saveToWishlist(productId)} onAdd={addToCart} onBuy={setQuickBuyProduct} />}
-        {isProductPage && <ProductPage onAdd={addToCart} onBuyNow={buyNow} onQuickBuy={setQuickBuyProduct} accountUser={accountUser} onSave={(productId) => void saveToWishlist(productId)} />}
+        {isShopPage && <ShopPage key={pagePath} onSave={(productId) => void saveToWishlist(productId)} />}
+        {isMarketplacePage && <MarketplacePage onSave={(productId) => void saveToWishlist(productId)} />}
+        {isProductPage && <ProductPage onAdd={addToCart} onBuyNow={buyNow} accountUser={accountUser} onSave={(productId) => void saveToWishlist(productId)} />}
         {isCartPage && <section className="standalone-page page-width cart-page"><Link to="/shop" className="standalone-back"><ArrowDown size={14} /> Continue shopping</Link><h1>Your matchday bag</h1>
           {cart.length === 0 ? <div className="catalogue-state"><strong>Your bag is empty.</strong><span>Browse the team catalogue and find your colours.</span><Link className="button button-green" to="/shop">Shop teams <ArrowRight size={15} /></Link></div> : <><div className="cart-page-lines">{cart.map((line) => <article className="cart-line" key={`${line.productId}-${line.size}`}>{line.imageUrl ? <img src={line.imageUrl} alt="" /> : <div className="cart-image-placeholder">KC</div>}<div className="cart-line-info"><strong>{line.name}</strong><span>Size {line.size}</span><span>{money.format(line.price)}</span><div className="quantity-control"><button type="button" aria-label={`Remove one ${line.name}`} onClick={() => updateQuantity(line.productId, line.size, line.quantity - 1)}>−</button><span>{line.quantity}</span><button type="button" aria-label={`Add one ${line.name}`} onClick={() => updateQuantity(line.productId, line.size, line.quantity + 1)}>+</button></div></div><button className="remove-line" type="button" onClick={() => updateQuantity(line.productId, line.size, 0)}>Remove</button></article>)}</div><div className="cart-page-total"><span>Subtotal (delivery calculated at checkout)</span><strong>{money.format(subtotal)}</strong><Link to="/checkout" className="button button-green">Continue to checkout <ArrowRight size={15} /></Link></div></>}
         </section>}
@@ -1082,8 +1088,6 @@ function App() {
         </section>}
         {isNotFoundPage && <section className="standalone-page page-width"><div className="catalogue-state"><strong>That page is not in our lineup.</strong><span>Check the address or head back to the shop.</span><Link className="button button-green" to="/shop">Browse teams <ArrowRight size={15} /></Link></div></section>}
       </main>
-
-      {quickBuyProduct && <PublicQuickBuyDialog product={quickBuyProduct} accountUser={accountUser} onClose={() => setQuickBuyProduct(null)} onBuyNow={buyNow} />}
 
       <footer className="site-footer" id="contact"><div className="footer-top">
         <div className="footer-brand"><Link className="wordmark footer-wordmark" to="/" aria-label="KitCulture home"><img src={cultureLogo} alt="" /><span className="wordmark-copy"><strong>KitCulture</strong><small>Wear Your Colours. Live the Culture.</small></span></Link><p>Your one-stop shop for authentic football jerseys. From the global giants to local favourites, we bring the colours you live in.</p></div>
