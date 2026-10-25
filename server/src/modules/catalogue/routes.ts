@@ -3,6 +3,7 @@ import { Router, type Response } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
 import { db } from '../../config/database.js'
+import { inspectDatabaseError } from '../../config/database-diagnostics.js'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { applicationSettings, categories, homepageSlides, jerseyCategories, leagues, orderItems, orders, productImages, productRatings, productReviews, productVariants, products, productVideos, teams } from '../../database/schema.js'
 import { isDarajaConfigured, resolveDarajaShortcodes } from '../orders/daraja.js'
@@ -19,6 +20,15 @@ export function combinedRating(reviewAverage: unknown, reviewCount: unknown, qui
     ? (Number(reviewAverage ?? 0) * reviews + Number(quickAverage ?? 0) * quickRatings) / total
     : 0
   return { ratingAverage: average, reviewCount: total }
+}
+
+async function withOptionalRatingTable<T>(query: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await query()
+  } catch (error) {
+    if (inspectDatabaseError(error).category === 'missing_table') return fallback
+    throw error
+  }
 }
 
 catalogueRouter.post('/products/:productId/ratings', productRatingLimiter, async (request, response) => {
@@ -42,8 +52,16 @@ catalogueRouter.post('/products/:productId/ratings', productRatingLimiter, async
     response.status(404).json({ error: { code: 'PRODUCT_NOT_FOUND', message: 'Product not found.' } })
     return
   }
-  await db.insert(productRatings).values({ productId: product.id, visitorId: input.data.visitorId, rating: input.data.rating })
-    .onDuplicateKeyUpdate({ set: { rating: input.data.rating, updatedAt: new Date() } })
+  try {
+    await db.insert(productRatings).values({ productId: product.id, visitorId: input.data.visitorId, rating: input.data.rating })
+      .onDuplicateKeyUpdate({ set: { rating: input.data.rating, updatedAt: new Date() } })
+  } catch (error) {
+    if (inspectDatabaseError(error).category === 'missing_table') {
+      response.status(503).json({ error: { code: 'PRODUCT_RATINGS_UNAVAILABLE', message: 'Quick ratings are unavailable until the product ratings database migration is applied.' } })
+      return
+    }
+    throw error
+  }
   const [reviews, quickRatings] = await Promise.all([
     db.select({ average: sql<number>`AVG(${productReviews.rating})`, count: count() }).from(productReviews).where(eq(productReviews.productId, product.id)),
     db.select({ average: sql<number>`AVG(${productRatings.rating})`, count: count() }).from(productRatings).where(eq(productRatings.productId, product.id)),
@@ -86,6 +104,7 @@ async function getProducts(
     response.status(503).json({ error: { code: 'CATALOGUE_UNAVAILABLE', message: 'The catalogue database is not configured.' } })
     return
   }
+  const database = db
   const filters = [eq(products.published, true)]
   if (options.filter) filters.push(options.filter)
   if (options.q) {
@@ -165,11 +184,11 @@ async function getProducts(
     average: sql<number>`AVG(${productReviews.rating})`,
     reviewCount: count(),
   }).from(productReviews).where(inArray(productReviews.productId, ids)).groupBy(productReviews.productId) : []
-  const quickRatings = ids.length ? await db.select({
+  const quickRatings = ids.length ? await withOptionalRatingTable(() => database.select({
     productId: productRatings.productId,
     average: sql<number>`AVG(${productRatings.rating})`,
     ratingCount: count(),
-  }).from(productRatings).where(inArray(productRatings.productId, ids)).groupBy(productRatings.productId) : []
+  }).from(productRatings).where(inArray(productRatings.productId, ids)).groupBy(productRatings.productId), []) : []
   const ratingsByProduct = new Map(ratings.map((rating) => [rating.productId, rating]))
   const quickRatingsByProduct = new Map(quickRatings.map((rating) => [rating.productId, rating]))
   const pageRows = rows.slice(0, options.limit ?? 48)
@@ -294,6 +313,7 @@ catalogueRouter.get('/products/:slug', async (request, response) => {
     response.status(503).json({ error: { code: 'CATALOGUE_UNAVAILABLE', message: 'The catalogue database is not configured.' } })
     return
   }
+  const database = db
   const [product] = await db.select({
     id: products.id,
     name: products.name,
@@ -338,8 +358,8 @@ catalogueRouter.get('/products/:slug', async (request, response) => {
       .from(productReviews).where(eq(productReviews.productId, product.id)).orderBy(desc(productReviews.createdAt)).limit(100),
     db.select({ average: sql<number>`AVG(${productReviews.rating})`, reviewCount: count() })
       .from(productReviews).where(eq(productReviews.productId, product.id)),
-    db.select({ average: sql<number>`AVG(${productRatings.rating})`, reviewCount: count() })
-      .from(productRatings).where(eq(productRatings.productId, product.id)),
+    withOptionalRatingTable(() => database.select({ average: sql<number>`AVG(${productRatings.rating})`, reviewCount: count() })
+      .from(productRatings).where(eq(productRatings.productId, product.id)), []),
   ])
   const ratingSummaryCombined = combinedRating(ratingSummary?.average, ratingSummary?.reviewCount, quickRatingSummary?.average, quickRatingSummary?.reviewCount)
   response.json({ data: {
