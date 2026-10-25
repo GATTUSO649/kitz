@@ -138,6 +138,12 @@ test('guest checkout endpoints validate publicly without requiring a customer se
   assert.equal((await paymentResponse.json() as { error: { code: string } }).error.code, 'INVALID_PAYMENT_REQUEST')
 })
 
+test('guest order management requires administrator authentication', async () => {
+  const response = await fetch(`${baseUrl}/api/v1/admin/guest-orders`)
+  assert.equal(response.status, 401)
+  assert.equal((await response.json() as { error: { code: string } }).error.code, 'UNAUTHENTICATED')
+})
+
 test('does not apply the authentication limit to regular admin writes', async () => {
   const responses = await Promise.all(Array.from({ length: 65 }, () => fetch(`${baseUrl}/api/v1/admin/orders/1/status`, {
     method: 'PATCH',

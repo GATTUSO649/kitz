@@ -240,6 +240,38 @@
 .admin-order-actions h2{color:var(--dark-text);font-family:var(--display);font-size:16px}
 .admin-order-actions article{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px;background:#fff;border:1px solid var(--line);font-size:11px}
 .admin-order-actions select{height:36px;border:1px solid var(--line);background:#fff;padding:0 8px}
+.admin-guest-orders{display:grid;gap:14px;margin:0 0 22px}
+.admin-guest-orders-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px;border:1px solid var(--dark-border);background:var(--dark-surface);color:var(--dark-text)}
+.admin-guest-orders-heading h2{margin:4px 0;color:var(--dark-text);font-family:var(--display);font-size:20px}
+.admin-guest-orders-heading p{margin:0;color:var(--dark-muted);font-size:11px}
+.admin-guest-order-filters{display:flex;flex-wrap:wrap;gap:6px}
+.admin-guest-order-filters button{min-height:34px;padding:0 10px;border:1px solid var(--dark-border);background:var(--dark-raised);color:var(--dark-muted);font:inherit;font-size:10px;font-weight:700;cursor:pointer}
+.admin-guest-order-filters button[aria-pressed="true"]{border-color:#3984d8;background:#16395f;color:#fff}
+.admin-guest-order-list{display:grid;gap:10px}
+.admin-guest-order{display:grid;gap:14px;padding:16px;border:1px solid var(--dark-border);background:var(--dark-surface);color:var(--dark-text)}
+.admin-guest-order>header{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding-bottom:12px;border-bottom:1px solid var(--dark-border)}
+.admin-guest-order>header h3{margin:4px 0;color:var(--dark-text);font-size:15px}
+.admin-guest-order>header time{color:var(--dark-muted);font-size:10px}
+.admin-guest-order-badges{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px}
+.admin-status-badge{padding:5px 7px;border:1px solid var(--dark-border);color:var(--dark-muted);font-size:9px;font-weight:700;text-transform:capitalize}
+.admin-status-badge.payment-succeeded{border-color:#276b48;background:#123c2a;color:#8ce0ad}
+.admin-status-badge.payment-pending,.admin-status-badge.status-pending_payment{border-color:#705c2d;background:#3a3018;color:#f0d58b}
+.admin-status-badge.payment-failed,.admin-status-badge.payment-requires_review{border-color:#75443e;background:#3e211d;color:#ffaaa1}
+.admin-guest-order-details{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.admin-guest-order-details section{display:grid;align-content:start;gap:5px;min-width:0}
+.admin-guest-order-details h4,.admin-guest-order-items h4{margin:0 0 2px;color:#80baff;font-size:10px;text-transform:uppercase}
+.admin-guest-order-details section span,.admin-guest-order-details section strong{color:var(--dark-text);font-size:11px;line-height:1.5;overflow-wrap:anywhere}
+.admin-guest-order-details section span{color:var(--dark-muted)}
+.admin-guest-order-items{display:grid;gap:8px;padding:12px;border:1px solid var(--dark-border);background:var(--dark-raised)}
+.admin-guest-order-items>div{display:flex;justify-content:space-between;gap:12px;color:var(--dark-muted);font-size:10px;line-height:1.5}
+.admin-guest-order-items>div strong{color:var(--dark-text);white-space:nowrap}
+.admin-guest-order-items .admin-guest-order-total{padding-top:9px;border-top:1px solid var(--dark-border)}
+.admin-guest-order-update{display:flex;align-items:center;justify-content:space-between;gap:12px;color:var(--dark-muted);font-size:10px}
+.admin-guest-order-update strong{color:var(--dark-text);text-transform:capitalize}
+.admin-guest-order-update label{display:flex;align-items:center;gap:8px}
+.admin-guest-order-update select{min-height:36px;padding:0 9px;border:1px solid var(--dark-border);background:var(--dark-raised);color:var(--dark-text);font:inherit;font-size:10px}
+.admin-guest-order-update select:disabled{opacity:.6}
+@media(max-width:700px){.admin-guest-orders-heading,.admin-guest-order>header{align-items:flex-start;flex-direction:column}.admin-guest-order-filters{width:100%}.admin-guest-order-details{grid-template-columns:1fr 1fr}.admin-guest-order-details .admin-guest-order-payment{grid-column:1/-1}.admin-guest-order-update{align-items:flex-start;flex-direction:column}.admin-guest-order-items>div{align-items:flex-start}}
 .admin-notifications-manager{display:grid;gap:18px;max-width:1040px}
 .admin-notification-form,.admin-notification-history{display:grid;gap:14px;padding:18px;border:1px solid var(--dark-border);background:var(--dark-surface);color:var(--dark-text)}
 .admin-notification-form label{display:grid;gap:7px;color:var(--dark-text);font-size:10px;font-weight:700}

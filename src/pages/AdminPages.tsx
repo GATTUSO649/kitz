@@ -52,6 +52,7 @@ const sections = [
   ['homepage', 'Homepage', '/admin/homepage', ImageIcon],
   ['categories', 'Kit collections', '/admin/categories', Package],
   ['orders', 'Orders', '/admin/orders', Package],
+  ['guest-orders', 'Guest management', '/admin/guest-orders', Users],
   ['notifications', 'Notifications', '/admin/notifications', Bell],
   ['customers', 'Customers', '/admin/customers', Users],
   ['support', 'Customer chats', '/admin/support', MessageCircle],
@@ -1542,6 +1543,65 @@ function AdminNotificationsManager() {
   </div>
 }
 
+type GuestAdminOrder = AdminRecord & {
+  id: number
+  orderNumber: string
+  status: string
+  paymentMethod: string
+  total: string
+  subtotal: string
+  deliveryFee: string
+  createdAt: string
+  customerName: string | null
+  customerEmail: string | null
+  customerPhone: string | null
+  address: string | null
+  town: string | null
+  county: string | null
+  estate: string | null
+  landmark: string | null
+  deliveryZone: string | null
+  payment: {
+    status: string
+    amount: string
+    providerReceipt: string | null
+    payerPhone: string | null
+    transactionAt: string | null
+    verificationMessage: string | null
+  } | null
+  items: { name: string; size: string; quantity: number; unitPrice: string }[]
+}
+
+function GuestOrdersManager({ orders, onUpdate }: { orders: GuestAdminOrder[]; onUpdate: (order: GuestAdminOrder, status: string) => void }) {
+  const [filter, setFilter] = useState<'all' | 'paid' | 'pending'>('all')
+  const paidCount = orders.filter((order) => order.payment?.status === 'succeeded').length
+  const visibleOrders = orders.filter((order) => filter === 'all'
+    || (filter === 'paid' ? order.payment?.status === 'succeeded' : order.payment?.status !== 'succeeded'))
+  return <section className="admin-guest-orders">
+    <header className="admin-guest-orders-heading"><div><span className="admin-kicker">PUBLIC CHECKOUT</span><h2>Guest orders</h2><p>{orders.length} orders · {paidCount} payments verified</p></div><div className="admin-guest-order-filters" role="group" aria-label="Filter guest orders">
+      {(['all', 'paid', 'pending'] as const).map((value) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)}>{value === 'all' ? 'All' : value === 'paid' ? `Paid · ${paidCount}` : 'Awaiting payment'}</button>)}
+    </div></header>
+    {!visibleOrders.length ? <div className="admin-empty">{filter === 'paid' ? 'No guest payments have been verified yet.' : filter === 'pending' ? 'No guest orders are awaiting payment.' : 'No guest orders have been placed yet.'}</div>
+      : <div className="admin-guest-order-list">{visibleOrders.map((order) => {
+        const nextStatuses = order.status === 'pending_payment' ? ['cancelled']
+          : order.status === 'paid' ? ['processing']
+            : order.status === 'processing' ? ['dispatched']
+              : order.status === 'dispatched' ? ['delivered'] : []
+        const paymentStatus = order.payment?.status ?? 'not_started'
+        return <article className="admin-guest-order" key={order.id}>
+          <header><div><span className="admin-kicker">GUEST ORDER</span><h3>{order.orderNumber}</h3><time dateTime={order.createdAt}>{new Date(order.createdAt).toLocaleString('en-KE')}</time></div><div className="admin-guest-order-badges"><span className={`admin-status-badge status-${order.status}`}>{order.status.replaceAll('_', ' ')}</span><span className={`admin-status-badge payment-${paymentStatus}`}>{paymentStatus === 'succeeded' ? 'payment verified' : paymentStatus.replaceAll('_', ' ')}</span></div></header>
+          <div className="admin-guest-order-details">
+            <section><h4>Guest</h4><strong>{order.customerName || 'Name unavailable'}</strong><span>{order.customerEmail || 'Email unavailable'}</span><span>{order.customerPhone || 'Phone unavailable'}</span></section>
+            <section><h4>Delivery</h4><span>{[order.address, order.estate, order.landmark].filter(Boolean).join(' · ') || 'Address unavailable'}</span><span>{[order.town, order.county].filter(Boolean).join(', ')}</span><span>{order.deliveryZone || 'Delivery area unavailable'}</span></section>
+            <section className="admin-guest-order-payment"><h4>M-PESA</h4><span>Prompt: {order.payment?.payerPhone || 'Not sent'}</span><span>Receipt: {order.payment?.providerReceipt || 'Awaiting verified payment'}</span><span>{order.payment?.transactionAt ? new Date(order.payment.transactionAt).toLocaleString('en-KE') : order.payment?.verificationMessage || 'No payment confirmation yet'}</span></section>
+          </div>
+          <div className="admin-guest-order-items"><h4>Items</h4>{order.items.map((item, index) => <div key={`${item.name}-${item.size}-${index}`}><span>{item.name} · {item.size} × {item.quantity}</span><strong>KES {(Number(item.unitPrice) * item.quantity).toLocaleString('en-KE')}</strong></div>)}<div className="admin-guest-order-total"><span>Subtotal · {Number(order.subtotal).toLocaleString('en-KE')} + delivery · {Number(order.deliveryFee).toLocaleString('en-KE')}</span><strong>KES {Number(order.total).toLocaleString('en-KE')}</strong></div></div>
+          <div className="admin-guest-order-update"><span>Order status: <strong>{order.status.replaceAll('_', ' ')}</strong></span><label>Update status<select aria-label={`Update ${order.orderNumber} status`} defaultValue="" disabled={!nextStatuses.length} onChange={(event) => { if (event.target.value) onUpdate(order, event.target.value) }}><option value="" disabled>{nextStatuses.length ? 'Choose status' : 'No further updates'}</option>{nextStatuses.map((status) => <option key={status} value={status}>{status}</option>)}</select></label></div>
+        </article>
+      })}</div>}
+  </section>
+}
+
 export function AdminConsole() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -1625,7 +1685,7 @@ export function AdminConsole() {
       {sectionQuery.isPending ? <div className="admin-empty">Loading live database records…</div> : sectionQuery.isError ? <div className="admin-empty admin-error"><strong>Admin data unavailable</strong><span>{sectionQuery.error.message}. Confirm the database is configured and your account has the administrator role.</span></div> : <>
         {current[0] === 'dashboard' && <div className="admin-metrics">{metrics.map(([key, value]) => <article key={key}><span>{key.replace(/[A-Z]/g, (letter) => ` ${letter.toLowerCase()}`)}</span><strong>{pretty(value)}</strong></article>)}</div>}
         {current[0] === 'dashboard' && data && !Array.isArray(data) && <AdminDashboardCharts data={data} />}
-        {current[0] === 'notifications' ? null : current[0] === 'football'
+        {current[0] === 'notifications' || current[0] === 'guest-orders' ? null : current[0] === 'football'
           ? <FootballCatalogueManager onDone={async () => { await sectionQuery.refetch() }} />
           : current[0] === 'inventory'
           ? <InventoryAdjustmentForm onDone={async () => { await sectionQuery.refetch() }} />
@@ -1640,6 +1700,7 @@ export function AdminConsole() {
           }} />}
         {current[0] === 'support' && <SupportRequestsManager requests={records.filter(isAdminSupportRequest)} onDone={async () => { await sectionQuery.refetch() }} />}
         {current[0] === 'notifications' && <AdminNotificationsManager />}
+        {current[0] === 'guest-orders' && <GuestOrdersManager orders={records as unknown as GuestAdminOrder[]} onUpdate={(order, status) => void patchOrder(order, status)} />}
         {current[0] === 'products' && <>
           <ProductPublishingManager onDone={async () => { await sectionQuery.refetch() }} />
           <ProductClassificationManager onDone={async () => { await sectionQuery.refetch() }} />
@@ -1655,7 +1716,7 @@ export function AdminConsole() {
           return <article key={String(order.id)}><span><strong>{pretty(order.orderNumber)}</strong> · {pretty(status)}</span><select aria-label={`Update ${pretty(order.orderNumber)} status`} defaultValue="" disabled={nextStatuses.length === 0} onChange={(event) => { if (event.target.value) void patchOrder(order, event.target.value) }}><option value="" disabled>{nextStatuses.length ? 'Update status' : 'No further updates'}</option>{nextStatuses.map((nextStatus) => <option key={nextStatus} value={nextStatus}>{pretty(nextStatus)}</option>)}</select></article>
         })}</section>}
         {actionError && <p className="admin-error">{actionError}</p>}
-        {!['dashboard', 'homepage', 'support', 'football', 'notifications'].includes(current[0]) && <DataTable rows={current[0] === 'products' ? records.map(({ images: _images, variants: _variants, ...record }) => record) : records} empty="No records are available for this section yet." />}
+        {!['dashboard', 'homepage', 'support', 'football', 'notifications', 'guest-orders'].includes(current[0]) && <DataTable rows={current[0] === 'products' ? records.map(({ images: _images, variants: _variants, ...record }) => record) : records} empty="No records are available for this section yet." />}
         {current[0] === 'dashboard' && data && !Array.isArray(data) && <section className="admin-dashboard-orders"><div className="admin-analytics-heading"><div><span className="admin-kicker">LATEST ACTIVITY</span><h2>Recent orders</h2></div></div><DataTable rows={Array.isArray(data.recentOrders) ? data.recentOrders as AdminRecord[] : []} empty="No orders have been placed yet." /></section>}
       </>}
     </main>

@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, isNull, lte, sql, sum } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gte, inArray, isNull, lte, sql, sum } from 'drizzle-orm'
 import { Router } from 'express'
 import express from 'express'
 import { z } from 'zod'
@@ -768,6 +768,60 @@ adminRouter.get('/orders', async (_request, response) => {
     customerEmail: sql<string | null>`COALESCE(${users.email}, JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.email')))`,
   }).from(orders).leftJoin(users, eq(orders.userId, users.id)).orderBy(desc(orders.createdAt)).limit(200)
   response.json({ data: rows })
+})
+
+adminRouter.get('/guest-orders', async (_request, response) => {
+  if (!db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Guest order services are unavailable.' } })
+  const guestOrders = await db.select({
+    id: orders.id,
+    orderNumber: orders.orderNumber,
+    status: orders.status,
+    paymentMethod: orders.paymentMethod,
+    total: orders.total,
+    subtotal: orders.subtotal,
+    deliveryFee: orders.deliveryFee,
+    createdAt: orders.createdAt,
+    customerName: sql<string | null>`JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.recipientName'))`,
+    customerEmail: sql<string | null>`JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.email'))`,
+    customerPhone: sql<string | null>`JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.phone'))`,
+    address: sql<string | null>`JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.address'))`,
+    town: sql<string | null>`JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.town'))`,
+    county: sql<string | null>`JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.county'))`,
+    estate: sql<string | null>`JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.estate'))`,
+    landmark: sql<string | null>`JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.landmark'))`,
+    deliveryZone: sql<string | null>`JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.deliveryZone'))`,
+    latitude: sql<string | null>`JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.latitude'))`,
+    longitude: sql<string | null>`JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.longitude'))`,
+  }).from(orders).where(isNull(orders.userId)).orderBy(desc(orders.createdAt)).limit(250)
+  const orderIds = guestOrders.map(({ id }) => id)
+  const [paymentRows, itemRows] = orderIds.length ? await Promise.all([
+    db.select({
+      orderId: payments.orderId,
+      status: payments.status,
+      amount: payments.amount,
+      providerReceipt: payments.providerReceipt,
+      payerPhone: payments.payerPhone,
+      transactionAt: payments.transactionAt,
+      verificationMessage: payments.verificationMessage,
+      createdAt: payments.createdAt,
+    }).from(payments).where(and(inArray(payments.orderId, orderIds), eq(payments.provider, 'mpesa'))).orderBy(desc(payments.createdAt)),
+    db.select({
+      orderId: orderItems.orderId,
+      name: orderItems.productNameSnapshot,
+      size: orderItems.sizeSnapshot,
+      quantity: orderItems.quantity,
+      unitPrice: orderItems.unitPrice,
+    }).from(orderItems).where(inArray(orderItems.orderId, orderIds)),
+  ]) : [[], []]
+  const latestPaymentByOrder = new Map<number, typeof paymentRows[number]>()
+  for (const payment of paymentRows) if (!latestPaymentByOrder.has(payment.orderId)) latestPaymentByOrder.set(payment.orderId, payment)
+  const itemsByOrder = new Map<number, typeof itemRows>()
+  for (const item of itemRows) itemsByOrder.set(item.orderId, [...(itemsByOrder.get(item.orderId) ?? []), item])
+  response.json({ data: guestOrders.map((order) => ({
+    ...order,
+    items: itemsByOrder.get(order.id) ?? [],
+    payment: latestPaymentByOrder.get(order.id) ?? null,
+  })) })
 })
 
 adminRouter.patch('/orders/:id/status', async (request, response) => {
