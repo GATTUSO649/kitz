@@ -704,7 +704,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
       </div>
     </div>
     {buyFlowOpen && <div className="buy-flow-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !buyFlowBusy) setBuyFlowOpen(false) }}><section className="buy-flow-dialog" role="dialog" aria-modal="true" aria-labelledby="buy-flow-title">
-      <header className="buy-flow-heading"><div><span className="eyebrow">{buyFlowConfirmation ? 'GUEST ORDER · PAYMENT STATUS' : `SECURE CHECKOUT · STEP ${buyFlowStep + 1} OF 4`}</span><h2 id="buy-flow-title">{buyFlowConfirmation ? 'Order submitted' : ['Your kit', 'Delivery location', 'Payment method', 'Review order'][buyFlowStep]}</h2></div><button className="icon-button" type="button" aria-label="Close checkout" disabled={buyFlowBusy} onClick={() => setBuyFlowOpen(false)}><X /></button></header>
+      <header className="buy-flow-heading"><div><span className="eyebrow">{buyFlowConfirmation ? 'GUEST ORDER · PAYMENT STATUS' : `SECURE CHECKOUT · STEP ${buyFlowStep + 1} OF 4`}</span><h2 id="buy-flow-title">{buyFlowConfirmation ? 'Order submitted' : ['Your kit', 'Delivery area', 'Payment method', 'Review order'][buyFlowStep]}</h2></div><button className="icon-button" type="button" aria-label="Close checkout" disabled={buyFlowBusy} onClick={() => setBuyFlowOpen(false)}><X /></button></header>
       <div className="buy-flow-progress" aria-label={`Step ${buyFlowStep + 1} of 4`}><span style={{ width: `${(buyFlowStep + 1) * 25}%` }} /></div>
       {buyFlowConfirmation ? <div className="buy-flow-content" role="status"><p className="buy-flow-confirmation">{buyFlowConfirmation}</p>
         {guestOrderNumber && <section className="guest-payment-status" aria-live="polite"><div><span>Order</span><strong>{guestOrderNumber}</strong></div><div><span>Payment</span><strong>{guestPaymentStatusLabel}</strong></div>
@@ -735,12 +735,12 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
           {!portalMode && !accountUser && <label>Recipient full name<input autoComplete="name" required minLength={2} maxLength={160} value={guestRecipientName} onChange={(event) => setGuestRecipientName(event.target.value)} /></label>}
           {!portalMode && !accountUser && <label>Email address<input type="email" autoComplete="email" required maxLength={254} value={guestEmail} onChange={(event) => setGuestEmail(event.target.value)} /></label>}
           <label>Delivery recipient phone<input type="tel" inputMode="tel" autoComplete="tel" required minLength={7} maxLength={20} value={deliveryPhone} onChange={(event) => setDeliveryPhone(event.target.value)} /></label>
-          <p className="buy-flow-hint">Choose a delivery area. Pinning your exact location is optional.</p>
+          <p className="buy-flow-hint">Choose a delivery area. Pinning your exact location is optional; its map preview appears with payment details.</p>
           <button className="button button-outline checkout-location-button" type="button" onClick={pinDeliveryLocation}><MapPin size={15} /> Pin my delivery location</button>
           {deliveryPinStatus && <p className="checkout-location-status" role="status">{deliveryPinStatus}</p>}
-          {deliveryPin && <GoogleMapView latitude={deliveryPin.latitude} longitude={deliveryPin.longitude} title="Pinned delivery location" />}
         </>}
         {buyFlowStep === 2 && <>
+          {deliveryPin && <GoogleMapView latitude={deliveryPin.latitude} longitude={deliveryPin.longitude} title="Pinned delivery location" />}
           <fieldset className="checkout-payment-options">
             <legend>Payment method</legend>
             <label className={`checkout-payment-option${!portalMode && !accountUser ? ' is-unavailable' : ''}`}><input type="radio" name="buyFlowPaymentMethod" value="pay_on_delivery" checked={buyFlowPaymentMethod === 'pay_on_delivery'} disabled={!portalMode && !accountUser} onChange={() => { setBuyFlowPaymentMethod('pay_on_delivery'); setBuyFlowError('') }} /><span><strong>Pay on Delivery</strong><small>{!portalMode && !accountUser ? 'Available after you sign up or sign in.' : 'Pay when your kit is delivered.'}</small></span></label>
