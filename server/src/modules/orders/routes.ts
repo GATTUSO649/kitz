@@ -112,6 +112,12 @@ const guestCheckoutLimiter = rateLimit({
   standardHeaders: 'draft-8',
   legacyHeaders: false,
 })
+const guestOrderStatusLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 120,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+})
 
 export function createTemporaryOrderNumber() {
   return `pending-${randomUUID().replaceAll('-', '').slice(0, 24)}`
@@ -125,6 +131,21 @@ ordersRouter.get('/delivery/zones', async (_request, response) => {
   const zones = await db.select({ id: deliveryZones.id, name: deliveryZones.name, fee: deliveryZones.fee })
     .from(deliveryZones).where(eq(deliveryZones.active, true))
   response.json({ data: zones })
+})
+
+ordersRouter.get('/orders/guest/:orderNumber/status', guestOrderStatusLimiter, async (request, response) => {
+  response.locals.databaseOperation = 'orders.guest.status'
+  const orderNumber = z.string().regex(/^G[a-f0-9]{31}$/).safeParse(request.params.orderNumber)
+  if (!orderNumber.success) return response.status(404).json({ error: { code: 'ORDER_NOT_FOUND', message: 'Guest order not found.' } })
+  if (!db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Order services are unavailable.' } })
+  const [order] = await db.select({ orderNumber: orders.orderNumber, status: orders.status, total: orders.total })
+    .from(orders).where(and(isNull(orders.userId), eq(orders.orderNumber, orderNumber.data))).limit(1)
+  if (!order) return response.status(404).json({ error: { code: 'ORDER_NOT_FOUND', message: 'Guest order not found.' } })
+  const [payment] = await db.select({ status: payments.status, verificationMessage: payments.verificationMessage })
+    .from(payments).innerJoin(orders, eq(payments.orderId, orders.id))
+    .where(and(isNull(orders.userId), eq(orders.orderNumber, order.orderNumber), eq(payments.provider, 'mpesa')))
+    .orderBy(desc(payments.createdAt)).limit(1)
+  response.json({ data: { ...order, payment: payment ?? null } })
 })
 
 ordersRouter.post('/orders/guest', rejectCrossOrigin, guestCheckoutLimiter, async (request, response) => {

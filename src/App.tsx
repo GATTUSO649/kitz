@@ -509,7 +509,7 @@ function App() {
         ? `M-PESA prompt sent to ${details.payerPhone}. Order ${guestResult.data.orderNumber} remains pending until payment is confirmed.`
         : `Guest order ${guestResult.data.orderNumber} was created, but the payment prompt could not start: ${promptResult?.error?.message ?? 'Try again later.'}`
       setNotice(guestConfirmation)
-      return guestConfirmation
+      return { message: guestConfirmation, guestOrderNumber: guestResult.data.orderNumber }
     }
     const response = await fetch('/api/v1/orders', {
       method: 'POST',

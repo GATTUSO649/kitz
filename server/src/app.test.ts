@@ -129,6 +129,10 @@ test('guest checkout endpoints validate publicly without requiring a customer se
   assert.equal(orderResponse.status, 400)
   assert.equal((await orderResponse.json() as { error: { code: string } }).error.code, 'INVALID_ORDER')
 
+  const statusResponse = await fetch(`${baseUrl}/api/v1/orders/guest/not-a-reference/status`)
+  assert.equal(statusResponse.status, 404)
+  assert.equal((await statusResponse.json() as { error: { code: string } }).error.code, 'ORDER_NOT_FOUND')
+
   const paymentResponse = await fetch(`${baseUrl}/api/v1/orders/guest/not-a-reference/mpesa/stk-push`, {
     method: 'POST',
     headers: { origin: process.env.CLIENT_ORIGIN!, 'content-type': 'application/json' },

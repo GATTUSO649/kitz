@@ -26,9 +26,11 @@ export type BuyNowCheckoutDetails = {
   longitude?: number
   accuracy?: number
 }
+export type BuyNowResult = { message: string; guestOrderNumber?: string }
 type ShopImage = { id: number; imageUrl: string; altText: string; sortOrder: number; isPrimary: boolean }
 type ShopVideo = { id: number; videoUrl: string; title: string; sortOrder: number }
 type ProductReview = { id: number; reviewerName: string; rating: number; body: string; createdAt: string }
+type GuestOrderPaymentStatus = { orderNumber: string; status: string; total: string; payment: { status: string; verificationMessage: string | null } | null }
 export type ShopProduct = {
   id: number
   name: string
@@ -338,7 +340,7 @@ export function ShopPage({ onSave, onAdd }: { onSave: (productId: number) => voi
   </section>
 }
 
-export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode = false }: { onAdd: (product: ShopProduct, selections: ShopPurchaseSelection[]) => void; onBuyNow: (product: ShopProduct, selections: ShopPurchaseSelection[], details: BuyNowCheckoutDetails) => Promise<string | void>; onSave: (productId: number) => void; accountUser: { fullName: string; email: string; phone: string | null } | null; portalMode?: boolean }) {
+export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode = false }: { onAdd: (product: ShopProduct, selections: ShopPurchaseSelection[]) => void; onBuyNow: (product: ShopProduct, selections: ShopPurchaseSelection[], details: BuyNowCheckoutDetails) => Promise<BuyNowResult | string | void>; onSave: (productId: number) => void; accountUser: { fullName: string; email: string; phone: string | null } | null; portalMode?: boolean }) {
   const location = useLocation()
   const navigate = useNavigate()
   const pathname = location.pathname
@@ -353,6 +355,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
   const [buyFlowPaymentMethod, setBuyFlowPaymentMethod] = useState<'pay_on_delivery' | 'mpesa'>('pay_on_delivery')
   const [buyFlowError, setBuyFlowError] = useState('')
   const [buyFlowConfirmation, setBuyFlowConfirmation] = useState('')
+  const [guestOrderNumber, setGuestOrderNumber] = useState('')
   const [buyFlowBusy, setBuyFlowBusy] = useState(false)
   const [buyFlowIdempotencyKey, setBuyFlowIdempotencyKey] = useState(() => crypto.randomUUID())
   const [deliveryZoneId, setDeliveryZoneId] = useState('')
@@ -385,6 +388,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
     setBuyFlowStep(0)
     setBuyFlowError('')
     setBuyFlowConfirmation('')
+    setGuestOrderNumber('')
     setBuyFlowIdempotencyKey(crypto.randomUUID())
     setBuyFlowPaymentMethod(!portalMode && !accountUser ? 'mpesa' : 'pay_on_delivery')
     setPayerPhone(accountUser?.phone ?? '')
@@ -409,6 +413,15 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
       const result = await response.json() as { data?: { mpesaTillName: string; mpesaTillNumber: string; stkPushAvailable: boolean }; error?: { message?: string } }
       if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'M-Pesa details are unavailable.')
       return result.data
+    },
+  })
+  const guestOrderStatusQuery = useQuery({
+    queryKey: ['guest-order-status', guestOrderNumber],
+    enabled: Boolean(guestOrderNumber && buyFlowOpen),
+    queryFn: () => readData<GuestOrderPaymentStatus>(`/api/v1/orders/guest/${encodeURIComponent(guestOrderNumber)}/status`),
+    refetchInterval: (query) => {
+      const status = query.state.data?.payment?.status
+      return !query.state.data || status === 'initiated' || status === 'pending' ? 2500 : false
     },
   })
   useEffect(() => {
@@ -478,6 +491,18 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
   const imageUrl = selectedImage?.imageUrl ?? product.imageUrl
   const selectedZone = deliveryZonesQuery.data?.find((zone) => String(zone.id) === deliveryZoneId)
   const buyFlowTotal = selectedSubtotal + Number(selectedZone?.fee ?? 0)
+  const guestPaymentStatus = guestOrderStatusQuery.data?.payment?.status
+  const guestPaymentRetryable = guestOrderStatusQuery.isSuccess
+    && (!guestPaymentStatus || ['cancelled', 'failed', 'expired'].includes(guestPaymentStatus))
+  const guestPaymentStatusLabel = guestOrderStatusQuery.isPending ? 'Checking payment status…'
+    : guestPaymentStatus === 'succeeded' ? 'Payment received'
+      : guestPaymentStatus === 'pending' ? 'Prompt sent to your phone'
+        : guestPaymentStatus === 'initiated' ? 'Sending payment prompt…'
+          : guestPaymentStatus === 'cancelled' ? 'Prompt cancelled'
+            : guestPaymentStatus === 'expired' ? 'Prompt expired'
+              : guestPaymentStatus === 'failed' ? 'Payment not completed'
+                : guestPaymentStatus === 'requires_review' ? 'Payment status needs review'
+                  : guestOrderStatusQuery.isError ? 'Could not check status' : 'No active prompt'
 
   function changeSizeQuantity(variant: ShopVariant, quantity: number) {
     setSelectedQuantities((current) => {
@@ -503,10 +528,33 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
         setDeliveryPinStatus(`Location pinned with approximately ${Math.round(position.coords.accuracy)} m accuracy.`)
       },
       (error) => setDeliveryPinStatus(error.code === error.PERMISSION_DENIED
-        ? 'Allow location access in your browser to pin the delivery location.'
-        : 'Your location could not be found. You can continue without a pin.'),
+        ? 'Location access is blocked. Allow it in your browser site settings and turn on device Location Services, then try again.'
+        : error.code === error.POSITION_UNAVAILABLE
+          ? 'Device location is off or unavailable. Turn on Location Services and allow this site to use your location, then try again.'
+          : 'Your location could not be found. You can continue without a pin.'),
       { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 },
     )
+  }
+
+  async function retryGuestPayment() {
+    if (!guestOrderNumber) return
+    setBuyFlowBusy(true)
+    setBuyFlowError('')
+    try {
+      const response = await fetch(`/api/v1/orders/guest/${encodeURIComponent(guestOrderNumber)}/mpesa/stk-push`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: payerPhone }),
+      })
+      const result = await response.json().catch(() => null) as { data?: { message?: string }; error?: { message?: string } } | null
+      if (!response.ok || !result?.data) throw new Error(result?.error?.message ?? 'A new payment prompt could not be sent.')
+      setBuyFlowConfirmation(`A new M-PESA prompt was sent to ${payerPhone}. Approve it on your phone to complete order ${guestOrderNumber}.`)
+      await guestOrderStatusQuery.refetch()
+    } catch (issue) {
+      setBuyFlowError(issue instanceof Error ? issue.message : 'A new payment prompt could not be sent.')
+    } finally {
+      setBuyFlowBusy(false)
+    }
   }
 
   async function submitBuyFlow(event?: FormEvent<HTMLFormElement>) {
@@ -551,7 +599,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
     setBuyFlowBusy(true)
     setBuyFlowError('')
     try {
-      const confirmation = await onBuyNow(product, selectedItems, {
+      const result = await onBuyNow(product, selectedItems, {
         idempotencyKey: buyFlowIdempotencyKey,
         deliveryZoneId: selectedZone.id,
         paymentMethod: buyFlowPaymentMethod,
@@ -563,7 +611,8 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
         ...(deliveryPin?.accuracy !== null && deliveryPin ? { accuracy: deliveryPin.accuracy } : {}),
       })
       if (!portalMode && !accountUser) {
-        setBuyFlowConfirmation(confirmation ?? 'Your guest order was created. Check your phone for the M-PESA prompt.')
+        setBuyFlowConfirmation(typeof result === 'object' && result ? result.message : result ?? 'Your guest order was created. Check your phone for the M-PESA prompt.')
+        setGuestOrderNumber(typeof result === 'object' && result ? result.guestOrderNumber ?? '' : '')
         setBuyFlowBusy(false)
       }
     } catch (issue) {
@@ -644,7 +693,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
         })}</div><small className="product-size-limit">Choose multiple sizes if needed. Maximum 5 kits total, limited by available stock.</small></section>}
         <p className="product-purchase-total"><span>{selectedQuantity} {selectedQuantity === 1 ? 'kit' : 'kits'} selected</span><strong>{money.format(selectedSubtotal)}</strong></p>
         <button className="button button-outline product-add" type="button" disabled={!selectedItems.length} onClick={() => selectedItems.length && onAdd(product, selectedItems)}>Add to bag<ArrowRight size={16} /></button>
-        <button className="button button-green product-buy-now" type="button" disabled={!product.variants.some((variant) => variant.stock > 0)} onClick={() => { setBuyFlowStep(0); setBuyFlowPaymentMethod(!portalMode && !accountUser ? 'mpesa' : 'pay_on_delivery'); setBuyFlowError(''); setBuyFlowConfirmation(''); setBuyFlowIdempotencyKey(crypto.randomUUID()); setPayerPhone(accountUser?.phone ?? ''); setBuyFlowOpen(true) }}>Buy now <ArrowRight size={16} /></button>
+        <button className="button button-green product-buy-now" type="button" disabled={!product.variants.some((variant) => variant.stock > 0)} onClick={() => { setBuyFlowStep(0); setBuyFlowPaymentMethod(!portalMode && !accountUser ? 'mpesa' : 'pay_on_delivery'); setBuyFlowError(''); setBuyFlowConfirmation(''); setGuestOrderNumber(''); setBuyFlowIdempotencyKey(crypto.randomUUID()); setPayerPhone(accountUser?.phone ?? ''); setBuyFlowOpen(true) }}>Buy now <ArrowRight size={16} /></button>
         <div className="product-secondary-actions"><button className="wishlist-add" type="button" onClick={() => onSave(product.id)}>Save to wishlist</button>
         {portalMode && <button className="product-chat-button" type="button" onClick={() => navigate('/account/chat', { state: {
           draft: `Hi KitCulture Admin, I’m interested in ${product.name}. The listed price is ${money.format(startingPrice)}. Is it available?`,
@@ -657,7 +706,21 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
     {buyFlowOpen && <div className="buy-flow-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !buyFlowBusy) setBuyFlowOpen(false) }}><section className="buy-flow-dialog" role="dialog" aria-modal="true" aria-labelledby="buy-flow-title">
       <header className="buy-flow-heading"><div><span className="eyebrow">{buyFlowConfirmation ? 'GUEST ORDER · PAYMENT STATUS' : `SECURE CHECKOUT · STEP ${buyFlowStep + 1} OF 4`}</span><h2 id="buy-flow-title">{buyFlowConfirmation ? 'Order submitted' : ['Your kit', 'Delivery location', 'Payment method', 'Review order'][buyFlowStep]}</h2></div><button className="icon-button" type="button" aria-label="Close checkout" disabled={buyFlowBusy} onClick={() => setBuyFlowOpen(false)}><X /></button></header>
       <div className="buy-flow-progress" aria-label={`Step ${buyFlowStep + 1} of 4`}><span style={{ width: `${(buyFlowStep + 1) * 25}%` }} /></div>
-      {buyFlowConfirmation ? <div className="buy-flow-content" role="status"><p className="buy-flow-confirmation">{buyFlowConfirmation}</p><button className="button button-green" type="button" onClick={() => setBuyFlowOpen(false)}>Close checkout</button></div> : buyFlowStep === 0 ? <div className="buy-flow-content">
+      {buyFlowConfirmation ? <div className="buy-flow-content" role="status"><p className="buy-flow-confirmation">{buyFlowConfirmation}</p>
+        {guestOrderNumber && <section className="guest-payment-status" aria-live="polite"><div><span>Order</span><strong>{guestOrderNumber}</strong></div><div><span>Payment</span><strong>{guestPaymentStatusLabel}</strong></div>
+          <p>{guestPaymentStatus === 'cancelled' ? 'The M-PESA prompt was cancelled. No payment was completed; you can request a new prompt.'
+            : guestPaymentStatus === 'expired' ? 'The M-PESA prompt expired before payment. Request a new prompt to try again.'
+              : guestPaymentStatus === 'failed' ? 'The payment did not complete. You can request a new prompt.'
+                : guestPaymentStatus === 'succeeded' ? 'Your payment has been confirmed. Thank you for your order.'
+                  : guestPaymentStatus === 'requires_review' ? 'The payment outcome needs to be checked before another prompt can be sent. Please contact KitCulture support.'
+                    : guestOrderStatusQuery.isError ? 'We could not refresh the payment status. Try checking again.'
+                      : guestPaymentStatus === 'pending' ? 'Approve the prompt on your phone. If you cancel it, this screen will show a retry option.'
+                        : 'Checking for an active M-PESA prompt.'}</p>
+          {guestPaymentRetryable && <button className="button button-green" type="button" disabled={buyFlowBusy} onClick={() => void retryGuestPayment()}>{buyFlowBusy ? 'Sending prompt…' : 'Retry M-PESA prompt'} <Smartphone size={15} /></button>}
+          {guestOrderStatusQuery.isError && <button className="button button-outline" type="button" onClick={() => void guestOrderStatusQuery.refetch()}>Check payment status</button>}
+        </section>}
+        {buyFlowError && <p className="buy-flow-error" role="alert">{buyFlowError}</p>}
+        <button className="button button-green" type="button" onClick={() => setBuyFlowOpen(false)}>Close checkout</button></div> : buyFlowStep === 0 ? <div className="buy-flow-content">
         <div className="buy-flow-product">{imageUrl ? <img src={imageUrl} alt={product.name} /> : <div className="cart-image-placeholder">KC</div>}<div><span className="product-category">{[product.team?.name, product.jerseyCategory?.name, product.category?.name].filter(Boolean).join(' · ') || 'Football kit'}</span><h3>{product.name}</h3><p>{product.description}</p></div></div>
         <div className="buy-flow-size-list"><h3>Choose size and quantity</h3>{product.variants.map((variant) => {
           const quantity = selectedQuantities[variant.id] ?? 0

@@ -83,6 +83,14 @@
 .buy-flow-payment-merchant strong{color:var(--dark-text);font-size:13px}
 .buy-flow-payment-merchant span,.buy-flow-hint{color:var(--muted);font-size:11px;line-height:1.55}
 .buy-flow-hint,.buy-flow-error{margin:0}
+.buy-flow-content .checkout-location-button{width:100%;min-height:46px;justify-content:center;border:1px solid #a9e8bd;background:#17452d;color:#fff;font-size:12px;font-weight:750}
+.buy-flow-content .checkout-location-button:hover{border-color:#fff;background:#20603c;color:#fff}
+.buy-flow-content .checkout-location-button:focus-visible{outline:3px solid #f4bd42;outline-offset:2px}
+.buy-flow-content .checkout-location-status{margin:0;color:#fff;font-size:12px;line-height:1.5}
+.buy-flow-content .portal-map-card{margin-top:0;border-color:#466452;background:var(--dark-raised)}
+.buy-flow-content .portal-map-heading{color:#fff}
+.buy-flow-content .portal-map-card iframe{height:118px}
+.buy-flow-content .portal-map-card>a{background:#111b15;color:#b7f2c6}
 .buy-flow-review{display:grid;gap:11px;padding:14px;border:1px solid var(--dark-border);background:var(--dark-raised)}
 .buy-flow-review h3{margin-bottom:2px}
 .buy-flow-review>div{padding-top:9px;border-top:1px solid var(--dark-border);color:var(--dark-muted);font-size:11px}
@@ -91,6 +99,13 @@
 .buy-flow-payee{background:var(--dark-surface)}
 .buy-flow-error{color:#ff9188;font-size:11px;line-height:1.5}
 .buy-flow-confirmation{margin:0;padding:14px;border-left:3px solid var(--green);background:var(--dark-raised);color:var(--dark-text);font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.guest-payment-status{display:grid;gap:10px;padding:13px;border:1px solid #466452;background:#111b15;color:#fff}
+.guest-payment-status>div{display:flex;justify-content:space-between;gap:12px;padding-bottom:8px;border-bottom:1px solid #34483a;font-size:11px}
+.guest-payment-status>div span{color:#c9d7cd}
+.guest-payment-status>div strong{color:#fff;text-align:right;overflow-wrap:anywhere}
+.guest-payment-status>p{margin:0;color:#fff;font-size:11px;line-height:1.55}
+.guest-payment-status>.button{width:100%;min-height:44px;justify-content:center}
+.guest-payment-status>.button-outline{border-color:#d6e9dc;background:transparent;color:#fff}
 .buy-flow-signin{display:flex;align-items:center;gap:6px;color:var(--green-dark);font-size:11px;font-weight:700;text-decoration:none}
 @keyframes buy-flow-in{from{opacity:0}to{opacity:1}}
 .account-orders{width:100%;max-height:42vh;overflow:auto;border-top:1px solid var(--line);padding-top:14px}
