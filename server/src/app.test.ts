@@ -165,12 +165,16 @@ test('admin session endpoint rejects requests without an administrator cookie', 
   assert.equal(payload.error.code, 'UNAUTHENTICATED')
 })
 
-test('allows HTTPS-hosted images under the content security policy', async () => {
+test('sets hardened security headers for production-safe responses', async () => {
   const response = await fetch(`${baseUrl}/health/live`)
   const policy = response.headers.get('content-security-policy') ?? ''
   assert.match(policy, /img-src[^;]*https:/)
   assert.match(policy, /frame-src[^;]*https:\/\/maps\.google\.com/)
   assert.match(policy, /frame-src[^;]*https:\/\/www\.google\.com/)
+  assert.equal(response.headers.get('strict-transport-security') ?? '', 'max-age=31536000; includeSubDomains')
+  assert.equal(response.headers.get('x-content-type-options') ?? '', 'nosniff')
+  assert.equal(response.headers.get('referrer-policy') ?? '', 'no-referrer')
+  assert.equal(response.headers.get('x-frame-options') ?? '', 'SAMEORIGIN')
 })
 
 test('readiness reflects unavailable MySQL while liveness remains healthy', async () => {

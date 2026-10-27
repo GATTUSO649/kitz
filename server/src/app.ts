@@ -23,10 +23,25 @@ app.set('trust proxy', 3)
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
+      defaultSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'self'"],
       imgSrc: ["'self'", 'data:', 'https:'],
       frameSrc: ["'self'", 'https://maps.google.com', 'https://www.google.com'],
     },
   },
+  crossOriginResourcePolicy: { policy: 'same-origin' },
+  dnsPrefetchControl: { allow: false },
+  frameguard: { action: 'sameorigin' },
+  hidePoweredBy: true,
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+  },
+  noSniff: true,
+  referrerPolicy: { policy: 'no-referrer' },
 }))
 app.use(cors({
   origin: (origin, callback) => callback(null, !origin || isAllowedClientOrigin(origin)),

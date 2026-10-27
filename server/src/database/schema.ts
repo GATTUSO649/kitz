@@ -379,6 +379,21 @@ export const passwordResetTokens = mysqlTable('password_reset_tokens', {
   consumedAt: timestamp('consumed_at'),
 })
 
+export const emailDeliveryLogs = mysqlTable('email_delivery_logs', {
+  id: int('id').autoincrement().primaryKey(),
+  userId: int('user_id').references(() => users.id, { onDelete: 'set null' }),
+  orderId: int('order_id').references(() => orders.id, { onDelete: 'set null' }),
+  notificationType: varchar('notification_type', { length: 64 }).notNull(),
+  recipientEmail: varchar('recipient_email', { length: 254 }).notNull(),
+  providerMessageId: varchar('provider_message_id', { length: 128 }),
+  status: mysqlEnum('status', ['queued', 'accepted', 'delivered', 'rejected', 'failed']).default('queued').notNull(),
+  attempts: int('attempts').default(0).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  lastAttemptAt: timestamp('last_attempt_at'),
+  errorCategory: varchar('error_category', { length: 64 }),
+  errorMessage: text('error_message'),
+}, (table) => [index('email_delivery_logs_user_created_idx').on(table.userId, table.createdAt), index('email_delivery_logs_order_idx').on(table.orderId)])
+
 export const auditLogs = mysqlTable('audit_logs', {
   id: int('id').autoincrement().primaryKey(),
   actorUserId: int('actor_user_id').references(() => users.id, { onDelete: 'set null' }),

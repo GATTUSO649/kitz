@@ -1,17 +1,21 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import express from 'express'
-import { mysqlSslOptions } from '../../config/database.js'
-import { isAllowedClientOrigin, resolveDarajaEnvironment, resolveDarajaTransactionType } from '../../config/env.js'
-import { bcryptPasswordSchema } from '../../config/password-policy.js'
-import { adminIdleTimeoutMs, adminLoginSchema, matchesAdminSignupSecret } from '../admin/auth.js'
-import { loginSchema, registerSchema } from './routes.js'
-import { createOrderSchema, createTemporaryOrderNumber, exceedsProductQuantityLimit, ordersRouter } from '../orders/routes.js'
-import { combinedRating, quickProductRatingSchema } from '../catalogue/routes.js'
-import { buildDarajaCallbackUrl, callbackFailureStatus, canVerifySuccessfulStkPayment, DarajaRequestError, darajaCallbackRoute, initiateStkPush, isFinalDarajaPaymentStatus, isValidDarajaPaymentAmount, matchesCallbackToken, normalizeKenyanPhone, parseDarajaTimestamp, parseStkCallback, resolveDarajaShortcodes } from '../orders/daraja.js'
-import { createAddressSchema, passwordSchema, productReviewSchema, profileSchema, supportMessageSchema, supportRequestSchema } from '../account/routes.js'
-import { adminNotificationSchema, canTransitionOrderStatus, createProductSchema, homepageSlideBatchSchema, homepageSlideSchema, isDuplicateKeyError, settingsSchema, supportUpdateSchema } from '../admin/routes.js'
-import { detectImageFormat } from '../admin/image-storage.js'
+
+process.env.NODE_ENV = 'development'
+process.env.CLIENT_ORIGIN = 'http://localhost:5173'
+
+const { mysqlSslOptions } = await import('../../config/database.js')
+const { isAllowedClientOrigin, resolveDarajaEnvironment, resolveDarajaTransactionType } = await import('../../config/env.js')
+const { bcryptPasswordSchema } = await import('../../config/password-policy.js')
+const { adminIdleTimeoutMs, adminLoginSchema, matchesAdminSignupSecret } = await import('../admin/auth.js')
+const { loginSchema, registerSchema } = await import('./routes.js')
+const { createOrderSchema, createTemporaryOrderNumber, exceedsProductQuantityLimit, ordersRouter } = await import('../orders/routes.js')
+const { combinedRating, quickProductRatingSchema } = await import('../catalogue/routes.js')
+const { buildDarajaCallbackUrl, callbackFailureStatus, canVerifySuccessfulStkPayment, DarajaRequestError, darajaCallbackRoute, initiateStkPush, isFinalDarajaPaymentStatus, isValidDarajaPaymentAmount, matchesCallbackToken, normalizeKenyanPhone, parseDarajaTimestamp, parseStkCallback, resolveDarajaShortcodes } = await import('../orders/daraja.js')
+const { createAddressSchema, passwordSchema, productReviewSchema, profileSchema, supportMessageSchema, supportRequestSchema } = await import('../account/routes.js')
+const { adminNotificationSchema, canTransitionOrderStatus, createProductSchema, homepageSlideBatchSchema, homepageSlideSchema, isDuplicateKeyError, settingsSchema, supportUpdateSchema } = await import('../admin/routes.js')
+const { detectImageFormat } = await import('../admin/image-storage.js')
 
 test('registration normalizes email and accepts a long password', () => {
   const result = registerSchema.safeParse({
