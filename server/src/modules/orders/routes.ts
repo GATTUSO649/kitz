@@ -5,13 +5,12 @@ import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
 import { db } from '../../config/database.js'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
-import { applicationSettings, auditLogs, deliveryZones, inventoryMovements, notificationCampaigns, notificationRecipients, orderItems, orders, payments, productVariants, products, supportMessages, supportRequests, users } from '../../database/schema.js'
+import { applicationSettings, auditLogs, deliveryZones, inventoryMovements, notificationCampaigns, notificationRecipients, orderItems, orders, payments, productVariants, products, supportMessages, supportRequests } from '../../database/schema.js'
 import { authenticate, authenticatedUser } from '../../middleware/authenticate.js'
 import { isAdminOnline, publishChatMessage } from '../../realtime/chat-events.js'
 import { callbackFailureStatus, canVerifySuccessfulStkPayment, DarajaRequestError, darajaCallbackRoute, initiateStkPush, isDarajaConfigured, isFinalDarajaPaymentStatus, isValidCallbackToken, normalizeKenyanPhone, parseDarajaTimestamp, parseStkCallback, queryStkPush, resolveDarajaShortcodes } from './daraja.js'
 
 export const ordersRouter = Router()
-const mpesaPromptRetryDelayMs = 59_000
 
 function validCoordinate(value: unknown, minimum: number, maximum: number): number | null {
   if (typeof value !== 'number' && typeof value !== 'string') return null
@@ -424,6 +423,7 @@ ordersRouter.post('/orders/guest/:orderNumber/mpesa/stk-push', rejectCrossOrigin
   if (!phone) return response.status(400).json({ error: { code: 'MPESA_PHONE_REQUIRED', message: 'Enter a valid Kenyan phone number for the payment prompt.' } })
   let order: { id: number; orderNumber: string; total: string }
   let paymentId: number | undefined
+  let providerAccepted = false
   try {
     const creation = await db.transaction(async (transaction) => {
       const [guestOrder] = await transaction.select({ id: orders.id, orderNumber: orders.orderNumber, status: orders.status, paymentMethod: orders.paymentMethod, total: orders.total })
@@ -435,19 +435,31 @@ ordersRouter.post('/orders/guest/:orderNumber/mpesa/stk-push', rejectCrossOrigin
       const [existingPayment] = await transaction.select({ id: payments.id, status: payments.status, updatedAt: payments.updatedAt }).from(payments)
         .where(and(eq(payments.orderId, guestOrder.id), eq(payments.provider, 'mpesa'))).orderBy(desc(payments.createdAt)).limit(1)
       const retryable = existingPayment && ['failed', 'cancelled', 'expired'].includes(existingPayment.status)
-      const promptWindowElapsed = existingPayment?.status === 'pending' && Date.now() - existingPayment.updatedAt.getTime() >= mpesaPromptRetryDelayMs
-      if (existingPayment && !retryable && !promptWindowElapsed) throw new OrderRequestError(409, 'MPESA_REQUEST_ALREADY_EXISTS', 'A payment prompt is still active. Wait 59 seconds before requesting another.')
+      if (existingPayment && !retryable) throw new OrderRequestError(409, 'MPESA_REQUEST_ALREADY_EXISTS', 'The existing payment request is unresolved. Check its status before trying again.')
       const [createdPayment] = await transaction.insert(payments).values({ orderId: guestOrder.id, provider: 'mpesa', amount: guestOrder.total, status: 'initiated', merchantShortcode: shortcodes.businessShortcode, payerPhone: phone }).$returningId()
       return { order: guestOrder, amountCents, paymentId: createdPayment.id }
     })
     order = creation.order
     paymentId = creation.paymentId
     const result = await initiateStkPush({ businessShortcode: shortcodes.businessShortcode, partyB: shortcodes.partyB, phone, amount: creation.amountCents / 100, accountReference: order.orderNumber })
+    providerAccepted = true
     await db.update(payments).set({ providerRequestId: result.checkoutRequestId, merchantRequestId: result.merchantRequestId, status: 'pending', verificationMessage: 'Daraja accepted the STK request; waiting for verified payment confirmation.' }).where(eq(payments.id, paymentId))
     return response.status(202).json({ data: { orderNumber: order.orderNumber, status: 'pending', message: result.customerMessage } })
   } catch (error) {
     if (error instanceof OrderRequestError) return response.status(error.status).json({ error: { code: error.code, message: error.message } })
-    const unknownOutcome = error instanceof DarajaRequestError && error.outcome === 'unknown'
+    const unknownOutcome = providerAccepted || (error instanceof DarajaRequestError && error.outcome === 'unknown')
+    request.log.warn({
+      requestId: request.id,
+      operation: 'orders.guest.mpesa.stk-push',
+      stage: error instanceof DarajaRequestError ? error.stage : 'payment_record_update',
+      outcome: unknownOutcome ? 'unknown' : error instanceof DarajaRequestError ? error.outcome : 'unknown',
+      providerCode: error instanceof DarajaRequestError ? error.providerCode : undefined,
+      providerMessage: error instanceof DarajaRequestError ? error.providerMessage : undefined,
+      providerRequestId: error instanceof DarajaRequestError ? error.providerRequestId : undefined,
+      networkCode: error instanceof DarajaRequestError ? error.networkCode : undefined,
+      httpStatus: error instanceof DarajaRequestError ? error.httpStatus : undefined,
+      durationMs: error instanceof DarajaRequestError ? error.durationMs : undefined,
+    }, 'Guest Daraja STK request did not complete normally')
     if (paymentId !== undefined) await db.update(payments).set({ status: unknownOutcome ? 'requires_review' : 'failed', verificationMessage: unknownOutcome ? 'The payment request outcome is unknown. Check payment status or contact support before retrying.' : 'Daraja rejected the payment request before creating a customer prompt.' }).where(and(eq(payments.id, paymentId), eq(payments.status, 'initiated')))
     return response.status(502).json({ error: { code: unknownOutcome ? 'MPESA_OUTCOME_UNKNOWN' : 'MPESA_PROMPT_FAILED', message: unknownOutcome ? 'We could not confirm whether the prompt was sent. Check its status before trying again.' : 'The M-Pesa prompt could not be started. Try again later.' } })
   }
@@ -496,10 +508,8 @@ ordersRouter.post('/orders/:orderNumber/mpesa/stk-push', rejectCrossOrigin, stkP
         .where(and(eq(payments.orderId, lockedOrder.id), eq(payments.provider, 'mpesa')))
         .orderBy(desc(payments.createdAt)).limit(1)
       const retryableFinalStatus = existingPayment && ['failed', 'cancelled', 'expired'].includes(existingPayment.status)
-      const promptWindowElapsed = existingPayment?.status === 'pending'
-        && Date.now() - existingPayment.updatedAt.getTime() >= mpesaPromptRetryDelayMs
-      if (existingPayment && !retryableFinalStatus && !promptWindowElapsed) {
-        throw new OrderRequestError(409, 'MPESA_REQUEST_ALREADY_EXISTS', 'A payment prompt is still active. Wait 59 seconds before requesting a new prompt, or check its status.')
+      if (existingPayment && !retryableFinalStatus) {
+        throw new OrderRequestError(409, 'MPESA_REQUEST_ALREADY_EXISTS', 'The existing payment request is unresolved. Check its status before trying again.')
       }
       const [createdPayment] = await transaction.insert(payments).values({
         orderId: lockedOrder.id,
@@ -658,7 +668,7 @@ ordersRouter.post(darajaCallbackRoute, async (request, response) => {
   }
 
   const [order] = await db.select({ id: orders.id, userId: orders.userId, orderNumber: orders.orderNumber, total: orders.total, currency: orders.currency, status: orders.status })
-    .from(orders).innerJoin(users, eq(orders.userId, users.id)).where(eq(orders.id, payment.orderId)).limit(1)
+    .from(orders).where(eq(orders.id, payment.orderId)).limit(1)
   const transactionMatchesOrder = order !== undefined && canVerifySuccessfulStkPayment({
     orderStatus: order.status,
     currency: order.currency,

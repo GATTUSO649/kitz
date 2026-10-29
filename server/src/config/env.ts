@@ -52,15 +52,15 @@ const schema = z.object({
   CLOUDINARY_CLOUD_NAME: z.string().min(1).optional(),
   CLOUDINARY_API_KEY: z.string().min(1).optional(),
   CLOUDINARY_API_SECRET: z.string().min(1).optional(),
-  DARAJA_ENV: z.enum(['sandbox', 'production']).default('sandbox'),
-  DARAJA_CONSUMER_KEY: z.string().min(1).optional(),
-  DARAJA_CONSUMER_SECRET: z.string().min(1).optional(),
-  DARAJA_PASSKEY: z.string().min(1).optional(),
+  DARAJA_ENV: z.enum(['sandbox', 'production']).optional(),
+  DARAJA_CONSUMER_KEY: z.string().trim().min(1).optional(),
+  DARAJA_CONSUMER_SECRET: z.string().trim().min(1).optional(),
+  DARAJA_PASSKEY: z.string().trim().min(1).optional(),
   DARAJA_TRANSACTION_TYPE: z.enum(['CustomerPayBillOnline', 'CustomerBuyGoodsOnline']).optional(),
   DARAJA_SHORTCODE: z.string().regex(/^\d{5,20}$/).optional(),
   DARAJA_CALLBACK_BASE_URL: z.string().url().optional(),
-  DARAJA_CALLBACK_TOKEN: z.string().min(32).optional(),
-  MPESA_ACCOUNT_REFERENCE: z.string().trim().min(1).max(64).default('KitZone'),
+  DARAJA_CALLBACK_TOKEN: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/).optional(),
+  MPESA_ACCOUNT_REFERENCE: z.string().trim().min(1).max(64).default('KitCulture'),
   MPESA_TRANSACTION_DESC: z.string().trim().min(1).max(64).default('Jersey Purchase'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 })
@@ -95,6 +95,65 @@ export function resolveDarajaEnvironment(nodeEnvironment: string, configuredEnvi
 export function resolveDarajaTransactionType(nodeEnvironment: string, configuredType?: 'CustomerPayBillOnline' | 'CustomerBuyGoodsOnline') {
   if (configuredType) return configuredType
   return nodeEnvironment === 'development' || nodeEnvironment === 'test' ? 'CustomerPayBillOnline' : undefined
+}
+
+type ProductionDarajaConfiguration = {
+  NODE_ENV: string
+  DARAJA_ENV?: 'sandbox' | 'production'
+  DARAJA_CONSUMER_KEY?: string
+  DARAJA_CONSUMER_SECRET?: string
+  DARAJA_PASSKEY?: string
+  DARAJA_TRANSACTION_TYPE?: 'CustomerPayBillOnline' | 'CustomerBuyGoodsOnline'
+  DARAJA_SHORTCODE?: string
+  DARAJA_CALLBACK_BASE_URL?: string
+  DARAJA_CALLBACK_TOKEN?: string
+  APP_URL?: string
+  MPESA_CALLBACK_URL?: string
+}
+
+export function productionDarajaConfigurationErrors(configuration: ProductionDarajaConfiguration): string[] {
+  if (configuration.NODE_ENV !== 'production') return []
+
+  const errors: string[] = []
+  if (configuration.DARAJA_ENV !== 'production') errors.push('MPESA_ENV or DARAJA_ENV must be production')
+  if (!configuration.DARAJA_CONSUMER_KEY) errors.push('MPESA_CONSUMER_KEY or DARAJA_CONSUMER_KEY is required')
+  if (!configuration.DARAJA_CONSUMER_SECRET) errors.push('MPESA_CONSUMER_SECRET or DARAJA_CONSUMER_SECRET is required')
+  if (!configuration.DARAJA_PASSKEY) errors.push('MPESA_PASSKEY or DARAJA_PASSKEY is required')
+  if (!configuration.DARAJA_TRANSACTION_TYPE) errors.push('MPESA_TRANSACTION_TYPE or DARAJA_TRANSACTION_TYPE is required')
+  if (!configuration.DARAJA_SHORTCODE) errors.push('MPESA_SHORTCODE or DARAJA_SHORTCODE is required')
+  if (!configuration.DARAJA_CALLBACK_TOKEN) errors.push('MPESA_CALLBACK_TOKEN or DARAJA_CALLBACK_TOKEN is required')
+
+  const callbackValue = configuration.MPESA_CALLBACK_URL
+    ?? configuration.DARAJA_CALLBACK_BASE_URL
+    ?? configuration.APP_URL
+  if (!callbackValue) {
+    errors.push('MPESA_CALLBACK_URL, DARAJA_CALLBACK_BASE_URL, or APP_URL is required')
+  } else {
+    try {
+      const callbackUrl = new URL(callbackValue)
+      const token = configuration.DARAJA_CALLBACK_TOKEN ?? ''
+      const expectedPath = `/api/v1/orders/mpesa/callback/${token}`
+      const hostIsPlaceholder = /localhost|127\.0\.0\.1|example\.com|your[-.]|\.local$/i.test(callbackUrl.hostname)
+      const pathIsValid = configuration.MPESA_CALLBACK_URL
+        ? callbackUrl.pathname === expectedPath
+        : callbackUrl.pathname === '/' || callbackUrl.pathname === expectedPath
+      if (callbackUrl.protocol !== 'https:' || hostIsPlaceholder || !pathIsValid || callbackUrl.search || callbackUrl.hash || callbackUrl.username || callbackUrl.password) {
+        errors.push('the production callback must be a public HTTPS KitCulture callback URL')
+      }
+    } catch {
+      errors.push('the production callback URL is invalid')
+    }
+  }
+
+  return errors
+}
+
+const productionDarajaErrors = productionDarajaConfigurationErrors({
+  ...parsed.data,
+  MPESA_CALLBACK_URL: process.env.MPESA_CALLBACK_URL,
+})
+if (productionDarajaErrors.length) {
+  throw new Error(`Invalid production M-Pesa configuration: ${productionDarajaErrors.join('; ')}`)
 }
 
 export const env = {

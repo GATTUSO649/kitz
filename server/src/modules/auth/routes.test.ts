@@ -6,7 +6,7 @@ process.env.NODE_ENV = 'development'
 process.env.CLIENT_ORIGIN = 'http://localhost:5173'
 
 const { mysqlSslOptions } = await import('../../config/database.js')
-const { isAllowedClientOrigin, resolveDarajaEnvironment, resolveDarajaTransactionType } = await import('../../config/env.js')
+const { isAllowedClientOrigin, productionDarajaConfigurationErrors, resolveDarajaEnvironment, resolveDarajaTransactionType } = await import('../../config/env.js')
 const { bcryptPasswordSchema } = await import('../../config/password-policy.js')
 const { adminIdleTimeoutMs, adminLoginSchema, matchesAdminSignupSecret } = await import('../admin/auth.js')
 const { loginSchema, registerSchema } = await import('./routes.js')
@@ -420,6 +420,38 @@ test('production honors an explicit Daraja environment and never silently select
   assert.equal(resolveDarajaEnvironment('production', 'production'), 'production')
 })
 
+test('production Daraja configuration fails closed when credentials or live settings are missing', () => {
+  assert.deepEqual(productionDarajaConfigurationErrors({ NODE_ENV: 'development' }), [])
+  const missing = productionDarajaConfigurationErrors({ NODE_ENV: 'production' })
+  assert.ok(missing.includes('MPESA_ENV or DARAJA_ENV must be production'))
+  assert.ok(missing.includes('MPESA_CONSUMER_KEY or DARAJA_CONSUMER_KEY is required'))
+  assert.ok(missing.includes('MPESA_CONSUMER_SECRET or DARAJA_CONSUMER_SECRET is required'))
+  assert.ok(missing.includes('MPESA_PASSKEY or DARAJA_PASSKEY is required'))
+  assert.ok(missing.includes('MPESA_TRANSACTION_TYPE or DARAJA_TRANSACTION_TYPE is required'))
+  assert.ok(missing.includes('MPESA_SHORTCODE or DARAJA_SHORTCODE is required'))
+  assert.ok(missing.includes('MPESA_CALLBACK_TOKEN or DARAJA_CALLBACK_TOKEN is required'))
+  assert.ok(missing.includes('MPESA_CALLBACK_URL, DARAJA_CALLBACK_BASE_URL, or APP_URL is required'))
+})
+
+test('production Daraja configuration requires a public HTTPS callback matching the token route', () => {
+  const token = 'a'.repeat(40)
+  const complete = {
+    NODE_ENV: 'production',
+    DARAJA_ENV: 'production' as const,
+    DARAJA_CONSUMER_KEY: 'test-consumer-key',
+    DARAJA_CONSUMER_SECRET: 'test-consumer-secret',
+    DARAJA_PASSKEY: 'test-passkey',
+    DARAJA_TRANSACTION_TYPE: 'CustomerPayBillOnline' as const,
+    DARAJA_SHORTCODE: '600001',
+    DARAJA_CALLBACK_BASE_URL: 'https://payments.kitculture.co.ke',
+    DARAJA_CALLBACK_TOKEN: token,
+  }
+  assert.deepEqual(productionDarajaConfigurationErrors(complete), [])
+  assert.ok(productionDarajaConfigurationErrors({ ...complete, DARAJA_ENV: 'sandbox' }).includes('MPESA_ENV or DARAJA_ENV must be production'))
+  assert.ok(productionDarajaConfigurationErrors({ ...complete, DARAJA_CALLBACK_BASE_URL: 'http://payments.kitculture.co.ke' }).some((error) => error.includes('public HTTPS')))
+  assert.ok(productionDarajaConfigurationErrors({ ...complete, MPESA_CALLBACK_URL: 'https://payments.kitculture.co.ke/wrong-path' }).some((error) => error.includes('public HTTPS')))
+})
+
 test('sandbox uses its Daraja shortcode instead of the production Till setting', () => {
   assert.deepEqual(resolveDarajaShortcodes('sandbox', 'CustomerPayBillOnline', '174379', '4682146'), { businessShortcode: '174379', partyB: '174379' })
   assert.deepEqual(resolveDarajaShortcodes('sandbox', 'CustomerPayBillOnline', undefined, '4682146'), { businessShortcode: '', partyB: '' })
@@ -448,7 +480,7 @@ const mockDarajaConfiguration = {
   DARAJA_CALLBACK_BASE_URL: 'https://payments.example.test',
   DARAJA_CALLBACK_TOKEN: 'a'.repeat(40),
   DARAJA_TRANSACTION_TYPE: 'CustomerBuyGoodsOnline' as const,
-  MPESA_ACCOUNT_REFERENCE: 'KitZone',
+  MPESA_ACCOUNT_REFERENCE: 'KitCulture',
   MPESA_TRANSACTION_DESC: 'Jersey Purchase',
 }
 
@@ -476,7 +508,7 @@ test('STK Push uses the business shortcode for password and PartyB for the recei
   assert.equal(body.Timestamp, '20261023100000')
   assert.equal(body.Password, Buffer.from(`600001test-passkey${body.Timestamp}`).toString('base64'))
   assert.equal(body.TransactionType, 'CustomerBuyGoodsOnline')
-  assert.equal(body.AccountReference, 'KitZone')
+  assert.equal(body.AccountReference, 'KitCulture')
   assert.equal(body.TransactionDesc, 'Jersey Purcha')
   assert.equal(body.Amount, 1250)
   assert.equal(body.PartyA, '254712345678')

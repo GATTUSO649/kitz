@@ -1,5 +1,3 @@
-DARAJA_TRANSACTION_TYPE=CustomerPayBillOnline
-The Sandbox test shortcode `174379` uses `CustomerPayBillOnline`; keep its matching Sandbox passkey with that setting. Use `CustomerBuyGoodsOnline` only for an approved Buy Goods Till and `CustomerPayBillOnline` for a PayBill shortcode. Production requires an explicit `DARAJA_ENV` and `DARAJA_TRANSACTION_TYPE`; development/test defaults to the Sandbox PayBill configuration.
 # M-Pesa Daraja Setup
 
 The checkout uses a server-side Daraja STK Push. Orders stay `pending_payment` until the API receives a callback, queries Daraja for the same checkout request, and verifies the receipt, amount, transaction time, payer phone, and order association. The payer phone can differ from the delivery recipient phone.
@@ -13,21 +11,23 @@ In Admin → Business settings, enter the Buy Goods Till display name and Till n
 Add the following values to the API server environment or deployment secret manager. Do not use `VITE_` prefixes or put secrets in frontend settings.
 
 ```env
-DARAJA_ENV=sandbox
-DARAJA_CONSUMER_KEY=
-DARAJA_CONSUMER_SECRET=
-DARAJA_PASSKEY=
-DARAJA_TRANSACTION_TYPE=CustomerPayBillOnline
-DARAJA_SHORTCODE=
-DARAJA_CALLBACK_BASE_URL=https://your-public-api.example.com
-DARAJA_CALLBACK_TOKEN=use-a-random-secret-at-least-32-characters-long
+MPESA_ENV=sandbox
+MPESA_CONSUMER_KEY=
+MPESA_CONSUMER_SECRET=
+MPESA_PASSKEY=
+MPESA_TRANSACTION_TYPE=CustomerPayBillOnline
+MPESA_SHORTCODE=
+MPESA_CALLBACK_TOKEN=use-a-random-url-safe-secret-32-to-128-characters-long
+MPESA_CALLBACK_URL=https://your-public-api.example.com/api/v1/orders/mpesa/callback/<same-token>
+MPESA_ACCOUNT_REFERENCE=KitCulture
+MPESA_TRANSACTION_DESC=Jersey Purchase
 ```
 
-For the Sandbox test shortcode `174379`, use `CustomerPayBillOnline` with its matching Sandbox passkey. Use `CustomerBuyGoodsOnline` only for an approved Buy Goods Till. Production requires explicit `DARAJA_ENV` and `DARAJA_TRANSACTION_TYPE`; development/test defaults to Sandbox PayBill.
+For the Sandbox test shortcode `174379`, use `CustomerPayBillOnline` with its matching Sandbox passkey. Use `CustomerBuyGoodsOnline` only for an approved Buy Goods Till. Production requires explicit `MPESA_ENV=production` and `MPESA_TRANSACTION_TYPE`; development/test defaults to Sandbox PayBill.
 
-The HTTPS callback URL registered with Daraja is `${DARAJA_CALLBACK_BASE_URL}/api/v1/orders/mpesa/callback/${DARAJA_CALLBACK_TOKEN}`. The public host must route that path to this API. Localhost is not reachable by Safaricom; use a secure public development tunnel for sandbox callback testing.
+Register the exact HTTPS callback URL from `MPESA_CALLBACK_URL` with Daraja. The URL token must match `MPESA_CALLBACK_TOKEN`; the public host must route the path to this API. Alternatively, set `DARAJA_CALLBACK_BASE_URL` (or `APP_URL`) and the API constructs the route. Localhost is not reachable by Safaricom; use a secure public development tunnel for sandbox callback testing.
 
-Use `sandbox` only for development/testing. A production server requires `DARAJA_ENV=production` (or `MPESA_ENV=production`) and live credentials. Checkout enables STK Push only when the matching approved merchant details and all required server settings are valid.
+Use `sandbox` only for development/testing. A production server requires `MPESA_ENV=production` and live credentials (`DARAJA_*` aliases are accepted). The application fails at startup if production settings are missing or inconsistent; checkout requires matching approved merchant details and all required server settings.
 
 ## Production on Render
 
@@ -36,19 +36,20 @@ Set live payment values in Render's server environment, never in Vite variables,
 ```env
 NODE_ENV=production
 MPESA_ENV=production
-MPESA_CONSUMER_KEY=<live consumer key>
-MPESA_CONSUMER_SECRET=<live consumer secret>
+MPESA_CONSUMER_KEY=<Safaricom-issued production consumer key>
+MPESA_CONSUMER_SECRET=<Safaricom-issued production consumer secret>
 MPESA_SHORTCODE=<Safaricom-approved production shortcode>
-MPESA_PASSKEY=<live Lipa na M-Pesa Online passkey>
-MPESA_TRANSACTION_TYPE=CustomerBuyGoodsOnline
-APP_URL=https://your-production-domain
-MPESA_CALLBACK_TOKEN=<random secret of at least 32 characters>
-MPESA_ACCOUNT_REFERENCE=KitZone
+MPESA_PASSKEY=<production Lipa na M-Pesa Online passkey>
+MPESA_TRANSACTION_TYPE=<approved CustomerPayBillOnline or CustomerBuyGoodsOnline>
+MPESA_CALLBACK_TOKEN=<random URL-safe secret, 32-128 characters>
+MPESA_CALLBACK_URL=https://your-production-domain/api/v1/orders/mpesa/callback/<same-token>
+MPESA_ACCOUNT_REFERENCE=KitCulture
+MPESA_TRANSACTION_DESC=Jersey Purchase
 MPESA_TRANSACTION_DESC=Jersey Purchase
 CLIENT_ORIGIN=https://your-production-domain
 ```
 
-`DARAJA_*` names are also supported. `MPESA_CALLBACK_URL` may be supplied instead of `APP_URL`; the application uses its HTTPS origin and builds the callback path. Register the exact generated callback URL with the matching live Daraja app. The account reference is limited to 12 characters and the transaction description is truncated to Daraja's 13-character limit. Do not enable live mode until Safaricom has issued the live credentials and confirmed the shortcode, passkey, product activation, and transaction type.
+`DARAJA_*` names are also supported. Production startup requires explicit production mode, credentials, shortcode, transaction type, callback token, and a public HTTPS callback URL. Register the exact callback URL with the matching live Daraja app. The account reference is limited to 12 characters and the transaction description is truncated to Daraja's 13-character limit. Do not enable live mode until Safaricom has issued the live credentials and confirmed the shortcode, passkey, product activation, and transaction type.
 
 For `CustomerBuyGoodsOnline`, set the approved shortcode in `MPESA_SHORTCODE` and the authorized receiving Till in Admin → Business settings. For `CustomerPayBillOnline`, set the approved PayBill shortcode in `MPESA_SHORTCODE`; the STK request uses that shortcode as `PartyB` and does not require a Till setting. The transaction type must match the Safaricom-approved account and product.
 

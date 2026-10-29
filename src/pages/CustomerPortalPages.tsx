@@ -73,7 +73,6 @@ type CustomerNotification = {
 }
 
 const money = new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES', maximumFractionDigits: 0 })
-const mpesaPromptRetryDelayMs = 59_000
 async function readAccountData<T>(path: string): Promise<T> {
   const response = await fetch(path)
   const result = await response.json() as { data?: T; error?: { message?: string } }
@@ -485,7 +484,6 @@ export function CustomerPortalPage({ path, user, onProfileUpdate }: { path: stri
   const [notificationBusy, setNotificationBusy] = useState(false)
   const [paymentBusy, setPaymentBusy] = useState(false)
   const [paymentPhone, setPaymentPhone] = useState('')
-  const [paymentClock, setPaymentClock] = useState(Date.now())
 
   const profileQuery = useQuery({
     queryKey: ['account-profile', user.id],
@@ -525,14 +523,6 @@ export function CustomerPortalPage({ path, user, onProfileUpdate }: { path: stri
     enabled: Boolean(orderNumber),
     refetchInterval: (query) => ['initiated', 'pending'].includes(query.state.data?.payment?.status ?? '') ? 5000 : false,
   })
-  useEffect(() => {
-    if (orderQuery.data?.payment?.status !== 'pending') return
-    const timer = window.setInterval(() => setPaymentClock(Date.now()), 1000)
-    return () => window.clearInterval(timer)
-  }, [orderQuery.data?.payment?.status, orderQuery.data?.payment?.updatedAt])
-  const paymentRetryRemainingMs = orderQuery.data?.payment?.status === 'pending'
-    ? Math.max(0, mpesaPromptRetryDelayMs - (paymentClock - Date.parse(orderQuery.data.payment.updatedAt)))
-    : 0
   useEffect(() => {
     const savedPayerPhone = orderQuery.data?.payment?.payerPhone
     if (savedPayerPhone) setPaymentPhone(savedPayerPhone)
@@ -831,10 +821,10 @@ export function CustomerPortalPage({ path, user, onProfileUpdate }: { path: stri
                 {orderQuery.data.payment?.payerPhone && <p><strong>Paying phone:</strong> {orderQuery.data.payment.payerPhone.startsWith('+') ? orderQuery.data.payment.payerPhone : `+${orderQuery.data.payment.payerPhone}`}</p>}
                 {orderQuery.data.payment?.transactionAt && <p><strong>Paid at:</strong> {new Date(orderQuery.data.payment.transactionAt).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}</p>}
                 <p>{orderQuery.data.payment?.verificationMessage ?? 'Payment is only confirmed after Daraja verifies the transaction against this order and your account phone.'}</p>
-                {orderQuery.data.status === 'pending_payment' && (!orderQuery.data.payment || ['failed', 'cancelled', 'expired', 'pending'].includes(orderQuery.data.payment.status)) && <>
+                {orderQuery.data.status === 'pending_payment' && orderQuery.data.payment?.status === 'pending' && <p role="status">The payment request is still active. Approve it on your phone or wait for the verified payment status; do not request another prompt while this one is unresolved.</p>}
+                {orderQuery.data.status === 'pending_payment' && (!orderQuery.data.payment || ['failed', 'cancelled', 'expired'].includes(orderQuery.data.payment.status)) && <>
                   <KenyanPhoneInput label="Phone number to pay from" value={paymentPhone} onChange={setPaymentPhone} />
-                  {orderQuery.data.payment?.status === 'pending' && <p role="status">If the prompt has not arrived, you can request another in {Math.ceil(paymentRetryRemainingMs / 1000)} seconds.</p>}
-                  <button type="button" className="button button-green" disabled={paymentBusy || !paymentPhone || (orderQuery.data.payment?.status === 'pending' && paymentRetryRemainingMs > 0)} onClick={() => void retryMpesaPayment()}>{paymentBusy ? 'Requesting prompt…' : orderQuery.data.payment?.status === 'pending' ? paymentRetryRemainingMs > 0 ? `Retry in ${Math.ceil(paymentRetryRemainingMs / 1000)}s` : 'Retry payment prompt' : 'Send payment prompt'} <Smartphone size={15} /></button>
+                  <button type="button" className="button button-green" disabled={paymentBusy || !paymentPhone} onClick={() => void retryMpesaPayment()}>{paymentBusy ? 'Requesting prompt…' : orderQuery.data.payment ? 'Retry payment prompt' : 'Send payment prompt'} <Smartphone size={15} /></button>
                 </>}
               </section>}
             </div>)}
