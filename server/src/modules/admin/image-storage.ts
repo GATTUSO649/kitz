@@ -74,7 +74,7 @@ async function uploadImage(folder: string, publicId: string, bytes: Buffer): Pro
   if (!response.ok || typeof result.public_id !== 'string' || typeof result.secure_url !== 'string'
     || typeof result.format !== 'string' || typeof result.bytes !== 'number'
     || typeof result.width !== 'number' || typeof result.height !== 'number') {
-    throw new ImageStorageError(result.error?.message ?? 'Image storage rejected the upload.')
+    throw new ImageStorageError('Image storage rejected the upload.')
   }
   return {
     public_id: result.public_id,
@@ -117,6 +117,6 @@ export async function deleteProductImage(publicId: string): Promise<void> {
     throw new ImageStorageError('Image storage returned an invalid response.')
   }
   if (!response.ok || !['ok', 'not found'].includes(result.result ?? '')) {
-    throw new ImageStorageError(result.error?.message ?? 'Image could not be deleted from storage.')
+    throw new ImageStorageError('Image could not be deleted from storage.')
   }
 }

@@ -4,6 +4,8 @@ import { ArrowLeft, ArrowRight, Copy, Heart, LockKeyhole, MapPin, Package, Searc
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { GoogleMapView } from '../components/GoogleMapView'
 import { KenyanPhoneInput } from '../components/KenyanPhoneInput'
+import { StoreImage } from '../components/StoreImage'
+import { userFacingErrorMessage } from '../components/notification-api'
 
 type Customer = { id: number; email: string; fullName: string }
 type Profile = Customer & { phone: string | null; emailVerifiedAt: string | null; createdAt: string }
@@ -74,7 +76,8 @@ type CustomerNotification = {
 
 const money = new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES', maximumFractionDigits: 0 })
 async function readAccountData<T>(path: string): Promise<T> {
-  const response = await fetch(path)
+  let response: Response
+  try { response = await fetch(path) } catch (error) { throw new Error(userFacingErrorMessage(error, 'Could not load account details.')) }
   const result = await response.json() as { data?: T; error?: { message?: string } }
   if (!response.ok || result.data === undefined) throw new Error(result.error?.message ?? 'Could not load account details.')
   return result.data
@@ -289,7 +292,7 @@ function CustomerAdminConversation({ user, request, search, initialDraft, initia
       {!messages.length && !messagesQuery.isPending && <div className="portal-direct-empty">Messages you send to KitCulture Admin will appear here.</div>}
       {visibleMessages.map((entry) => <article className={`portal-chat-message ${entry.senderType === 'customer' ? 'from-customer' : 'from-admin'}`} key={entry.id}>
         <p>{entry.body}</p>
-        {entry.productName && <Link className="chat-product-preview" to={entry.productUrl ?? '/account/marketplace'}><img src={entry.productImageUrl ?? '/culture-mark.png'} alt="" /><span><strong>{entry.productName}</strong><small>{entry.productPrice !== null && entry.productPrice !== undefined ? money.format(Number(entry.productPrice)) : 'KitCulture kit'}</small></span><ArrowRight size={15} /></Link>}
+        {entry.productName && <Link className="chat-product-preview" to={entry.productUrl ?? '/account/marketplace'}><StoreImage src={entry.productImageUrl ?? '/culture-mark.png'} alt="" width={96} height={120} /><span><strong>{entry.productName}</strong><small>{entry.productPrice !== null && entry.productPrice !== undefined ? money.format(Number(entry.productPrice)) : 'KitCulture kit'}</small></span><ArrowRight size={15} /></Link>}
         <div className="chat-message-actions"><button type="button" title="Copy message" aria-label="Copy message" onClick={() => void copyMessage(entry.body)}><Copy size={14} /></button>{entry.senderType === 'customer' && <button type="button" title="Delete message" aria-label="Delete message" onClick={() => void deleteMessage(entry.id)}><Trash2 size={14} /></button>}</div>
         <span className="portal-chat-message-meta"><time>{new Date(entry.createdAt).toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' })}</time>{entry.senderType === 'customer' && <small className={`portal-chat-receipt${entry.readAt ? ' is-read' : ''}`} title={entry.readAt ? `Read ${new Date(entry.readAt).toLocaleString()}` : entry.deliveredAt ? `Delivered ${new Date(entry.deliveredAt).toLocaleString()}` : 'Sent'}>{entry.readAt ? '✓✓' : entry.deliveredAt ? '✓✓' : '✓'}</small>}</span>
         {entry.latitude !== null && entry.longitude !== null && <GoogleMapView latitude={Number(entry.latitude)} longitude={Number(entry.longitude)} title={entry.senderType === 'customer' ? 'Your shared location' : 'Admin shared location'} />}
@@ -298,7 +301,7 @@ function CustomerAdminConversation({ user, request, search, initialDraft, initia
     </div>
     {error && <p className="portal-inline-state error-state" role="alert">{error}</p>}
     {actionMessage && <p className="chat-action-message" role="status">{actionMessage}</p>}
-    {pendingProduct && <div className="chat-product-draft"><Link to={pendingProduct.productUrl}><img src={pendingProduct.imageUrl ?? '/culture-mark.png'} alt="" /><span><strong>{pendingProduct.name}</strong><small>{money.format(pendingProduct.price)}</small></span></Link><button type="button" aria-label="Remove kit preview from draft" onClick={() => setPendingProduct(undefined)}><Trash2 size={14} /></button></div>}
+    {pendingProduct && <div className="chat-product-draft"><Link to={pendingProduct.productUrl}><StoreImage src={pendingProduct.imageUrl ?? '/culture-mark.png'} alt="" width={96} height={120} /><span><strong>{pendingProduct.name}</strong><small>{money.format(pendingProduct.price)}</small></span></Link><button type="button" aria-label="Remove kit preview from draft" onClick={() => setPendingProduct(undefined)}><Trash2 size={14} /></button></div>}
     <form className="portal-chat-compose" onSubmit={(event) => { event.preventDefault(); if (draft.trim() && !busy) void send(draft.trim()) }}>
       <textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); if (draft.trim() && !busy) void send(draft.trim()) } }} placeholder="Type a message" rows={1} maxLength={2000} aria-label="Type a message to KitCulture Admin" />
       <div className="portal-chat-compose-actions"><button type="button" className="portal-chat-icon-action" disabled={busy} title="Share your current location" aria-label="Share your current location" onClick={shareLocation}><MapPin size={19} /></button><button type="submit" className="portal-chat-send" disabled={busy || !draft.trim()} title="Send message" aria-label="Send message"><Send size={18} /></button></div>
@@ -779,7 +782,7 @@ export function CustomerPortalPage({ path, user, onProfileUpdate }: { path: stri
         {path === '/account/wishlist' && (wishlistQuery.isPending ? <div className="portal-wishlist-skeleton" aria-label="Loading your wishlist">{[1, 2, 3].map((item) => <div key={item} />)}</div>
           : wishlistQuery.isError ? <div className="catalogue-state error-state"><strong>Wishlist unavailable</strong><span>{wishlistQuery.error.message}</span><button type="button" className="portal-retry-link" onClick={() => void wishlistQuery.refetch()}>Retry</button></div>
             : wishlistQuery.data?.length ? <div className="portal-wishlist-grid">{wishlistQuery.data.map((product) => <article className="portal-wishlist-card" key={product.id}>
-              <Link to={`/account/marketplace/products/${product.slug}`}>{product.imageUrl ? <img src={product.imageUrl} alt={product.name} /> : <div className="product-image-empty"><span>KC</span></div>}<span className="product-category">{money.format(Number(product.price))}</span><strong>{product.name}</strong></Link>
+              <Link to={`/account/marketplace/products/${product.slug}`}>{product.imageUrl ? <StoreImage src={product.imageUrl} alt={product.name} width={480} height={600} /> : <div className="product-image-empty"><span>KC</span></div>}<span className="product-category">{money.format(Number(product.price))}</span><strong>{product.name}</strong></Link>
               <button type="button" disabled={busy} onClick={() => void removeSavedProduct(product)}>Remove from wishlist</button>
             </article>)}</div>
               : <div className="catalogue-state"><strong>Your wishlist is empty.</strong><span>Save jerseys from the shop to keep your favourites here.</span><Link className="button button-green" to="/shop">Browse jerseys <ArrowRight size={15} /></Link></div>)}

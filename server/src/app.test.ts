@@ -165,6 +165,17 @@ test('admin session endpoint rejects requests without an administrator cookie', 
   assert.equal(payload.error.code, 'UNAUTHENTICATED')
 })
 
+test('customer and administrator session renewal reject requests without valid sessions', async () => {
+  for (const path of ['/api/v1/auth/session/activity', '/api/v1/admin/session/activity']) {
+    const response = await fetch(`${baseUrl}${path}`, {
+      method: 'POST',
+      headers: { origin: process.env.CLIENT_ORIGIN! },
+    })
+    assert.equal(response.status, 401, path)
+    assert.equal((await response.json() as { error: { code: string } }).error.code, 'UNAUTHENTICATED', path)
+  }
+})
+
 test('sets hardened security headers for production-safe responses', async () => {
   const response = await fetch(`${baseUrl}/health/live`)
   const policy = response.headers.get('content-security-policy') ?? ''

@@ -9,6 +9,7 @@ export function CustomerAuthForm({
   fieldErrors,
   onFieldChange,
   registered,
+  sessionExpired,
   email,
   returnTo,
   onSubmit,
@@ -19,6 +20,7 @@ export function CustomerAuthForm({
   fieldErrors: Partial<Record<'fullName' | 'email' | 'password' | 'passwordConfirmation', string>>
   onFieldChange: (field: 'fullName' | 'email' | 'password' | 'passwordConfirmation') => void
   registered: boolean
+  sessionExpired: boolean
   email: string
   returnTo: string
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
@@ -61,7 +63,8 @@ export function CustomerAuthForm({
     <span className="auth-kicker">{isRegister ? 'CREATE ACCOUNT' : 'MEMBER SIGN IN'}</span>
     <h1>{isRegister ? 'Create your account.' : 'Sign in to KitCulture.'}</h1>
     <p className="auth-description">{isRegister ? 'Add your details to get started.' : 'Sign in to continue to your account.'}</p>
-    {registered && !isRegister && <p className="auth-feedback success" role="status">Account created. Sign in with your new details to continue.</p>}
+    {sessionExpired && !isRegister && <p className="auth-feedback" role="status">Your session has expired. Please sign in again to continue.</p>}
+    {registered && !isRegister && <p className="auth-feedback success" role="status">Your account has been created successfully. Welcome to KitCulture! Sign in to continue.</p>}
     {isRegister && <label>Full name<input autoComplete="name" name="fullName" required minLength={2} maxLength={160} aria-invalid={Boolean(fieldErrors.fullName)} aria-describedby={fieldErrors.fullName ? 'auth-full-name-error' : undefined} onChange={() => onFieldChange('fullName')} />{fieldErrors.fullName && <small className="auth-field-error" id="auth-full-name-error">{fieldErrors.fullName}</small>}</label>}
     <label>Email address<input autoComplete="email" name="email" type="email" required maxLength={254} defaultValue={email} aria-invalid={Boolean(fieldErrors.email)} aria-describedby={fieldErrors.email ? 'auth-email-error' : undefined} onChange={() => onFieldChange('email')} />{fieldErrors.email && <small className="auth-field-error" id="auth-email-error">{fieldErrors.email}</small>}</label>
     <label className="auth-password-field">Password<span className="auth-password-control"><input autoComplete={isRegister ? 'new-password' : 'current-password'} name="password" type={showPassword ? 'text' : 'password'} required minLength={isRegister ? 8 : 1} maxLength={128} aria-invalid={Boolean(fieldErrors.password)} aria-describedby={fieldErrors.password ? 'auth-password-error' : undefined} onChange={() => onFieldChange('password')} /><button type="button" aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword} onClick={() => setShowPassword((visible) => !visible)}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span>{fieldErrors.password && <small className="auth-field-error" id="auth-password-error">{fieldErrors.password}</small>}</label>
@@ -100,9 +103,9 @@ export function CustomerAuthInfoPage({ kind }: { kind: 'forgot' | 'reset' | 'ver
       })
       const result = await response.json().catch(() => null) as { data?: { emailSent?: boolean }; error?: { message?: string } } | null
       if (!response.ok) throw new Error(result?.error?.message ?? 'We could not send the password-reset email.')
-      setNotice('If an account exists for that email, a reset link has been sent.')
+      setNotice('If an account matches the information provided, you\'ll receive instructions to reset your password.')
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : 'Password recovery is temporarily unavailable.')
+      setError(caughtError instanceof TypeError ? 'We couldn\'t connect to the server. Please check your connection and try again.' : caughtError instanceof Error ? caughtError.message : 'Password recovery is temporarily unavailable.')
     } finally {
       setBusy(false)
     }
@@ -132,10 +135,10 @@ export function CustomerAuthInfoPage({ kind }: { kind: 'forgot' | 'reset' | 'ver
       })
       const result = await response.json().catch(() => null) as { data?: { passwordReset?: boolean }; error?: { message?: string } } | null
       if (!response.ok) throw new Error(result?.error?.message ?? 'The reset link could not be used.')
-      setNotice('Your password has been reset. You can sign in with your new password.')
+      setNotice('Your password has been updated successfully. You can now sign in with your new password.')
       window.setTimeout(() => navigate('/login', { replace: true }), 1200)
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : 'Password reset failed.')
+      setError(caughtError instanceof TypeError ? 'We couldn\'t connect to the server. Please check your connection and try again.' : caughtError instanceof Error ? caughtError.message : 'Password reset failed.')
     } finally {
       setBusy(false)
     }
@@ -159,7 +162,7 @@ export function CustomerAuthInfoPage({ kind }: { kind: 'forgot' | 'reset' | 'ver
       if (!response.ok) throw new Error(result?.error?.message ?? 'Email verification failed.')
       setNotice('Your email address has been verified successfully.')
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : 'Email verification failed.')
+      setError(caughtError instanceof TypeError ? 'We couldn\'t connect to the server. Please check your connection and try again.' : caughtError instanceof Error ? caughtError.message : 'Email verification failed.')
     } finally {
       setBusy(false)
     }

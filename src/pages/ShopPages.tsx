@@ -5,6 +5,9 @@ import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, Filter, Heart, MapPin
 import { GoogleMapView } from '../components/GoogleMapView'
 import { KenyanPhoneInput } from '../components/KenyanPhoneInput'
 import { KitRating } from '../components/KitRating'
+import { ProductCategoryLine } from '../components/ProductCategoryLine'
+import { StoreImage } from '../components/StoreImage'
+import { userFacingErrorMessage } from '../components/notification-api'
 import { matchesNationalTeam, NATIONAL_TEAM_NAMES } from '../nationalTeams'
 
 export type ShopVariant = { id: number; size: string; stock: number; price?: string | null }
@@ -60,19 +63,6 @@ type MarketplaceDirectory = { leagues: MarketplaceLeague[]; jerseyCategories: { 
 const money = new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES', maximumFractionDigits: 0 })
 const noProducts: ShopProduct[] = []
 
-export function ProductCategoryLine({ team, league, jerseyCategory, category, fallback }: {
-  team?: string | null
-  league?: string | null
-  jerseyCategory?: string | null
-  category?: string | null
-  fallback: string
-}) {
-  const details = [team, league, jerseyCategory, category].filter((value): value is string => Boolean(value))
-  return <span className="product-category">{details.length ? details.map((detail, index) => <span key={`${index}-${detail}`}>
-    {index === 0 && team ? <span className="product-team-name">{detail}</span> : detail}{index < details.length - 1 ? ' · ' : ''}
-  </span>) : fallback}</span>
-}
-
 function videoEmbedUrl(videoUrl: string) {
   try {
     const url = new URL(videoUrl)
@@ -92,7 +82,8 @@ function videoEmbedUrl(videoUrl: string) {
 }
 
 async function readData<T>(url: string): Promise<T> {
-  const response = await fetch(url)
+  let response: Response
+  try { response = await fetch(url) } catch (error) { throw new Error(userFacingErrorMessage(error, 'Could not load this page.')) }
   const result = await response.json() as { data?: T; error?: { message?: string } }
   if (!response.ok || result.data === undefined) throw new Error(result.error?.message ?? 'Could not load this page.')
   return result.data
@@ -102,7 +93,9 @@ async function readAllProducts(path: string): Promise<ShopProduct[]> {
   const products: ShopProduct[] = []
   let page = 1
   while (true) {
-    const response = await fetch(`${path}${path.includes('?') ? '&' : '?'}limit=60&page=${page}`)
+    let response: Response
+    try { response = await fetch(`${path}${path.includes('?') ? '&' : '?'}limit=60&page=${page}`) }
+    catch (error) { throw new Error(userFacingErrorMessage(error, 'Could not load this collection.')) }
     const result = await response.json() as { data?: ShopProduct[]; pagination?: { hasMore: boolean }; error?: { message?: string } }
     if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Could not load this collection.')
     products.push(...result.data)
@@ -117,7 +110,7 @@ function ProductsGrid({ products, onSave, onAdd, portalMode = false }: { product
   return <div className="product-grid">{products.map((product) => {
     const stock = product.variants.reduce((total, variant) => total + variant.stock, 0)
     return <article className="product-card" key={product.id}>
-      <div className="product-media"><Link className="shop-product-link" to={productPath(product.slug)} aria-label={`View ${product.name}`}>{product.imageUrl ? <img src={product.imageUrl} alt={product.name} loading="lazy" /> : <div className="product-image-empty"><span>KC</span><small>IMAGE NOT PROVIDED</small></div>}</Link>
+      <div className="product-media"><Link className="shop-product-link" to={productPath(product.slug)} aria-label={`View ${product.name}`}>{product.imageUrl ? <StoreImage src={product.imageUrl} alt={product.name} width={640} height={800} /> : <div className="product-image-empty"><span>KC</span><small>IMAGE NOT PROVIDED</small></div>}</Link>
         {(product.salePrice || product.featured || product.trending) && <span className={`product-tag${product.salePrice ? ' product-tag-sale' : ''}`}>{product.salePrice ? 'SALE' : product.trending ? 'TRENDING' : 'FEATURED'}</span>}
         <button className="product-favourite" type="button" aria-label={`Save ${product.name} to your wishlist`} onClick={() => onSave(product.id)}><Heart size={14} /></button>
       </div>
@@ -128,6 +121,10 @@ function ProductsGrid({ products, onSave, onAdd, portalMode = false }: { product
         : <div className="product-card-actions public-product-card-actions"><button className="quick-add" type="button" disabled={!stock || !onAdd} onClick={() => onAdd?.(product)}><ShoppingCart size={13} />Add to Cart</button><Link className="product-card-buy public-product-card-shop" to={productPath(product.slug)} state={{ openBuyFlow: true }}>Shop <ArrowRight size={14} /></Link></div>}
     </article>
   })}</div>
+}
+
+function ProductGridSkeleton({ label = 'Loading jerseys' }: { label?: string }) {
+  return <div className="product-grid" role="status" aria-label={label}>{Array.from({ length: 6 }, (_, index) => <div className="product-skeleton" key={index}><div /><span /><span /></div>)}</div>
 }
 export function MarketplacePage({ onSave, onAdd, portalMode = false }: { onSave: (productId: number) => void; onAdd?: (product: ShopProduct) => void; portalMode?: boolean }) {
   const navigate = useNavigate()
@@ -223,8 +220,8 @@ export function MarketplacePage({ onSave, onAdd, portalMode = false }: { onSave:
             <div className="marketplace-collection-options"><button type="button" className={!collectionSlug ? 'is-selected' : ''} aria-pressed={!collectionSlug} onClick={() => updateFilters({ category: '' })}>All kits</button>{categories.map((category) => <button type="button" className={collectionSlug === category.slug ? 'is-selected' : ''} aria-pressed={collectionSlug === category.slug} key={category.id} onClick={() => updateFilters({ category: category.slug })}>{category.name}<ArrowRight size={13} /></button>)}</div>
           </section>
           {!hasFilters && <div className="marketplace-discovery">
-            <section className="marketplace-discovery-section"><div className="marketplace-results-heading"><div><span className="eyebrow">Picked for you</span><h2>Featured kits</h2></div></div>{featuredQuery.isPending ? <div className="catalogue-state"><strong>Loading featured kits…</strong></div> : featuredQuery.isError ? <div className="catalogue-state error-state"><strong>Featured kits are unavailable</strong><span>{featuredQuery.error.message}</span></div> : <ProductsGrid products={featuredQuery.data ?? []} onSave={onSave} onAdd={onAdd} portalMode={portalMode} />}</section>
-            <section className="marketplace-discovery-section"><div className="marketplace-results-heading"><div><span className="eyebrow">Popular right now</span><h2>Trending kits</h2></div></div>{trendingQuery.isPending ? <div className="catalogue-state"><strong>Loading trending kits…</strong></div> : trendingQuery.isError ? <div className="catalogue-state error-state"><strong>Trending kits are unavailable</strong><span>{trendingQuery.error.message}</span></div> : <ProductsGrid products={trendingQuery.data ?? []} onSave={onSave} onAdd={onAdd} portalMode={portalMode} />}</section>
+            <section className="marketplace-discovery-section"><div className="marketplace-results-heading"><div><span className="eyebrow">Picked for you</span><h2>Featured kits</h2></div></div>{featuredQuery.isPending ? <ProductGridSkeleton label="Loading featured kits" /> : featuredQuery.isError ? <div className="catalogue-state error-state"><strong>Featured kits are unavailable</strong><span>{featuredQuery.error.message}</span></div> : <ProductsGrid products={featuredQuery.data ?? []} onSave={onSave} onAdd={onAdd} portalMode={portalMode} />}</section>
+            <section className="marketplace-discovery-section"><div className="marketplace-results-heading"><div><span className="eyebrow">Popular right now</span><h2>Trending kits</h2></div></div>{trendingQuery.isPending ? <ProductGridSkeleton label="Loading trending kits" /> : trendingQuery.isError ? <div className="catalogue-state error-state"><strong>Trending kits are unavailable</strong><span>{trendingQuery.error.message}</span></div> : <ProductsGrid products={trendingQuery.data ?? []} onSave={onSave} onAdd={onAdd} portalMode={portalMode} />}</section>
           </div>}
           <div className="marketplace-results">
             <div className="marketplace-results-heading"><div><span className="eyebrow">{hasFilters ? 'Your results' : 'The full lineup'}</span><h2>{selectedTeam?.name ?? selectedLeague?.name ?? (hasFilters ? 'Filtered kits' : 'All kits')}{selectedCategory ? ` · ${selectedCategory.name}` : ''}{selectedCollection ? ` · ${selectedCollection.name}` : ''}</h2><p>{selectedLeague ? `${selectedLeague.country} · ${selectedLeague.season}` : hasFilters ? 'Matching kits from across the catalogue.' : 'Browse every available club and national team jersey.'}</p></div></div>
@@ -336,7 +333,7 @@ export function ShopPage({ onSave, onAdd }: { onSave: (productId: number) => voi
       <label>Maximum price (KES)<input type="number" min="0" inputMode="numeric" placeholder="Any price" value={maxPrice} onChange={(event) => setMaxPrice(event.target.value)} /></label>
       <label>Sort<select value={sort} onChange={(event) => setSort(event.target.value)}><option value="featured">Featured</option><option value="price-low">Price: low to high</option><option value="price-high">Price: high to low</option><option value="name">Name</option></select></label>
     </div>
-    {resultsPending ? <div className="catalogue-state"><strong>Loading teams and kits…</strong></div> : resultsError ? <div className="catalogue-state error-state"><strong>Catalogue unavailable</strong><span>{resultsError.message}. Check the API and MySQL configuration.</span></div> : routeCategory && !selectedCategory ? <div className="catalogue-state"><strong>We could not find that team or collection.</strong><span>Browse all available teams instead.</span><Link to="/shop">View all teams <ArrowRight size={15} /></Link></div> : <><p className="catalogue-results">{visible.length} {visible.length === 1 ? 'jersey' : 'jerseys'}</p><div className="shop-category-groups">{categoryGroups.map((group) => <section className="shop-category-group" key={group.slug ?? group.name}><header><div><span>COLLECTION</span><h2>{group.name}</h2></div>{group.slug && !isNewArrivalsPage && <Link to={`/categories/${group.slug}`}>Shop collection <ArrowRight size={14} /></Link>}</header><ProductsGrid products={group.products} onSave={onSave} onAdd={onAdd} /></section>)}{categoryGroups.length === 0 && <ProductsGrid products={visible} onSave={onSave} onAdd={onAdd} />}</div></>}
+    {resultsPending ? <ProductGridSkeleton label="Loading teams and kits" /> : resultsError ? <div className="catalogue-state error-state"><strong>Catalogue unavailable</strong><span>{resultsError.message}. Please try again shortly.</span></div> : routeCategory && !selectedCategory ? <div className="catalogue-state"><strong>We could not find that team or collection.</strong><span>Browse all available teams instead.</span><Link to="/shop">View all teams <ArrowRight size={15} /></Link></div> : <><p className="catalogue-results">{visible.length} {visible.length === 1 ? 'jersey' : 'jerseys'}</p><div className="shop-category-groups">{categoryGroups.map((group) => <section className="shop-category-group" key={group.slug ?? group.name}><header><div><span>COLLECTION</span><h2>{group.name}</h2></div>{group.slug && !isNewArrivalsPage && <Link to={`/categories/${group.slug}`}>Shop collection <ArrowRight size={14} /></Link>}</header><ProductsGrid products={group.products} onSave={onSave} onAdd={onAdd} /></section>)}{categoryGroups.length === 0 && <ProductsGrid products={visible} onSave={onSave} onAdd={onAdd} />}</div></>}
   </section>
 }
 
@@ -474,7 +471,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
       window.removeEventListener('resize', updateActiveSection)
     }
   }, [productQuery.data?.id, portalMode])
-  if (productQuery.isPending) return <section className="shop-section page-width"><div className="catalogue-state"><strong>Loading jersey…</strong></div></section>
+  if (productQuery.isPending) return <section className="shop-section page-width" aria-busy="true"><div className="product-detail-skeleton" role="status" aria-label="Loading jersey details"><div className="product-skeleton-media" /><div className="product-skeleton-copy"><span /><span /><span /><span /></div></div></section>
   if (productQuery.isError || !productQuery.data) return <section className="shop-section page-width"><div className="catalogue-state error-state"><strong>Jersey unavailable</strong><span>{productQuery.error?.message ?? 'Could not find this jersey.'}</span><Link to={portalMode ? '/account/marketplace' : '/shop'}>{portalMode ? 'Back to Marketplace' : 'Back to shop'}</Link></div></section>
   const product = productQuery.data
   const selectedItems = product.variants.flatMap((variant) => {
@@ -666,8 +663,8 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
       ['product-recommend', 'Recommend'],
     ].map(([id, label]) => <a key={id} href={`#${id}`} aria-current={activeSection === id ? 'location' : undefined} className={activeSection === id ? 'is-active' : ''} onClick={(event) => jumpToSection(event, id)}>{label}</a>)}</nav>
     <div className="product-detail" id="product-section">
-      <div><div className="product-detail-image">{imageUrl ? <button type="button" className="product-image-zoom" onClick={() => setZoomOpen(true)} aria-label={`Enlarge ${selectedImage?.altText ?? product.name}`}><img src={imageUrl} alt={selectedImage?.altText ?? product.name} /><span><Maximize2 size={16} /> Enlarge</span></button> : <div className="product-image-empty"><span>KC</span><small>IMAGE NOT PROVIDED</small></div>}</div>
-        {(product.images?.length ?? 0) > 1 && <div className="product-gallery-thumbnails" aria-label="Product images">{product.images?.map((image) => <button type="button" key={image.id} className={(selectedImage?.id ?? null) === image.id ? 'active' : ''} aria-label={`View ${image.altText}`} aria-pressed={(selectedImage?.id ?? null) === image.id} onClick={() => setImageId(image.id)}><img src={image.imageUrl} alt="" /></button>)}</div>}
+      <div><div className="product-detail-image">{imageUrl ? <button type="button" className="product-image-zoom" onClick={() => setZoomOpen(true)} aria-label={`Enlarge ${selectedImage?.altText ?? product.name}`}><StoreImage src={imageUrl} alt={selectedImage?.altText ?? product.name} width={900} height={1125} priority sizes="(max-width: 760px) 90vw, 48vw" /><span><Maximize2 size={16} /> Enlarge</span></button> : <div className="product-image-empty"><span>KC</span><small>IMAGE NOT PROVIDED</small></div>}</div>
+        {(product.images?.length ?? 0) > 1 && <div className="product-gallery-thumbnails" aria-label="Product images">{product.images?.map((image) => <button type="button" key={image.id} className={(selectedImage?.id ?? null) === image.id ? 'active' : ''} aria-label={`View ${image.altText}`} aria-pressed={(selectedImage?.id ?? null) === image.id} onClick={() => setImageId(image.id)}><StoreImage src={image.imageUrl} alt="" width={96} height={120} /></button>)}</div>}
         {!portalMode && <section className="product-size-card" aria-labelledby="product-size-title"><h2 id="product-size-title">Choose sizes</h2><div className="product-size-list">{product.variants.map((variant) => {
           const quantity = selectedQuantities[variant.id] ?? 0
           const maxForVariant = Math.min(variant.stock, 5 - selectedQuantity + quantity)
@@ -721,7 +718,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
         </section>}
         {buyFlowError && <p className="buy-flow-error" role="alert">{buyFlowError}</p>}
         <button className="button button-green" type="button" onClick={() => setBuyFlowOpen(false)}>Close checkout</button></div> : buyFlowStep === 0 ? <div className="buy-flow-content">
-        <div className="buy-flow-product">{imageUrl ? <img src={imageUrl} alt={product.name} /> : <div className="cart-image-placeholder">KC</div>}<div><span className="product-category">{[product.team?.name, product.jerseyCategory?.name, product.category?.name].filter(Boolean).join(' · ') || 'Football kit'}</span><h3>{product.name}</h3><p>{product.description}</p></div></div>
+        <div className="buy-flow-product">{imageUrl ? <StoreImage src={imageUrl} alt={product.name} width={160} height={200} /> : <div className="cart-image-placeholder">KC</div>}<div><span className="product-category">{[product.team?.name, product.jerseyCategory?.name, product.category?.name].filter(Boolean).join(' · ') || 'Football kit'}</span><h3>{product.name}</h3><p>{product.description}</p></div></div>
         <div className="buy-flow-size-list"><h3>Choose size and quantity</h3>{product.variants.map((variant) => {
           const quantity = selectedQuantities[variant.id] ?? 0
           const maxForVariant = Math.min(variant.stock, 5 - selectedQuantity + quantity)
@@ -766,7 +763,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
     {zoomOpen && imageUrl && <div className="product-lightbox" role="dialog" aria-modal="true" aria-label={`${product.name} image preview`} onClick={(event) => { if (event.target === event.currentTarget) setZoomOpen(false) }}>
       <button type="button" className="product-lightbox-close" aria-label="Close image preview" onClick={() => setZoomOpen(false)}><X size={22} /></button>
       {galleryImages.length > 1 && <button type="button" className="product-lightbox-previous" aria-label="Previous product image" onClick={() => setImageId(galleryImages[(selectedImageIndex - 1 + galleryImages.length) % galleryImages.length]?.id ?? null)}><ChevronLeft size={28} /></button>}
-      <img src={imageUrl} alt={selectedImage?.altText ?? product.name} />
+      <StoreImage src={imageUrl} alt={selectedImage?.altText ?? product.name} width={1200} height={1500} priority sizes="90vw" />
       {galleryImages.length > 1 && <button type="button" className="product-lightbox-next" aria-label="Next product image" onClick={() => setImageId(galleryImages[(selectedImageIndex + 1) % galleryImages.length]?.id ?? null)}><ChevronRight size={28} /></button>}
       <span>{galleryImages.length > 1 ? `${selectedImageIndex + 1} / ${galleryImages.length} · ` : ''}{selectedImage?.altText ?? product.name}</span>
     </div>}

@@ -6,13 +6,14 @@ import { z } from 'zod'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { adminDb } from '../../config/database.js'
 import { bcryptPasswordSchema } from '../../config/password-policy.js'
+import { adminSessionAbsoluteLifetimeMs, adminSessionIdleTimeoutMs, nextSessionExpiry } from '../../config/session-policy.js'
 import { adminAuditLogs, adminSessions, adminUsers, adminVerificationTokens } from '../../database/admin-schema.js'
 import { authenticatedAdmin } from '../../middleware/authenticate.js'
 import { authenticateAdmin } from '../../middleware/authenticate.js'
 
 export const adminAuthRouter = Router()
 const cookieName = 'kc_admin_session'
-export const adminIdleTimeoutMs = 30 * 60_000
+export const adminIdleTimeoutMs = adminSessionIdleTimeoutMs
 export const adminLoginSchema = z.object({
   email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
   password: z.string().min(1).max(128),
@@ -196,11 +197,13 @@ adminAuthRouter.post('/login', async (request, response) => {
   }
 
   const token = randomBytes(32).toString('base64url')
-  const expiresAt = new Date(Date.now() + adminIdleTimeoutMs)
+  const createdAt = new Date()
+  const expiresAt = nextSessionExpiry(createdAt, createdAt, adminIdleTimeoutMs, adminSessionAbsoluteLifetimeMs)!
   await adminDb.insert(adminSessions).values({
     adminUserId: admin.id,
     tokenHash: hashToken(token),
     expiresAt,
+    createdAt,
   })
   setAdminSessionCookie(response, token)
   await adminDb.insert(adminAuditLogs).values({
@@ -221,25 +224,35 @@ adminAuthRouter.get('/me', authenticateAdmin, async (request, response) => {
   response.json({ data: { user: admin } })
 })
 
-adminAuthRouter.post('/session/activity', rejectCrossOrigin, authenticateAdmin, async (request, response) => {
+adminAuthRouter.post('/session/activity', (request, response, next) => {
+  if (rejectCrossOrigin(request, response)) return
+  next()
+}, authenticateAdmin, async (request, response) => {
   const token = cookieToken(request.headers.cookie)
   if (!token || !adminDb) {
     response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Administrator sign in is required.' } })
     return
   }
   const now = new Date()
-  const [refreshed] = await adminDb.update(adminSessions).set({
-    expiresAt: new Date(now.getTime() + adminIdleTimeoutMs),
-  }).where(and(
-    eq(adminSessions.tokenHash, hashToken(token)),
+  const [session] = await adminDb.select({ id: adminSessions.id, createdAt: adminSessions.createdAt, expiresAt: adminSessions.expiresAt })
+    .from(adminSessions).where(and(eq(adminSessions.tokenHash, hashToken(token)), gt(adminSessions.expiresAt, now))).limit(1)
+  const nextExpiry = session ? nextSessionExpiry(session.createdAt, now, adminIdleTimeoutMs, adminSessionAbsoluteLifetimeMs) : null
+  const [refreshed] = session && nextExpiry ? await adminDb.update(adminSessions).set({ expiresAt: nextExpiry }).where(and(
+    eq(adminSessions.id, session.id),
     gt(adminSessions.expiresAt, now),
-  ))
+  )) : [{ affectedRows: 0 }]
   if (refreshed.affectedRows !== 1) {
     response.clearCookie(cookieName, { httpOnly: true, secure: env.NODE_ENV === 'production', sameSite: 'strict', path: '/api/v1/admin' })
     response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Administrator sign in is required.' } })
     return
   }
-  setAdminSessionCookie(response, token)
+  response.cookie(cookieName, token, {
+    httpOnly: true,
+    secure: env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/api/v1/admin',
+    maxAge: nextExpiry!.getTime() - now.getTime(),
+  })
   response.status(204).end()
 })
 
@@ -247,10 +260,7 @@ adminAuthRouter.post('/logout', async (request, response) => {
   if (rejectCrossOrigin(request, response)) return
   const token = cookieToken(request.headers.cookie)
   if (token && adminDb) {
-    await adminDb.delete(adminSessions).where(and(
-      eq(adminSessions.tokenHash, hashToken(token)),
-      gt(adminSessions.expiresAt, new Date()),
-    ))
+    await adminDb.delete(adminSessions).where(eq(adminSessions.tokenHash, hashToken(token)))
   }
   response.clearCookie(cookieName, {
     httpOnly: true,

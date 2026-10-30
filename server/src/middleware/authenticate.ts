@@ -4,6 +4,7 @@ import type { Request, RequestHandler } from 'express'
 import { adminDb, db } from '../config/database.js'
 import { adminSessions, adminUsers } from '../database/admin-schema.js'
 import { roles, userRoles, userSessions, users } from '../database/schema.js'
+import { adminSessionAbsoluteLifetimeMs, adminSessionIdleTimeoutMs, customerSessionAbsoluteLifetimeMs, customerSessionIdleTimeoutMs, nextSessionExpiry } from '../config/session-policy.js'
 
 type AuthenticatedRequest = Request & {
   auth?: { userId: number; email: string; fullName: string; roles: string[] }
@@ -34,9 +35,18 @@ export const authenticate: RequestHandler = async (request, response, next) => {
   }
 
   const tokenHash = createHash('sha256').update(token).digest('hex')
-  const [session] = await db.select({ userId: userSessions.userId }).from(userSessions)
-    .where(and(eq(userSessions.tokenHash, tokenHash), gt(userSessions.expiresAt, new Date()))).limit(1)
+  const now = new Date()
+  const [session] = await db.select({ id: userSessions.id, userId: userSessions.userId, createdAt: userSessions.createdAt, expiresAt: userSessions.expiresAt }).from(userSessions)
+    .where(and(eq(userSessions.tokenHash, tokenHash), gt(userSessions.expiresAt, now))).limit(1)
   if (!session) {
+    response.clearCookie('kc_session', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/api/v1' })
+    response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Sign in to continue.' } })
+    return
+  }
+  const renewedExpiry = nextSessionExpiry(session.createdAt, now, customerSessionIdleTimeoutMs, customerSessionAbsoluteLifetimeMs)
+  if (!renewedExpiry) {
+    await db.delete(userSessions).where(eq(userSessions.id, session.id))
+    response.clearCookie('kc_session', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/api/v1' })
     response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Sign in to continue.' } })
     return
   }
@@ -78,9 +88,18 @@ export const authenticateAdmin: RequestHandler = async (request, response, next)
     return
   }
   const tokenHash = createHash('sha256').update(token).digest('hex')
-  const [session] = await adminDb.select({ adminUserId: adminSessions.adminUserId }).from(adminSessions)
-    .where(and(eq(adminSessions.tokenHash, tokenHash), gt(adminSessions.expiresAt, new Date()))).limit(1)
+  const now = new Date()
+  const [session] = await adminDb.select({ id: adminSessions.id, adminUserId: adminSessions.adminUserId, createdAt: adminSessions.createdAt, expiresAt: adminSessions.expiresAt }).from(adminSessions)
+    .where(and(eq(adminSessions.tokenHash, tokenHash), gt(adminSessions.expiresAt, now))).limit(1)
   if (!session) {
+    response.clearCookie('kc_admin_session', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/api/v1/admin' })
+    response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Administrator sign in is required.' } })
+    return
+  }
+  const renewedExpiry = nextSessionExpiry(session.createdAt, now, adminSessionIdleTimeoutMs, adminSessionAbsoluteLifetimeMs)
+  if (!renewedExpiry) {
+    await adminDb.delete(adminSessions).where(eq(adminSessions.id, session.id))
+    response.clearCookie('kc_admin_session', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/api/v1/admin' })
     response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Administrator sign in is required.' } })
     return
   }

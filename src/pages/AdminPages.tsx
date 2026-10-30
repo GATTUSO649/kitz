@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type MouseEvent, type ReactNode } from 'react'
 import { Link, Navigate, useLocation, useNavigate, type NavigateFunction } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { userFacingErrorMessage } from '../components/notification-api'
 import { ArrowRight, ArrowUpDown, BarChart3, Bell, Copy, Filter, Image as ImageIcon, LayoutDashboard, LogOut, MapPin, Menu, MessageCircle, Package, Search, Send, Star, Trash2, Trophy, Upload, Users, X } from 'lucide-react'
 import { GoogleMapView } from '../components/GoogleMapView'
 import { matchesNationalTeam, NATIONAL_TEAM_NAMES } from '../nationalTeams'
@@ -66,14 +67,19 @@ const sections = [
 ] as const
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    ...init,
-    credentials: 'include',
-    headers: { ...(init?.body ? { 'Content-Type': 'application/json' } : {}), ...init?.headers },
-  })
+  let response: Response
+  try {
+    response = await fetch(url, {
+      ...init,
+      credentials: 'include',
+      headers: { ...(init?.body ? { 'Content-Type': 'application/json' } : {}), ...init?.headers },
+    })
+  } catch (error) {
+    throw new Error(userFacingErrorMessage(error, 'The administrator service is unavailable. Please try again shortly.'))
+  }
   if (response.status === 204) return undefined as T
   if (!response.headers.get('content-type')?.includes('application/json')) {
-    throw new Error(response.ok ? 'The administrator service returned an unexpected response.' : `The administrator service is unavailable (HTTP ${response.status}).`)
+    throw new Error(response.ok ? 'The administrator service returned an unexpected response.' : 'The administrator service is unavailable. Please try again shortly.')
   }
   const payload = await response.json() as AdminPayload<T>
   if (!response.ok) throw new Error('error' in payload ? payload.error?.message ?? 'Request failed.' : 'Request failed.')
@@ -222,7 +228,7 @@ export function AdminLoginPage() {
       })
       navigate('/admin', { replace: true })
     } catch (issue) {
-      setError(issue instanceof Error ? issue.message : 'Administrator sign in failed.')
+      setError(issue instanceof TypeError ? 'We couldn\'t connect to the server. Please check your connection and try again.' : issue instanceof Error ? issue.message : 'Administrator sign in failed.')
     } finally {
       setBusy(false)
     }
@@ -231,7 +237,7 @@ export function AdminLoginPage() {
     <Link to="/" className="admin-back">← KitCulture storefront</Link><span className="admin-kicker">RESTRICTED ADMIN ACCESS</span><h1>Administrator sign in</h1>
     <p>Sign in with the email and password for your verified administrator account.</p>
     {new URLSearchParams(location.search).get('verified') === '1' && <p className="admin-success" role="status">Administrator email verified. You can sign in now.</p>}
-    {new URLSearchParams(location.search).get('reason') === 'expired' && <p className="admin-success" role="status">Your administrator session expired. Please sign in again.</p>}
+    {['expired', 'idle'].includes(new URLSearchParams(location.search).get('reason') ?? '') && <p className="admin-success" role="status">Your session has expired. Please sign in again to continue.</p>}
     <label>Email<input name="email" type="email" autoComplete="username" required maxLength={254} /></label>
     <label>Password<input name="password" type="password" autoComplete="current-password" required /></label>
     {error && <p className="admin-error" role="alert">{error}</p>}
@@ -1630,7 +1636,7 @@ export function AdminConsole() {
   }, [sectionQuery.error, navigate])
 
   useEffect(() => {
-    const idleTimeoutMs = 30 * 60_000
+    const idleTimeoutMs = 15 * 60_000
     const keepAliveThrottleMs = 30_000
     let idleTimer = 0
     let lastKeepAlive = Date.now()

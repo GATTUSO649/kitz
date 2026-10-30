@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Bell, ChevronDown, CircleHelp, Heart, Home, LogOut, MapPin, Menu, MessageCircle, Package, Settings, ShieldCheck, ShoppingCart, Trophy, UserRound, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -40,27 +40,52 @@ export function CustomerPortalLayout({
   user,
   itemCount,
   onSignOut,
+  onSessionExpired,
   children,
 }: {
   currentPath: string
   user: Customer
   itemCount: number
   onSignOut: () => void
+  onSessionExpired: () => void
   children: ReactNode
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
+  const sessionExpiredHandler = useRef(onSessionExpired)
+  useEffect(() => { sessionExpiredHandler.current = onSessionExpired }, [onSessionExpired])
   const initials = user.fullName.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()
   const unreadNotificationsQuery = useQuery({
     queryKey: ['account-notification-count', user.id],
     queryFn: async () => {
       const response = await fetch('/api/v1/account/notifications/unread-count')
       const result = await response.json() as { data?: { count: number }; error?: { message?: string } }
+      if (response.status === 401) throw Object.assign(new Error('Your session has expired.'), { code: 'UNAUTHENTICATED' })
       if (!response.ok || result.data === undefined) throw new Error(result.error?.message ?? 'Notification count unavailable.')
       return result.data.count
     },
     refetchInterval: 30_000,
   })
+  useEffect(() => {
+    if ((unreadNotificationsQuery.error as Error & { code?: string } | null)?.code === 'UNAUTHENTICATED') sessionExpiredHandler.current()
+  }, [unreadNotificationsQuery.error])
+  useEffect(() => {
+    let lastRenewal = 0
+    let expired = false
+    const renewOnActivity = () => {
+      if (expired || document.visibilityState !== 'visible' || Date.now() - lastRenewal < 30_000) return
+      lastRenewal = Date.now()
+      void fetch('/api/v1/auth/session/activity', { method: 'POST' }).then((response) => {
+        if (response.status === 401 && !expired) {
+          expired = true
+          sessionExpiredHandler.current()
+        }
+      }).catch(() => undefined)
+    }
+    const events: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'wheel', 'touchstart']
+    events.forEach((eventName) => window.addEventListener(eventName, renewOnActivity, { passive: true }))
+    return () => events.forEach((eventName) => window.removeEventListener(eventName, renewOnActivity))
+  }, [user.id])
   const unreadNotifications = unreadNotificationsQuery.data ?? 0
 
   return <div className="portal-shell">

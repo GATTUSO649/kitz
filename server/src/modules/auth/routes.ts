@@ -7,11 +7,12 @@ import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { db } from '../../config/database.js'
 import { buildAbsoluteUrl, customerEmailTemplate, sendTransactionalEmail } from '../../config/email.js'
 import { bcryptPasswordSchema } from '../../config/password-policy.js'
+import { customerSessionAbsoluteLifetimeMs, customerSessionIdleTimeoutMs, nextSessionExpiry } from '../../config/session-policy.js'
+import { authenticate, authenticatedUser } from '../../middleware/authenticate.js'
 import { emailVerificationTokens, passwordResetTokens, userSessions, users } from '../../database/schema.js'
 
 export const authRouter = Router()
 const sessionCookie = 'kc_session'
-const sessionDurationMs = 1000 * 60 * 60 * 24 * 30
 
 export const registerSchema = z.object({
   email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
@@ -40,7 +41,7 @@ function setSessionCookie(response: Parameters<Parameters<typeof authRouter.get>
     secure: env.NODE_ENV === 'production',
     sameSite: 'strict',
     path: '/api/v1',
-    maxAge: sessionDurationMs,
+    maxAge: customerSessionIdleTimeoutMs,
   })
 }
 
@@ -162,7 +163,7 @@ authRouter.post('/login', async (request, response) => {
     .from(users).where(eq(users.email, input.data.email)).limit(1)
   const passwordMatches = user ? await compare(input.data.password, user.passwordHash) : false
   if (!user || !passwordMatches) {
-    response.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Email or password is invalid.' } })
+    response.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'The email address or password is incorrect. Please try again.' } })
     return
   }
   if (env.EMAIL_VERIFICATION_REQUIRED && !user.emailVerifiedAt) {
@@ -171,10 +172,12 @@ authRouter.post('/login', async (request, response) => {
   }
 
   const token = randomBytes(32).toString('base64url')
+  const createdAt = new Date()
   await db.insert(userSessions).values({
     userId: user.id,
     tokenHash: digestToken(token),
-    expiresAt: new Date(Date.now() + sessionDurationMs),
+    expiresAt: new Date(Math.min(createdAt.getTime() + customerSessionIdleTimeoutMs, createdAt.getTime() + customerSessionAbsoluteLifetimeMs)),
+    createdAt,
   })
   setSessionCookie(response, token)
   response.json({ data: { user: { id: user.id, email: user.email, fullName: user.fullName, phone: user.phone }, emailVerified: Boolean(user.emailVerifiedAt) } })
@@ -298,29 +301,53 @@ authRouter.post('/reset-password', async (request, response) => {
   response.json({ data: { passwordReset: true } })
 })
 
-authRouter.get('/me', async (request, response) => {
+authRouter.get('/me', async (request, response, next) => {
   const token = readSessionCookie(request.headers.cookie)
   if (!token) {
     response.json({ data: { user: null, emailVerified: false } })
     return
   }
-  if (!db) {
-    response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Account services are not configured.' } })
-    return
-  }
-  const [session] = await db.select({ userId: userSessions.userId }).from(userSessions)
-    .where(and(eq(userSessions.tokenHash, digestToken(token)), gt(userSessions.expiresAt, new Date()))).limit(1)
-  if (!session) {
-    response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Sign in to continue.' } })
-    return
-  }
+  authenticate(request, response, next)
+}, async (request, response) => {
+  const sessionUser = authenticatedUser(request)
+  if (!sessionUser || !db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Account services are not configured.' } })
   const [user] = await db.select({ id: users.id, email: users.email, fullName: users.fullName, phone: users.phone, emailVerifiedAt: users.emailVerifiedAt })
-    .from(users).where(eq(users.id, session.userId)).limit(1)
+    .from(users).where(eq(users.id, sessionUser.userId)).limit(1)
   if (!user) {
     response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Sign in to continue.' } })
     return
   }
   response.json({ data: { user: { id: user.id, email: user.email, fullName: user.fullName, phone: user.phone }, emailVerified: Boolean(user.emailVerifiedAt) } })
+})
+
+authRouter.post('/session/activity', async (request, response, next) => {
+  if (rejectCrossOrigin(request, response)) return
+  authenticate(request, response, next)
+}, async (request, response) => {
+  const user = authenticatedUser(request)
+  const token = readSessionCookie(request.headers.cookie)
+  if (!user || !token || !db) return response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Sign in to continue.' } })
+  const now = new Date()
+  const tokenHash = digestToken(token)
+  const [session] = await db.select({ id: userSessions.id, createdAt: userSessions.createdAt, expiresAt: userSessions.expiresAt })
+    .from(userSessions).where(and(eq(userSessions.tokenHash, tokenHash), eq(userSessions.userId, user.userId), gt(userSessions.expiresAt, now))).limit(1)
+  const nextExpiry = session ? nextSessionExpiry(session.createdAt, now, customerSessionIdleTimeoutMs, customerSessionAbsoluteLifetimeMs) : null
+  const [updated] = session && nextExpiry ? await db.update(userSessions).set({ expiresAt: nextExpiry }).where(and(
+    eq(userSessions.id, session.id),
+    gt(userSessions.expiresAt, now),
+  )) : [{ affectedRows: 0 }]
+  if (!nextExpiry || updated.affectedRows !== 1) {
+    response.clearCookie(sessionCookie, { httpOnly: true, secure: env.NODE_ENV === 'production', sameSite: 'strict', path: '/api/v1' })
+    return response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Sign in to continue.' } })
+  }
+  response.cookie(sessionCookie, token, {
+    httpOnly: true,
+    secure: env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/api/v1',
+    maxAge: nextExpiry.getTime() - now.getTime(),
+  })
+  response.status(204).end()
 })
 
 authRouter.post('/logout', async (request, response) => {

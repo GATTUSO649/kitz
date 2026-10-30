@@ -588,7 +588,7 @@ ordersRouter.post('/orders/:orderNumber/mpesa/stk-push', rejectCrossOrigin, stkP
     const message = unknownOutcome
       ? 'We could not confirm whether the prompt was sent. Check its status before trying again.'
       : definiteStkRejection
-        ? 'Safaricom rejected the payment request. Check the Sandbox shortcode and transaction type, then try again.'
+        ? 'Safaricom rejected the payment request. Please try again later or contact KitCulture support.'
       : error instanceof DarajaRequestError && error.stage === 'oauth'
         ? 'Safaricom authentication failed. Check the configured Daraja environment and credentials.'
         : error instanceof DarajaRequestError && error.stage === 'stk_push'

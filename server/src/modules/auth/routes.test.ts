@@ -9,6 +9,7 @@ const { mysqlSslOptions } = await import('../../config/database.js')
 const { isAllowedClientOrigin, productionDarajaConfigurationErrors, resolveDarajaEnvironment, resolveDarajaTransactionType } = await import('../../config/env.js')
 const { bcryptPasswordSchema } = await import('../../config/password-policy.js')
 const { adminIdleTimeoutMs, adminLoginSchema, matchesAdminSignupSecret } = await import('../admin/auth.js')
+const { adminSessionAbsoluteLifetimeMs, customerSessionAbsoluteLifetimeMs, customerSessionIdleTimeoutMs, nextSessionExpiry, shouldRefreshSession } = await import('../../config/session-policy.js')
 const { loginSchema, registerSchema } = await import('./routes.js')
 const { createOrderSchema, createTemporaryOrderNumber, exceedsProductQuantityLimit, ordersRouter } = await import('../orders/routes.js')
 const { combinedRating, quickProductRatingSchema } = await import('../catalogue/routes.js')
@@ -55,6 +56,19 @@ test('bcrypt password validation accepts long passphrases but rejects inputs ove
 test('development accepts the configured Vite fallback port 5175', () => {
   assert.equal(isAllowedClientOrigin('http://localhost:5175'), true)
   assert.equal(isAllowedClientOrigin('http://localhost:5176'), false)
+})
+
+test('database sessions use bounded customer and administrator idle policies', () => {
+  assert.equal(customerSessionIdleTimeoutMs, 60 * 60_000)
+  assert.equal(adminIdleTimeoutMs, 15 * 60_000)
+  assert.equal(customerSessionAbsoluteLifetimeMs, 30 * 24 * 60 * 60_000)
+  assert.equal(adminSessionAbsoluteLifetimeMs, 8 * 60 * 60_000)
+  const createdAt = new Date('2026-10-30T00:00:00.000Z')
+  const now = new Date(createdAt.getTime() + 7 * 60 * 60_000)
+  assert.equal(nextSessionExpiry(createdAt, now, adminIdleTimeoutMs, adminSessionAbsoluteLifetimeMs)?.toISOString(), '2026-10-30T07:15:00.000Z')
+  assert.equal(nextSessionExpiry(createdAt, new Date(createdAt.getTime() + adminSessionAbsoluteLifetimeMs), adminIdleTimeoutMs, adminSessionAbsoluteLifetimeMs), null)
+  assert.equal(shouldRefreshSession(new Date(now.getTime() + adminIdleTimeoutMs / 4), now, adminIdleTimeoutMs), true)
+  assert.equal(shouldRefreshSession(new Date(now.getTime() + adminIdleTimeoutMs), now, adminIdleTimeoutMs), false)
 })
 
 test('production MySQL connections require verified TLS and accept a custom CA', () => {
@@ -541,7 +555,7 @@ test('Sandbox STK Push uses the 174379 PayBill merchant configuration', async ()
   assert.equal(body.PhoneNumber, '254712345678')
   assert.equal(body.Amount, 1200)
   assert.equal(result.checkoutRequestId, 'sandbox-checkout')
-  assert.equal(result.customerMessage, 'M-PESA accepted the request. Order is pending until payment confirmation.')
+  assert.equal(result.customerMessage, 'M-PESA request accepted. Payment is pending until verified confirmation.')
 })
 
 test('missing Daraja credentials fail before any provider request', async () => {
@@ -657,8 +671,8 @@ test('development defaults to Sandbox PayBill and production requires explicit t
   assert.equal(resolveDarajaTransactionType('production', 'CustomerPayBillOnline'), 'CustomerPayBillOnline')
 })
 
-test('administrator sessions use a 30-minute idle timeout', () => {
-  assert.equal(adminIdleTimeoutMs, 30 * 60_000)
+test('administrator sessions use a 15-minute idle timeout', () => {
+  assert.equal(adminIdleTimeoutMs, 15 * 60_000)
 })
 
 test('administrator signup requires an exact configured setup secret', () => {

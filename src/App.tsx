@@ -1,7 +1,7 @@
-import { Fragment, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react'
+import { Fragment, lazy, Suspense, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { ArrowDown, ArrowRight, Check, ChevronDown, Heart, MapPin, Menu, Search, ShieldCheck, ShoppingBag, ShoppingCart, Smartphone, Star, Truck, UserRound, X } from 'lucide-react'
+import { ArrowDown, ArrowRight, ChevronDown, Heart, MapPin, Menu, Search, ShieldCheck, ShoppingBag, ShoppingCart, Smartphone, Star, Truck, UserRound, X } from 'lucide-react'
 import { z } from 'zod'
 import './App.css'
 import './checkout.css'
@@ -12,15 +12,27 @@ import './homepage.css'
 import './public-theme.css'
 import './admin-theme.css'
 import './customer-portal-theme.css'
-import { AdminRoute } from './pages/AdminPages'
-import { MarketplacePage, ProductCategoryLine, ProductPage, ShopPage, type BuyNowCheckoutDetails, type ShopProduct, type ShopPurchaseSelection, type ShopVariant } from './pages/ShopPages'
-import { CustomerChatPage, CustomerPortalOverview, CustomerPortalOrdersPage, CustomerPortalPage } from './pages/CustomerPortalPages'
+import type { BuyNowCheckoutDetails, ShopProduct, ShopPurchaseSelection, ShopVariant } from './pages/ShopPages'
+import { ProductCategoryLine } from './components/ProductCategoryLine'
 import { GoogleMapView } from './components/GoogleMapView'
 import { KenyanPhoneInput } from './components/KenyanPhoneInput'
 import { KitRating } from './components/KitRating'
 import { CustomerPortalLayout } from './layouts/CustomerPortalLayout'
 import { AuthLayout } from './layouts/AuthLayout'
-import { CustomerAuthForm, CustomerAuthInfoPage } from './pages/AuthPages'
+import { DelayedBrandLoader } from './components/BrandLoader'
+import { useNotifications, userFacingErrorMessage } from './components/notification-api'
+import { StoreImage } from './components/StoreImage'
+
+const AdminRoute = lazy(() => import('./pages/AdminPages').then((module) => ({ default: module.AdminRoute })))
+const MarketplacePage = lazy(() => import('./pages/ShopPages').then((module) => ({ default: module.MarketplacePage })))
+const ProductPage = lazy(() => import('./pages/ShopPages').then((module) => ({ default: module.ProductPage })))
+const ShopPage = lazy(() => import('./pages/ShopPages').then((module) => ({ default: module.ShopPage })))
+const CustomerChatPage = lazy(() => import('./pages/CustomerPortalPages').then((module) => ({ default: module.CustomerChatPage })))
+const CustomerPortalOverview = lazy(() => import('./pages/CustomerPortalPages').then((module) => ({ default: module.CustomerPortalOverview })))
+const CustomerPortalOrdersPage = lazy(() => import('./pages/CustomerPortalPages').then((module) => ({ default: module.CustomerPortalOrdersPage })))
+const CustomerPortalPage = lazy(() => import('./pages/CustomerPortalPages').then((module) => ({ default: module.CustomerPortalPage })))
+const CustomerAuthForm = lazy(() => import('./pages/AuthPages').then((module) => ({ default: module.CustomerAuthForm })))
+const CustomerAuthInfoPage = lazy(() => import('./pages/AuthPages').then((module) => ({ default: module.CustomerAuthInfoPage })))
 
 const cultureLogo = '/culture-mark.png'
 type Variant = { id: number; size: string; stock: number; price?: string | null }
@@ -91,18 +103,18 @@ const homepageTrendingClubOrder = new Map(Object.keys(homepageTrendingClubBadges
 const registrationSchema = z.object({ fullName: z.string().trim().min(2, 'Enter your name.'), email: z.string().trim().email('Enter a valid email address.'), password: z.string().min(12, 'Use at least 12 characters.').refine((value) => new TextEncoder().encode(value).length <= 72, 'Use a password no longer than 72 UTF-8 bytes.'), passwordConfirmation: z.string().min(1, 'Confirm your password.') }).refine((values) => values.password === values.passwordConfirmation, { message: 'Passwords do not match.', path: ['passwordConfirmation'] })
 const signInSchema = z.object({ email: z.string().trim().email('Enter a valid email address.'), password: z.string().min(1, 'Enter your password.') })
 
-async function loadHomepageProducts(path: string) {
-  const response = await fetch(path)
+async function loadHomepageProducts(path: string, signal?: AbortSignal) {
+  const response = await fetch(path, { signal })
   const result = await response.json() as { data?: Product[]; error?: { message?: string } }
   if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Products could not be loaded.')
   return result.data
 }
 
-async function loadAllCatalogProducts() {
+async function loadAllCatalogProducts(signal?: AbortSignal) {
   const products: Product[] = []
   let page = 1
   while (true) {
-    const response = await fetch(`/api/v1/products?limit=60&page=${page}`)
+    const response = await fetch(`/api/v1/products?limit=60&page=${page}`, { signal })
     const result = await response.json() as { data?: Product[]; pagination?: { hasMore: boolean }; error?: { message?: string } }
     if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Products could not be loaded.')
     products.push(...result.data)
@@ -150,11 +162,11 @@ function HomepageProductSection({ title, kicker, products, error, onAdd, onSave,
   if (error) return <section className={sectionClass}><div className="catalogue-state error-state"><strong>{title} are unavailable.</strong><span>{error}</span></div></section>
   if (!products.length) return null
   return <section id={id} className={sectionClass}>
-    <div className="section-heading"><div className={isCategoryGroup ? 'homepage-category-heading' : undefined}>{categoryImageUrl && <span className="homepage-category-image"><img src={categoryImageUrl} alt="" loading="lazy" /></span>}<div><div className="eyebrow"><span className="eyebrow-line" />{kicker}</div><h2>{title}</h2></div></div><Link className="text-link" to={shopAllHref ?? marketplacePath}>{shopAllLabel ?? (isCategoryGroup ? 'View category' : 'Shop all')} <ArrowRight size={15} /></Link></div>
+    <div className="section-heading"><div className={isCategoryGroup ? 'homepage-category-heading' : undefined}>{categoryImageUrl && <span className="homepage-category-image"><StoreImage src={categoryImageUrl} alt="" width={64} height={64} /></span>}<div><div className="eyebrow"><span className="eyebrow-line" />{kicker}</div><h2>{title}</h2></div></div><Link className="text-link" to={shopAllHref ?? marketplacePath}>{shopAllLabel ?? (isCategoryGroup ? 'View category' : 'Shop all')} <ArrowRight size={15} /></Link></div>
     <div className="product-grid">{(showAll ? products : products.slice(0, 4)).map((product) => {
       const inStock = product.variants.some((variant) => variant.stock > 0)
       return <article className="product-card" key={product.id}>
-        <div className="product-media"><Link className="shop-product-link" to={productPath(product.slug)} aria-label={`View ${product.name}`}>{product.imageUrl ? <img src={product.imageUrl} alt={product.name} loading="lazy" /> : <div className="product-image-empty"><span>KC</span><small>IMAGE TO BE ADDED</small></div>}</Link>
+        <div className="product-media"><Link className="shop-product-link" to={productPath(product.slug)} aria-label={`View ${product.name}`}>{product.imageUrl ? <StoreImage src={product.imageUrl} alt={product.name} width={640} height={800} /> : <div className="product-image-empty"><span>KC</span><small>IMAGE TO BE ADDED</small></div>}</Link>
           {(product.salePrice || product.trending) && <span className={`product-tag${product.salePrice ? ' product-tag-sale' : ''}`}>{product.salePrice ? 'SALE' : 'TRENDING'}</span>}
           <button className="product-favourite" type="button" aria-label={`Save ${product.name} to your wishlist`} onClick={() => onSave(product.id)}><Heart size={14} /></button>
         </div>
@@ -212,6 +224,7 @@ function safeCustomerReturnTo(value: string | null): string | null {
 function App() {
   const location = useLocation()
   const navigate = useNavigate()
+  const { notify } = useNotifications()
   const pagePath = location.pathname
   const isAdminPage = pagePath.startsWith('/admin')
   const isHomePage = pagePath === '/'
@@ -260,10 +273,10 @@ function App() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [accountUser, setAccountUser] = useState<AccountUser | null>(null)
   const [authChecked, setAuthChecked] = useState(false)
+  const [sessionExpired, setSessionExpired] = useState(false)
   const [authError, setAuthError] = useState('')
   const [authFieldErrors, setAuthFieldErrors] = useState<Partial<Record<'fullName' | 'email' | 'password' | 'passwordConfirmation', string>>>({})
   const [authBusy, setAuthBusy] = useState(false)
-  const [notice, setNotice] = useState('')
   const [introVisible, setIntroVisible] = useState(() => {
     if (typeof window === 'undefined') return false
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -274,8 +287,8 @@ function App() {
   const { data: products = [], isPending: loading, isError: catalogueError } = useQuery({
     queryKey: ['products'],
     enabled: isHomePage,
-    queryFn: async () => {
-      const response = await fetch('/api/v1/products')
+    queryFn: async ({ signal }) => {
+      const response = await fetch('/api/v1/products?limit=60', { signal })
       if (!response.ok) throw new Error('Catalogue unavailable')
       const result = await response.json() as { data: Product[] }
       return result.data
@@ -284,35 +297,30 @@ function App() {
   const homepageQuery = useQuery({
     queryKey: ['store-homepage'],
     enabled: isHomePage,
-    queryFn: async () => {
-      const response = await fetch('/api/v1/store/homepage')
+    queryFn: async ({ signal }) => {
+      const response = await fetch('/api/v1/store/homepage', { signal })
       const result = await response.json() as { data?: HomepageData; error?: { message?: string } }
       if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Homepage content is unavailable.')
       return result.data
     },
   })
-  const heroProductsQuery = useQuery({
-    queryKey: ['products', 'homepage-hero'],
-    enabled: isHomePage,
-    queryFn: () => loadHomepageProducts('/api/v1/products/new-arrivals?limit=60'),
-  })
   const trendingQuery = useQuery({
     queryKey: ['products', 'trending'],
     enabled: isHomePage,
-    queryFn: () => loadHomepageProducts('/api/v1/products/trending?limit=4'),
+    queryFn: ({ signal }) => loadHomepageProducts('/api/v1/products/trending?limit=4', signal),
   })
   const newArrivalsQuery = useQuery({
     queryKey: ['products', 'new-arrivals'],
     enabled: isHomePage,
-    queryFn: () => loadHomepageProducts('/api/v1/products/new-arrivals?limit=6'),
+    queryFn: ({ signal }) => loadHomepageProducts('/api/v1/products/new-arrivals?limit=8', signal),
   })
   const portalDashboardKitsQuery = useQuery({
     queryKey: ['portal-dashboard-kits'],
     enabled: (pagePath === '/account' || pagePath === '/account/dashboard') && Boolean(accountUser),
-    queryFn: loadAllCatalogProducts,
+    queryFn: ({ signal }) => loadAllCatalogProducts(signal),
   })
   const homepageSlides = homepageQuery.data?.slides ?? []
-  const heroProducts = (heroProductsQuery.data ?? []).flatMap((product) => {
+  const heroProducts = (newArrivalsQuery.data ?? []).flatMap((product) => {
     const imageUrl = product.imageUrl ?? product.images?.find((image) => image.isPrimary)?.imageUrl ?? product.images?.[0]?.imageUrl
     return imageUrl ? [{ ...product, imageUrl }] : []
   })
@@ -371,11 +379,22 @@ function App() {
   useEffect(() => {
     const controller = new AbortController()
     fetch('/api/v1/auth/me', { signal: controller.signal })
-      .then(async (response) => response.ok ? response.json() as Promise<{ data: { user: AccountUser | null } }> : null)
+      .then(async (response) => {
+        if (response.status === 401) {
+          setSessionExpired(true)
+          return null
+        }
+        if (!response.ok) throw new Error('Account services are temporarily unavailable.')
+        return response.json() as Promise<{ data: { user: AccountUser | null } }>
+      })
       .then((result) => { setAccountUser(result?.data.user ?? null); setAuthChecked(true) })
-      .catch(() => { if (!controller.signal.aborted) setAuthChecked(true) })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return
+        setAuthChecked(true)
+        notify(userFacingErrorMessage(error, 'Account services are temporarily unavailable.'), 'error')
+      })
     return () => controller.abort()
-  }, [])
+  }, [notify])
   useEffect(() => {
     if (!introVisible) return
     const timer = window.setTimeout(() => dismissIntro(), 3000)
@@ -390,9 +409,9 @@ function App() {
   useEffect(() => {
     if (isAccountPortalRoute && authChecked && !accountUser) {
       const returnTo = `${location.pathname}${location.search}`
-      navigate(`/login?returnTo=${encodeURIComponent(returnTo)}`, { replace: true })
+      navigate(`/login?${new URLSearchParams({ returnTo, ...(sessionExpired ? { reason: 'expired' } : {}) }).toString()}`, { replace: true })
     }
-  }, [isAccountPortalRoute, location.pathname, location.search, authChecked, accountUser, navigate])
+  }, [isAccountPortalRoute, location.pathname, location.search, authChecked, accountUser, sessionExpired, navigate])
   useEffect(() => {
     if (pagePath === '/account' && authChecked && accountUser) navigate('/account/dashboard', { replace: true })
     else if (isAccountPortalRoute && authChecked && accountUser && !isPortalPath && !isAccountCartRoute) navigate('/account/dashboard', { replace: true })
@@ -402,12 +421,6 @@ function App() {
       navigate(safeCustomerReturnTo(new URLSearchParams(location.search).get('returnTo')) ?? '/account/dashboard', { replace: true })
     }
   }, [isLoginPage, authChecked, accountUser, location.search, navigate])
-  useEffect(() => {
-    if (!notice) return
-    const timer = window.setTimeout(() => setNotice(''), 2400)
-    return () => window.clearTimeout(timer)
-  }, [notice])
-
   function dismissIntro() {
     sessionStorage.setItem('kitculture-intro-seen', 'true')
     setIntroVisible(false)
@@ -450,19 +463,19 @@ function App() {
       : selection ? [{ variant: selection, quantity: 1 }]
         : product.variants.find((variant) => variant.stock > 0) ? [{ variant: product.variants.find((variant) => variant.stock > 0)!, quantity: 1 }] : []
     if (!selections.length) {
-      setNotice('This item is currently out of stock.')
+      notify('This item is currently out of stock.', 'warning')
       return
     }
     const selectedQuantity = selections.reduce((total, item) => total + item.quantity, 0)
     const existingQuantity = cart.filter((line) => line.productId === product.id).reduce((total, line) => total + line.quantity, 0)
     if (existingQuantity + selectedQuantity > 5) {
-      setNotice('The available stock limit is already in your bag.')
+      notify('The available stock limit is already in your bag.', 'warning')
       return
     }
     for (const item of selections) {
       const existing = cart.find((line) => line.productId === product.id && line.size === item.variant.size)
       if (existing && existing.quantity + item.quantity > item.variant.stock) {
-        setNotice(`Only ${item.variant.stock} ${item.variant.size} kits are available.`)
+        notify(`Only ${item.variant.stock} ${item.variant.size} kits are available.`, 'warning')
         return
       }
     }
@@ -475,7 +488,7 @@ function App() {
       }
       return next
     })
-    setNotice(`${selectedQuantity} ${product.name} ${selectedQuantity === 1 ? 'kit' : 'kits'} added to your bag`)
+    notify(`${selectedQuantity} ${product.name} ${selectedQuantity === 1 ? 'kit' : 'kits'} added to your bag`, 'success')
   }
 
   async function buyNow(_product: ShopProduct, selections: ShopPurchaseSelection[], details: BuyNowCheckoutDetails) {
@@ -506,9 +519,9 @@ function App() {
       })
       const promptResult = await promptResponse.json().catch(() => null) as { data?: { message?: string }; error?: { message?: string } } | null
       const guestConfirmation = promptResponse.ok
-        ? `M-PESA prompt sent to ${details.payerPhone}. Order ${guestResult.data.orderNumber} remains pending until payment is confirmed.`
+        ? `Payment request sent. Check your phone and follow the M-PESA instructions to complete order ${guestResult.data.orderNumber}. Payment remains pending until verified.`
         : `Guest order ${guestResult.data.orderNumber} was created, but the payment prompt could not start: ${promptResult?.error?.message ?? 'Try again later.'}`
-      setNotice(guestConfirmation)
+      notify(guestConfirmation, promptResponse.ok ? 'pending' : 'warning')
       return { message: guestConfirmation, guestOrderNumber: guestResult.data.orderNumber }
     }
     const response = await fetch('/api/v1/orders', {
@@ -529,15 +542,16 @@ function App() {
     })
     const result = await response.json().catch(() => null) as { data?: { orderNumber: string; total: string }; error?: { message?: string } } | null
     if (!response.ok || !result?.data) {
-      const message = result?.error?.message
-        ?? (response.status >= 500
-          ? `The order service is temporarily unavailable (HTTP ${response.status}). Check your orders before trying again.`
-          : 'We could not create your order. Check your details and try again.')
+      const message = result?.error?.message ?? (response.status >= 500
+        ? 'The order service is temporarily unavailable. Please check your orders before trying again.'
+        : 'We could not create your order. Check your details and try again.')
       throw new Error(message)
     }
 
     let noticeMessage = `Order ${result.data.orderNumber} placed. Pay on Delivery selected.`
+    let noticeKind: 'success' | 'pending' | 'warning' = 'success'
     if (details.paymentMethod === 'mpesa') {
+      noticeKind = 'warning'
       noticeMessage = `Order ${result.data.orderNumber} was created, but the payment prompt could not start. Try again from order details.`
       try {
         const promptResponse = await fetch(`/api/v1/orders/${encodeURIComponent(result.data.orderNumber)}/mpesa/stk-push`, {
@@ -547,13 +561,14 @@ function App() {
         })
         const promptResult = await promptResponse.json() as { data?: { message?: string }; error?: { message?: string } }
         noticeMessage = promptResponse.ok
-          ? `M-PESA accepted the request for ${details.payerPhone}. Order ${result.data.orderNumber} remains pending until payment is confirmed. If no prompt appears, use the Daraja Sandbox test phone and simulator.`
+          ? `Payment request sent. Check your phone and follow the M-PESA instructions to complete order ${result.data.orderNumber}. Payment remains pending until verified.`
           : `Order ${result.data.orderNumber} was created, but the prompt could not start: ${promptResult.error?.message ?? 'Try again from order details.'}`
+        noticeKind = promptResponse.ok ? 'pending' : 'warning'
       } catch {
         // The order is already created; keep it available for payment retry.
       }
     }
-    setNotice(noticeMessage)
+    notify(noticeMessage, noticeKind)
     navigate(`/account/orders/${encodeURIComponent(result.data.orderNumber)}`)
   }
 
@@ -619,12 +634,12 @@ function App() {
         return
       }
       setAccountUser(result.data.user)
-      setNotice(`Welcome, ${result.data.user.fullName}`)
+      notify('Welcome back! You\'re now signed in.', 'success')
       const returnTo = safeCustomerReturnTo(new URLSearchParams(location.search).get('returnTo'))
       if (returnTo) navigate(returnTo, { replace: true })
       else if (isLoginPage) navigate('/account/dashboard', { replace: true })
     } catch (error) {
-      setAuthError(error instanceof Error ? error.message : 'Account request failed.')
+      setAuthError(userFacingErrorMessage(error, 'Account request failed.'))
     } finally {
       setAuthBusy(false)
     }
@@ -636,16 +651,21 @@ function App() {
   }
 
   async function signOut() {
-    await fetch('/api/v1/auth/logout', { method: 'POST' })
-    setAccountUser(null)
-    setNotice('You have been signed out.')
-    navigate('/login', { replace: true })
+    try {
+      const response = await fetch('/api/v1/auth/logout', { method: 'POST' })
+      if (!response.ok) throw new Error()
+      setAccountUser(null)
+      notify('You\'ve been signed out successfully.', 'success')
+      navigate('/login', { replace: true })
+    } catch {
+      notify('We couldn\'t sign you out right now. Please try again.', 'error')
+    }
   }
 
   async function saveToWishlist(productId: number) {
     if (!accountUser) {
       navigate(`/login?returnTo=${encodeURIComponent(`${location.pathname}${location.search}`)}`)
-      setNotice('Sign in to save a jersey to your wishlist.')
+      notify('Sign in to save a jersey to your wishlist.', 'info')
       return
     }
     try {
@@ -656,9 +676,9 @@ function App() {
       })
       const result = await response.json() as { error?: { message?: string } }
       if (!response.ok) throw new Error(result.error?.message ?? 'Could not save this jersey.')
-      setNotice('Jersey saved to your wishlist.')
+      notify('Jersey saved to your wishlist.', 'success')
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Could not save this jersey.')
+      notify(userFacingErrorMessage(error, 'Could not save this jersey.'), 'error')
     }
   }
 
@@ -668,7 +688,7 @@ function App() {
       setCartOpen(false)
       setAuthError('')
       navigate('/login?returnTo=%2Fcheckout')
-      setNotice('Sign in or create an account to continue. Your bag is saved.')
+      notify('Sign in or create an account to continue. Your bag is saved.', 'info')
       return
     }
     setCheckoutError('')
@@ -784,10 +804,10 @@ function App() {
       setBuyNowItems(null)
       setCartOpen(false)
       setCheckoutOpen(false)
-      setNotice(noticeMessage)
+      notify(noticeMessage, paymentMethod === 'mpesa' ? (noticeMessage.includes('could not start') ? 'warning' : 'pending') : 'success')
       navigate(paymentMethod === 'mpesa' ? `/account/orders/${encodeURIComponent(result.data.orderNumber)}` : '/account/orders')
     } catch (error) {
-      setCheckoutError(error instanceof Error ? error.message : 'We could not create your order.')
+      setCheckoutError(userFacingErrorMessage(error, 'We could not create your order.'))
     } finally {
       setCheckoutBusy(false)
     }
@@ -801,18 +821,18 @@ function App() {
       const result = response.status === 204 ? null : await response.json() as { error?: { message?: string } }
       if (!response.ok) throw new Error(result?.error?.message ?? 'This order could not be cancelled.')
       await ordersQuery.refetch()
-      setNotice(`Order ${orderNumber} cancelled. Reserved stock has been released.`)
+      notify(`Order ${orderNumber} cancelled. Reserved stock has been released.`, 'success')
     } catch (error) {
-      setOrderActionError(error instanceof Error ? error.message : 'This order could not be cancelled.')
+      setOrderActionError(userFacingErrorMessage(error, 'This order could not be cancelled.'))
     } finally {
       setOrderActionBusy('')
     }
   }
 
-  if (isAdminPage) return <AdminRoute />
+  if (isAdminPage) return <Suspense fallback={<DelayedBrandLoader label="Loading administration" />}><AdminRoute /></Suspense>
 
   if (isAccountPortalRoute || isCustomerAuthRoute) {
-    if (!authChecked) return <div className="standalone-page auth-checking"><div className="catalogue-state"><strong>Checking your account…</strong></div></div>
+    if (!authChecked) return <DelayedBrandLoader label="Checking your account" />
     if (isAccountPortalRoute && (!accountUser || pagePath === '/account' || !isPortalPath)) {
       return <div className="standalone-page auth-checking"><div className="catalogue-state"><strong>{accountUser ? 'Opening your account…' : 'Taking you to sign in…'}</strong></div></div>
     }
@@ -825,12 +845,13 @@ function App() {
           fieldErrors={authFieldErrors}
           onFieldChange={clearAuthFieldError}
           registered={new URLSearchParams(location.search).get('registered') === '1'}
+          sessionExpired={sessionExpired || new URLSearchParams(location.search).get('reason') === 'expired'}
           email={new URLSearchParams(location.search).get('email') ?? ''}
           returnTo={safeCustomerReturnTo(new URLSearchParams(location.search).get('returnTo')) ?? ''}
           onSubmit={(event) => void submitAuth(event)}
         />
       : <CustomerAuthInfoPage kind={pagePath === '/forgot-password' ? 'forgot' : pagePath === '/reset-password' ? 'reset' : 'verify'} />
-    if (isCustomerAuthRoute) return <AuthLayout>{authPage}</AuthLayout>
+    if (isCustomerAuthRoute) return <AuthLayout><Suspense fallback={<DelayedBrandLoader label="Loading sign-in" />}>{authPage}</Suspense></AuthLayout>
     if (!accountUser) return null
     const content = pagePath === '/account' || pagePath === '/account/dashboard'
       ? <CustomerPortalOverview
@@ -891,7 +912,7 @@ function App() {
         : pagePath === '/account/chat'
           ? <CustomerChatPage user={accountUser} />
           : <CustomerPortalPage path={pagePath} user={accountUser} onProfileUpdate={(fullName, phone) => setAccountUser((current) => current ? { ...current, fullName, phone } : current)} />
-    return <CustomerPortalLayout currentPath={pagePath} user={accountUser} itemCount={itemCount} onSignOut={() => void signOut()}>{content}</CustomerPortalLayout>
+    return <CustomerPortalLayout currentPath={pagePath} user={accountUser} itemCount={itemCount} onSignOut={() => void signOut()} onSessionExpired={() => { setAccountUser(null); setSessionExpired(true) }}><Suspense fallback={<DelayedBrandLoader label="Loading your account" />}>{content}</Suspense></CustomerPortalLayout>
   }
 
   return (
@@ -941,7 +962,7 @@ function App() {
             <div className="hero-footnote"><span className="live-dot" /> Machakos-born. Matchday-ready.</div>
           </div>
           <div className="hero-image hero-slide-image">
-            <img key={activeHeroProduct?.id ?? activeSlide?.id} className={`hero-slide-photo${activeHeroProduct ? ' hero-kit-photo' : ''}`} src={activeHeroProduct?.imageUrl ?? activeSlide?.imageUrl} alt={activeHeroProduct?.name ?? activeSlide?.title ?? 'KitCulture kit'} />
+            <StoreImage key={activeHeroProduct?.id ?? activeSlide?.id} className={`hero-slide-photo${activeHeroProduct ? ' hero-kit-photo' : ''}`} src={activeHeroProduct?.imageUrl ?? activeSlide?.imageUrl} alt={activeHeroProduct?.name ?? activeSlide?.title ?? 'KitCulture kit'} width={1200} height={900} priority />
             <div className="hero-image-shade" />
             <div className="hero-image-caption"><span>{String(activeSlideIndex + 1).padStart(2, '0')} / KITCULTURE</span><span>{activeHeroProduct?.name ?? activeSlide?.ctaLabel}</span></div>
             {heroSlideCount > 1 && <div className="hero-slide-controls"><button type="button" aria-label="Previous homepage kit" onClick={() => setActiveSlideIndex((index) => (index - 1 + heroSlideCount) % heroSlideCount)}>←</button><span>{activeSlideIndex + 1} / {heroSlideCount}</span><button type="button" aria-label="Next homepage kit" onClick={() => setActiveSlideIndex((index) => (index + 1) % heroSlideCount)}>→</button></div>}
@@ -1008,7 +1029,7 @@ function App() {
           {!catalogueError && !loading && homeFeaturedProducts.length > 0 && <div className="product-grid">{homeFeaturedProducts.slice(0, 6).map((product) => {
             const inStock = product.variants.some((variant) => variant.stock > 0)
             return <article className="product-card" key={product.id}>
-              <div className="product-media"><Link className="shop-product-link" to={`/products/${product.slug}`} aria-label={`View ${product.name}`}>{product.imageUrl ? <img src={product.imageUrl} alt={product.name} loading="lazy" /> : <div className="product-image-empty"><span>KC</span><small>IMAGE TO BE ADDED</small></div>}</Link>
+              <div className="product-media"><Link className="shop-product-link" to={`/products/${product.slug}`} aria-label={`View ${product.name}`}>{product.imageUrl ? <StoreImage src={product.imageUrl} alt={product.name} width={640} height={800} /> : <div className="product-image-empty"><span>KC</span><small>IMAGE TO BE ADDED</small></div>}</Link>
                 {(product.featured || product.trending) && <span className="product-tag">{product.trending ? 'TRENDING' : 'FEATURED'}</span>}
                 {(product.salePrice || product.featured || product.trending) && <span className={`product-tag${product.salePrice ? ' product-tag-sale' : ''}`}>{product.salePrice ? 'SALE' : product.trending ? 'TRENDING' : 'FEATURED'}</span>}
                 <button className="product-favourite" type="button" aria-label={`Save ${product.name} to your wishlist`} onClick={() => void saveToWishlist(product.id)}><Heart size={14} /></button>
@@ -1028,7 +1049,7 @@ function App() {
           <div className="home-category-groups">{homepageJerseyCategories.map((category) => <HomepageProductSection key={category.slug} title={category.name} kicker="KIT COLLECTION" products={products.filter((product) => product.jerseyCategory?.slug === category.slug).slice(0, 6)} onAdd={addToCart} onSave={(productId) => void saveToWishlist(productId)} categoryImageUrl={category.imageUrl} shopAllHref={`/shop?category=${encodeURIComponent(category.slug)}`} showAll />)}</div>
         </section>
 
-        <HomepageProductSection id="new-arrivals" title="Latest Jerseys. Fresh Style." kicker="New Arrivals" products={newArrivalsQuery.data ?? []} error={newArrivalsQuery.isError ? newArrivalsQuery.error.message : undefined} onAdd={addToCart} onSave={(productId) => void saveToWishlist(productId)} shopAllHref="/new-arrivals" shopAllLabel="View all arrivals" showAll />
+        <HomepageProductSection id="new-arrivals" title="Latest Jerseys. Fresh Style." kicker="New Arrivals" products={(newArrivalsQuery.data ?? []).slice(0, 6)} error={newArrivalsQuery.isError ? newArrivalsQuery.error.message : undefined} onAdd={addToCart} onSave={(productId) => void saveToWishlist(productId)} shopAllHref="/new-arrivals" shopAllLabel="View all arrivals" showAll />
 
         <section className="home-service-strip" aria-label="Shopping benefits">
           <div><Truck size={28} /><span><strong>Convenient Delivery</strong><small>Machakos Town &amp; beyond</small></span></div>
@@ -1037,11 +1058,11 @@ function App() {
           <div><Star size={28} /><span><strong>Football Culture</strong><small>More than just jerseys</small></span></div>
         </section>
         </div>}
-        {isShopPage && <ShopPage key={pagePath} onSave={(productId) => void saveToWishlist(productId)} onAdd={(product) => addToCart(product)} />}
-        {isMarketplacePage && <MarketplacePage onSave={(productId) => void saveToWishlist(productId)} onAdd={(product) => addToCart(product)} />}
-        {isProductPage && <ProductPage onAdd={addToCart} onBuyNow={buyNow} accountUser={accountUser} onSave={(productId) => void saveToWishlist(productId)} />}
+        {isShopPage && <Suspense fallback={<DelayedBrandLoader label="Loading jerseys" />}><ShopPage key={pagePath} onSave={(productId) => void saveToWishlist(productId)} onAdd={(product) => addToCart(product)} /></Suspense>}
+        {isMarketplacePage && <Suspense fallback={<DelayedBrandLoader label="Loading teams" />}><MarketplacePage onSave={(productId) => void saveToWishlist(productId)} onAdd={(product) => addToCart(product)} /></Suspense>}
+        {isProductPage && <Suspense fallback={<DelayedBrandLoader label="Loading jersey details" />}><ProductPage onAdd={addToCart} onBuyNow={buyNow} accountUser={accountUser} onSave={(productId) => void saveToWishlist(productId)} /></Suspense>}
         {isCartPage && <section className="standalone-page page-width cart-page"><Link to="/shop" className="standalone-back"><ArrowDown size={14} /> Continue shopping</Link><h1>Your matchday bag</h1>
-          {cart.length === 0 ? <div className="catalogue-state"><strong>Your bag is empty.</strong><span>Browse the team catalogue and find your colours.</span><Link className="button button-green" to="/shop">Shop teams <ArrowRight size={15} /></Link></div> : <><div className="cart-page-lines">{cart.map((line) => <article className="cart-line" key={`${line.productId}-${line.size}`}>{line.imageUrl ? <img src={line.imageUrl} alt="" /> : <div className="cart-image-placeholder">KC</div>}<div className="cart-line-info"><strong>{line.name}</strong><span>Size {line.size}</span><span>{money.format(line.price)}</span><div className="quantity-control"><button type="button" aria-label={`Remove one ${line.name}`} onClick={() => updateQuantity(line.productId, line.size, line.quantity - 1)}>−</button><span>{line.quantity}</span><button type="button" aria-label={`Add one ${line.name}`} onClick={() => updateQuantity(line.productId, line.size, line.quantity + 1)}>+</button></div></div><button className="remove-line" type="button" onClick={() => updateQuantity(line.productId, line.size, 0)}>Remove</button></article>)}</div><div className="cart-page-total"><span>Subtotal (delivery calculated at checkout)</span><strong>{money.format(subtotal)}</strong><Link to="/checkout" className="button button-green">Continue to checkout <ArrowRight size={15} /></Link></div></>}
+          {cart.length === 0 ? <div className="catalogue-state"><strong>Your bag is empty.</strong><span>Browse the team catalogue and find your colours.</span><Link className="button button-green" to="/shop">Shop teams <ArrowRight size={15} /></Link></div> : <><div className="cart-page-lines">{cart.map((line) => <article className="cart-line" key={`${line.productId}-${line.size}`}>{line.imageUrl ? <StoreImage src={line.imageUrl} alt="" width={120} height={150} /> : <div className="cart-image-placeholder">KC</div>}<div className="cart-line-info"><strong>{line.name}</strong><span>Size {line.size}</span><span>{money.format(line.price)}</span><div className="quantity-control"><button type="button" aria-label={`Remove one ${line.name}`} onClick={() => updateQuantity(line.productId, line.size, line.quantity - 1)}>−</button><span>{line.quantity}</span><button type="button" aria-label={`Add one ${line.name}`} onClick={() => updateQuantity(line.productId, line.size, line.quantity + 1)}>+</button></div></div><button className="remove-line" type="button" onClick={() => updateQuantity(line.productId, line.size, 0)}>Remove</button></article>)}</div><div className="cart-page-total"><span>Subtotal (delivery calculated at checkout)</span><strong>{money.format(subtotal)}</strong><Link to="/checkout" className="button button-green">Continue to checkout <ArrowRight size={15} /></Link></div></>}
         </section>}
         {isCheckoutPage && <section className="standalone-page page-width checkout-page"><Link to="/cart" className="standalone-back">← Back to your bag</Link><h1>Delivery details</h1>
           {zonesLoading ? <div className="catalogue-state"><strong>Loading delivery areas…</strong></div> : zonesFailed || deliveryZones.length === 0 ? <div className="catalogue-state error-state"><strong>Checkout is not available yet.</strong><span>{zonesFailed ? (zonesError instanceof Error ? zonesError.message : 'Delivery areas could not be loaded.') : 'Delivery areas have not been configured.'}</span></div> : <form className="standalone-card checkout-form" onSubmit={(event) => void submitCheckout(event)} noValidate>
@@ -1072,7 +1093,6 @@ function App() {
         <nav className="footer-links" aria-label="KitCulture links"><strong>About KitCulture</strong><Link to="/marketplace">Our Marketplace</Link><Link to="/shop">Football Culture</Link><span>Machakos, Kenya</span></nav>
       </div><div className="footer-bottom"><span>© 2026 KitCulture. All rights reserved.</span><div><span>Powered by KitCulture</span></div></div></footer>
 
-      {notice && <div className="toast" role="status"><Check size={17} />{notice}</div>}
       {cartOpen && <div className="drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCartOpen(false) }}><aside className="cart-drawer" aria-label={checkoutOpen ? 'Checkout' : 'Shopping bag'} aria-modal="true" role="dialog">
         <div className="drawer-heading"><div><span className="eyebrow">{checkoutOpen ? 'DELIVERY DETAILS' : 'YOUR LINEUP'}</span><h2>{checkoutOpen ? 'Where to?' : <>Matchday bag <span>({itemCount})</span></>}</h2></div><button className="icon-button" type="button" aria-label="Close bag" onClick={() => { setCartOpen(false); setCheckoutOpen(false) }}><X /></button></div>
         {checkoutOpen ? <div className="checkout-panel">
@@ -1094,7 +1114,7 @@ function App() {
             <p className="checkout-disclaimer">Your selected delivery area is attached to the order. A map pin is optional. Stock and delivery fees are rechecked before confirmation.</p>
             <button className="button button-green" type="submit" disabled={checkoutBusy || checkoutCart.length === 0}>{checkoutBusy ? 'Creating order…' : `Place order · ${checkoutPaymentMethod === 'pay_on_delivery' ? 'Pay on Delivery' : 'M-Pesa'}`} <ArrowRight size={16} /></button>
           </form>}
-        </div> : cart.length === 0 ? <div className="empty-cart"><ShoppingBag size={28} /><strong>Nothing in your bag. Yet.</strong><span>Your next favourite shirt is waiting in the shop.</span><button className="button button-green" type="button" onClick={() => setCartOpen(false)}>Explore the shop <ArrowRight size={15} /></button></div> : <><div className="cart-lines">{cart.map((line) => <article className="cart-line" key={`${line.productId}-${line.size}`}>{line.imageUrl ? <img src={line.imageUrl} alt="" /> : <div className="cart-image-placeholder">KC</div>}<div className="cart-line-info"><strong>{line.name}</strong><span>Size {line.size}</span><span>{money.format(line.price)}</span><div className="quantity-control"><button type="button" aria-label={`Remove one ${line.name}`} onClick={() => updateQuantity(line.productId, line.size, line.quantity - 1)}>−</button><span>{line.quantity}</span><button type="button" aria-label={`Add one ${line.name}`} onClick={() => updateQuantity(line.productId, line.size, line.quantity + 1)}>+</button></div></div><button className="remove-line" type="button" onClick={() => updateQuantity(line.productId, line.size, 0)}>Remove</button></article>)}</div><div className="drawer-total"><div><span>Subtotal</span><strong>{money.format(subtotal)}</strong></div><p>Delivery calculated at checkout.</p><button className="button button-green" type="button" onClick={beginCheckout}>Continue to checkout <ArrowRight size={16} /></button><small>Sign in is required. Your bag stays saved in this browser.</small></div></>}
+        </div> : cart.length === 0 ? <div className="empty-cart"><ShoppingBag size={28} /><strong>Nothing in your bag. Yet.</strong><span>Your next favourite shirt is waiting in the shop.</span><button className="button button-green" type="button" onClick={() => setCartOpen(false)}>Explore the shop <ArrowRight size={15} /></button></div> : <><div className="cart-lines">{cart.map((line) => <article className="cart-line" key={`${line.productId}-${line.size}`}>{line.imageUrl ? <StoreImage src={line.imageUrl} alt="" width={120} height={150} /> : <div className="cart-image-placeholder">KC</div>}<div className="cart-line-info"><strong>{line.name}</strong><span>Size {line.size}</span><span>{money.format(line.price)}</span><div className="quantity-control"><button type="button" aria-label={`Remove one ${line.name}`} onClick={() => updateQuantity(line.productId, line.size, line.quantity - 1)}>−</button><span>{line.quantity}</span><button type="button" aria-label={`Add one ${line.name}`} onClick={() => updateQuantity(line.productId, line.size, line.quantity + 1)}>+</button></div></div><button className="remove-line" type="button" onClick={() => updateQuantity(line.productId, line.size, 0)}>Remove</button></article>)}</div><div className="drawer-total"><div><span>Subtotal</span><strong>{money.format(subtotal)}</strong></div><p>Delivery calculated at checkout.</p><button className="button button-green" type="button" onClick={beginCheckout}>Continue to checkout <ArrowRight size={16} /></button><small>Sign in is required. Your bag stays saved in this browser.</small></div></>}
       </aside></div>}
     </div>
   )

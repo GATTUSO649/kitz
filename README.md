@@ -8,6 +8,7 @@ KitCulture is a React/TypeScript storefront with an Express API and a Drizzle/My
 - Separate route-based pages for the shop, category/team collections, product details, sign-in, sign-up, cart, checkout, customer orders, and administrator modules.
 - Team/category catalogue filters, search, price sorting, stock/size display, item descriptions, and price visibility.
 - Customer registration, login, session lookup, and logout endpoints using bcrypt password hashes and opaque HttpOnly cookie sessions.
+- Database-backed customer/admin sessions with bounded sliding idle expiration (60 minutes for customers, 15 minutes for administrators), absolute lifetime caps, Secure production cookies, and backend revocation.
 - Browser registration/sign-in UI with Zod validation, password confirmation, and explicit email-verification status.
 - Product search/category filtering, stock-aware add-to-bag interactions, and a bag persisted in the current browser.
 - Authenticated checkout that submits only variant IDs and quantities; the API calculates current item prices and configured delivery fees.
@@ -23,6 +24,7 @@ KitCulture is a React/TypeScript storefront with an Express API and a Drizzle/My
 - Persistent Cloudinary-backed product image galleries with validated JPEG/PNG/WebP uploads, alt text, ordering, primary-image selection, and deletion; product creation can upload a kit image in the same flow, and a failed image upload keeps the created product selected for retry. Administrators can manage scheduled homepage slides and the storefront reads published slides and available team collections from the catalogue API.
 - Catalogue sale pricing, trending flags, product-image galleries, paginated product responses, and live/liveness/readiness health endpoints.
 - Express security headers, restricted development CORS, JSON size limit, request rate limiting, structured request logs, input validation, and generic server errors.
+- Route-level lazy loading, a reduced-motion football loader, contextual product skeletons, reusable accessible notifications, and responsive image loading with Cloudinary auto-format/quality variants and dimensioned fallbacks.
 - One MySQL database for storefront and administrator data, with separate customer/admin authentication flows and role-protected routes.
 - Drizzle schema and migration tooling for customers, saved addresses, wishlists, categories, products, variants, inventory movements, carts, order snapshots, support conversations and location pins, payments, delivery zones, expenses, and application settings.
 
