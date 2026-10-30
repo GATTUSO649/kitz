@@ -18,6 +18,7 @@ export const adminLoginSchema = z.object({
   email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
   password: z.string().min(1).max(128),
 })
+export const invalidAdminCredentialsMessage = 'The email address or password is incorrect. Please try again.'
 const registerSchema = z.object({
   email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
   password: bcryptPasswordSchema(14),
@@ -188,7 +189,7 @@ adminAuthRouter.post('/login', async (request, response) => {
     emailVerifiedAt: adminUsers.emailVerifiedAt,
   }).from(adminUsers).where(eq(adminUsers.email, input.data.email)).limit(1)
   if (!admin || !(await compare(input.data.password, admin.passwordHash))) {
-    response.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Email, password, or administrator key is invalid.' } })
+    response.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: invalidAdminCredentialsMessage } })
     return
   }
   if (!admin.emailVerifiedAt) {

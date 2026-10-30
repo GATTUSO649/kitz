@@ -107,6 +107,18 @@ async function issuePasswordResetEmail(userId: number, email: string) {
   })
 }
 
+export async function attemptPasswordResetDelivery(send: () => Promise<void>, requestId: string, logger: { warn: (fields: Record<string, unknown>, message: string) => void }) {
+  try {
+    await send()
+  } catch (error) {
+    logger.warn({
+      requestId,
+      operation: 'auth.password-reset-email',
+      errorType: error instanceof Error ? error.name : 'unknown',
+    }, 'Password reset delivery failed')
+  }
+}
+
 authRouter.post('/register', async (request, response) => {
   if (rejectCrossOrigin(request, response)) return
   const input = registerSchema.safeParse(request.body)
@@ -258,12 +270,7 @@ authRouter.post('/forgot-password', async (request, response) => {
 
   const [user] = await db.select({ id: users.id, email: users.email }).from(users).where(eq(users.email, input.data.email)).limit(1)
   if (user) {
-    try {
-      await issuePasswordResetEmail(user.id, user.email)
-    } catch {
-      response.status(503).json({ error: { code: 'EMAIL_UNAVAILABLE', message: 'We could not send a reset email right now.' } })
-      return
-    }
+    await attemptPasswordResetDelivery(() => issuePasswordResetEmail(user.id, user.email), String(request.id), request.log)
   }
 
   response.json({ data: { emailSent: true } })

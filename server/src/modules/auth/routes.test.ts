@@ -8,9 +8,9 @@ process.env.CLIENT_ORIGIN = 'http://localhost:5173'
 const { mysqlSslOptions } = await import('../../config/database.js')
 const { isAllowedClientOrigin, productionDarajaConfigurationErrors, resolveDarajaEnvironment, resolveDarajaTransactionType } = await import('../../config/env.js')
 const { bcryptPasswordSchema } = await import('../../config/password-policy.js')
-const { adminIdleTimeoutMs, adminLoginSchema, matchesAdminSignupSecret } = await import('../admin/auth.js')
+const { adminIdleTimeoutMs, adminLoginSchema, invalidAdminCredentialsMessage, matchesAdminSignupSecret } = await import('../admin/auth.js')
 const { adminSessionAbsoluteLifetimeMs, customerSessionAbsoluteLifetimeMs, customerSessionIdleTimeoutMs, nextSessionExpiry, shouldRefreshSession } = await import('../../config/session-policy.js')
-const { loginSchema, registerSchema } = await import('./routes.js')
+const { attemptPasswordResetDelivery, loginSchema, registerSchema } = await import('./routes.js')
 const { createOrderSchema, createTemporaryOrderNumber, exceedsProductQuantityLimit, ordersRouter } = await import('../orders/routes.js')
 const { combinedRating, quickProductRatingSchema } = await import('../catalogue/routes.js')
 const { buildDarajaCallbackUrl, callbackFailureStatus, canVerifySuccessfulStkPayment, DarajaRequestError, darajaCallbackRoute, initiateStkPush, isFinalDarajaPaymentStatus, isValidDarajaPaymentAmount, matchesCallbackToken, normalizeKenyanPhone, parseDarajaTimestamp, parseStkCallback, resolveDarajaShortcodes } = await import('../orders/daraja.js')
@@ -44,6 +44,23 @@ test('login rejects an empty password', () => {
   const result = loginSchema.safeParse({ email: 'fan@example.com', password: '' })
   assert.equal(result.success, false)
   assert.equal(loginSchema.safeParse({ email: 'fan@example.com', password: 'é'.repeat(40) }).success, true)
+})
+
+test('administrator login failure message describes the credentials that are actually checked', () => {
+  assert.equal(invalidAdminCredentialsMessage, 'The email address or password is incorrect. Please try again.')
+})
+
+test('password reset delivery failures are logged without changing the generic acknowledgement flow', async () => {
+  const warnings: { fields: Record<string, unknown>; message: string }[] = []
+  await attemptPasswordResetDelivery(
+    async () => { throw new Error('provider response includes private diagnostic details') },
+    'request-123',
+    { warn: (fields, message) => warnings.push({ fields, message }) },
+  )
+  assert.deepEqual(warnings, [{
+    fields: { requestId: 'request-123', operation: 'auth.password-reset-email', errorType: 'Error' },
+    message: 'Password reset delivery failed',
+  }])
 })
 
 test('bcrypt password validation accepts long passphrases but rejects inputs over its UTF-8 byte limit', () => {
