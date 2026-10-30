@@ -2,12 +2,14 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent,
 import { Link, Navigate, useLocation, useNavigate, type NavigateFunction } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { userFacingErrorMessage } from '../components/notification-api'
+import { AdminApiError, formatAdminOrderNumber, isAdminSessionExpired } from './admin-tools'
 import { ArrowRight, ArrowUpDown, BarChart3, Bell, Copy, Filter, Image as ImageIcon, LayoutDashboard, LogOut, MapPin, Menu, MessageCircle, Package, Search, Send, Star, Trash2, Trophy, Upload, Users, X } from 'lucide-react'
 import { GoogleMapView } from '../components/GoogleMapView'
 import { matchesNationalTeam, NATIONAL_TEAM_NAMES } from '../nationalTeams'
 
 type AdminRecord = Record<string, unknown>
-type AdminPayload<T> = { data?: T; error?: { message?: string } }
+type AdminPayload<T> = { data?: T; error?: { code?: string; message?: string } }
+const adminSessionExpiredEvent = 'kitculture:admin-session-expired'
 type CatalogueLeague = { id: number; name: string; slug: string; country: string; countryCode: string; season: string; sortOrder: number; active: boolean }
 type CatalogueTeam = { id: number; leagueId: number; name: string; slug: string; sortOrder: number; active: boolean }
 type CatalogueJerseyCategory = { id: number; name: string; slug: string; sortOrder: number; active: boolean }
@@ -77,12 +79,15 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
   } catch (error) {
     throw new Error(userFacingErrorMessage(error, 'The administrator service is unavailable. Please try again shortly.'))
   }
+  if (response.status === 401 && !/\/admin\/(?:login|register|verify)(?:[/?]|$)/.test(url)) {
+    window.dispatchEvent(new Event(adminSessionExpiredEvent))
+  }
   if (response.status === 204) return undefined as T
   if (!response.headers.get('content-type')?.includes('application/json')) {
-    throw new Error(response.ok ? 'The administrator service returned an unexpected response.' : 'The administrator service is unavailable. Please try again shortly.')
+    throw new AdminApiError(response.ok ? 'The administrator service returned an unexpected response.' : 'The administrator service is unavailable. Please try again shortly.', response.status)
   }
   const payload = await response.json() as AdminPayload<T>
-  if (!response.ok) throw new Error('error' in payload ? payload.error?.message ?? 'Request failed.' : 'Request failed.')
+  if (!response.ok) throw new AdminApiError('error' in payload ? payload.error?.message ?? 'Request failed.' : 'Request failed.', response.status, payload.error?.code)
   if (!('data' in payload) || payload.data === undefined) throw new Error('The administrator service returned an invalid response.')
   return payload.data
 }
@@ -110,6 +115,30 @@ function pretty(value: unknown) {
   if (value instanceof Date) return value.toLocaleString()
   if (typeof value === 'object') return JSON.stringify(value)
   return String(value)
+}
+
+function OrderPaymentTables({ orders }: { orders: AdminRecord[] }) {
+  const paymentStatus = (order: AdminRecord) => String(order.paymentStatus ?? '')
+  const pending = orders.filter((order) => ['initiated', 'pending', 'requires_review'].includes(paymentStatus(order))
+    || (order.status === 'pending_payment' && !['failed', 'cancelled', 'expired', 'refunded'].includes(paymentStatus(order))))
+  const paid = orders.filter((order) => paymentStatus(order) === 'succeeded' || order.status === 'paid')
+  const other = orders.filter((order) => !pending.includes(order) && !paid.includes(order))
+  const displayRows = (rows: AdminRecord[]) => rows.map((order) => ({
+    orderNumber: formatAdminOrderNumber(order),
+    customerName: order.customerName,
+    customerEmail: order.customerEmail,
+    total: order.total,
+    paymentMethod: order.paymentMethod,
+    paymentStatus: order.paymentStatus ?? 'not_started',
+    status: order.status,
+    createdAt: order.createdAt,
+  }))
+
+  return <div className="admin-order-payment-tables">
+    <section><header className="admin-order-payment-heading"><div><span className="admin-kicker">AWAITING VERIFICATION</span><h2>Pending payments · {pending.length}</h2></div></header><DataTable rows={displayRows(pending)} empty="No orders are awaiting payment." /></section>
+    <section><header className="admin-order-payment-heading"><div><span className="admin-kicker">VERIFIED</span><h2>Paid orders · {paid.length}</h2></div></header><DataTable rows={displayRows(paid)} empty="No payments have been verified yet." /></section>
+    {other.length > 0 && <section><header className="admin-order-payment-heading"><div><span className="admin-kicker">OTHER STATUSES</span><h2>Other orders · {other.length}</h2></div></header><DataTable rows={displayRows(other)} empty="No other orders." /></section>}
+  </div>
 }
 
 function DataTable({ rows, empty }: { rows: AdminRecord[]; empty: string }) {
@@ -1630,10 +1659,16 @@ export function AdminConsole() {
   })
 
   useEffect(() => {
-    if (/sign in/i.test(sectionQuery.error?.message ?? '')) {
+    if (isAdminSessionExpired(sectionQuery.error)) {
       navigate('/admin/login?reason=expired', { replace: true })
     }
   }, [sectionQuery.error, navigate])
+
+  useEffect(() => {
+    const expireSession = () => navigate('/admin/login?reason=expired', { replace: true })
+    window.addEventListener(adminSessionExpiredEvent, expireSession)
+    return () => window.removeEventListener(adminSessionExpiredEvent, expireSession)
+  }, [navigate])
 
   useEffect(() => {
     const idleTimeoutMs = 15 * 60_000
@@ -1641,12 +1676,12 @@ export function AdminConsole() {
     let idleTimer = 0
     let lastKeepAlive = Date.now()
     let signingOut = false
-    const leaveAdmin = () => {
+    const leaveAdmin = (reason: 'idle' | 'expired' = 'idle') => {
       if (signingOut) return
       signingOut = true
       void api('/api/v1/admin/logout', { method: 'POST' })
         .catch(() => undefined)
-        .finally(() => navigate('/admin/login?reason=idle', { replace: true }))
+        .finally(() => navigate(`/admin/login?reason=${reason}`, { replace: true }))
     }
     const resetIdleTimer = () => {
       if (signingOut) return
@@ -1656,7 +1691,7 @@ export function AdminConsole() {
       if (now - lastKeepAlive < keepAliveThrottleMs) return
       lastKeepAlive = now
       void api('/api/v1/admin/session/activity', { method: 'POST' }).catch((issue: unknown) => {
-        if (issue instanceof Error && issue.message.toLowerCase().includes('administrator sign in')) leaveAdmin()
+        if (isAdminSessionExpired(issue)) leaveAdmin('expired')
       })
     }
     const events: Array<keyof WindowEventMap> = ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart']
@@ -1712,6 +1747,7 @@ export function AdminConsole() {
           <ProductClassificationManager onDone={async () => { await sectionQuery.refetch() }} />
           <ProductImageManager key={imageManagerSelectionKey} initialProductId={createdImageProductId} onDone={async () => { await sectionQuery.refetch() }} />
         </>}
+        {current[0] === 'orders' && <OrderPaymentTables orders={records} />}
         {current[0] === 'orders' && <section className="admin-order-actions"><h2>Order status</h2>{records.map((order) => {
           const status = String(order.status)
           const nextStatuses = status === 'pending_payment'
@@ -1719,10 +1755,11 @@ export function AdminConsole() {
             : status === 'paid' ? ['processing']
               : status === 'processing' ? ['dispatched']
                 : status === 'dispatched' ? ['delivered'] : []
-          return <article key={String(order.id)}><span><strong>{pretty(order.orderNumber)}</strong> · {pretty(status)}</span><select aria-label={`Update ${pretty(order.orderNumber)} status`} defaultValue="" disabled={nextStatuses.length === 0} onChange={(event) => { if (event.target.value) void patchOrder(order, event.target.value) }}><option value="" disabled>{nextStatuses.length ? 'Update status' : 'No further updates'}</option>{nextStatuses.map((nextStatus) => <option key={nextStatus} value={nextStatus}>{pretty(nextStatus)}</option>)}</select></article>
+          const displayOrderNumber = formatAdminOrderNumber(order)
+          return <article key={String(order.id)}><span><strong>{displayOrderNumber}</strong> · {pretty(status)}</span><select aria-label={`Update ${displayOrderNumber} status`} defaultValue="" disabled={nextStatuses.length === 0} onChange={(event) => { if (event.target.value) void patchOrder(order, event.target.value) }}><option value="" disabled>{nextStatuses.length ? 'Update status' : 'No further updates'}</option>{nextStatuses.map((nextStatus) => <option key={nextStatus} value={nextStatus}>{pretty(nextStatus)}</option>)}</select></article>
         })}</section>}
         {actionError && <p className="admin-error">{actionError}</p>}
-        {!['dashboard', 'homepage', 'support', 'football', 'notifications', 'guest-orders'].includes(current[0]) && <DataTable rows={current[0] === 'products' ? records.map(({ images: _images, variants: _variants, ...record }) => record) : records} empty="No records are available for this section yet." />}
+        {!['dashboard', 'homepage', 'support', 'football', 'notifications', 'guest-orders', 'orders'].includes(current[0]) && <DataTable rows={current[0] === 'products' ? records.map(({ images: _images, variants: _variants, ...record }) => record) : records} empty="No records are available for this section yet." />}
         {current[0] === 'dashboard' && data && !Array.isArray(data) && <section className="admin-dashboard-orders"><div className="admin-analytics-heading"><div><span className="admin-kicker">LATEST ACTIVITY</span><h2>Recent orders</h2></div></div><DataTable rows={Array.isArray(data.recentOrders) ? data.recentOrders as AdminRecord[] : []} empty="No orders have been placed yet." /></section>}
       </>}
     </main>
@@ -1745,7 +1782,7 @@ export function AdminRoute() {
   if (isAdminPortalRoute) {
     if (sessionQuery.isPending) return <main className="auth-checking" role="status">Checking administrator session…</main>
     if (sessionQuery.isError) {
-      if (/sign in/i.test(sessionQuery.error.message)) return <Navigate to="/admin/login?reason=expired" replace />
+      if (isAdminSessionExpired(sessionQuery.error)) return <Navigate to="/admin/login?reason=expired" replace />
       return <main className="auth-checking"><p role="alert">Administrator service unavailable: {sessionQuery.error.message}</p><button type="button" onClick={() => void sessionQuery.refetch()}>Retry</button></main>
     }
     return <AdminConsole />

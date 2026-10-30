@@ -20,19 +20,18 @@ export function normalizeWhatsAppNumber(value: string) {
   return /^254[17]\d{8}$/.test(international) ? international : null
 }
 
-export function createWhatsAppProductHref(phone: string, product: WhatsAppProduct, origin: string) {
-  const recipient = normalizeWhatsAppNumber(phone)
-  if (!recipient) return null
+export function getWhatsAppProductImageUrl(product: WhatsAppProduct, origin: string) {
+  const imageUrl = product.imageUrl ?? product.images?.find((image) => image.isPrimary)?.imageUrl ?? product.images?.[0]?.imageUrl
+  return imageUrl ? new URL(imageUrl, origin).href : null
+}
 
+export function createWhatsAppProductMessage(product: WhatsAppProduct) {
   const price = Number(product.salePrice ?? product.price)
   const formattedPrice = Number.isFinite(price)
     ? new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES', maximumFractionDigits: 0 }).format(price)
     : 'Please confirm current price'
   const availableSizes = product.variants.map(({ size, stock }) => `${size} (${stock} available)`).join(', ') || 'Please confirm sizes'
   const totalStock = product.variants.reduce((total, variant) => total + variant.stock, 0)
-  const imageUrl = product.imageUrl ?? product.images?.find((image) => image.isPrimary)?.imageUrl ?? product.images?.[0]?.imageUrl
-  const absoluteImageUrl = imageUrl ? new URL(imageUrl, origin).href : ''
-  const productUrl = new URL(`/products/${encodeURIComponent(product.slug)}`, origin).href
   const details = [
     `Hi KitCulture, I'm interested in ${product.name}.`,
     `Price: ${formattedPrice}`,
@@ -42,11 +41,15 @@ export function createWhatsAppProductHref(phone: string, product: WhatsAppProduc
     product.category?.name ? `Collection: ${product.category.name}` : '',
     `Sizes and stock: ${availableSizes}`,
     `Total available: ${totalStock}`,
-    absoluteImageUrl ? `Product image: ${absoluteImageUrl}` : '',
-    `Product page: ${productUrl}`,
   ].filter(Boolean).join('\n')
+  return details
+}
 
-  return `https://wa.me/${recipient}?text=${encodeURIComponent(details)}`
+export function createWhatsAppProductHref(phone: string, product: WhatsAppProduct) {
+  const recipient = normalizeWhatsAppNumber(phone)
+  if (!recipient) return null
+
+  return `https://wa.me/${recipient}?text=${encodeURIComponent(createWhatsAppProductMessage(product))}`
 }
 
 export function useStoreWhatsAppNumber(enabled = true) {

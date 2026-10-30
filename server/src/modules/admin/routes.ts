@@ -767,7 +767,13 @@ adminRouter.get('/orders', async (_request, response) => {
     customerName: sql<string | null>`COALESCE(${users.fullName}, JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.recipientName')))`,
     customerEmail: sql<string | null>`COALESCE(${users.email}, JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.email')))`,
   }).from(orders).leftJoin(users, eq(orders.userId, users.id)).orderBy(desc(orders.createdAt)).limit(200)
-  response.json({ data: rows })
+  const paymentRows = rows.length ? await db.select({ orderId: payments.orderId, status: payments.status }).from(payments)
+    .where(inArray(payments.orderId, rows.map(({ id }) => id))).orderBy(desc(payments.createdAt)) : []
+  const latestPaymentByOrder = new Map<number, typeof paymentRows[number]['status']>()
+  for (const payment of paymentRows) {
+    if (!latestPaymentByOrder.has(payment.orderId)) latestPaymentByOrder.set(payment.orderId, payment.status)
+  }
+  response.json({ data: rows.map((order) => ({ ...order, paymentStatus: latestPaymentByOrder.get(order.id) ?? null })) })
 })
 
 adminRouter.get('/guest-orders', async (_request, response) => {
