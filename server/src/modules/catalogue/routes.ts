@@ -69,6 +69,13 @@ catalogueRouter.post('/products/:productId/ratings', productRatingLimiter, async
   response.json({ data: combinedRating(reviews[0]?.average, reviews[0]?.count, quickRatings[0]?.average, quickRatings[0]?.count) })
 })
 
+catalogueRouter.get('/store/contact', async (_request, response) => {
+  if (!db) return response.status(503).json({ error: { code: 'CONTACT_UNAVAILABLE', message: 'Store contact details are unavailable.' } })
+  const [setting] = await db.select({ value: applicationSettings.value }).from(applicationSettings)
+    .where(eq(applicationSettings.key, 'whatsappNumber')).limit(1)
+  response.json({ data: { whatsappNumber: setting?.value ?? '' } })
+})
+
 catalogueRouter.get('/store/payment-options', async (_request, response) => {
   if (!db) return response.status(503).json({ error: { code: 'PAYMENT_OPTIONS_UNAVAILABLE', message: 'Payment options are unavailable.' } })
   const settings = await db.select({ key: applicationSettings.key, value: applicationSettings.value }).from(applicationSettings)

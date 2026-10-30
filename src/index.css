@@ -7,22 +7,28 @@
 
 .kit-loader-screen{position:fixed;inset:0;z-index:1000;display:grid;align-content:center;justify-items:center;gap:12px;background:var(--paper);color:var(--navy)}
 .kit-loader-ball-wrap{position:relative;width:58px;height:58px;display:grid;place-items:center}
-.kit-loader-ball{width:42px;height:42px;border:2px solid #fff;border-radius:50%;background:repeating-conic-gradient(from 6deg,#142c3c 0 16deg,#fff 16deg 38deg);box-shadow:0 6px 14px #101b3525;animation:kit-ball-spin 1.5s linear infinite}
+.kit-loader-ball{width:42px;height:42px;border:2px solid #fff;border-radius:50%;background:repeating-conic-gradient(from 6deg,#142c3c 0 16deg,#fff 16deg 38deg);box-shadow:0 6px 14px #101b3525;animation:kit-ball-spin 2.4s linear infinite}
 .kit-loader-ball:after{content:"";display:block;width:9px;height:9px;margin:14px auto;border:1px solid #fff;border-radius:50%;background:#142c3c}
-.kit-loader-trail{position:absolute;inset:5px;border:1px solid #18a55855;border-left-color:transparent;border-radius:50%;animation:kit-ball-spin 2.8s linear infinite reverse}
+.kit-loader-trail{position:absolute;inset:5px;border:1px solid #18a55855;border-left-color:transparent;border-radius:50%;animation:kit-ball-spin 4s linear infinite reverse}
 .kit-loader-screen>strong{font-family:var(--display);font-size:20px}
 .kit-loader-caption{color:var(--muted);font-size:11px}
 .kit-loader-track{width:150px;height:3px;overflow:hidden;background:#dce4dc}
-.kit-loader-track>span{display:block;width:38%;height:100%;background:var(--green);animation:kit-loader-progress 1.5s ease-in-out infinite}
-.kit-toast-region{position:fixed;z-index:120;right:20px;bottom:20px;display:grid;gap:9px;width:min(390px,calc(100vw - 28px));pointer-events:none}
-.kit-toast{position:relative;display:grid;grid-template-columns:9px 1fr 30px;align-items:center;gap:12px;min-height:60px;padding:12px 12px 12px 15px;border:1px solid #dfe5df;background:#fff;color:var(--ink);box-shadow:0 10px 32px #101b351c;pointer-events:auto;animation:kit-toast-in .2s ease-out}
-.kit-toast-mark{width:8px;height:28px;background:#357f53}
-.kit-toast p{margin:0;font-size:12px;line-height:1.55}
-.kit-toast button{width:30px;height:30px;border:0;background:transparent;color:var(--muted);font-size:21px;cursor:pointer}
-.kit-toast-error{border-color:#e4c9c4}.kit-toast-error .kit-toast-mark{background:#a84439}
-.kit-toast-warning{border-color:#e8ddba}.kit-toast-warning .kit-toast-mark{background:#a77b19}
-.kit-toast-info .kit-toast-mark{background:#3e7585}
-.kit-toast-pending .kit-toast-mark{background:linear-gradient(180deg,var(--green) 50%,#dce4dc 50%);background-size:100% 200%;animation:kit-pending-mark 1.2s ease-in-out infinite}
+.kit-loader-track>span{display:block;width:38%;height:100%;background:var(--green);animation:kit-loader-progress 2.4s ease-in-out infinite}
+.kit-toast-region{position:fixed;z-index:1100;top:18px;right:18px;display:grid;gap:10px;width:min(420px,calc(100vw - 32px));pointer-events:none}
+.kit-toast{--toast-accent:#76c7e8;position:relative;display:grid;grid-template-columns:38px minmax(0,1fr) 34px;align-items:center;gap:12px;min-height:78px;padding:13px 13px;border:1px solid #ffffff25;border-left:4px solid var(--toast-accent);border-radius:8px;background:#101b35;color:#fff;box-shadow:0 18px 46px #07111f52,0 3px 10px #07111f38;pointer-events:auto;animation:kit-toast-in .24s cubic-bezier(.2,.8,.2,1)}
+.kit-toast-mark{display:grid;width:36px;height:36px;place-items:center;border:1px solid color-mix(in srgb,var(--toast-accent) 45%,transparent);border-radius:50%;background:color-mix(in srgb,var(--toast-accent) 16%,#101b35);color:var(--toast-accent);font-size:11px;font-weight:800;line-height:1}
+.kit-toast-copy{display:grid;gap:4px;min-width:0}
+.kit-toast-copy strong{color:var(--toast-accent);font-size:11px;font-weight:700;line-height:1.3}
+.kit-toast p{margin:0;color:#f4f6f7;font-size:13px;font-weight:500;line-height:1.45;overflow-wrap:anywhere}
+.kit-toast button{display:grid;width:32px;height:32px;place-items:center;border:1px solid #ffffff24;border-radius:4px;background:#ffffff0b;color:#e8edf2;font-size:21px;line-height:1;cursor:pointer;transition:background .16s ease,color .16s ease}
+.kit-toast button:hover{background:#ffffff1a;color:#fff}
+.kit-toast button:focus-visible{outline:2px solid var(--toast-accent);outline-offset:2px}
+.kit-toast-success{--toast-accent:#58d69a}
+.kit-toast-error{--toast-accent:#ff8179}
+.kit-toast-warning{--toast-accent:#ffd166}
+.kit-toast-info{--toast-accent:#76c7e8}
+.kit-toast-pending{--toast-accent:#91baff}
+.kit-toast-pending .kit-toast-mark{animation:kit-pending-mark 1.4s ease-in-out infinite alternate}
 .store-image-fallback{display:grid;place-items:center;min-width:0;min-height:0;background:#e8ede8;color:#2c6544;font-family:var(--display);font-size:30px;font-weight:700;aspect-ratio:4/5}
 .product-media .store-image-fallback{position:absolute;inset:0;width:100%;height:100%}
 .hero-image .store-image-fallback{position:absolute;inset:0;width:100%;height:100%;aspect-ratio:auto;background:#182a2d;color:#81c498}
@@ -38,9 +44,9 @@
 .product-skeleton-copy span:nth-child(4){width:58%;height:40px;margin-top:18px}
 @keyframes kit-ball-spin{to{transform:rotate(360deg)}}
 @keyframes kit-loader-progress{0%{transform:translateX(-120%)}100%{transform:translateX(390%)}}
-@keyframes kit-toast-in{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
+@keyframes kit-toast-in{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
 @keyframes kit-pending-mark{to{background-position:0 100%}}
-@media(max-width:600px){.kit-toast-region{right:14px;bottom:14px;width:calc(100vw - 28px)}.kit-toast{min-height:56px;padding:10px 9px 10px 12px}}
+@media(max-width:600px){.kit-toast-region{top:max(12px,env(safe-area-inset-top));right:12px;left:12px;width:auto}.kit-toast{grid-template-columns:34px minmax(0,1fr) 32px;gap:10px;min-height:72px;padding:11px}.kit-toast-mark{width:32px;height:32px}.kit-toast p{font-size:12px}}
 @media(max-width:600px){.store-image-fallback{font-size:22px}}
 @media(max-width:760px){.product-detail-skeleton{grid-template-columns:minmax(0,1fr);gap:14px;padding:12px}.product-skeleton-media{min-height:240px;max-height:420px}.product-skeleton-copy{gap:10px}}
 @media(prefers-reduced-motion:reduce){.kit-loader-ball,.kit-loader-trail,.kit-loader-track>span,.kit-toast,.kit-toast-pending .kit-toast-mark{animation:none}}

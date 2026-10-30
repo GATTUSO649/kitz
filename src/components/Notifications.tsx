@@ -3,14 +3,29 @@ import { NotificationContext, type NotificationItem, type NotificationKind } fro
 
 function NotificationToast({ item, onDismiss }: { item: NotificationItem; onDismiss: (id: number) => void }) {
   useEffect(() => {
-    const lifetime = item.kind === 'error' ? 9000 : item.kind === 'warning' ? 7000 : item.kind === 'pending' ? 6000 : 4500
+    const lifetime = item.kind === 'error' ? 12_000 : item.kind === 'warning' ? 9_000 : item.kind === 'pending' ? 8_000 : 6_000
     const timer = window.setTimeout(() => onDismiss(item.id), lifetime)
     return () => window.clearTimeout(timer)
   }, [item.id, item.kind, onDismiss])
 
+  const labels: Record<NotificationItem['kind'], string> = {
+    success: 'Completed',
+    error: 'Something went wrong',
+    warning: 'Please note',
+    info: 'KitCulture update',
+    pending: 'In progress',
+  }
+  const marks: Record<NotificationItem['kind'], string> = {
+    success: 'OK',
+    error: '!',
+    warning: '!',
+    info: 'i',
+    pending: '...',
+  }
+
   return <section className={`kit-toast kit-toast-${item.kind}`} role={item.kind === 'error' ? 'alert' : 'status'} aria-live={item.kind === 'error' ? 'assertive' : 'polite'}>
-    <span className="kit-toast-mark" aria-hidden="true" />
-    <p>{item.message}</p>
+    <span className="kit-toast-mark" aria-hidden="true">{marks[item.kind]}</span>
+    <div className="kit-toast-copy"><strong>{labels[item.kind]}</strong><p>{item.message}</p></div>
     <button type="button" aria-label="Dismiss notification" onClick={() => onDismiss(item.id)}>×</button>
   </section>
 }

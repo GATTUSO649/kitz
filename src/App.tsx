@@ -22,6 +22,8 @@ import { AuthLayout } from './layouts/AuthLayout'
 import { DelayedBrandLoader } from './components/BrandLoader'
 import { useNotifications, userFacingErrorMessage } from './components/notification-api'
 import { StoreImage } from './components/StoreImage'
+import { WhatsAppProductLink } from './components/WhatsAppProductLink'
+import { useStoreWhatsAppNumber } from './components/whatsapp-product'
 
 const AdminRoute = lazy(() => import('./pages/AdminPages').then((module) => ({ default: module.AdminRoute })))
 const MarketplacePage = lazy(() => import('./pages/ShopPages').then((module) => ({ default: module.MarketplacePage })))
@@ -140,13 +142,14 @@ function CheckoutPaymentOptions({ paymentMethod, onPaymentMethodChange, mpesaOpt
   </fieldset>
 }
 
-function HomepageProductSection({ title, kicker, products, error, onAdd, onSave, portalMode = false, showAll = false, showBuyButton = false, id, categoryImageUrl, shopAllHref, shopAllLabel }: {
+function HomepageProductSection({ title, kicker, products, error, onAdd, onSave, whatsappNumber, portalMode = false, showAll = false, showBuyButton = false, id, categoryImageUrl, shopAllHref, shopAllLabel }: {
   title: string
   kicker: string
   products: Product[]
   error?: string
   onAdd: (product: Product) => void
   onSave: (productId: number) => void
+  whatsappNumber: string
   portalMode?: boolean
   showAll?: boolean
   showBuyButton?: boolean
@@ -173,17 +176,18 @@ function HomepageProductSection({ title, kicker, products, error, onAdd, onSave,
         <div className={`product-info${portalMode ? ' portal-kit-info' : ''}`}><div><ProductCategoryLine team={product.team?.name} league={product.league?.name} jerseyCategory={product.jerseyCategory?.name} category={portalMode ? undefined : product.category?.name} fallback="KitCulture" /><h3><Link to={productPath(product.slug)}>{product.name}</Link></h3></div><span className="product-price">{product.salePrice ? <><del>{money.format(Number(product.price))}</del><strong className="sale-price">{money.format(Number(product.salePrice))}</strong></> : money.format(Number(product.price))}</span>{portalMode && <KitRating productId={product.id} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />}</div>
         {!portalMode && <KitRating productId={product.id} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />}
         <div className="product-meta"><div className="product-sizes">{product.variants.length ? product.variants.map((variant) => <span className={!variant.stock ? 'is-sold-out' : ''} key={variant.id}>{variant.size}</span>) : <span>Unavailable</span>}</div><span className={inStock ? 'stock-label' : 'stock-label sold-out'}>{inStock ? 'In stock' : 'Out of stock'}</span></div>
-        {inStock ? <div className={showBuyButton || !portalMode ? `product-card-actions${portalMode ? '' : ' public-product-card-actions'}` : undefined}><button className="quick-add" type="button" onClick={() => onAdd(product)}><ShoppingCart size={13} />Add to Cart</button>{(showBuyButton || !portalMode) && <Link className={portalMode ? 'product-card-buy' : 'product-card-buy public-product-card-shop'} state={portalMode ? undefined : { openBuyFlow: true }} to={productPath(product.slug)}>Shop <ArrowRight size={14} /></Link>}</div> : <Link className="quick-add quick-add-preview" to={productPath(product.slug)}><ShoppingCart size={13} />View kit</Link>}
+        {inStock ? <div className={`product-card-actions${portalMode ? '' : ' public-product-card-actions'}`}><button className="quick-add" type="button" onClick={() => onAdd(product)}><ShoppingCart size={13} />Add to Cart</button>{(showBuyButton || !portalMode) && <Link className={portalMode ? 'product-card-buy' : 'product-card-buy public-product-card-shop'} state={portalMode ? undefined : { openBuyFlow: true }} to={productPath(product.slug)}>Shop <ArrowRight size={14} /></Link>}{whatsappNumber && <WhatsAppProductLink phone={whatsappNumber} product={product} />}</div> : <div className="product-card-actions public-product-card-actions"><Link className="quick-add quick-add-preview" to={productPath(product.slug)}><ShoppingCart size={13} />View kit</Link>{whatsappNumber && <WhatsAppProductLink phone={whatsappNumber} product={product} />}</div>}
       </article>
     })}</div>
   </section>
 }
 
-function CustomerDashboardKits({ products, error, onAdd, onSave }: {
+function CustomerDashboardKits({ products, error, onAdd, onSave, whatsappNumber }: {
   products: Product[]
   error?: string
   onAdd: (product: Product) => void
   onSave: (productId: number) => void
+  whatsappNumber: string
 }) {
   if (error) return <section className="portal-dashboard-kits"><div className="catalogue-state error-state"><strong>Kits are unavailable.</strong><span>{error}</span></div></section>
   if (!products.length) return <section className="portal-dashboard-kits"><div className="catalogue-state"><strong>No kits are listed yet.</strong><span>New collections will appear here when they are available.</span><Link className="button button-green" to="/account/marketplace">Browse marketplace <ArrowRight size={15} /></Link></div></section>
@@ -203,6 +207,7 @@ function CustomerDashboardKits({ products, error, onAdd, onSave }: {
     products={categoryProducts}
     onAdd={onAdd}
     onSave={onSave}
+    whatsappNumber={whatsappNumber}
     portalMode
     showAll
     showBuyButton
@@ -247,6 +252,7 @@ function App() {
   const isPortalMarketplaceRoute = pagePath === '/account/marketplace' || isPortalMarketplaceProduct || isPortalMarketplaceTeam
   const isPortalPath = isAccountPage || pagePath === '/account/dashboard' || isOrdersPage || isAccountSubpage || isAccountCartRoute || isAccountCheckoutRoute || isPortalMarketplaceRoute
   const isNotFoundPage = !isAdminPage && !isHomePage && !isShopPage && !isMarketplacePage && !isProductPage && !isCustomerAuthRoute && !isCartPage && !isCheckoutPage && !isAccountPortalRoute
+  const whatsappNumber = useStoreWhatsAppNumber(isHomePage || pagePath === '/account' || pagePath === '/account/dashboard')
   const [cart, setCart] = useState<CartLine[]>(() => {
     try { return JSON.parse(localStorage.getItem('kitculture-cart') ?? '[]') as CartLine[] } catch { return [] }
   })
@@ -861,7 +867,7 @@ function App() {
           ordersLoading={ordersQuery.isPending}
           ordersError={ordersQuery.isError ? ordersQuery.error.message : undefined}
           summaryError={accountSummaryQuery.isError ? accountSummaryQuery.error.message : undefined}
-          featuredKits={<CustomerDashboardKits products={portalDashboardKitsQuery.data ?? []} error={portalDashboardKitsQuery.isError ? portalDashboardKitsQuery.error.message : undefined} onAdd={addToCart} onSave={(productId) => void saveToWishlist(productId)} />}
+          featuredKits={<CustomerDashboardKits products={portalDashboardKitsQuery.data ?? []} error={portalDashboardKitsQuery.isError ? portalDashboardKitsQuery.error.message : undefined} onAdd={addToCart} onSave={(productId) => void saveToWishlist(productId)} whatsappNumber={whatsappNumber} />}
           onRetry={() => { void ordersQuery.refetch(); void accountSummaryQuery.refetch() }}
         />
       : isAccountCartRoute
@@ -1037,7 +1043,7 @@ function App() {
               <div className="product-info"><div><ProductCategoryLine team={product.team?.name} league={product.league?.name} jerseyCategory={product.jerseyCategory?.name} category={product.category?.name} fallback="KitCulture" /><h3><Link to={`/products/${product.slug}`}>{product.name}</Link></h3></div><span className="product-price">{product.salePrice ? <><del>{money.format(Number(product.price))}</del><strong className="sale-price">{money.format(Number(product.salePrice))}</strong></> : money.format(Number(product.price))}</span></div>
               <KitRating productId={product.id} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />
               <div className="product-meta"><div className="product-sizes">{product.variants.length ? product.variants.map((variant) => <span className={!variant.stock ? 'is-sold-out' : ''} key={variant.id}>{variant.size}</span>) : <span>Unavailable</span>}</div><span className={inStock ? 'stock-label' : 'stock-label sold-out'}>{inStock ? 'In stock' : 'Out of stock'}</span></div>
-              {inStock ? <div className="product-card-actions public-product-card-actions"><button className="quick-add" type="button" onClick={() => addToCart(product)} aria-label={`Add ${product.name} to cart`}><ShoppingCart size={13} />Add to Cart</button><Link className="product-card-buy public-product-card-shop" to={`/products/${product.slug}`} state={{ openBuyFlow: true }}>Shop <ArrowRight size={14} /></Link></div> : <Link className="quick-add quick-add-preview" to={`/products/${product.slug}`}><ShoppingCart size={13} />View kit</Link>}
+                {inStock ? <div className="product-card-actions public-product-card-actions"><button className="quick-add" type="button" onClick={() => addToCart(product)} aria-label={`Add ${product.name} to cart`}><ShoppingCart size={13} />Add to Cart</button><Link className="product-card-buy public-product-card-shop" to={`/products/${product.slug}`} state={{ openBuyFlow: true }}>Shop <ArrowRight size={14} /></Link>{whatsappNumber && <WhatsAppProductLink phone={whatsappNumber} product={product} />}</div> : <div className="product-card-actions public-product-card-actions"><Link className="quick-add quick-add-preview" to={`/products/${product.slug}`}><ShoppingCart size={13} />View kit</Link>{whatsappNumber && <WhatsAppProductLink phone={whatsappNumber} product={product} />}</div>}
             </article>
           })}</div>}
           {!catalogueError && !loading && homeFeaturedProducts.length === 0 && <div className="catalogue-state"><span className="catalogue-mark">KC</span><strong>{products.length ? 'No kits found for that search.' : 'A fresh season starts here.'}</strong><span>{products.length ? 'Try another phrase or collection.' : 'New pieces will appear here once inventory is added in the admin catalogue.'}</span></div>}
@@ -1046,10 +1052,10 @@ function App() {
 
         <section className="home-categories page-width">
           <div className="home-section-heading"><div><div className="eyebrow">Shop by Category</div><h2>Find the Perfect Jersey</h2></div></div>
-          <div className="home-category-groups">{homepageJerseyCategories.map((category) => <HomepageProductSection key={category.slug} title={category.name} kicker="KIT COLLECTION" products={products.filter((product) => product.jerseyCategory?.slug === category.slug).slice(0, 6)} onAdd={addToCart} onSave={(productId) => void saveToWishlist(productId)} categoryImageUrl={category.imageUrl} shopAllHref={`/shop?category=${encodeURIComponent(category.slug)}`} showAll />)}</div>
+          <div className="home-category-groups">{homepageJerseyCategories.map((category) => <HomepageProductSection key={category.slug} title={category.name} kicker="KIT COLLECTION" products={products.filter((product) => product.jerseyCategory?.slug === category.slug).slice(0, 6)} onAdd={addToCart} onSave={(productId) => void saveToWishlist(productId)} whatsappNumber={whatsappNumber} categoryImageUrl={category.imageUrl} shopAllHref={`/shop?category=${encodeURIComponent(category.slug)}`} showAll />)}</div>
         </section>
 
-        <HomepageProductSection id="new-arrivals" title="Latest Jerseys. Fresh Style." kicker="New Arrivals" products={(newArrivalsQuery.data ?? []).slice(0, 6)} error={newArrivalsQuery.isError ? newArrivalsQuery.error.message : undefined} onAdd={addToCart} onSave={(productId) => void saveToWishlist(productId)} shopAllHref="/new-arrivals" shopAllLabel="View all arrivals" showAll />
+        <HomepageProductSection id="new-arrivals" title="Latest Jerseys. Fresh Style." kicker="New Arrivals" products={(newArrivalsQuery.data ?? []).slice(0, 6)} error={newArrivalsQuery.isError ? newArrivalsQuery.error.message : undefined} onAdd={addToCart} onSave={(productId) => void saveToWishlist(productId)} whatsappNumber={whatsappNumber} shopAllHref="/new-arrivals" shopAllLabel="View all arrivals" showAll />
 
         <section className="home-service-strip" aria-label="Shopping benefits">
           <div><Truck size={28} /><span><strong>Convenient Delivery</strong><small>Machakos Town &amp; beyond</small></span></div>

@@ -7,6 +7,8 @@ import { KenyanPhoneInput } from '../components/KenyanPhoneInput'
 import { KitRating } from '../components/KitRating'
 import { ProductCategoryLine } from '../components/ProductCategoryLine'
 import { StoreImage } from '../components/StoreImage'
+import { WhatsAppProductLink } from '../components/WhatsAppProductLink'
+import { useStoreWhatsAppNumber } from '../components/whatsapp-product'
 import { userFacingErrorMessage } from '../components/notification-api'
 import { matchesNationalTeam, NATIONAL_TEAM_NAMES } from '../nationalTeams'
 
@@ -104,7 +106,7 @@ async function readAllProducts(path: string): Promise<ShopProduct[]> {
   }
 }
 
-function ProductsGrid({ products, onSave, onAdd, portalMode = false }: { products: ShopProduct[]; onSave: (productId: number) => void; onAdd?: (product: ShopProduct) => void; portalMode?: boolean }) {
+function ProductsGrid({ products, onSave, onAdd, portalMode = false, whatsappNumber }: { products: ShopProduct[]; onSave: (productId: number) => void; onAdd?: (product: ShopProduct) => void; portalMode?: boolean; whatsappNumber: string }) {
   const productPath = (slug: string) => portalMode ? `/account/marketplace/products/${slug}` : `/products/${slug}`
   if (!products.length) return <div className="catalogue-state"><strong>No jerseys match these filters.</strong><span>Try another team, collection or price range.</span></div>
   return <div className="product-grid">{products.map((product) => {
@@ -117,8 +119,11 @@ function ProductsGrid({ products, onSave, onAdd, portalMode = false }: { product
       <div className="product-info"><div><ProductCategoryLine team={product.team?.name} league={product.league?.name} jerseyCategory={product.jerseyCategory?.name} category={product.category?.name} fallback="Football kit" /><h3><Link to={productPath(product.slug)}>{product.name}</Link></h3></div><span className="product-price">{product.salePrice ? <><del>{money.format(Number(product.price))}</del><strong className="sale-price">{money.format(Number(product.salePrice))}</strong></> : money.format(Number(product.price))}</span></div>
       {!portalMode && <KitRating productId={product.id} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />}
       <div className="product-meta"><div className="product-sizes">{product.variants.length ? product.variants.map((variant) => <span className={!variant.stock ? 'is-sold-out' : ''} key={variant.id}>{variant.size}</span>) : <span>Sizes unavailable</span>}</div><span className={stock > 0 ? 'stock-label' : 'stock-label sold-out'}>{stock > 0 ? 'In stock' : 'Out of stock'}</span></div>
-      {portalMode ? <Link className="quick-add quick-add-preview" to={productPath(product.slug)} state={{ openBuyFlow: true }}><ShoppingCart size={13} />Buy</Link>
-        : <div className="product-card-actions public-product-card-actions"><button className="quick-add" type="button" disabled={!stock || !onAdd} onClick={() => onAdd?.(product)}><ShoppingCart size={13} />Add to Cart</button><Link className="product-card-buy public-product-card-shop" to={productPath(product.slug)} state={{ openBuyFlow: true }}>Shop <ArrowRight size={14} /></Link></div>}
+      <div className="product-card-actions public-product-card-actions">{portalMode
+        ? <Link className="quick-add quick-add-preview" to={productPath(product.slug)} state={{ openBuyFlow: true }}><ShoppingCart size={13} />Buy</Link>
+        : <><button className="quick-add" type="button" disabled={!stock || !onAdd} onClick={() => onAdd?.(product)}><ShoppingCart size={13} />Add to Cart</button><Link className="product-card-buy public-product-card-shop" to={productPath(product.slug)} state={{ openBuyFlow: true }}>Shop <ArrowRight size={14} /></Link></>}
+        {whatsappNumber && <WhatsAppProductLink phone={whatsappNumber} product={product} />}
+      </div>
     </article>
   })}</div>
 }
@@ -127,6 +132,7 @@ function ProductGridSkeleton({ label = 'Loading jerseys' }: { label?: string }) 
   return <div className="product-grid" role="status" aria-label={label}>{Array.from({ length: 6 }, (_, index) => <div className="product-skeleton" key={index}><div /><span /><span /></div>)}</div>
 }
 export function MarketplacePage({ onSave, onAdd, portalMode = false }: { onSave: (productId: number) => void; onAdd?: (product: ShopProduct) => void; portalMode?: boolean }) {
+  const whatsappNumber = useStoreWhatsAppNumber()
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -220,20 +226,21 @@ export function MarketplacePage({ onSave, onAdd, portalMode = false }: { onSave:
             <div className="marketplace-collection-options"><button type="button" className={!collectionSlug ? 'is-selected' : ''} aria-pressed={!collectionSlug} onClick={() => updateFilters({ category: '' })}>All kits</button>{categories.map((category) => <button type="button" className={collectionSlug === category.slug ? 'is-selected' : ''} aria-pressed={collectionSlug === category.slug} key={category.id} onClick={() => updateFilters({ category: category.slug })}>{category.name}<ArrowRight size={13} /></button>)}</div>
           </section>
           {!hasFilters && <div className="marketplace-discovery">
-            <section className="marketplace-discovery-section"><div className="marketplace-results-heading"><div><span className="eyebrow">Picked for you</span><h2>Featured kits</h2></div></div>{featuredQuery.isPending ? <ProductGridSkeleton label="Loading featured kits" /> : featuredQuery.isError ? <div className="catalogue-state error-state"><strong>Featured kits are unavailable</strong><span>{featuredQuery.error.message}</span></div> : <ProductsGrid products={featuredQuery.data ?? []} onSave={onSave} onAdd={onAdd} portalMode={portalMode} />}</section>
-            <section className="marketplace-discovery-section"><div className="marketplace-results-heading"><div><span className="eyebrow">Popular right now</span><h2>Trending kits</h2></div></div>{trendingQuery.isPending ? <ProductGridSkeleton label="Loading trending kits" /> : trendingQuery.isError ? <div className="catalogue-state error-state"><strong>Trending kits are unavailable</strong><span>{trendingQuery.error.message}</span></div> : <ProductsGrid products={trendingQuery.data ?? []} onSave={onSave} onAdd={onAdd} portalMode={portalMode} />}</section>
+            <section className="marketplace-discovery-section"><div className="marketplace-results-heading"><div><span className="eyebrow">Picked for you</span><h2>Featured kits</h2></div></div>{featuredQuery.isPending ? <ProductGridSkeleton label="Loading featured kits" /> : featuredQuery.isError ? <div className="catalogue-state error-state"><strong>Featured kits are unavailable</strong><span>{featuredQuery.error.message}</span></div> : <ProductsGrid products={featuredQuery.data ?? []} onSave={onSave} onAdd={onAdd} portalMode={portalMode} whatsappNumber={whatsappNumber} />}</section>
+            <section className="marketplace-discovery-section"><div className="marketplace-results-heading"><div><span className="eyebrow">Popular right now</span><h2>Trending kits</h2></div></div>{trendingQuery.isPending ? <ProductGridSkeleton label="Loading trending kits" /> : trendingQuery.isError ? <div className="catalogue-state error-state"><strong>Trending kits are unavailable</strong><span>{trendingQuery.error.message}</span></div> : <ProductsGrid products={trendingQuery.data ?? []} onSave={onSave} onAdd={onAdd} portalMode={portalMode} whatsappNumber={whatsappNumber} />}</section>
           </div>}
           <div className="marketplace-results">
             <div className="marketplace-results-heading"><div><span className="eyebrow">{hasFilters ? 'Your results' : 'The full lineup'}</span><h2>{selectedTeam?.name ?? selectedLeague?.name ?? (hasFilters ? 'Filtered kits' : 'All kits')}{selectedCategory ? ` · ${selectedCategory.name}` : ''}{selectedCollection ? ` · ${selectedCollection.name}` : ''}</h2><p>{selectedLeague ? `${selectedLeague.country} · ${selectedLeague.season}` : hasFilters ? 'Matching kits from across the catalogue.' : 'Browse every available club and national team jersey.'}</p></div></div>
             {productsQuery.isPending ? <div className="catalogue-state"><strong>Finding your colours…</strong></div>
               : productsQuery.isError ? <div className="catalogue-state error-state"><strong>Jerseys could not be loaded</strong><span>{productsQuery.error.message}</span></div>
-                : <><p className="catalogue-results">{productsQuery.data.length} {productsQuery.data.length === 1 ? 'jersey' : 'jerseys'} shown</p><ProductsGrid products={productsQuery.data} onSave={onSave} onAdd={onAdd} portalMode={portalMode} /></>}
+                : <><p className="catalogue-results">{productsQuery.data.length} {productsQuery.data.length === 1 ? 'jersey' : 'jerseys'} shown</p><ProductsGrid products={productsQuery.data} onSave={onSave} onAdd={onAdd} portalMode={portalMode} whatsappNumber={whatsappNumber} /></>}
           </div>
         </>}
   </section>
 }
 
 export function ShopPage({ onSave, onAdd }: { onSave: (productId: number) => void; onAdd: (product: ShopProduct) => void }) {
+  const whatsappNumber = useStoreWhatsAppNumber()
   const { pathname } = useLocation()
   const routeCategory = pathname.match(/^\/categories\/([^/]+)\/?$/)?.[1]
   const isNationalTeamsPage = routeCategory === 'national-team-kits'
@@ -333,11 +340,12 @@ export function ShopPage({ onSave, onAdd }: { onSave: (productId: number) => voi
       <label>Maximum price (KES)<input type="number" min="0" inputMode="numeric" placeholder="Any price" value={maxPrice} onChange={(event) => setMaxPrice(event.target.value)} /></label>
       <label>Sort<select value={sort} onChange={(event) => setSort(event.target.value)}><option value="featured">Featured</option><option value="price-low">Price: low to high</option><option value="price-high">Price: high to low</option><option value="name">Name</option></select></label>
     </div>
-    {resultsPending ? <ProductGridSkeleton label="Loading teams and kits" /> : resultsError ? <div className="catalogue-state error-state"><strong>Catalogue unavailable</strong><span>{resultsError.message}. Please try again shortly.</span></div> : routeCategory && !selectedCategory ? <div className="catalogue-state"><strong>We could not find that team or collection.</strong><span>Browse all available teams instead.</span><Link to="/shop">View all teams <ArrowRight size={15} /></Link></div> : <><p className="catalogue-results">{visible.length} {visible.length === 1 ? 'jersey' : 'jerseys'}</p><div className="shop-category-groups">{categoryGroups.map((group) => <section className="shop-category-group" key={group.slug ?? group.name}><header><div><span>COLLECTION</span><h2>{group.name}</h2></div>{group.slug && !isNewArrivalsPage && <Link to={`/categories/${group.slug}`}>Shop collection <ArrowRight size={14} /></Link>}</header><ProductsGrid products={group.products} onSave={onSave} onAdd={onAdd} /></section>)}{categoryGroups.length === 0 && <ProductsGrid products={visible} onSave={onSave} onAdd={onAdd} />}</div></>}
+    {resultsPending ? <ProductGridSkeleton label="Loading teams and kits" /> : resultsError ? <div className="catalogue-state error-state"><strong>Catalogue unavailable</strong><span>{resultsError.message}. Please try again shortly.</span></div> : routeCategory && !selectedCategory ? <div className="catalogue-state"><strong>We could not find that team or collection.</strong><span>Browse all available teams instead.</span><Link to="/shop">View all teams <ArrowRight size={15} /></Link></div> : <><p className="catalogue-results">{visible.length} {visible.length === 1 ? 'jersey' : 'jerseys'}</p><div className="shop-category-groups">{categoryGroups.map((group) => <section className="shop-category-group" key={group.slug ?? group.name}><header><div><span>COLLECTION</span><h2>{group.name}</h2></div>{group.slug && !isNewArrivalsPage && <Link to={`/categories/${group.slug}`}>Shop collection <ArrowRight size={14} /></Link>}</header><ProductsGrid products={group.products} onSave={onSave} onAdd={onAdd} whatsappNumber={whatsappNumber} /></section>)}{categoryGroups.length === 0 && <ProductsGrid products={visible} onSave={onSave} onAdd={onAdd} whatsappNumber={whatsappNumber} />}</div></>}
   </section>
 }
 
 export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode = false }: { onAdd: (product: ShopProduct, selections: ShopPurchaseSelection[]) => void; onBuyNow: (product: ShopProduct, selections: ShopPurchaseSelection[], details: BuyNowCheckoutDetails) => Promise<BuyNowResult | string | void>; onSave: (productId: number) => void; accountUser: { fullName: string; email: string; phone: string | null } | null; portalMode?: boolean }) {
+  const whatsappNumber = useStoreWhatsAppNumber()
   const location = useLocation()
   const navigate = useNavigate()
   const pathname = location.pathname
@@ -773,6 +781,6 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
       <form className="product-review-form" onSubmit={(event) => void submitReview(event)}><h3>Rate this jersey</h3><fieldset><legend>Your rating</legend><div className="product-rating-picker">{[1, 2, 3, 4, 5].map((rating) => <button type="button" key={rating} aria-label={`${rating} ${rating === 1 ? 'star' : 'stars'}`} aria-pressed={reviewRating === rating} onClick={() => setReviewRating(rating)}><Star size={22} fill={rating <= reviewRating ? 'currentColor' : 'none'} /></button>)}</div></fieldset><label>Your review<textarea value={reviewBody} onChange={(event) => setReviewBody(event.target.value)} minLength={10} maxLength={2000} required rows={4} placeholder="What do you think of the fit, fabric, and finish?" /></label>{reviewError && <p className="product-review-error" role="alert">{reviewError}{reviewNeedsLogin && <> <Link to={`/login?returnTo=${encodeURIComponent(pathname)}`}>Sign in to continue</Link>.</>}</p>}{reviewMessage && <p className="product-review-success" role="status">{reviewMessage}</p>}<button className="button button-green" type="submit" disabled={reviewBusy}>{reviewBusy ? 'Submitting…' : 'Submit review'} <ArrowRight size={15} /></button><small>Sign in to submit. Your next review for this jersey will update your existing rating.</small></form>
     </section>
     <section className="product-description-section" id="product-description" aria-labelledby="product-description-title"><h2 id="product-description-title">About this kit</h2><div className="product-description-card"><div className="product-description-scroll" role="region" aria-label={`${product.name} description`} tabIndex={0}><p>{product.description}</p></div></div></section>
-    <section className="product-recommend-section" id="product-recommend" aria-labelledby="product-recommend-title"><div className="product-recommend-heading"><div><span className="eyebrow">Keep exploring</span><h2 id="product-recommend-title">Recommended kits</h2></div><Link className="text-link" to={portalMode ? '/account/marketplace' : '/marketplace'}>Browse all kits <ArrowRight size={14} /></Link></div>{recommendationsQuery.isPending ? <div className="catalogue-state"><strong>Finding more kits…</strong></div> : recommendationsQuery.isError ? <div className="catalogue-state error-state"><strong>Recommendations unavailable</strong><span>{recommendationsQuery.error.message}</span></div> : recommendationsQuery.data?.length ? <ProductsGrid products={recommendationsQuery.data} onSave={onSave} onAdd={portalMode ? undefined : (recommended) => { const variant = recommended.variants.find((item) => item.stock > 0); if (variant) onAdd(recommended, [{ variant, quantity: 1 }]) }} portalMode={portalMode} /> : <div className="catalogue-state"><strong>No other kits to recommend yet.</strong><span>Check back as more kits are added.</span></div>}</section>
+    <section className="product-recommend-section" id="product-recommend" aria-labelledby="product-recommend-title"><div className="product-recommend-heading"><div><span className="eyebrow">Keep exploring</span><h2 id="product-recommend-title">Recommended kits</h2></div><Link className="text-link" to={portalMode ? '/account/marketplace' : '/marketplace'}>Browse all kits <ArrowRight size={14} /></Link></div>{recommendationsQuery.isPending ? <div className="catalogue-state"><strong>Finding more kits…</strong></div> : recommendationsQuery.isError ? <div className="catalogue-state error-state"><strong>Recommendations unavailable</strong><span>{recommendationsQuery.error.message}</span></div> : recommendationsQuery.data?.length ? <ProductsGrid products={recommendationsQuery.data} onSave={onSave} onAdd={portalMode ? undefined : (recommended) => { const variant = recommended.variants.find((item) => item.stock > 0); if (variant) onAdd(recommended, [{ variant, quantity: 1 }]) }} portalMode={portalMode} whatsappNumber={whatsappNumber} /> : <div className="catalogue-state"><strong>No other kits to recommend yet.</strong><span>Check back as more kits are added.</span></div>}</section>
   </section>
 }
