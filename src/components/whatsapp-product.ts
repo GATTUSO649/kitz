@@ -25,7 +25,7 @@ export function getWhatsAppProductImageUrl(product: WhatsAppProduct, origin: str
   return imageUrl ? new URL(imageUrl, origin).href : null
 }
 
-export function createWhatsAppProductMessage(product: WhatsAppProduct) {
+export function createWhatsAppProductMessage(product: WhatsAppProduct, imageUrl?: string | null) {
   const price = Number(product.salePrice ?? product.price)
   const formattedPrice = Number.isFinite(price)
     ? new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES', maximumFractionDigits: 0 }).format(price)
@@ -41,15 +41,16 @@ export function createWhatsAppProductMessage(product: WhatsAppProduct) {
     product.category?.name ? `Collection: ${product.category.name}` : '',
     `Sizes and stock: ${availableSizes}`,
     `Total available: ${totalStock}`,
+    imageUrl ? `Kit image: ${imageUrl}` : '',
   ].filter(Boolean).join('\n')
   return details
 }
 
-export function createWhatsAppProductHref(phone: string, product: WhatsAppProduct) {
+export function createWhatsAppProductHref(phone: string, product: WhatsAppProduct, imageUrl?: string | null) {
   const recipient = normalizeWhatsAppNumber(phone)
   if (!recipient) return null
 
-  return `https://wa.me/${recipient}?text=${encodeURIComponent(createWhatsAppProductMessage(product))}`
+  return `https://wa.me/${recipient}?text=${encodeURIComponent(createWhatsAppProductMessage(product, imageUrl))}`
 }
 
 export function useStoreWhatsAppNumber(enabled = true) {
