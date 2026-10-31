@@ -1,19 +1,16 @@
 import { FaWhatsapp } from 'react-icons/fa6'
-import { createWhatsAppProductMessage, getWhatsAppProductImageUrl, type WhatsAppProduct } from './whatsapp-product'
-import { useNotifications } from './notification-api'
+import { createWhatsAppProductHref, createWhatsAppProductMessage, getWhatsAppProductImageUrl, type WhatsAppProduct } from './whatsapp-product'
 
 export function WhatsAppProductLink({ phone, product }: { phone: string; product: WhatsAppProduct }) {
   if (!phone) return null
-  const { notify } = useNotifications()
   const imageUrl = getWhatsAppProductImageUrl(product, window.location.origin)
+  const href = createWhatsAppProductHref(phone, product, imageUrl)
+  if (!href) return null
+  const directChatHref = href
 
   async function shareProduct() {
-    if (!imageUrl) {
-      notify('This kit does not have an image available to attach.', 'warning')
-      return
-    }
-    if (typeof navigator.share !== 'function' || typeof File === 'undefined') {
-      notify('This browser cannot attach images to WhatsApp. Try sharing from a phone or a browser that supports file sharing.', 'warning')
+    if (!imageUrl || typeof navigator.share !== 'function' || typeof File === 'undefined') {
+      window.open(directChatHref, '_blank', 'noopener,noreferrer')
       return
     }
 
@@ -28,7 +25,7 @@ export function WhatsAppProductLink({ phone, product }: { phone: string; product
       await navigator.share({ files: [file], title: product.name, text: createWhatsAppProductMessage(product) })
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
-      notify('The kit image could not be attached. Try sharing from a phone or another browser.', 'warning')
+      window.location.assign(directChatHref)
     }
   }
 
