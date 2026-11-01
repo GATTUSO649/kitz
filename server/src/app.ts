@@ -124,7 +124,7 @@ app.use('/api/v1/admin', (request, response, next) => {
   }
   next()
 }, adminAuthRouter)
-app.use('/api/v1/admin/operations', operationsRouter)
+app.use('/api/v1/operations', operationsRouter)
 app.use('/api/v1/admin', adminRouter)
 app.use('/api/v1', catalogueRouter)
 app.use('/api/v1', ordersRouter)

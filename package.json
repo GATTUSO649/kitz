@@ -22,7 +22,7 @@
     "db:migrate:admin": "drizzle-kit migrate --config=server/drizzle.admin.config.ts",
     "db:migrate:all": "npm run db:migrate && npm run db:migrate:admin",
     "admin:provision": "tsx server/src/scripts/provision-admin.ts",
-    "operations:access": "tsx server/src/scripts/manage-operations-access.ts",
+    "operations:user": "tsx server/src/scripts/manage-operations-user.ts",
     "lint": "oxlint",
     "preview": "vite preview"
   },

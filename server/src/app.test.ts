@@ -9,6 +9,7 @@ process.env.CLIENT_ORIGIN = 'http://localhost:5173'
 process.env.DATABASE_URL = 'mysql://test:test@127.0.0.1:1/kitculture'
 process.env.ADMIN_DATABASE_URL = 'mysql://test:test@127.0.0.1:1/kitculture_admin'
 process.env.LOG_LEVEL = 'silent'
+delete process.env.OPERATIONS_SIGNUP_SECRET
 
 const { app } = await import('./app.js')
 const { pool, adminPool } = await import('./config/database.js')
@@ -166,14 +167,41 @@ test('admin session endpoint rejects requests without an administrator cookie', 
   assert.equal(payload.error.code, 'UNAUTHENTICATED')
 })
 
-test('operations endpoints reject requests without an administrator session', async () => {
-  const response = await fetch(`${baseUrl}/api/v1/admin/operations/me`)
+test('operations endpoints reject store-administrator sessions', async () => {
+  const response = await fetch(`${baseUrl}/api/v1/operations/me`, { headers: { cookie: 'kc_admin_session=not-an-operations-session' } })
   assert.equal(response.status, 401)
-  assert.equal((await response.json() as { error: { code: string } }).error.code, 'UNAUTHENTICATED')
+  assert.equal((await response.json() as { error: { code: string } }).error.code, 'OPERATIONS_UNAUTHENTICATED')
+
+  const operatorsResponse = await fetch(`${baseUrl}/api/v1/operations/operators`, { headers: { cookie: 'kc_admin_session=not-an-operations-session' } })
+  assert.equal(operatorsResponse.status, 401)
+  assert.equal((await operatorsResponse.json() as { error: { code: string } }).error.code, 'OPERATIONS_UNAUTHENTICATED')
+
+  const adminResponse = await fetch(`${baseUrl}/api/v1/admin/me`, { headers: { cookie: 'kc_ops_session=not-a-store-admin-session' } })
+  assert.equal(adminResponse.status, 401)
+  assert.equal((await adminResponse.json() as { error: { code: string } }).error.code, 'UNAUTHENTICATED')
+})
+
+test('IT operator self-signup stays unavailable without a server-side signup secret', async () => {
+  const statusResponse = await fetch(`${baseUrl}/api/v1/operations/registration-status`)
+  assert.equal(statusResponse.status, 200)
+  assert.equal((await statusResponse.json() as { data: { available: boolean } }).data.available, false)
+
+  const registrationResponse = await fetch(`${baseUrl}/api/v1/operations/register`, {
+    method: 'POST',
+    headers: { origin: process.env.CLIENT_ORIGIN!, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      fullName: 'IT Operator',
+      email: 'it@example.com',
+      password: 'a-secure-passphrase-2026',
+      secretKey: 'not-configured',
+    }),
+  })
+  assert.equal(registrationResponse.status, 404)
+  assert.equal((await registrationResponse.json() as { error: { code: string } }).error.code, 'NOT_FOUND')
 })
 
 test('operations mutations reject cross-origin requests before checking authentication', async () => {
-  const response = await fetch(`${baseUrl}/api/v1/admin/operations/incidents`, {
+  const response = await fetch(`${baseUrl}/api/v1/operations/incidents`, {
     method: 'POST',
     headers: { origin: 'https://attacker.invalid', 'content-type': 'application/json' },
     body: JSON.stringify({}),
@@ -296,4 +324,14 @@ test('rejects cross-origin administrator mutations before checking authenticatio
   assert.equal(response.status, 403)
   const result = await response.json() as { error: { code: string } }
   assert.equal(result.error.code, 'ORIGIN_REJECTED')
+})
+
+test('operations sign-in uses its own login endpoint and validation contract', async () => {
+  const response = await fetch(`${baseUrl}/api/v1/operations/login`, {
+    method: 'POST',
+    headers: { origin: process.env.CLIENT_ORIGIN!, 'content-type': 'application/json' },
+    body: JSON.stringify({ email: 'ops@example.com', password: '' }),
+  })
+  assert.equal(response.status, 400)
+  assert.equal((await response.json() as { error: { code: string } }).error.code, 'INVALID_OPERATIONS_LOGIN')
 })

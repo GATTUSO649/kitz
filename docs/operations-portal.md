@@ -2,16 +2,21 @@
 
 ## Scope and trust boundary
 
-The portal is available at `/operations`. Its API is mounted at `/api/v1/admin/operations`, uses the existing HTTP-only administrator session, and then checks a separate `operations_operators` grant on every request. Store administrators do not receive operations access automatically. There is no default operator. Grant access only to an existing verified administrator with `npm run operations:access -- grant <verified-admin-email>`; revoke it with `npm run operations:access -- revoke <verified-admin-email>`. Both actions append an operations audit record. This command requires the operations schema migration to have been safely applied first.
+The portal is available at `/operations` and has its own login form and API namespace at `/api/v1/operations`. Operations users, password hashes, sessions, and audit records are stored in dedicated tables; sessions use the separate HTTP-only `kc_ops_session` cookie scoped to `/api/v1/operations`. Store-admin credentials and cookies do not authenticate operations requests, and store-admin accounts do not receive operations access automatically. There is no default operator, no fallback to `/admin/login`, and no shared identity table.
+
+Manage independent operations accounts with `npm run operations:user -- <create|disable|enable|reset-password>`. Set `OPERATIONS_EMAIL` for all actions; `create` also requires `OPERATIONS_NAME` and `OPERATIONS_PASSWORD`, while `reset-password` requires `OPERATIONS_PASSWORD`. The password must satisfy the current 14-character policy and bcrypt byte limit. `disable` and `reset-password` revoke all current operations sessions; `enable` reactivates a disabled account. The CLI writes a provisioning audit event and does not create or modify any store-admin account. These variables are only used by the one-shot CLI, not stored as application runtime secrets.
+
+Optional self-signup is available only when the API environment has `OPERATIONS_SIGNUP_SECRET` set to a random value of at least 32 characters. Enter that value in the IT signup form's **IT secret key** field. The key is never sent to the frontend except when an operator submits the form, and it is compared server-side. Unset the variable after the intended signup window closes; use the CLI for additional accounts.
 
 ## Data currently collected
 
 - Process health, uptime, Node.js version, RSS memory, and heap usage from the running process.
 - Store and administrator database connectivity and a lightweight `SELECT 1` latency probe.
 - HTTP request totals, error totals, average and p95 response duration, and the busiest route templates over the last hour.
-- Manually created incidents, severity/status updates, assignments to authorized operators, notes, and append-only incident history.
+- Manually created incidents, severity/status updates, assignments to active operations users, root-cause and resolution notes, investigation notes, and append-only incident history.
+- Active operations-user roster for incident assignment; disabled accounts are excluded.
 - Operations-specific audit events.
-- Existing customer conversations remain in the existing `/admin/support` workspace; the operations portal links to that workspace rather than duplicating customer data.
+- Existing customer conversations remain in the store's support system. The operations console does not authenticate through or navigate into store-admin pages.
 
 Request telemetry is a bounded in-process sample of 5,000 completed requests. It excludes IP addresses, query strings, headers, request bodies, and path parameter values. It resets on process restart and is not shared across instances; it is not a historical or fleet-wide monitoring system. The API refreshes overview data every 30 seconds.
 
@@ -19,9 +24,9 @@ Render, Railway backup verification, Cloudflare, Daraja, and email-provider stat
 
 ## Safe schema rollout
 
-The admin migration is additive and generated at `server/src/database/admin-migrations/0001_numerous_harrier.sql` and `0002_serious_scourge.sql`. These files have not been applied. The existing storefront and admin Drizzle histories share a default tracking table and have a known timestamp-order mismatch; the repository's deployment guide warns that `db:migrate:all` is unsafe until histories are reconciled. Do not apply either admin migration to the production database until a database owner has backed up the database, inspected the shared migration table and both SQL files, and established a reviewed release procedure. Validate the migration on a disposable MySQL database first.
+The operations schema migration has not been applied. The existing storefront and admin Drizzle histories share a default tracking table and have a known timestamp-order mismatch; the repository's deployment guide warns that `db:migrate:all` is unsafe until histories are reconciled. Do not apply admin migrations to the production database until a database owner has backed up the database, inspected the shared migration table and all pending SQL, and established a reviewed release procedure. Validate the final operations user/session/incident schema on a disposable MySQL database first.
 
-After an approved deployment has applied the admin migrations, grant one existing verified administrator operations access using the CLI above. Confirm the operator can load `/operations`, a regular administrator receives an access-denied state, and an unauthenticated request is redirected to administrator sign-in. Do not grant the store setup key as an operations credential.
+After an approved deployment has applied the admin migrations, create an independent operations account using the CLI above. Confirm it can sign in at `/operations`, that the resulting cookie is `kc_ops_session` with the operations-only path, that a store-admin cookie alone receives 401 from `/api/v1/operations/me`, that an operations cookie alone receives 401 from `/api/v1/admin/me`, and that disabling an operations account revokes its sessions. The operations password is not a store-admin password.
 
 ## Current operational playbooks
 

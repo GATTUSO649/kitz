@@ -39,6 +39,24 @@ export const adminSetupLocks = mysqlTable('admin_setup_locks', {
   purpose: varchar('purpose', { length: 40 }).notNull().unique(),
 })
 
+export const operationsUsers = mysqlTable('operations_users', {
+  id: int('id').autoincrement().primaryKey(),
+  email: varchar('email', { length: 254 }).notNull().unique(),
+  passwordHash: varchar('password_hash', { length: 255 }).notNull(),
+  fullName: varchar('full_name', { length: 160 }).notNull(),
+  disabledAt: timestamp('disabled_at'),
+  lastLoginAt: timestamp('last_login_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+})
+
+export const operationsSessions = mysqlTable('operations_sessions', {
+  id: int('id').autoincrement().primaryKey(),
+  operationsUserId: int('operations_user_id').notNull().references(() => operationsUsers.id, { onDelete: 'cascade' }),
+  tokenHash: varchar('token_hash', { length: 64 }).notNull().unique(),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [index('operations_sessions_user_expiry_idx').on(table.operationsUserId, table.expiresAt)])
+
 export const operationsOperators = mysqlTable('operations_operators', {
   adminUserId: int('admin_user_id').notNull().references(() => adminUsers.id, { onDelete: 'cascade' }),
   grantedByAdminUserId: int('granted_by_admin_user_id').references(() => adminUsers.id, { onDelete: 'set null' }),
@@ -56,8 +74,10 @@ export const operationsIncidents = mysqlTable('operations_incidents', {
   title: varchar('title', { length: 160 }).notNull(),
   description: text('description').notNull(),
   affectedComponent: varchar('affected_component', { length: 80 }).notNull(),
-  createdByAdminUserId: int('created_by_admin_user_id').notNull().references(() => adminUsers.id, { onDelete: 'restrict' }),
+  createdByAdminUserId: int('created_by_admin_user_id').references(() => adminUsers.id, { onDelete: 'set null' }),
+  createdByOperationsUserId: int('created_by_operations_user_id').references(() => operationsUsers.id, { onDelete: 'set null' }),
   assignedAdminUserId: int('assigned_admin_user_id').references(() => adminUsers.id, { onDelete: 'set null' }),
+  assignedOperationsUserId: int('assigned_operations_user_id').references(() => operationsUsers.id, { onDelete: 'set null' }),
   rootCause: text('root_cause'),
   resolutionNotes: text('resolution_notes'),
   detectedAt: timestamp('detected_at').defaultNow().notNull(),
@@ -67,13 +87,14 @@ export const operationsIncidents = mysqlTable('operations_incidents', {
 }, (table) => [
   index('operations_incidents_status_created_idx').on(table.status, table.createdAt),
   index('operations_incidents_severity_created_idx').on(table.severity, table.createdAt),
-  index('operations_incidents_assignee_idx').on(table.assignedAdminUserId, table.status),
+  index('operations_incidents_assignee_idx').on(table.assignedOperationsUserId, table.status),
 ])
 
 export const operationsIncidentEvents = mysqlTable('operations_incident_events', {
   id: int('id').autoincrement().primaryKey(),
   incidentId: int('incident_id').notNull().references(() => operationsIncidents.id, { onDelete: 'cascade' }),
-  actorAdminUserId: int('actor_admin_user_id').notNull().references(() => adminUsers.id, { onDelete: 'restrict' }),
+  actorAdminUserId: int('actor_admin_user_id').references(() => adminUsers.id, { onDelete: 'set null' }),
+  actorOperationsUserId: int('actor_operations_user_id').references(() => operationsUsers.id, { onDelete: 'set null' }),
   eventType: varchar('event_type', { length: 40 }).notNull(),
   message: text('message').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -82,10 +103,11 @@ export const operationsIncidentEvents = mysqlTable('operations_incident_events',
 export const operationsAuditEvents = mysqlTable('operations_audit_events', {
   id: int('id').autoincrement().primaryKey(),
   actorAdminUserId: int('actor_admin_user_id').references(() => adminUsers.id, { onDelete: 'set null' }),
-  actorType: mysqlEnum('actor_type', ['admin', 'provisioning_cli']).notNull(),
+  actorOperationsUserId: int('actor_operations_user_id').references(() => operationsUsers.id, { onDelete: 'set null' }),
+  actorType: mysqlEnum('actor_type', ['admin', 'operations_user', 'provisioning_cli']).notNull(),
   action: varchar('action', { length: 80 }).notNull(),
   targetType: varchar('target_type', { length: 80 }).notNull(),
   targetId: varchar('target_id', { length: 80 }).notNull(),
   details: text('details'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (table) => [index('operations_audit_created_idx').on(table.createdAt), index('operations_audit_actor_created_idx').on(table.actorAdminUserId, table.createdAt)])
+}, (table) => [index('operations_audit_created_idx').on(table.createdAt), index('operations_audit_actor_created_idx').on(table.actorOperationsUserId, table.createdAt)])
