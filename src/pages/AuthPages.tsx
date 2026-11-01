@@ -52,7 +52,7 @@ export function CustomerAuthForm({
   return <form className={`auth-card auth-card-split auth-card-${mode}${transitionPhase ? ' is-transitioning' : ''}`} data-transition-phase={transitionPhase ?? undefined} onSubmit={onSubmit} noValidate>
     <aside className="auth-card-side">
       <div className="auth-card-side-copy">
-        <Link to="/" className="auth-card-brand"><img src="/culture-mark.png" alt="" /><span>KitCulture</span></Link>
+        <Link to="/" className="auth-card-brand"><img src="/culture-mark.webp" alt="" /><span>KitCulture</span></Link>
         <span className="auth-card-side-kicker">{isRegister ? 'JOIN THE CULTURE' : 'WELCOME BACK'}</span>
         <h2>{isRegister ? <>Your colours.<br /><em>Your culture.</em></> : <>Good to see<br /><em>you again.</em></>}</h2>
         <p>{isRegister ? 'One account for your orders, favourite kits, and matchday essentials.' : 'Your orders, favourite kits, and delivery details are right where you left them.'}</p>
@@ -170,7 +170,7 @@ export function CustomerAuthInfoPage({ kind }: { kind: 'forgot' | 'reset' | 'ver
 
   if (kind === 'forgot') {
     return <section className="auth-card auth-info-card">
-      <img className="auth-card-logo" src="/culture-mark.png" alt="" />
+      <img className="auth-card-logo" src="/culture-mark.webp" alt="" />
       <span className="auth-kicker">PASSWORD RECOVERY</span>
       <h1>Reset your password.</h1>
       <form onSubmit={submitForgotPassword} className="auth-inline-form" noValidate>
@@ -185,7 +185,7 @@ export function CustomerAuthInfoPage({ kind }: { kind: 'forgot' | 'reset' | 'ver
 
   if (kind === 'reset') {
     return <section className="auth-card auth-info-card">
-      <img className="auth-card-logo" src="/culture-mark.png" alt="" />
+      <img className="auth-card-logo" src="/culture-mark.webp" alt="" />
       <span className="auth-kicker">PASSWORD RECOVERY</span>
       <h1>Choose a new password.</h1>
       <form onSubmit={submitResetPassword} className="auth-inline-form" noValidate>
@@ -200,7 +200,7 @@ export function CustomerAuthInfoPage({ kind }: { kind: 'forgot' | 'reset' | 'ver
   }
 
   return <section className="auth-card auth-info-card">
-    <img className="auth-card-logo" src="/culture-mark.png" alt="" />
+    <img className="auth-card-logo" src="/culture-mark.webp" alt="" />
     <span className="auth-kicker">EMAIL VERIFICATION</span>
     <h1>{notice ? 'Email verified.' : 'Verify your email.'}</h1>
     <p className="auth-description">{notice || 'Use the secure link in your email to confirm your account and continue using the customer portal.'}</p>

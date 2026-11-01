@@ -1,4 +1,5 @@
 import cors from 'cors'
+import compression from 'compression'
 import express, { type ErrorRequestHandler, type RequestHandler } from 'express'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -15,6 +16,7 @@ import { ordersRouter } from './modules/orders/routes.js'
 import { accountRouter } from './modules/account/routes.js'
 import { adminAuthRouter } from './modules/admin/auth.js'
 import { adminRouter } from './modules/admin/routes.js'
+import { publicApiCache } from './middleware/public-cache.js'
 
 export const app = express()
 
@@ -43,6 +45,7 @@ app.use(helmet({
   noSniff: true,
   referrerPolicy: { policy: 'no-referrer' },
 }))
+app.use(compression())
 app.use(cors({
   origin: (origin, callback) => callback(null, !origin || isAllowedClientOrigin(origin)),
   credentials: true,
@@ -106,6 +109,7 @@ const authLimiter = rateLimit({
   skip: (request) => request.method === 'GET' || request.path === '/logout' || request.path === '/session/activity',
 })
 app.use('/api/v1', apiLimiter)
+app.use('/api/v1', publicApiCache)
 app.use('/api/v1/auth', authLimiter, authRouter)
 app.use('/api/v1/account', accountRouter)
 app.use('/api/v1/admin', (request, response, next) => {
@@ -121,7 +125,15 @@ app.use('/api/v1', ordersRouter)
 
 const clientDist = fileURLToPath(new URL('../../dist', import.meta.url))
 if (existsSync(clientDist)) {
-  const serveClientAssets = express.static(clientDist, { index: false })
+  const serveClientAssets = express.static(clientDist, {
+    index: false,
+    setHeaders: (response, filePath) => {
+      const immutableAsset = /[\\/]assets[\\/]/.test(filePath)
+      response.setHeader('Cache-Control', immutableAsset
+        ? 'public, max-age=31536000, immutable'
+        : 'public, max-age=3600')
+    },
+  })
   app.use((request, response, next) => {
     if (request.path === '/api' || request.path.startsWith('/api/')
       || request.path === '/health' || request.path.startsWith('/health/')) {

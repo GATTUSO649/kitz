@@ -91,7 +91,7 @@ export function CustomerPortalLayout({
   return <div className="portal-shell">
     {drawerOpen && <button className="portal-drawer-scrim" type="button" aria-label="Close customer navigation" onClick={() => setDrawerOpen(false)} />}
     <aside className={drawerOpen ? 'portal-sidebar is-open' : 'portal-sidebar'}>
-      <Link to="/account/dashboard" className="portal-sidebar-brand" onClick={() => setDrawerOpen(false)}><img src="/culture-mark.png" alt="" /><span>KitCulture</span><small>PORTAL</small></Link>
+      <Link to="/account/dashboard" className="portal-sidebar-brand" onClick={() => setDrawerOpen(false)}><img src="/culture-mark.webp" alt="" /><span>KitCulture</span><small>PORTAL</small></Link>
       <nav aria-label="Customer portal">
         {sections.map(({ label, items }) => <section className="portal-nav-group" key={label}>
           <h2>{label}</h2>

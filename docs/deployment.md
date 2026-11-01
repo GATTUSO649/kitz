@@ -6,6 +6,14 @@ Use `npm ci` to install dependencies, `npm run build:deploy` to build the Vite c
 
 The frontend uses relative `/api/...` requests. Keeping the storefront and API on the same public origin lets session cookies and the Daraja callback use one HTTPS host. Set `CLIENT_ORIGIN` to that exact storefront origin. Do not expose the API's internal port directly to the internet.
 
+## Performance delivery
+
+Vite production builds minify JavaScript and CSS and split lazy routes into hashed assets. The server serves hashed files under `/assets/` with a one-year immutable cache, other static files for one hour, and the HTML shell with `no-cache`. Express compresses eligible responses when the client supports gzip or Brotli. Public catalogue GET responses use a bounded, per-process 10-second cache and a short browser cache; account, admin, order, and payment routes are excluded. Each app instance has its own in-memory cache, so it is intentionally short-lived and is not a shared CDN cache.
+
+Cloudinary images use automatic format/quality and responsive widths. Supported Adidas image URLs use the provider's width parameter; other third-party images are left unchanged. Upload oversized product images to a configured image CDN such as Cloudinary for consistent responsive delivery. The brand mark is served as WebP.
+
+Configure a CDN and load balancer at the hosting/DNS layer; this repository cannot provision them. Cache hashed static assets and public catalogue responses only. Keep API and storefront on the same HTTPS origin, forward session cookies and `/api` paths unchanged, and use `/health/ready` as the load-balancer readiness check. Do not cache authenticated or transactional API responses.
+
 ## Render
 
 Create one Node web service from the repository root. Use build command `npm ci --include=dev && npm run build:deploy`, start command `npm run start:server`, and health check path `/health/ready`. The readiness endpoint returns 503 when MySQL is unavailable so Render does not route traffic to an instance that cannot serve commerce requests. Use `/health/live` for process liveness checks. The explicit `--include=dev` is required because `NODE_ENV=production` otherwise makes npm omit TypeScript, Vite, and other build-time dependencies during `npm ci`. Set `NODE_ENV=production`; Render supplies `PORT` automatically. The database URL must point to TLS-enabled MySQL; this app does not use Render's PostgreSQL databases.

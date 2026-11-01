@@ -102,14 +102,15 @@ test('serves the built homepage and Vite assets without production NODE_ENV', { 
   const script = await fetch(new URL(scriptPath, baseUrl))
   assert.equal(script.status, 200)
   assert.match(script.headers.get('content-type') ?? '', /javascript/)
+  assert.match(script.headers.get('cache-control') ?? '', /max-age=31536000, immutable/)
 
   const stylesheet = await fetch(new URL(stylesheetPath, baseUrl))
   assert.equal(stylesheet.status, 200)
   assert.match(stylesheet.headers.get('content-type') ?? '', /text\/css/)
 
-  const image = await fetch(`${baseUrl}/culture-mark.png`)
+  const image = await fetch(`${baseUrl}/culture-mark.webp`)
   assert.equal(image.status, 200)
-  assert.match(image.headers.get('content-type') ?? '', /image\/png/)
+  assert.match(image.headers.get('content-type') ?? '', /image\/webp/)
 })
 
 test('keeps unknown API routes as JSON 404s', async () => {

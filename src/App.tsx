@@ -36,7 +36,7 @@ const CustomerPortalPage = lazy(() => import('./pages/CustomerPortalPages').then
 const CustomerAuthForm = lazy(() => import('./pages/AuthPages').then((module) => ({ default: module.CustomerAuthForm })))
 const CustomerAuthInfoPage = lazy(() => import('./pages/AuthPages').then((module) => ({ default: module.CustomerAuthInfoPage })))
 
-const cultureLogo = '/culture-mark.png'
+const cultureLogo = '/culture-mark.webp'
 type Variant = { id: number; size: string; stock: number; price?: string | null }
 type Product = {
   id: number

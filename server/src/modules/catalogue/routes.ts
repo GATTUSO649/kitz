@@ -171,8 +171,20 @@ async function getProducts(
     .offset(((options.page ?? 1) - 1) * (options.limit ?? 48))
 
   const ids = rows.map((row) => row.id)
-  const variants = ids.length ? await db.select().from(productVariants).where(inArray(productVariants.productId, ids)) : []
-  const images = ids.length ? await db.select().from(productImages).where(inArray(productImages.productId, ids)).orderBy(asc(productImages.sortOrder)) : []
+  const [variants, images, ratings, quickRatings] = await Promise.all([
+    ids.length ? db.select().from(productVariants).where(inArray(productVariants.productId, ids)) : Promise.resolve([]),
+    ids.length ? db.select().from(productImages).where(inArray(productImages.productId, ids)).orderBy(asc(productImages.sortOrder)) : Promise.resolve([]),
+    ids.length ? db.select({
+      productId: productReviews.productId,
+      average: sql<number>`AVG(${productReviews.rating})`,
+      reviewCount: count(),
+    }).from(productReviews).where(inArray(productReviews.productId, ids)).groupBy(productReviews.productId) : Promise.resolve([]),
+    ids.length ? withOptionalRatingTable(() => database.select({
+      productId: productRatings.productId,
+      average: sql<number>`AVG(${productRatings.rating})`,
+      ratingCount: count(),
+    }).from(productRatings).where(inArray(productRatings.productId, ids)).groupBy(productRatings.productId), []) : Promise.resolve([]),
+  ])
   const variantsByProduct = new Map<number, typeof variants>()
   for (const variant of variants) {
     const current = variantsByProduct.get(variant.productId) ?? []
@@ -186,16 +198,6 @@ async function getProducts(
     current.push(image)
     imagesByProduct.set(image.productId, current)
   }
-  const ratings = ids.length ? await db.select({
-    productId: productReviews.productId,
-    average: sql<number>`AVG(${productReviews.rating})`,
-    reviewCount: count(),
-  }).from(productReviews).where(inArray(productReviews.productId, ids)).groupBy(productReviews.productId) : []
-  const quickRatings = ids.length ? await withOptionalRatingTable(() => database.select({
-    productId: productRatings.productId,
-    average: sql<number>`AVG(${productRatings.rating})`,
-    ratingCount: count(),
-  }).from(productRatings).where(inArray(productRatings.productId, ids)).groupBy(productRatings.productId), []) : []
   const ratingsByProduct = new Map(ratings.map((rating) => [rating.productId, rating]))
   const quickRatingsByProduct = new Map(quickRatings.map((rating) => [rating.productId, rating]))
   const pageRows = rows.slice(0, options.limit ?? 48)
@@ -355,11 +357,11 @@ catalogueRouter.get('/products/:slug', async (request, response) => {
     response.status(404).json({ error: { code: 'PRODUCT_NOT_FOUND', message: 'Product not found.' } })
     return
   }
-  const variants = await db.select({ id: productVariants.id, size: productVariants.size, stock: productVariants.stock, price: productVariants.price })
-    .from(productVariants).where(eq(productVariants.productId, product.id))
-  const images = await db.select({ id: productImages.id, imageUrl: productImages.imageUrl, altText: productImages.altText, sortOrder: productImages.sortOrder, isPrimary: productImages.isPrimary })
-    .from(productImages).where(eq(productImages.productId, product.id)).orderBy(asc(productImages.sortOrder))
-  const [videos, reviews, [ratingSummary], [quickRatingSummary]] = await Promise.all([
+  const [variants, images, videos, reviews, [ratingSummary], [quickRatingSummary]] = await Promise.all([
+    db.select({ id: productVariants.id, size: productVariants.size, stock: productVariants.stock, price: productVariants.price })
+      .from(productVariants).where(eq(productVariants.productId, product.id)),
+    db.select({ id: productImages.id, imageUrl: productImages.imageUrl, altText: productImages.altText, sortOrder: productImages.sortOrder, isPrimary: productImages.isPrimary })
+      .from(productImages).where(eq(productImages.productId, product.id)).orderBy(asc(productImages.sortOrder)),
     db.select().from(productVideos).where(eq(productVideos.productId, product.id)).orderBy(asc(productVideos.sortOrder)),
     db.select({ id: productReviews.id, rating: productReviews.rating, body: productReviews.body, createdAt: productReviews.createdAt })
       .from(productReviews).where(eq(productReviews.productId, product.id)).orderBy(desc(productReviews.createdAt)).limit(100),

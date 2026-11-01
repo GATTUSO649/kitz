@@ -252,6 +252,8 @@ export function ShopPage({ onSave, onAdd }: { onSave: (productId: number) => voi
   const [nationalTeamName, setNationalTeamName] = useState('')
   const [sort, setSort] = useState('featured')
   const [maxPrice, setMaxPrice] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState(search)
+  const [visibleLimit, setVisibleLimit] = useState(24)
   const categoriesQuery = useQuery({
     queryKey: ['categories'],
     queryFn: () => readData<ShopCategory[]>('/api/v1/categories'),
@@ -281,11 +283,16 @@ export function ShopPage({ onSave, onAdd }: { onSave: (productId: number) => voi
   const productsToFilter = isNewArrivalsPage
     ? newArrivalProducts
     : isNationalTeamsPage || nationalTeamName ? nationalTeamProducts : products
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedSearch(search), 200)
+    return () => window.clearTimeout(timeout)
+  }, [search])
+  useEffect(() => setVisibleLimit(24), [debouncedSearch, routeCategory, jerseyCategorySlug, collection, nationalTeamName, maxPrice, sort])
   const selectedCategory = categories.find((category) => category.slug === routeCategory)
   const selectedJerseyCategory = products.find((product) => product.jerseyCategory?.slug === jerseyCategorySlug)?.jerseyCategory
   const selectedNationalTeam = nationalTeamName
   const visible = useMemo(() => {
-    const needle = search.trim().toLowerCase()
+    const needle = debouncedSearch.trim().toLowerCase()
     const filtered = productsToFilter.filter((product) => {
       const searchable = `${product.name} ${product.description} ${product.category?.name ?? ''} ${product.league?.name ?? ''} ${product.team?.name ?? ''} ${product.jerseyCategory?.name ?? ''}`.toLowerCase()
       return (!needle || searchable.includes(needle))
@@ -296,10 +303,11 @@ export function ShopPage({ onSave, onAdd }: { onSave: (productId: number) => voi
         && (!maxPrice || Number(product.salePrice ?? product.price) <= Number(maxPrice))
     })
     return filtered.sort((a, b) => sort === 'price-low' ? Number(a.salePrice ?? a.price) - Number(b.salePrice ?? b.price) : sort === 'price-high' ? Number(b.salePrice ?? b.price) - Number(a.salePrice ?? a.price) : sort === 'name' ? a.name.localeCompare(b.name) : Number(b.featured) - Number(a.featured))
-  }, [productsToFilter, search, selectedCategory, jerseyCategorySlug, collection, nationalTeamName, maxPrice, sort])
+  }, [productsToFilter, debouncedSearch, selectedCategory, jerseyCategorySlug, collection, nationalTeamName, maxPrice, sort])
+  const shownProducts = visible.slice(0, visibleLimit)
   const categoryGroups = useMemo(() => {
     const groups = new Map<string, { name: string; slug?: string; products: ShopProduct[] }>()
-    for (const product of visible) {
+    for (const product of shownProducts) {
       const key = product.category?.slug ?? product.category?.name ?? 'other-kits'
       const group = groups.get(key) ?? {
         name: product.category?.name ?? 'Other kits',
@@ -314,7 +322,7 @@ export function ShopPage({ onSave, onAdd }: { onSave: (productId: number) => voi
       (categoryOrder.get(left.slug ?? '') ?? Number.MAX_SAFE_INTEGER)
       - (categoryOrder.get(right.slug ?? '') ?? Number.MAX_SAFE_INTEGER),
     )
-  }, [visible, categories])
+  }, [shownProducts, categories])
   const resultsPending = categoriesQuery.isPending
     || (isNewArrivalsPage ? newArrivalsProductsQuery.isPending : isNationalTeamsPage || nationalTeamName ? nationalTeamProductsQuery.isPending : productsQuery.isPending)
   const resultsError = categoriesQuery.error
