@@ -1,4 +1,4 @@
-import { index, int, mysqlTable, timestamp, varchar } from 'drizzle-orm/mysql-core'
+import { index, int, mysqlEnum, mysqlTable, primaryKey, text, timestamp, varchar } from 'drizzle-orm/mysql-core'
 
 export const adminUsers = mysqlTable('admin_users', {
   id: int('id').autoincrement().primaryKey(),
@@ -38,3 +38,54 @@ export const adminSetupLocks = mysqlTable('admin_setup_locks', {
   id: int('id').primaryKey(),
   purpose: varchar('purpose', { length: 40 }).notNull().unique(),
 })
+
+export const operationsOperators = mysqlTable('operations_operators', {
+  adminUserId: int('admin_user_id').notNull().references(() => adminUsers.id, { onDelete: 'cascade' }),
+  grantedByAdminUserId: int('granted_by_admin_user_id').references(() => adminUsers.id, { onDelete: 'set null' }),
+  grantedAt: timestamp('granted_at').defaultNow().notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.adminUserId] }),
+  index('operations_operators_granted_by_idx').on(table.grantedByAdminUserId),
+])
+
+export const operationsIncidents = mysqlTable('operations_incidents', {
+  id: int('id').autoincrement().primaryKey(),
+  incidentNumber: varchar('incident_number', { length: 24 }).notNull().unique(),
+  severity: mysqlEnum('severity', ['P1', 'P2', 'P3', 'P4']).notNull(),
+  status: mysqlEnum('status', ['open', 'investigating', 'resolved', 'closed']).default('open').notNull(),
+  title: varchar('title', { length: 160 }).notNull(),
+  description: text('description').notNull(),
+  affectedComponent: varchar('affected_component', { length: 80 }).notNull(),
+  createdByAdminUserId: int('created_by_admin_user_id').notNull().references(() => adminUsers.id, { onDelete: 'restrict' }),
+  assignedAdminUserId: int('assigned_admin_user_id').references(() => adminUsers.id, { onDelete: 'set null' }),
+  rootCause: text('root_cause'),
+  resolutionNotes: text('resolution_notes'),
+  detectedAt: timestamp('detected_at').defaultNow().notNull(),
+  resolvedAt: timestamp('resolved_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index('operations_incidents_status_created_idx').on(table.status, table.createdAt),
+  index('operations_incidents_severity_created_idx').on(table.severity, table.createdAt),
+  index('operations_incidents_assignee_idx').on(table.assignedAdminUserId, table.status),
+])
+
+export const operationsIncidentEvents = mysqlTable('operations_incident_events', {
+  id: int('id').autoincrement().primaryKey(),
+  incidentId: int('incident_id').notNull().references(() => operationsIncidents.id, { onDelete: 'cascade' }),
+  actorAdminUserId: int('actor_admin_user_id').notNull().references(() => adminUsers.id, { onDelete: 'restrict' }),
+  eventType: varchar('event_type', { length: 40 }).notNull(),
+  message: text('message').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [index('operations_incident_events_created_idx').on(table.incidentId, table.createdAt)])
+
+export const operationsAuditEvents = mysqlTable('operations_audit_events', {
+  id: int('id').autoincrement().primaryKey(),
+  actorAdminUserId: int('actor_admin_user_id').references(() => adminUsers.id, { onDelete: 'set null' }),
+  actorType: mysqlEnum('actor_type', ['admin', 'provisioning_cli']).notNull(),
+  action: varchar('action', { length: 80 }).notNull(),
+  targetType: varchar('target_type', { length: 80 }).notNull(),
+  targetId: varchar('target_id', { length: 80 }).notNull(),
+  details: text('details'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [index('operations_audit_created_idx').on(table.createdAt), index('operations_audit_actor_created_idx').on(table.actorAdminUserId, table.createdAt)])

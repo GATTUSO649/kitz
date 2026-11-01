@@ -16,7 +16,10 @@ import { ordersRouter } from './modules/orders/routes.js'
 import { accountRouter } from './modules/account/routes.js'
 import { adminAuthRouter } from './modules/admin/auth.js'
 import { adminRouter } from './modules/admin/routes.js'
+import { operationsRouter } from './modules/operations/routes.js'
 import { publicApiCache } from './middleware/public-cache.js'
+import { createOriginAuthentication } from './middleware/origin-auth.js'
+import { requestMetrics } from './middleware/request-metrics.js'
 
 export const app = express()
 
@@ -53,6 +56,8 @@ app.use(cors({
 }))
 app.use(express.json({ limit: '100kb', strict: true }))
 app.use(pinoHttp({ logger, autoLogging: { ignore: (request) => request.url.startsWith('/health/') || request.url === '/health' } }))
+app.use(requestMetrics)
+app.use(createOriginAuthentication(env.ORIGIN_AUTH_TOKEN))
 
 app.get('/health', async (request, response) => {
   const databaseQuery = pool ? pool.query('SELECT 1 AS ok') : Promise.reject(new Error('Store database is not configured'))
@@ -119,6 +124,7 @@ app.use('/api/v1/admin', (request, response, next) => {
   }
   next()
 }, adminAuthRouter)
+app.use('/api/v1/admin/operations', operationsRouter)
 app.use('/api/v1/admin', adminRouter)
 app.use('/api/v1', catalogueRouter)
 app.use('/api/v1', ordersRouter)
