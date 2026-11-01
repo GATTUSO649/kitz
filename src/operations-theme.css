@@ -4,7 +4,7 @@
 .operations-login-form h1{margin:0;color:#14251e;font-family:var(--display,sans-serif);font-size:26px}
 .operations-login-form>p{margin:0;color:#65736e;font-size:12px;line-height:1.55}
 .operations-login-form label{display:grid;gap:6px;color:#4f6058;font-size:11px;font-weight:700}
-.operations-login-form input{height:40px;border:1px solid #d5dfd8;background:#fff;padding:0 10px;color:#182320;font:inherit;font-size:13px}
+.operations-login-form input:not([type='checkbox']):not([type='radio']){height:40px;border:1px solid #d5dfd8;background:#fff;padding:0 10px;color:#182320;color-scheme:light;font:inherit;font-size:13px}
 .operations-login-form>button,.operations-signout{display:flex;min-height:38px;align-items:center;justify-content:center;gap:7px;border:0;background:#176b4a;padding:0 12px;color:#fff;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
 .operations-login-form>button:disabled{opacity:.55;cursor:wait}.operations-login-form>a{color:#15734e;font-size:11px;text-align:center;text-decoration:none}
 .operations-login-form>.operations-signup-toggle{min-height:30px;border:1px solid #d5dfd8;background:#fff;color:#345244;font-size:11px}
