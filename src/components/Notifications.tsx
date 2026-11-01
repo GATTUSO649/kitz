@@ -23,6 +23,16 @@ function NotificationToast({ item, onDismiss }: { item: NotificationItem; onDism
     pending: '...',
   }
 
+  if (item.kind === 'success') {
+    return <section className="kit-toast kit-toast-success" role="status" aria-live="polite">
+      <svg className="kit-toast-success-mark" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="12" fill="currentColor" />
+        <path d="m7 12.3 3.2 3.1L17.5 8" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <p className="kit-toast-success-message">{item.message}</p>
+    </section>
+  }
+
   return <section className={`kit-toast kit-toast-${item.kind}`} role={item.kind === 'error' ? 'alert' : 'status'} aria-live={item.kind === 'error' ? 'assertive' : 'polite'}>
     <span className="kit-toast-mark" aria-hidden="true">{marks[item.kind]}</span>
     <div className="kit-toast-copy"><strong>{labels[item.kind]}</strong><p>{item.message}</p></div>
