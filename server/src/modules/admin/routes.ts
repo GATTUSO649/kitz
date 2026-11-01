@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, inArray, isNull, lte, sql, sum } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gte, inArray, isNull, lt, sql, sum } from 'drizzle-orm'
 import { Router } from 'express'
 import express from 'express'
 import { z } from 'zod'
@@ -10,6 +10,7 @@ import { authenticateAdmin, authenticatedAdmin } from '../../middleware/authenti
 import { isCustomerOnline, publishChatMessage, publishMessageReceipt, registerAdminStream } from '../../realtime/chat-events.js'
 import { recordAdminAudit } from './auth.js'
 import { deleteProductImage, ImageStorageError, uploadHomepageSlideImage, uploadProductImage } from './image-storage.js'
+import { buildAdminDashboardReport, reportPeriods, resolveOptionalDateRange, resolveReportingRange } from './reporting.js'
 
 export const adminRouter = Router()
 adminRouter.use((request, response, next) => {
@@ -26,40 +27,31 @@ adminRouter.get('/me', (request, response) => {
   response.json({ data: { id: actor?.id, fullName: actor?.fullName, email: actor?.email } })
 })
 
-adminRouter.get('/dashboard', async (_request, response) => {
+const dashboardQuerySchema = z.object({
+  period: z.enum(reportPeriods).default('last30days'),
+  from: z.string().optional(),
+  to: z.string().optional(),
+}).strict().superRefine((query, context) => {
+  if (query.period === 'custom' && (!query.from || !query.to)) {
+    context.addIssue({ code: 'custom', message: 'Custom reports require both from and to dates.' })
+  }
+  if (query.period !== 'custom' && (query.from !== undefined || query.to !== undefined)) {
+    context.addIssue({ code: 'custom', message: 'Date parameters are only supported for custom reports.' })
+  }
+})
+
+adminRouter.get('/dashboard', async (request, response) => {
   if (!db) {
     response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Dashboard services are not configured.' } })
     return
   }
-  const [[orderSummary], [paidSummary], [inventorySummary], [pendingSummary], [recentOrders], [bestSellers]] = await Promise.all([
-    db.select({ total: count() }).from(orders),
-    db.select({ total: sum(payments.amount) }).from(payments).where(eq(payments.status, 'succeeded')),
-    db.select({
-      units: sum(productVariants.stock),
-      lowStock: sql<number>`COALESCE(SUM(CASE WHEN ${productVariants.stock} > 0 AND ${productVariants.stock} <= 5 THEN 1 ELSE 0 END), 0)`,
-      outOfStock: sql<number>`COALESCE(SUM(CASE WHEN ${productVariants.stock} = 0 THEN 1 ELSE 0 END), 0)`,
-    }).from(productVariants),
-    db.select({ total: count() }).from(orders).where(eq(orders.status, 'pending_payment')),
-    db.select({
-      orderNumber: orders.orderNumber, status: orders.status, total: orders.total, createdAt: orders.createdAt,
-      customerName: sql<string | null>`COALESCE(${users.fullName}, JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.recipientName')))`,
-      customerEmail: sql<string | null>`COALESCE(${users.email}, JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.email')))`,
-    }).from(orders).leftJoin(users, eq(orders.userId, users.id)).orderBy(desc(orders.createdAt)).limit(8),
-    db.select({ name: orderItems.productNameSnapshot, units: sum(orderItems.quantity) })
-      .from(orderItems).innerJoin(orders, eq(orderItems.orderId, orders.id))
-      .where(sql`${orders.status} NOT IN ('cancelled', 'refunded')`)
-      .groupBy(orderItems.productNameSnapshot).orderBy(desc(sum(orderItems.quantity))).limit(5),
-  ])
-  response.json({ data: {
-    totalOrders: orderSummary.total,
-    pendingOrders: pendingSummary.total,
-    paidRevenue: paidSummary.total ?? '0.00',
-    inventoryUnits: inventorySummary.units ?? '0',
-    lowStockVariants: inventorySummary.lowStock,
-    outOfStockVariants: inventorySummary.outOfStock,
-    recentOrders,
-    bestSellers,
-  } })
+  const query = dashboardQuerySchema.safeParse(request.query)
+  if (!query.success) return response.status(400).json({ error: { code: 'INVALID_REPORT_RANGE', message: 'Choose a valid reporting period and date range.' } })
+  const range = resolveReportingRange(query.data)
+  if (!range) return response.status(400).json({ error: { code: 'INVALID_REPORT_RANGE', message: 'Custom reports must be valid and no longer than 366 days.' } })
+  const data = await buildAdminDashboardReport(db, range)
+  if (!data) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Dashboard services are not configured.' } })
+  response.json({ data })
 })
 
 const variantInput = z.object({
@@ -1211,10 +1203,19 @@ adminRouter.post('/expenses', async (request, response) => {
 adminRouter.get('/reports/financial', async (request, response) => {
   const range = z.object({ from: z.string().date().optional(), to: z.string().date().optional() }).safeParse(request.query)
   if (!range.success) return response.status(400).json({ error: { code: 'INVALID_QUERY', message: 'Report date range is invalid.' } })
+  const dateRange = resolveOptionalDateRange(range.data)
+  if (!dateRange) return response.status(400).json({ error: { code: 'INVALID_QUERY', message: 'Report date range must be valid and no longer than 366 days.' } })
   if (!db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Reporting services are unavailable.' } })
   const conditions = []
-  if (range.data.from) conditions.push(gte(orders.createdAt, new Date(`${range.data.from}T00:00:00.000Z`)))
-  if (range.data.to) conditions.push(lte(orders.createdAt, new Date(`${range.data.to}T23:59:59.999Z`)))
+  const expenseConditions = []
+  if (dateRange.from) {
+    conditions.push(gte(orders.createdAt, dateRange.from))
+    expenseConditions.push(gte(expenses.incurredAt, dateRange.from))
+  }
+  if (dateRange.toExclusive) {
+    conditions.push(lt(orders.createdAt, dateRange.toExclusive))
+    expenseConditions.push(lt(expenses.incurredAt, dateRange.toExclusive))
+  }
   const [[sales], [costs], [expensesTotal]] = await Promise.all([
     db.select({ gross: sum(orders.subtotal), discounts: sum(orders.discount), paid: sum(payments.amount) })
       .from(orders).leftJoin(payments, and(eq(payments.orderId, orders.id), eq(payments.status, 'succeeded')))
@@ -1222,7 +1223,7 @@ adminRouter.get('/reports/financial', async (request, response) => {
     db.select({ cost: sum(sql`${products.cost} * ${orderItems.quantity}`) })
       .from(orderItems).innerJoin(orders, eq(orderItems.orderId, orders.id))
       .leftJoin(products, eq(orderItems.productId, products.id)).where(and(...conditions)),
-    db.select({ amount: sum(expenses.amount) }).from(expenses),
+    db.select({ amount: sum(expenses.amount) }).from(expenses).where(and(...expenseConditions)),
   ])
   response.json({ data: {
     grossSales: sales.gross ?? '0.00',

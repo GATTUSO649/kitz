@@ -186,22 +186,27 @@ function DataTable({ rows, empty }: { rows: AdminRecord[]; empty: string }) {
 }
 
 function AdminDashboardCharts({ data }: { data: AdminRecord }) {
-  const recentOrders = Array.isArray(data.recentOrders) ? data.recentOrders as AdminRecord[] : []
-  const bestSellers = Array.isArray(data.bestSellers) ? data.bestSellers as AdminRecord[] : []
-  const statuses = [...new Set(recentOrders.map((order) => pretty(order.status)))]
-    .map((status) => ({ label: status.replaceAll('_', ' '), value: recentOrders.filter((order) => pretty(order.status) === status).length }))
-  const sellers = bestSellers.map((product) => ({ label: pretty(product.name), value: Number(product.units) || 0 }))
-  const orderMax = Math.max(1, ...statuses.map(({ value }) => value))
-  const sellerMax = Math.max(1, ...sellers.map(({ value }) => value))
+  const revenueTrend = Array.isArray(data.revenueTrend) ? data.revenueTrend as { date: string; revenue: string }[] : []
+  const salesByCategory = Array.isArray(data.salesByCategory) ? data.salesByCategory as { category: string; units: string }[] : []
+  const salesByLocation = Array.isArray(data.salesByLocation) ? data.salesByLocation as { location: string; orders: number }[] : []
+  const bestSellers = Array.isArray(data.bestSellers) ? data.bestSellers as { name: string; units: string }[] : []
+  const worstSellers = Array.isArray(data.worstSellers) ? data.worstSellers as { name: string; units: string }[] : []
+  const chartEntries = (entries: { label: string; value: string | number }[], formatter: (value: number) => string) => {
+    const maximum = Math.max(1, ...entries.map(({ value }) => Number(value) || 0))
+    return entries.length ? <div className="admin-bar-chart">{entries.map((entry) => {
+      const value = Number(entry.value) || 0
+      return <div className="admin-bar-row" key={entry.label}><span title={entry.label}>{entry.label}</span><div><i style={{ width: `${Math.max(value ? 3 : 0, value / maximum * 100)}%` }} /></div><strong>{formatter(value)}</strong></div>
+    })}</div> : <div className="admin-chart-empty">No sales recorded in this period.</div>
+  }
+  const quantity = (value: number) => value.toLocaleString('en-KE')
   return <section className="admin-analytics">
-    <div className="admin-analytics-heading"><div><span className="admin-kicker">LIVE OPERATIONS</span><h2>Performance at a glance</h2></div><BarChart3 size={20} /></div>
+    <div className="admin-analytics-heading"><div><span className="admin-kicker">BUSINESS INTELLIGENCE</span><h2>Performance at a glance</h2><p>{String(data.from)} to {String(data.to)}</p></div><BarChart3 size={20} /></div>
     <div className="admin-chart-grid">
-      <article className="admin-chart-card"><div><h3>Recent orders by status</h3><p>Latest {recentOrders.length} orders</p></div>
-        {statuses.length ? <div className="admin-bar-chart" role="img" aria-label="Horizontal bar chart of recent order counts by status">{statuses.map((entry) => <div className="admin-bar-row" key={entry.label}><span>{entry.label}</span><div><i style={{ width: `${Math.max(8, entry.value / orderMax * 100)}%` }} /></div><strong>{entry.value}</strong></div>)}</div> : <div className="admin-chart-empty">Order data will appear here as orders are received.</div>}
-      </article>
-      <article className="admin-chart-card"><div><h3>Top-selling kits</h3><p>Units from non-cancelled orders</p></div>
-        {sellers.length ? <div className="admin-bar-chart" role="img" aria-label="Horizontal bar chart of best-selling kits">{sellers.map((entry) => <div className="admin-bar-row" key={entry.label}><span title={entry.label}>{entry.label}</span><div><i style={{ width: `${Math.max(8, entry.value / sellerMax * 100)}%` }} /></div><strong>{entry.value}</strong></div>)}</div> : <div className="admin-chart-empty">Best sellers will appear here after orders are placed.</div>}
-      </article>
+      <article className="admin-chart-card"><div><h3>Paid revenue by day</h3><p>Successful payment records · KES</p></div>{chartEntries(revenueTrend.map(({ date, revenue }) => ({ label: date, value: revenue })), (value) => value.toLocaleString('en-KE'))}</article>
+      <article className="admin-chart-card"><div><h3>Sales by category</h3><p>Units in paid and fulfilled orders</p></div>{chartEntries(salesByCategory.map(({ category, units }) => ({ label: category, value: units })), quantity)}</article>
+      <article className="admin-chart-card"><div><h3>Sales by location</h3><p>Paid and fulfilled orders by county</p></div>{chartEntries(salesByLocation.map(({ location, orders }) => ({ label: location, value: orders })), quantity)}</article>
+      <article className="admin-chart-card"><div><h3>Top-selling products</h3><p>Units in paid and fulfilled orders</p></div>{chartEntries(bestSellers.map(({ name, units }) => ({ label: name, value: units })), quantity)}</article>
+      <article className="admin-chart-card"><div><h3>Lowest sales</h3><p>Published products, including zero sales</p></div>{chartEntries(worstSellers.map(({ name, units }) => ({ label: name, value: units })), quantity)}</article>
     </div>
   </section>
 }
@@ -1645,6 +1650,9 @@ export function AdminConsole() {
   const [actionError, setActionError] = useState('')
   const [createdImageProductId, setCreatedImageProductId] = useState<number | undefined>()
   const [imageManagerSelectionKey, setImageManagerSelectionKey] = useState(0)
+  const [reportPeriod, setReportPeriod] = useState<'today' | 'yesterday' | 'last7days' | 'last30days' | 'thisMonth' | 'lastMonth' | 'thisYear' | 'custom'>('last30days')
+  const [customFrom, setCustomFrom] = useState(() => new Date().toISOString().slice(0, 10))
+  const [customTo, setCustomTo] = useState(() => new Date().toISOString().slice(0, 10))
   const current = sections.find(([, , path]) => path === location.pathname) ?? sections[0]
   const endpoint = current[0] === 'dashboard' ? 'dashboard'
     : current[0] === 'football' ? 'catalogue-options'
@@ -1653,8 +1661,16 @@ export function AdminConsole() {
         : current[0] === 'reports' ? 'reports/financial'
           : current[0] === 'audit' ? 'audit' : current[0]
   const sectionQuery = useQuery({
-    queryKey: ['admin', endpoint],
-    queryFn: () => api<AdminRecord[] | AdminRecord>(`/api/v1/admin/${endpoint}`),
+    queryKey: ['admin', endpoint, ...(current[0] === 'dashboard' ? [reportPeriod, customFrom, customTo] : [])],
+    queryFn: () => {
+      if (current[0] !== 'dashboard') return api<AdminRecord[] | AdminRecord>(`/api/v1/admin/${endpoint}`)
+      const query = new URLSearchParams({ period: reportPeriod })
+      if (reportPeriod === 'custom') {
+        query.set('from', customFrom)
+        query.set('to', customTo)
+      }
+      return api<AdminRecord>(`/api/v1/admin/${endpoint}?${query}`)
+    },
     retry: false,
     refetchInterval: false,
   })
@@ -1718,14 +1734,26 @@ export function AdminConsole() {
   }
   const data = sectionQuery.data
   const records = Array.isArray(data) ? data : data && typeof data === 'object' ? Object.entries(data).filter(([, value]) => Array.isArray(value)).flatMap(([, value]) => value as AdminRecord[]) : []
-  const metrics = !Array.isArray(data) && data ? Object.entries(data).filter(([, value]) => typeof value !== 'object') : []
+  const dashboardMetrics: [string, string][] = !Array.isArray(data) && data && current[0] === 'dashboard' ? [
+    ['Revenue (paid)', `KES ${Number(data.paidRevenue ?? 0).toLocaleString('en-KE')}`],
+    ['Paid orders', String(data.paidOrderCount ?? 0)],
+    ['Average order value', `KES ${Number(data.averageOrderValue ?? 0).toLocaleString('en-KE')}`],
+    ['New customers', String(data.newCustomers ?? 0)],
+    ['Returning customers', String(data.returningCustomers ?? 0)],
+    ['All customers', String(data.totalCustomers ?? 0)],
+    ['All products', String(data.totalProducts ?? 0)],
+    ['Pending orders', String(data.pendingOrders ?? 0)],
+    ['Low-stock variants', String(data.lowStockVariants ?? 0)],
+    ['Out-of-stock variants', String(data.outOfStockVariants ?? 0)],
+  ] : []
 
   return <div className="admin-app">
     <aside className={menuOpen ? 'admin-sidebar is-open' : 'admin-sidebar'}><Link to="/" className="admin-brand"><img src="/culture-mark.webp" alt="" /> KitCulture <span>ADMIN</span></Link><nav aria-label="Admin modules">{sections.map(([id, title, path, Icon]) => <Link key={id} to={path} onClick={() => setMenuOpen(false)} className={current[0] === id ? 'active' : ''}><Icon size={17} />{title}</Link>)}</nav><button className="admin-logout" type="button" onClick={() => void logout()}><LogOut size={17} /> Sign out</button></aside>
     {menuOpen && <button className="admin-nav-scrim" aria-label="Close admin menu" onClick={() => setMenuOpen(false)} />}
     <main className={current[0] === 'products' ? 'admin-main admin-products-page' : current[0] === 'football' ? 'admin-main admin-football-page' : current[0] === 'homepage' ? 'admin-main admin-homepage-page' : current[0] === 'settings' ? 'admin-main admin-settings-page' : 'admin-main'}><header className="admin-topbar"><button type="button" className="admin-menu-toggle" aria-label={menuOpen ? 'Close menu' : 'Open menu'} onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X /> : <Menu />}</button><div><span className="admin-kicker">KITCULTURE OPERATIONS</span><h1>{current[1]}</h1></div><Link to="/" className="admin-store-link">View storefront ↗</Link></header>
+      {current[0] === 'dashboard' && <div className="admin-report-toolbar"><label>Reporting period<select value={reportPeriod} onChange={(event) => setReportPeriod(event.target.value as typeof reportPeriod)}><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="last7days">Last 7 days</option><option value="last30days">Last 30 days</option><option value="thisMonth">This month</option><option value="lastMonth">Last month</option><option value="thisYear">This year</option><option value="custom">Custom range</option></select></label>{reportPeriod === 'custom' && <><label>From<input type="date" value={customFrom} max={customTo} onChange={(event) => setCustomFrom(event.target.value)} /></label><label>To<input type="date" value={customTo} min={customFrom} onChange={(event) => setCustomTo(event.target.value)} /></label></>}</div>}
       {sectionQuery.isPending ? <div className="admin-empty">Loading live database records…</div> : sectionQuery.isError ? <div className="admin-empty admin-error"><strong>Admin data unavailable</strong><span>{sectionQuery.error.message}. Confirm the database is configured and your account has the administrator role.</span></div> : <>
-        {current[0] === 'dashboard' && <div className="admin-metrics">{metrics.map(([key, value]) => <article key={key}><span>{key.replace(/[A-Z]/g, (letter) => ` ${letter.toLowerCase()}`)}</span><strong>{pretty(value)}</strong></article>)}</div>}
+        {current[0] === 'dashboard' && <div className="admin-metrics">{dashboardMetrics.map(([key, value]) => <article key={key}><span>{key}</span><strong>{value}</strong></article>)}</div>}
         {current[0] === 'dashboard' && data && !Array.isArray(data) && <AdminDashboardCharts data={data} />}
         {current[0] === 'notifications' || current[0] === 'guest-orders' ? null : current[0] === 'football'
           ? <FootballCatalogueManager onDone={async () => { await sectionQuery.refetch() }} />
