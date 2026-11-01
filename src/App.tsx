@@ -103,7 +103,7 @@ const homepageTrendingClubBadges: Record<string, number> = {
   roma: 100,
 }
 const homepageTrendingClubOrder = new Map(Object.keys(homepageTrendingClubBadges).map((slug, index) => [slug, index]))
-const registrationSchema = z.object({ fullName: z.string().trim().min(2, 'Enter your name.'), email: z.string().trim().email('Enter a valid email address.'), password: z.string().min(12, 'Use at least 12 characters.').refine((value) => new TextEncoder().encode(value).length <= 72, 'Use a password no longer than 72 UTF-8 bytes.'), passwordConfirmation: z.string().min(1, 'Confirm your password.') }).refine((values) => values.password === values.passwordConfirmation, { message: 'Passwords do not match.', path: ['passwordConfirmation'] })
+const registrationSchema = z.object({ fullName: z.string().trim().min(2, 'Enter your name.'), email: z.string().trim().email('Enter a valid email address.'), password: z.string().min(14, 'Use at least 14 characters.').refine((value) => new TextEncoder().encode(value).length <= 72, 'Use a password no longer than 72 UTF-8 bytes.'), passwordConfirmation: z.string().min(1, 'Confirm your password.') }).refine((values) => values.password === values.passwordConfirmation, { message: 'Passwords do not match.', path: ['passwordConfirmation'] })
 const signInSchema = z.object({ email: z.string().trim().email('Enter a valid email address.'), password: z.string().min(1, 'Enter your password.') })
 
 async function loadHomepageProducts(path: string, signal?: AbortSignal) {

@@ -6,10 +6,10 @@ process.env.NODE_ENV = 'development'
 process.env.CLIENT_ORIGIN = 'http://localhost:5173'
 
 const { mysqlSslOptions } = await import('../../config/database.js')
-const { isAllowedClientOrigin, productionDarajaConfigurationErrors, resolveDarajaEnvironment, resolveDarajaTransactionType } = await import('../../config/env.js')
-const { bcryptPasswordSchema } = await import('../../config/password-policy.js')
+const { isAllowedClientOrigin, productionDatabaseTlsConfigurationErrors, productionDarajaConfigurationErrors, resolveDarajaEnvironment, resolveDarajaTransactionType } = await import('../../config/env.js')
+const { bcryptPasswordSchema, verifyPassword } = await import('../../config/password-policy.js')
 const { adminIdleTimeoutMs, adminLoginSchema, invalidAdminCredentialsMessage, matchesAdminSignupSecret } = await import('../admin/auth.js')
-const { matchesOperationsSignupSecret } = await import('../operations/routes.js')
+const { classifyOperationsDatabaseFailure, matchesOperationsSignupSecret, probeDatabase } = await import('../operations/routes.js')
 const { adminSessionAbsoluteLifetimeMs, customerSessionAbsoluteLifetimeMs, customerSessionIdleTimeoutMs, nextSessionExpiry, shouldRefreshSession } = await import('../../config/session-policy.js')
 const { attemptPasswordResetDelivery, loginSchema, registerSchema } = await import('./routes.js')
 const { createOrderSchema, createTemporaryOrderNumber, exceedsProductQuantityLimit, ordersRouter } = await import('../orders/routes.js')
@@ -30,15 +30,15 @@ test('registration normalizes email and accepts a long password', () => {
   if (result.success) assert.equal(result.data.email, 'fan@example.com')
 })
 
-test('customer registration accepts an eight-character password and rejects shorter passwords', () => {
+test('customer registration requires a 14-character password', () => {
   const base = {
     fullName: 'Supporter Name',
     email: 'fan@example.com',
   }
 
-  assert.equal(registerSchema.safeParse({ ...base, password: 'password' }).success, true)
-  assert.equal(registerSchema.safeParse({ ...base, password: 'pass123' }).success, false)
-  assert.equal(registerSchema.safeParse({ ...base, email: 'not-an-email', password: 'password' }).success, false)
+  assert.equal(registerSchema.safeParse({ ...base, password: 'fourteen-char!' }).success, true)
+  assert.equal(registerSchema.safeParse({ ...base, password: 'thirteen-char' }).success, false)
+  assert.equal(registerSchema.safeParse({ ...base, email: 'not-an-email', password: 'fourteen-char!' }).success, false)
 })
 
 test('login rejects an empty password', () => {
@@ -92,8 +92,13 @@ test('database sessions use bounded customer and administrator idle policies', (
 test('production MySQL connections require verified TLS and accept a custom CA', () => {
   assert.deepEqual(mysqlSslOptions('production'), { rejectUnauthorized: true })
   assert.deepEqual(mysqlSslOptions('production', 'test-ca'), { rejectUnauthorized: true, ca: 'test-ca' })
-  assert.deepEqual(mysqlSslOptions('production', undefined, false), { rejectUnauthorized: false })
   assert.equal(mysqlSslOptions('development'), undefined)
+})
+
+test('production rejects disabled MySQL TLS certificate verification', () => {
+  assert.deepEqual(productionDatabaseTlsConfigurationErrors({ NODE_ENV: 'production', MYSQL_SSL_VERIFY: false }), ['MYSQL_SSL_VERIFY must be true in production'])
+  assert.deepEqual(productionDatabaseTlsConfigurationErrors({ NODE_ENV: 'production', MYSQL_SSL_VERIFY: true }), [])
+  assert.deepEqual(productionDatabaseTlsConfigurationErrors({ NODE_ENV: 'development', MYSQL_SSL_VERIFY: false }), [])
 })
 
 test('customer order mutations reject cross-origin requests before authentication', async () => {
@@ -189,6 +194,7 @@ test('saved delivery addresses require paired, valid GPS coordinates', () => {
 
 test('password security requires a strong new password distinct from the current password', () => {
   assert.equal(passwordSchema.safeParse({ currentPassword: 'short', newPassword: 'short' }).success, false)
+  assert.equal(passwordSchema.safeParse({ currentPassword: 'old-password-123', newPassword: 'thirteen-char' }).success, false)
   assert.equal(passwordSchema.safeParse({ currentPassword: 'old-password-123', newPassword: 'new-password-123' }).success, true)
 })
 
@@ -718,4 +724,36 @@ test('quick product ratings validate stars and combine with written reviews', ()
   assert.equal(quickProductRatingSchema.safeParse({ rating: 0, visitorId: '550e8400-e29b-41d4-a716-446655440000' }).success, false)
   assert.deepEqual(combinedRating(4, 2, 3, 2), { ratingAverage: 3.5, reviewCount: 4 })
   assert.deepEqual(combinedRating(null, 0, null, 0), { ratingAverage: 0, reviewCount: 0 })
+})
+
+test('operations missing-table failures identify incomplete schema without exposing SQL', () => {
+  const failure = classifyOperationsDatabaseFailure(Object.assign(
+    new Error("Table 'railway.operations_users' doesn't exist; mysql://user:secret@db.example/railway"),
+    { code: 'ER_NO_SUCH_TABLE' },
+  ))
+  assert.equal(failure?.status, 503)
+  assert.equal(failure?.code, 'OPERATIONS_SCHEMA_UNAVAILABLE')
+  assert.match(failure?.message ?? '', /schema is incomplete/)
+  assert.ok(failure?.diagnostics.errors.every(({ message }) => !message.includes('secret')))
+})
+
+test('operations connection failures use a separate safe diagnostic code', () => {
+  const failure = classifyOperationsDatabaseFailure(Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:3306'), { code: 'ECONNREFUSED' }))
+  assert.equal(failure?.status, 503)
+  assert.equal(failure?.code, 'OPERATIONS_DATABASE_UNAVAILABLE')
+})
+
+test('operations database probe reports a successful connection', async () => {
+  const result = await probeDatabase({ query: async () => [[{ ok: 1 }]] }, 'admin')
+  assert.equal(result.name, 'admin')
+  assert.equal(result.status, 'healthy')
+  assert.equal(typeof result.latencyMs, 'number')
+})
+
+test('password verification compares unknown accounts against a dummy bcrypt hash', async () => {
+  const { hash } = await import('bcryptjs')
+  const passwordHash = await hash('correct-test-passphrase', 4)
+  assert.equal(await verifyPassword('correct-test-passphrase', passwordHash), true)
+  assert.equal(await verifyPassword('wrong-test-passphrase', passwordHash), false)
+  assert.equal(await verifyPassword('wrong-test-passphrase', undefined), false)
 })

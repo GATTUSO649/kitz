@@ -4,12 +4,12 @@ import { env, resolveDatabaseUrl } from './env.js'
 import * as schema from '../database/schema.js'
 import * as adminSchema from '../database/admin-schema.js'
 
-export function mysqlSslOptions(nodeEnvironment: string, ca?: string, verifyServerCertificate = true) {
+export function mysqlSslOptions(nodeEnvironment: string, ca?: string) {
   if (nodeEnvironment !== 'production') return undefined
-  return { rejectUnauthorized: verifyServerCertificate, ...(ca ? { ca } : {}) }
+  return { rejectUnauthorized: true, ...(ca ? { ca } : {}) }
 }
 
-const mysqlSsl = mysqlSslOptions(env.NODE_ENV, env.MYSQL_SSL_CA, env.MYSQL_SSL_VERIFY)
+const mysqlSsl = mysqlSslOptions(env.NODE_ENV, env.MYSQL_SSL_CA)
 const databaseUrl = resolveDatabaseUrl('DATABASE_URL', ['MYSQL_URL', 'MYSQL_URI'])
 export const pool = databaseUrl
   ? createPool({

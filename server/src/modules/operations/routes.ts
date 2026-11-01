@@ -1,14 +1,14 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import { compare, hash } from 'bcryptjs'
+import { hash } from 'bcryptjs'
 import { and, asc, count, desc, eq, gt, isNull, lt, sql } from 'drizzle-orm'
-import { Router, type Request, type Response } from 'express'
+import { Router, type NextFunction, type Request, type Response } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
 import { env } from '../../config/env.js'
 import { adminDb, adminPool, pool } from '../../config/database.js'
 import { inspectDatabaseError } from '../../config/database-diagnostics.js'
 import { isAllowedClientOrigin } from '../../config/env.js'
-import { bcryptPasswordSchema } from '../../config/password-policy.js'
+import { bcryptPasswordSchema, verifyPassword } from '../../config/password-policy.js'
 import { nextSessionExpiry, operationsSessionAbsoluteLifetimeMs, operationsSessionIdleTimeoutMs } from '../../config/session-policy.js'
 import { adminUsers, operationsAuditEvents, operationsIncidentEvents, operationsIncidents, operationsSessions, operationsUsers } from '../../database/admin-schema.js'
 import { getRequestMetrics } from '../../middleware/request-metrics.js'
@@ -17,7 +17,6 @@ export const operationsRouter = Router()
 const operationsCookieName = 'kc_ops_session'
 const operationsLoginLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 8, standardHeaders: 'draft-8', legacyHeaders: false })
 const operationsSignupLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false })
-const dummyPasswordHash = '$2b$12$dMQb0c5TSqrGqBnLsWHg7OY1lpzjgTO9NlpziFmTtctDZ1deHspxi'
 
 type OperationsUser = { id: number; email: string; fullName: string }
 type OperationsRequest = Request & { operationsUser?: OperationsUser }
@@ -62,6 +61,27 @@ function authenticatedOperationsUser(request: Request) {
   return (request as OperationsRequest).operationsUser
 }
 
+export function classifyOperationsDatabaseFailure(error: unknown) {
+  const diagnostics = inspectDatabaseError(error)
+  if (diagnostics.category === 'missing_table' || diagnostics.category === 'missing_column') {
+    return {
+      status: 503,
+      code: 'OPERATIONS_SCHEMA_UNAVAILABLE',
+      message: 'Operations data is temporarily unavailable because its database schema is incomplete.',
+      diagnostics,
+    }
+  }
+  if (diagnostics.category === 'connection') {
+    return {
+      status: 503,
+      code: 'OPERATIONS_DATABASE_UNAVAILABLE',
+      message: 'Operations data is temporarily unavailable. Please try again shortly.',
+      diagnostics,
+    }
+  }
+  return null
+}
+
 const authenticateOperations = async (request: Request, response: Response, next: (error?: unknown) => void) => {
   const token = operationsCookieToken(request)
   if (!token) {
@@ -69,7 +89,7 @@ const authenticateOperations = async (request: Request, response: Response, next
     return
   }
   if (!adminDb) {
-    response.status(503).json({ error: { code: 'OPERATIONS_UNAVAILABLE', message: 'Operations authentication is unavailable.' } })
+    operationsUnavailable(response, String(request.id))
     return
   }
   try {
@@ -106,10 +126,6 @@ const authenticateOperations = async (request: Request, response: Response, next
     ;(request as OperationsRequest).operationsUser = { id: user.id, email: user.email, fullName: user.fullName }
     next()
   } catch (error) {
-    if (inspectDatabaseError(error).category === 'missing_table') {
-      operationsUnavailable(response)
-      return
-    }
     next(error)
   }
 }
@@ -130,18 +146,13 @@ const operationsRegisterSchema = z.object({
   secretKey: z.string().min(1).max(512),
 }).strict()
 
-operationsRouter.get('/registration-status', async (_request, response) => {
+operationsRouter.get('/registration-status', async (request, response) => {
   if (!env.OPERATIONS_SIGNUP_SECRET) {
     response.json({ data: { available: false } })
     return
   }
-  if (!adminDb) return operationsUnavailable(response)
-  try {
-    await adminDb.select({ id: operationsUsers.id }).from(operationsUsers).limit(1)
-  } catch (error) {
-    if (inspectDatabaseError(error).category === 'missing_table') return operationsUnavailable(response)
-    throw error
-  }
+  if (!adminDb) return operationsUnavailable(response, String(request.id))
+  await adminDb.select({ id: operationsUsers.id }).from(operationsUsers).limit(1)
   response.json({ data: { available: true } })
 })
 
@@ -159,7 +170,7 @@ operationsRouter.post('/register', operationsSignupLimiter, async (request, resp
     response.status(403).json({ error: { code: 'INVALID_OPERATIONS_SIGNUP_KEY', message: 'The IT signup key is invalid.' } })
     return
   }
-  if (!adminDb) return operationsUnavailable(response)
+  if (!adminDb) return operationsUnavailable(response, String(request.id))
 
   const passwordHash = await hash(input.data.password, 12)
   const token = randomBytes(32).toString('base64url')
@@ -203,7 +214,7 @@ operationsRouter.post('/login', operationsLoginLimiter, async (request, response
   if (!input.success) return response.status(400).json({ error: { code: 'INVALID_OPERATIONS_LOGIN', message: 'Enter a valid operations email and password.' } })
   const [user] = await adminDb.select({ id: operationsUsers.id, email: operationsUsers.email, fullName: operationsUsers.fullName, passwordHash: operationsUsers.passwordHash, disabledAt: operationsUsers.disabledAt })
     .from(operationsUsers).where(eq(operationsUsers.email, input.data.email)).limit(1)
-  const passwordMatches = await compare(input.data.password, user?.passwordHash ?? dummyPasswordHash)
+  const passwordMatches = await verifyPassword(input.data.password, user?.passwordHash)
   if (!user || user.disabledAt || !passwordMatches) {
     response.status(401).json({ error: { code: 'INVALID_OPERATIONS_CREDENTIALS', message: 'The operations email or password is incorrect.' } })
     return
@@ -275,11 +286,15 @@ operationsRouter.post('/session/activity', authenticateOperations, async (reques
 })
 operationsRouter.use(authenticateOperations)
 
-function operationsUnavailable(response: import('express').Response) {
-  return response.status(503).json({ error: { code: 'OPERATIONS_UNAVAILABLE', message: 'Operations data is unavailable until its database migration has been applied.' } })
+function operationsUnavailable(response: import('express').Response, requestId?: string) {
+  return response.status(503).json({ error: {
+    code: 'OPERATIONS_DATABASE_NOT_CONFIGURED',
+    message: 'Operations database is not configured. Contact the site administrator.',
+    ...(requestId ? { requestId } : {}),
+  } })
 }
 
-async function probeDatabase(database: typeof pool, name: string) {
+export async function probeDatabase(database: { query: (sql: string) => Promise<unknown> } | null, name: string) {
   if (!database) return { name, status: 'unavailable' as const, latencyMs: null }
   const startedAt = performance.now()
   try {
@@ -294,8 +309,8 @@ operationsRouter.get('/me', (request, response) => {
   response.json({ data: { user: authenticatedOperationsUser(request) } })
 })
 
-operationsRouter.get('/operators', async (_request, response) => {
-  if (!adminDb) return operationsUnavailable(response)
+operationsRouter.get('/operators', async (request, response) => {
+  if (!adminDb) return operationsUnavailable(response, String(request.id))
   const operators = await adminDb.select({ id: operationsUsers.id, fullName: operationsUsers.fullName })
     .from(operationsUsers)
     .where(isNull(operationsUsers.disabledAt))
@@ -303,8 +318,8 @@ operationsRouter.get('/operators', async (_request, response) => {
   response.json({ data: operators })
 })
 
-operationsRouter.get('/overview', async (_request, response) => {
-  if (!adminDb) return operationsUnavailable(response)
+operationsRouter.get('/overview', async (request, response) => {
+  if (!adminDb) return operationsUnavailable(response, String(request.id))
   const [storeDatabase, adminDatabase, [openIncidentCount], [investigatingIncidentCount]] = await Promise.all([
     probeDatabase(pool, 'store'),
     adminPool === pool ? Promise.resolve({ name: 'admin', status: 'healthy' as const, latencyMs: null }) : probeDatabase(adminPool, 'admin'),
@@ -339,7 +354,7 @@ const incidentListQuery = z.object({
 })
 
 operationsRouter.get('/incidents', async (request, response) => {
-  if (!adminDb) return operationsUnavailable(response)
+  if (!adminDb) return operationsUnavailable(response, String(request.id))
   const query = incidentListQuery.safeParse(request.query)
   if (!query.success) return response.status(400).json({ error: { code: 'INVALID_QUERY', message: 'Incident pagination is invalid.' } })
   const rows = await adminDb.select({
@@ -381,7 +396,7 @@ operationsRouter.post('/incidents', async (request, response) => {
   const input = createIncidentSchema.safeParse(request.body)
   if (!actor) return response.status(401).json({ error: { code: 'OPERATIONS_UNAUTHENTICATED', message: 'Operations sign in is required.' } })
   if (!input.success) return response.status(400).json({ error: { code: 'INVALID_INCIDENT', message: 'Incident details are invalid.' } })
-  if (!adminDb) return operationsUnavailable(response)
+  if (!adminDb) return operationsUnavailable(response, String(request.id))
   const incidentNumber = `OPS-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}-${randomBytes(3).toString('hex').toUpperCase()}`
   const now = new Date()
   const incidentId = await adminDb.transaction(async (transaction) => {
@@ -419,7 +434,7 @@ operationsRouter.post('/incidents', async (request, response) => {
 operationsRouter.get('/incidents/:id/events', async (request, response) => {
   const id = z.coerce.number().int().positive().safeParse(request.params.id)
   if (!id.success) return response.status(400).json({ error: { code: 'INVALID_INCIDENT_ID', message: 'Incident ID is invalid.' } })
-  if (!adminDb) return operationsUnavailable(response)
+  if (!adminDb) return operationsUnavailable(response, String(request.id))
   const rows = await adminDb.select({
     id: operationsIncidentEvents.id,
     eventType: operationsIncidentEvents.eventType,
@@ -449,7 +464,7 @@ operationsRouter.patch('/incidents/:id', async (request, response) => {
   const input = patchIncidentSchema.safeParse(request.body)
   if (!actor) return response.status(401).json({ error: { code: 'OPERATIONS_UNAUTHENTICATED', message: 'Operations sign in is required.' } })
   if (!id.success || !input.success) return response.status(400).json({ error: { code: 'INVALID_INCIDENT_UPDATE', message: 'Incident update is invalid.' } })
-  if (!adminDb) return operationsUnavailable(response)
+  if (!adminDb) return operationsUnavailable(response, String(request.id))
   if (input.data.assignedOperationsUserId) {
     const [assignee] = await adminDb.select({ id: operationsUsers.id }).from(operationsUsers)
       .where(and(eq(operationsUsers.id, input.data.assignedOperationsUserId), isNull(operationsUsers.disabledAt))).limit(1)
@@ -532,4 +547,23 @@ operationsRouter.get('/audit', async (request, response) => {
   const hasMore = rows.length > query.data.limit
   const data = rows.slice(0, query.data.limit)
   response.json({ data, pagination: { limit: query.data.limit, nextCursor: hasMore ? data.at(-1)?.id ?? null : null, hasMore } })
+})
+
+operationsRouter.use((error: unknown, request: Request, response: Response, next: NextFunction) => {
+  const failure = classifyOperationsDatabaseFailure(error)
+  if (!failure) {
+    next(error)
+    return
+  }
+  request.log.error({
+    requestId: String(request.id),
+    operation: `operations.${request.method.toLowerCase()}`,
+    category: failure.diagnostics.category,
+    errors: failure.diagnostics.errors,
+  }, 'Operations database operation failed')
+  response.status(failure.status).json({ error: {
+    code: failure.code,
+    message: failure.message,
+    requestId: String(request.id),
+  } })
 })

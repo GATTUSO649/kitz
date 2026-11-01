@@ -1,11 +1,11 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import { compare, hash } from 'bcryptjs'
+import { hash } from 'bcryptjs'
 import { and, eq, gt, isNull } from 'drizzle-orm'
 import { Router, type Response } from 'express'
 import { z } from 'zod'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { adminDb } from '../../config/database.js'
-import { bcryptPasswordSchema } from '../../config/password-policy.js'
+import { bcryptPasswordSchema, verifyPassword } from '../../config/password-policy.js'
 import { adminSessionAbsoluteLifetimeMs, adminSessionIdleTimeoutMs, nextSessionExpiry } from '../../config/session-policy.js'
 import { adminAuditLogs, adminSessions, adminUsers, adminVerificationTokens } from '../../database/admin-schema.js'
 import { authenticatedAdmin } from '../../middleware/authenticate.js'
@@ -188,7 +188,7 @@ adminAuthRouter.post('/login', async (request, response) => {
     passwordHash: adminUsers.passwordHash,
     emailVerifiedAt: adminUsers.emailVerifiedAt,
   }).from(adminUsers).where(eq(adminUsers.email, input.data.email)).limit(1)
-  if (!admin || !(await compare(input.data.password, admin.passwordHash))) {
+  if (!admin || !(await verifyPassword(input.data.password, admin?.passwordHash))) {
     response.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: invalidAdminCredentialsMessage } })
     return
   }

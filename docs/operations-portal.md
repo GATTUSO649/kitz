@@ -4,6 +4,8 @@
 
 The portal is available at `/operations` and has its own login form and API namespace at `/api/v1/operations`. Operations users, password hashes, sessions, and audit records are stored in dedicated tables; sessions use the separate HTTP-only `kc_ops_session` cookie scoped to `/api/v1/operations`. Store-admin credentials and cookies do not authenticate operations requests, and store-admin accounts do not receive operations access automatically. There is no default operator, no fallback to `/admin/login`, and no shared identity table.
 
+The IT sign-in form links to `/admin/register` for the separate store-administrator identity. A store-admin account is not an IT operator account and does not grant Operations access.
+
 Manage independent operations accounts with `npm run operations:user -- <create|disable|enable|reset-password>`. Set `OPERATIONS_EMAIL` for all actions; `create` also requires `OPERATIONS_NAME` and `OPERATIONS_PASSWORD`, while `reset-password` requires `OPERATIONS_PASSWORD`. The password must satisfy the current 14-character policy and bcrypt byte limit. `disable` and `reset-password` revoke all current operations sessions; `enable` reactivates a disabled account. The CLI writes a provisioning audit event and does not create or modify any store-admin account. These variables are only used by the one-shot CLI, not stored as application runtime secrets.
 
 Optional self-signup is available only when the API environment has `OPERATIONS_SIGNUP_SECRET` set to a random value of at least 32 characters. Enter that value in the IT signup form's **IT secret key** field. The key is never sent to the frontend except when an operator submits the form, and it is compared server-side. Unset the variable after the intended signup window closes; use the CLI for additional accounts.
@@ -24,7 +26,57 @@ Render, Railway backup verification, Cloudflare, Daraja, and email-provider stat
 
 ## Safe schema rollout
 
-The operations schema migration has not been applied. The existing storefront and admin Drizzle histories share a default tracking table and have a known timestamp-order mismatch; the repository's deployment guide warns that `db:migrate:all` is unsafe until histories are reconciled. Do not apply admin migrations to the production database until a database owner has backed up the database, inspected the shared migration table and all pending SQL, and established a reviewed release procedure. Validate the final operations user/session/incident schema on a disposable MySQL database first.
+### Current incident evidence
+
+Read-only production checks on 2026-11-01 observed two different conditions. First, `/health/live` and `/health/ready` returned `200` with both database checks `ok`, while `/api/v1/operations/registration-status` returned `503 OPERATIONS_UNAVAILABLE` with `Operations data is unavailable until its database migration has been applied.` The endpoint selects from `operations_users`, so that response proves the query failed as a missing-table case while the database was reachable. A later check showed `/health/live` `200`, `/health/ready` `503` with both databases `unavailable`, and `/api/v1/operations/registration-status` `503 DATABASE_UNAVAILABLE`; this is a database connectivity outage rather than a migration-only failure. The Operations schema problem and intermittent DB connectivity are separate causes and both must be resolved. Unauthenticated `/api/v1/operations/me` requests returned `401 OPERATIONS_UNAUTHENTICATED`, which is expected without an Operations session. Admin registration status returned `200 available: true`; that only confirms admin signup configuration, not the full admin schema.
+
+After deploying the diagnostics change, missing tables/columns return `503` with `OPERATIONS_SCHEMA_UNAVAILABLE`, message `Operations data is temporarily unavailable because its database schema is incomplete.`, and a `requestId`. Connection/TLS failures in Operations routes return `503 OPERATIONS_DATABASE_UNAVAILABLE`; connection/TLS failures handled by the shared app middleware return `503 DATABASE_UNAVAILABLE`. Both include a request ID. An absent Operations DB configuration returns `503 OPERATIONS_DATABASE_NOT_CONFIGURED`. These client responses never include SQL, stack traces, database URLs, or credentials. Match the request ID to sanitized server logs.
+
+The exact migration that creates `operations_users` and `operations_sessions` is `server/src/database/admin-migrations/0003_late_deadpool.sql`. It follows `0001_numerous_harrier.sql` (legacy incident/operator tables) and `0002_serious_scourge.sql` (audit events), with `0000_brown_lester.sql` creating the base administrator tables. The deployed database's `__drizzle_migrations` rows and live table definitions could not be inspected because no database tool connection was configured and a TLS-verified metadata connection failed with `HANDSHAKE_SSL_ERROR`. Do not infer the applied migration state from `/health/ready` or the Drizzle journal alone.
+
+### Migration history risk
+
+Both store and admin Drizzle configs use MySQL's default `__drizzle_migrations` tracker while maintaining independent journals. Their indices both start at zero and the timestamp ranges overlap. The store journal also has equal `when` timestamps for `0006_lean_anita_blake` and `0007_kit_collections`. All four admin journal tags have matching SQL files, but that does not establish which records are in production. A shared tracker can cause one history to advance past entries in the other history. The `0003` SQL is multi-statement MySQL DDL: MySQL does not make the entire migration transactional, and partial execution can leave tables, columns, or indexes only partly changed. Never rerun it blindly.
+
+### Staging-first execution plan
+
+1. Freeze deploys and scheduled/manual migration jobs. Record the current app release and keep `/health/live` and `/health/ready` results with timestamps.
+2. Take a provider snapshot of the entire production database. Also make a consistent logical backup with schema, triggers, routines, and events. Restore that backup to an isolated staging database and verify the restore before using it. Do not use production for rehearsal.
+3. With a read-only database account over verified TLS, capture the table/column/index/foreign-key definitions for `operations_*`, `admin_users`, `__drizzle_migrations`, and all tables named in migrations `0000` through `0003`. Capture only migration hashes/timestamps and schema metadata, not customer rows or credentials.
+4. Compare the tracker rows to both journals and to the four SQL files. Compare the live schema to `admin-schema.ts`. Specifically check whether `operations_sessions` exists, whether `operations_users` exists, and whether the legacy actor FKs/indexes dropped by `0003` remain or were already changed. Stop if the tracker and schema disagree or if any DDL appears partially applied.
+5. On the restored staging clone, test a reviewed forward-only repair plan. `0003_late_deadpool.sql` is the candidate for the missing users/sessions, but only run the full file if all `0001`/`0002` prerequisites and every `0003` precondition are proven present and no statements are partially applied. Otherwise prepare a separately reviewed idempotent reconciliation migration that preserves all existing records. Do not delete/recreate tables or manually advance the tracker to make errors disappear.
+6. Apply the approved staging plan once, then verify all columns, indexes, foreign keys, migration records, existing row counts, and the Operations flows. Re-run the plan on a fresh restored clone to prove repeatable release procedure. Capture before/after record counts for affected legacy tables.
+7. Only after written database-owner approval, a verified backup, and successful staging restore/test, schedule the same reviewed plan as a controlled production release. Monitor the migration runner and stop on the first unexpected DDL result; do not let API startup run migrations.
+
+Read-only inspection SQL (run with a read-only account, over verified TLS, in the intended database):
+
+```sql
+SELECT TABLE_NAME
+FROM information_schema.TABLES
+WHERE TABLE_SCHEMA = DATABASE()
+	AND (TABLE_NAME LIKE 'operations_%' OR TABLE_NAME IN ('admin_users', '__drizzle_migrations'))
+ORDER BY TABLE_NAME;
+
+SELECT TABLE_NAME, COLUMN_NAME, IS_NULLABLE, COLUMN_TYPE
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+	AND TABLE_NAME LIKE 'operations_%'
+ORDER BY TABLE_NAME, ORDINAL_POSITION;
+
+SELECT id, hash, created_at
+FROM __drizzle_migrations
+ORDER BY created_at, id;
+
+SHOW CREATE TABLE operations_users;
+SHOW CREATE TABLE operations_sessions;
+SHOW CREATE TABLE operations_incidents;
+SHOW CREATE TABLE operations_incident_events;
+SHOW CREATE TABLE operations_audit_events;
+```
+
+If a table is absent, `SHOW CREATE TABLE` will error; record that absence, do not create it during inspection. Compare tracker hashes against the SHA-256 of each checked-in SQL file and each journal's `when` value. Never modify tracker rows during diagnosis.
+
+No production migration was run during this investigation. Production schema state and the safe execution path remain unverified until the verified-TLS metadata audit and staging rehearsal succeed.
 
 After an approved deployment has applied the admin migrations, create an independent operations account using the CLI above. Confirm it can sign in at `/operations`, that the resulting cookie is `kc_ops_session` with the operations-only path, that a store-admin cookie alone receives 401 from `/api/v1/operations/me`, that an operations cookie alone receives 401 from `/api/v1/admin/me`, and that disabling an operations account revokes its sessions. The operations password is not a store-admin password.
 

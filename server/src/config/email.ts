@@ -80,9 +80,9 @@ export async function sendTransactionalEmail(input: SendTransactionalEmailOption
     reply_to: env.EMAIL_REPLY_TO || undefined,
   }
 
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15_000)
   try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 15_000)
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
@@ -92,7 +92,6 @@ export async function sendTransactionalEmail(input: SendTransactionalEmailOption
       body: JSON.stringify(payload),
       signal: controller.signal,
     })
-    clearTimeout(timeout)
     const data = await response.json().catch(() => ({})) as { id?: string; message?: string }
     if (!response.ok) {
       const reason = data.message ?? `Provider rejected the email request (${response.status}).`
@@ -105,6 +104,8 @@ export async function sendTransactionalEmail(input: SendTransactionalEmailOption
     const message = error instanceof Error ? error.message : 'Email delivery could not be completed.'
     await persistEmailLog(input, 'failed', undefined, 'network_error', message)
     return { accepted: false, status: 'failed', reason: message }
+  } finally {
+    clearTimeout(timeout)
   }
 }
 

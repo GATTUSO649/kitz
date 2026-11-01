@@ -8,6 +8,7 @@
 .operations-login-form>button,.operations-signout{display:flex;min-height:38px;align-items:center;justify-content:center;gap:7px;border:0;background:#176b4a;padding:0 12px;color:#fff;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
 .operations-login-form>button:disabled{opacity:.55;cursor:wait}.operations-login-form>a{color:#15734e;font-size:11px;text-align:center;text-decoration:none}
 .operations-login-form>.operations-signup-toggle{min-height:30px;border:1px solid #d5dfd8;background:#fff;color:#345244;font-size:11px}
+.operations-login-form>.operations-admin-signup{color:#15734e;font-size:11px;font-weight:700;text-decoration:underline;text-underline-offset:3px}
 .operations-header{display:flex;min-height:66px;align-items:center;justify-content:space-between;gap:18px;border-bottom:1px solid var(--ops-line);background:#fff;padding:0 max(22px,calc((100vw - 1320px)/2))}
 .operations-brand,.operations-header-actions,.operations-brand-mark,.operations-access-label{display:flex;align-items:center;gap:10px}
 .operations-brand-mark{width:34px;height:34px;justify-content:center;background:#e4f0e9;color:var(--ops-green)}

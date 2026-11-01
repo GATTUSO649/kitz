@@ -168,17 +168,25 @@ test('admin session endpoint rejects requests without an administrator cookie', 
 })
 
 test('operations endpoints reject store-administrator sessions', async () => {
-  const response = await fetch(`${baseUrl}/api/v1/operations/me`, { headers: { cookie: 'kc_admin_session=not-an-operations-session' } })
-  assert.equal(response.status, 401)
-  assert.equal((await response.json() as { error: { code: string } }).error.code, 'OPERATIONS_UNAUTHENTICATED')
-
-  const operatorsResponse = await fetch(`${baseUrl}/api/v1/operations/operators`, { headers: { cookie: 'kc_admin_session=not-an-operations-session' } })
-  assert.equal(operatorsResponse.status, 401)
-  assert.equal((await operatorsResponse.json() as { error: { code: string } }).error.code, 'OPERATIONS_UNAUTHENTICATED')
+  for (const path of ['/me', '/operators', '/overview', '/incidents', '/audit']) {
+    const response = await fetch(`${baseUrl}/api/v1/operations${path}`, { headers: { cookie: 'kc_admin_session=not-an-operations-session' } })
+    assert.equal(response.status, 401, path)
+    assert.equal((await response.json() as { error: { code: string } }).error.code, 'OPERATIONS_UNAUTHENTICATED', path)
+  }
 
   const adminResponse = await fetch(`${baseUrl}/api/v1/admin/me`, { headers: { cookie: 'kc_ops_session=not-a-store-admin-session' } })
   assert.equal(adminResponse.status, 401)
   assert.equal((await adminResponse.json() as { error: { code: string } }).error.code, 'UNAUTHENTICATED')
+})
+
+test('Operations API rejects requests without an Operations session before querying protected data', async () => {
+  for (const path of ['/me', '/operators', '/overview', '/incidents', '/audit']) {
+    const response = await fetch(`${baseUrl}/api/v1/operations${path}`)
+    assert.equal(response.status, 401, path)
+    assert.deepEqual(await response.json(), {
+      error: { code: 'OPERATIONS_UNAUTHENTICATED', message: 'Operations sign in is required.' },
+    }, path)
+  }
 })
 
 test('IT operator self-signup stays unavailable without a server-side signup secret', async () => {
@@ -275,8 +283,9 @@ test('distinguishes missing MySQL tables and columns from connection failures', 
 test('returns temporary-unavailability responses when MySQL is unreachable', async () => {
   const catalogue = await fetch(`${baseUrl}/api/v1/products`)
   assert.equal(catalogue.status, 503)
-  const catalogueResult = await catalogue.json() as { error: { code: string } }
+  const catalogueResult = await catalogue.json() as { error: { code: string; requestId?: string } }
   assert.equal(catalogueResult.error.code, 'DATABASE_UNAVAILABLE')
+  assert.ok(catalogueResult.error.requestId)
 
   const login = await fetch(`${baseUrl}/api/v1/auth/login`, {
     method: 'POST',
@@ -284,8 +293,9 @@ test('returns temporary-unavailability responses when MySQL is unreachable', asy
     body: JSON.stringify({ email: 'test@example.com', password: 'not-a-real-password' }),
   })
   assert.equal(login.status, 503)
-  const loginResult = await login.json() as { error: { code: string } }
+  const loginResult = await login.json() as { error: { code: string; requestId?: string } }
   assert.equal(loginResult.error.code, 'DATABASE_UNAVAILABLE')
+  assert.ok(loginResult.error.requestId)
   assert.equal(login.headers.get('set-cookie'), null)
 })
 

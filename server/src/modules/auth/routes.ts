@@ -1,22 +1,23 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { compare, hash } from 'bcryptjs'
+import { hash } from 'bcryptjs'
 import { and, eq, gt, isNull } from 'drizzle-orm'
 import { Router } from 'express'
 import { z } from 'zod'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { db } from '../../config/database.js'
 import { buildAbsoluteUrl, customerEmailTemplate, sendTransactionalEmail } from '../../config/email.js'
-import { bcryptPasswordSchema } from '../../config/password-policy.js'
+import { bcryptPasswordSchema, verifyPassword } from '../../config/password-policy.js'
 import { customerSessionAbsoluteLifetimeMs, customerSessionIdleTimeoutMs, nextSessionExpiry } from '../../config/session-policy.js'
 import { authenticate, authenticatedUser } from '../../middleware/authenticate.js'
 import { emailVerificationTokens, passwordResetTokens, userSessions, users } from '../../database/schema.js'
 
 export const authRouter = Router()
 const sessionCookie = 'kc_session'
+const verificationRequestAcknowledgement = { data: { accepted: true } } as const
 
 export const registerSchema = z.object({
   email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
-  password: bcryptPasswordSchema(8),
+  password: bcryptPasswordSchema(14),
   fullName: z.string().trim().min(2).max(160),
   phone: z.string().trim().max(20).optional(),
 })
@@ -173,7 +174,7 @@ authRouter.post('/login', async (request, response) => {
 
   const [user] = await db.select({ id: users.id, email: users.email, fullName: users.fullName, phone: users.phone, passwordHash: users.passwordHash, emailVerifiedAt: users.emailVerifiedAt })
     .from(users).where(eq(users.email, input.data.email)).limit(1)
-  const passwordMatches = user ? await compare(input.data.password, user.passwordHash) : false
+  const passwordMatches = await verifyPassword(input.data.password, user?.passwordHash)
   if (!user || !passwordMatches) {
     response.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'The email address or password is incorrect. Please try again.' } })
     return
@@ -207,23 +208,18 @@ authRouter.post('/request-verification', async (request, response) => {
     return
   }
   const [user] = await db.select({ id: users.id, email: users.email, emailVerifiedAt: users.emailVerifiedAt }).from(users).where(eq(users.email, input.data.email)).limit(1)
-  if (!user) {
-    response.json({ data: { emailSent: false, alreadyVerified: false } })
-    return
+  if (user && !user.emailVerifiedAt) {
+    try {
+      await issueVerificationEmail(user.id, user.email)
+    } catch (error) {
+      request.log.warn({
+        requestId: String(request.id),
+        operation: 'auth.email-verification',
+        errorType: error instanceof Error ? error.name : 'unknown',
+      }, 'Verification email delivery failed')
+    }
   }
-  if (user.emailVerifiedAt) {
-    response.json({ data: { emailSent: false, alreadyVerified: true } })
-    return
-  }
-
-  try {
-    await issueVerificationEmail(user.id, user.email)
-  } catch {
-    response.status(503).json({ error: { code: 'EMAIL_UNAVAILABLE', message: 'We could not send a verification email right now.' } })
-    return
-  }
-
-  response.json({ data: { emailSent: true, alreadyVerified: false } })
+  response.json(verificationRequestAcknowledgement)
 })
 
 authRouter.post('/verify-email', async (request, response) => {
@@ -278,7 +274,7 @@ authRouter.post('/forgot-password', async (request, response) => {
 
 authRouter.post('/reset-password', async (request, response) => {
   if (rejectCrossOrigin(request, response)) return
-  const input = z.object({ token: z.string().trim().min(1), password: bcryptPasswordSchema(8) }).safeParse(request.body)
+  const input = z.object({ token: z.string().trim().min(1), password: bcryptPasswordSchema(14) }).safeParse(request.body)
   if (!input.success) {
     response.status(400).json({ error: { code: 'INVALID_RESET', message: 'Check the password and reset token details.' } })
     return
@@ -288,22 +284,35 @@ authRouter.post('/reset-password', async (request, response) => {
     return
   }
 
-  const [tokenRecord] = await db.select({ id: passwordResetTokens.id, userId: passwordResetTokens.userId, expiresAt: passwordResetTokens.expiresAt })
-    .from(passwordResetTokens)
-    .where(and(eq(passwordResetTokens.tokenHash, digestToken(input.data.token)), gt(passwordResetTokens.expiresAt, new Date()), isNull(passwordResetTokens.consumedAt)))
-    .limit(1)
+  const passwordHash = await hash(input.data.password, 12)
+  const reset = await db.transaction(async (transaction) => {
+    const now = new Date()
+    const [tokenRecord] = await transaction.select({ id: passwordResetTokens.id, userId: passwordResetTokens.userId })
+      .from(passwordResetTokens)
+      .where(and(
+        eq(passwordResetTokens.tokenHash, digestToken(input.data.token)),
+        gt(passwordResetTokens.expiresAt, now),
+        isNull(passwordResetTokens.consumedAt),
+      ))
+      .limit(1)
+      .for('update')
+    if (!tokenRecord) return false
 
-  if (!tokenRecord) {
+    const [consumed] = await transaction.update(passwordResetTokens).set({ consumedAt: now }).where(and(
+      eq(passwordResetTokens.id, tokenRecord.id),
+      gt(passwordResetTokens.expiresAt, now),
+      isNull(passwordResetTokens.consumedAt),
+    ))
+    if (consumed.affectedRows !== 1) return false
+
+    await transaction.update(users).set({ passwordHash }).where(eq(users.id, tokenRecord.userId))
+    await transaction.delete(userSessions).where(eq(userSessions.userId, tokenRecord.userId))
+    return true
+  })
+  if (!reset) {
     response.status(400).json({ error: { code: 'INVALID_TOKEN', message: 'This password reset link is invalid or expired.' } })
     return
   }
-
-  const passwordHash = await hash(input.data.password, 12)
-  await db.transaction(async (transaction) => {
-    await transaction.update(users).set({ passwordHash }).where(eq(users.id, tokenRecord.userId))
-    await transaction.delete(userSessions).where(eq(userSessions.userId, tokenRecord.userId))
-    await transaction.update(passwordResetTokens).set({ consumedAt: new Date() }).where(eq(passwordResetTokens.id, tokenRecord.id))
-  })
 
   response.json({ data: { passwordReset: true } })
 })

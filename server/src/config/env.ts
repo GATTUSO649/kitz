@@ -67,6 +67,12 @@ const schema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 })
 
+export function productionDatabaseTlsConfigurationErrors(configuration: { NODE_ENV: string; MYSQL_SSL_VERIFY: boolean }): string[] {
+  return configuration.NODE_ENV === 'production' && !configuration.MYSQL_SSL_VERIFY
+    ? ['MYSQL_SSL_VERIFY must be true in production']
+    : []
+}
+
 const legacyCallbackBaseUrl = (() => {
   if (!process.env.MPESA_CALLBACK_URL) return undefined
   try { return new URL(process.env.MPESA_CALLBACK_URL).origin } catch { return undefined }
@@ -87,6 +93,10 @@ const parsed = schema.safeParse({
 })
 if (!parsed.success) {
   throw new Error(`Invalid environment configuration: ${parsed.error.issues.map((issue) => issue.path.join('.') + ' ' + issue.message).join('; ')}`)
+}
+const databaseTlsErrors = productionDatabaseTlsConfigurationErrors(parsed.data)
+if (databaseTlsErrors.length) {
+  throw new Error(`Invalid production database configuration: ${databaseTlsErrors.join('; ')}`)
 }
 
 export function resolveDarajaEnvironment(nodeEnvironment: string, configuredEnvironment?: 'sandbox' | 'production') {

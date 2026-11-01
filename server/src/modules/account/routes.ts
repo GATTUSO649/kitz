@@ -56,7 +56,7 @@ export const updateAddressSchema = z.object({
 })
 export const passwordSchema = z.object({
   currentPassword: z.string().min(1).max(128),
-  newPassword: bcryptPasswordSchema(12),
+  newPassword: bcryptPasswordSchema(14),
 }).refine((value) => value.currentPassword !== value.newPassword, { path: ['newPassword'], message: 'Choose a password different from your current one.' })
 export const supportRequestSchema = z.object({
   category: z.enum(['order', 'payment', 'delivery', 'product', 'account', 'other']),
@@ -698,8 +698,9 @@ accountRouter.patch('/security/password', async (request, response) => {
     response.status(400).json({ error: { code: 'INVALID_CURRENT_PASSWORD', message: 'Current password is incorrect.' } })
     return
   }
+  const passwordHash = await hash(input.data.newPassword, 12)
   await db.transaction(async (transaction) => {
-    await transaction.update(users).set({ passwordHash: await hash(input.data.newPassword, 12) }).where(eq(users.id, auth.userId))
+    await transaction.update(users).set({ passwordHash }).where(eq(users.id, auth.userId))
     await transaction.delete(userSessions).where(eq(userSessions.userId, auth.userId))
     await transaction.insert(auditLogs).values({
       actorUserId: auth.userId,

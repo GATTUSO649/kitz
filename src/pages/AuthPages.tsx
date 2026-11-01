@@ -120,8 +120,8 @@ export function CustomerAuthInfoPage({ kind }: { kind: 'forgot' | 'reset' | 'ver
       setError('This reset link is missing a valid token.')
       return
     }
-    if (password.length < 8 || password !== passwordConfirmation) {
-      setError('Choose a valid password and make sure the two entries match.')
+    if (password.length < 14 || new TextEncoder().encode(password).length > 72 || password !== passwordConfirmation) {
+      setError('Use at least 14 characters (72 UTF-8 bytes maximum) and make sure the two entries match.')
       return
     }
     setBusy(true)
@@ -189,8 +189,8 @@ export function CustomerAuthInfoPage({ kind }: { kind: 'forgot' | 'reset' | 'ver
       <span className="auth-kicker">PASSWORD RECOVERY</span>
       <h1>Choose a new password.</h1>
       <form onSubmit={submitResetPassword} className="auth-inline-form" noValidate>
-        <label>New password<input name="password" type="password" autoComplete="new-password" minLength={8} required /></label>
-        <label>Confirm password<input name="passwordConfirmation" type="password" autoComplete="new-password" minLength={8} required /></label>
+        <label>New password<input name="password" type="password" autoComplete="new-password" minLength={14} required /></label>
+        <label>Confirm password<input name="passwordConfirmation" type="password" autoComplete="new-password" minLength={14} required /></label>
         {notice && <p className="auth-feedback success" role="status">{notice}</p>}
         {error && <p className="auth-feedback" role="alert">{error}</p>}
         <button className="button button-green auth-submit" type="submit" disabled={busy}>{busy ? 'Updating…' : 'Reset password'}</button>

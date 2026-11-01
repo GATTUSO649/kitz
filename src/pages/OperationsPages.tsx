@@ -3,7 +3,7 @@ import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-quer
 import { Activity, AlertTriangle, ArrowRight, Check, CircleHelp, LogOut, RefreshCw, Shield, Siren, X } from 'lucide-react'
 import '../operations-theme.css'
 
-type OperationsPayload<T> = { data?: T; error?: { code?: string; message?: string }; pagination?: { nextCursor: number | null; hasMore: boolean } }
+type OperationsPayload<T> = { data?: T; error?: { code?: string; message?: string; requestId?: string }; pagination?: { nextCursor: number | null; hasMore: boolean } }
 type EndpointMetric = { endpoint: string; requests: number; errors: number; averageResponseMs: number }
 type OperationsOverview = {
   application: { status: string; uptimeSeconds: number; nodeVersion: string; memoryRssBytes: number; heapUsedBytes: number }
@@ -34,11 +34,13 @@ type OperationsUser = { id: number; fullName: string }
 class OperationsApiError extends Error {
   readonly status: number
   readonly code?: string
+  readonly requestId?: string
 
-  constructor(message: string, status: number, code?: string) {
-    super(message)
+  constructor(message: string, status: number, code?: string, requestId?: string) {
+    super(requestId ? `${message} (Reference: ${requestId})` : message)
     this.status = status
     this.code = code
+    this.requestId = requestId
   }
 }
 
@@ -49,7 +51,7 @@ async function operationsApi<T>(url: string, init?: RequestInit): Promise<Operat
     headers: { ...(init?.body ? { 'Content-Type': 'application/json' } : {}), ...init?.headers },
   })
   const payload = await response.json().catch(() => ({})) as OperationsPayload<T>
-  if (!response.ok) throw new OperationsApiError(payload.error?.message ?? 'Operations request failed.', response.status, payload.error?.code)
+  if (!response.ok) throw new OperationsApiError(payload.error?.message ?? 'Operations request failed.', response.status, payload.error?.code, payload.error?.requestId)
   return payload
 }
 
@@ -101,7 +103,7 @@ function OperationsLogin({ onAuthenticated }: { onAuthenticated: () => Promise<v
     }
   }
 
-  return <main className="operations-login-page"><form className="operations-login-form" onSubmit={(event) => void submit(event)}><span className="operations-eyebrow">SEPARATE OPERATIONS IDENTITY</span><h1>{isSigningUp ? 'Create IT operator account' : 'IT Operations sign in'}</h1><p>This account is separate from KitCulture store administration.</p>{isSigningUp && <label>Full name<input name="fullName" autoComplete="name" minLength={2} maxLength={160} required /></label>}<label>Operations email<input name="email" type="email" autoComplete="username" maxLength={254} required /></label><label>Password<input name="password" type="password" autoComplete={isSigningUp ? 'new-password' : 'current-password'} minLength={isSigningUp ? 14 : undefined} maxLength={128} required /></label>{isSigningUp && <label>IT secret key<input name="secretKey" type="password" autoComplete="off" maxLength={512} required /></label>}{error && <p className="operations-error" role="alert">{error}</p>}<button type="submit" disabled={busy}>{busy ? 'Please wait…' : isSigningUp ? 'Create IT account' : 'Sign in to operations'}</button>{signupStatusQuery.data && <button className="operations-signup-toggle" type="button" onClick={() => { setIsSigningUp(!isSigningUp); setError('') }}>{isSigningUp ? 'Already have an account? Sign in' : 'Create IT operator account'}</button>}<a href="/">Return to storefront</a></form></main>
+  return <main className="operations-login-page"><form className="operations-login-form" onSubmit={(event) => void submit(event)}><span className="operations-eyebrow">SEPARATE OPERATIONS IDENTITY</span><h1>{isSigningUp ? 'Create IT operator account' : 'IT Operations sign in'}</h1><p>This account is separate from KitCulture store administration.</p>{isSigningUp && <label>Full name<input name="fullName" autoComplete="name" minLength={2} maxLength={160} required /></label>}<label>Operations email<input name="email" type="email" autoComplete="username" maxLength={254} required /></label><label>Password<input name="password" type="password" autoComplete={isSigningUp ? 'new-password' : 'current-password'} minLength={isSigningUp ? 14 : undefined} maxLength={128} required /></label>{isSigningUp && <label>IT secret key<input name="secretKey" type="password" autoComplete="off" maxLength={512} required /></label>}{error && <p className="operations-error" role="alert">{error}</p>}<button type="submit" disabled={busy}>{busy ? 'Please wait…' : isSigningUp ? 'Create IT account' : 'Sign in to operations'}</button>{signupStatusQuery.data && <button className="operations-signup-toggle" type="button" onClick={() => { setIsSigningUp(!isSigningUp); setError('') }}>{isSigningUp ? 'Already have an account? Sign in' : 'Create IT operator account'}</button>}<a className="operations-admin-signup" href="/admin/register">Need a store administrator account? Create one</a><a href="/">Return to storefront</a></form></main>
 }
 
 function OperationsConsole() {
@@ -274,7 +276,7 @@ function OperationsConsole() {
       </nav>
       {error && <p className="operations-error" role="alert"><AlertTriangle size={15} />{error}</p>}
       {overviewQuery.isPending ? <div className="operations-empty" role="status">Loading live service signals…</div>
-        : overviewQuery.isError ? <div className="operations-empty operations-error-state"><strong>Operations data unavailable</strong><span>{overviewQuery.error.message}. Confirm the operations migration is applied and operator access is granted.</span></div>
+        : overviewQuery.isError ? <div className="operations-empty operations-error-state"><strong>Operations data unavailable</strong><span>{overviewQuery.error.message}. Contact the site administrator if this continues.</span></div>
           : activeTab === 'overview' ? <>
             <div className="operations-status-grid">
               <article className="operations-status-card"><span>Application</span><strong className="is-healthy"><Check size={16} /> {overview?.application.status}</strong><small>Uptime {formatDuration(overview?.application.uptimeSeconds ?? 0)} · Node {overview?.application.nodeVersion}</small></article>
@@ -310,7 +312,7 @@ export function OperationsRoute() {
     return <OperationsLogin onAuthenticated={async () => { await accessQuery.refetch() }} />
   }
   if (accessQuery.isError) {
-    return <main className="operations-checking operations-error-state"><strong>Operations access could not be verified</strong><span>{accessQuery.error.message}. Confirm the operations schema migration and try again.</span><button type="button" onClick={() => void accessQuery.refetch()}>Retry</button></main>
+    return <main className="operations-checking operations-error-state"><strong>Operations access could not be verified</strong><span>{accessQuery.error.message}. Contact the site administrator if this continues.</span><button type="button" onClick={() => void accessQuery.refetch()}>Retry</button></main>
   }
   return <OperationsConsole />
 }

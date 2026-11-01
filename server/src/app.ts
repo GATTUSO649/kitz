@@ -176,18 +176,25 @@ const errorHandler: ErrorRequestHandler = (error, request, response, _next) => {
       errors: databaseError.errors,
     }, 'Database operation failed')
     if (databaseError.category === 'connection') {
-      response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Database services are temporarily unavailable. Please try again shortly.' } })
+      response.status(503).json({ error: {
+        code: 'DATABASE_UNAVAILABLE',
+        message: 'Database services are temporarily unavailable. Please try again shortly.',
+        requestId: String(request.id),
+      } })
       return
     }
-    response.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Something went wrong. Please try again.' } })
+    response.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Something went wrong. Please try again.', requestId: String(request.id) } })
     return
   }
-  request.log.error({ err: error, requestId: request.id }, 'Request failed')
+  request.log.error({
+    requestId: String(request.id),
+    errorType: error instanceof Error ? error.name : 'UnknownError',
+  }, 'Request failed')
   if (error instanceof Error && 'type' in error && error.type === 'entity.too.large') {
     response.status(413).json({ error: { code: 'PAYLOAD_TOO_LARGE', message: 'The uploaded file exceeds the 8 MB limit.' } })
     return
   }
-  response.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Something went wrong. Please try again.' } })
+  response.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Something went wrong. Please try again.', requestId: String(request.id) } })
 }
 app.use(errorHandler)
 

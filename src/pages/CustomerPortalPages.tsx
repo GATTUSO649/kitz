@@ -753,8 +753,8 @@ export function CustomerPortalPage({ path, user, onProfileUpdate }: { path: stri
 
         {path === '/account/security' && <><p className="portal-note">Changing your password signs out all active customer sessions. Administrator accounts are stored separately and are not affected.</p><form className="portal-form" onSubmit={(event) => void changePassword(event)}>
           <label>Current password<input name="currentPassword" type="password" autoComplete="current-password" required maxLength={128} /></label>
-          <label>New password<input name="newPassword" type="password" autoComplete="new-password" required minLength={12} maxLength={128} /></label>
-          <label>Confirm new password<input name="confirmPassword" type="password" autoComplete="new-password" required minLength={12} maxLength={128} /></label>
+          <label>New password<input name="newPassword" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label>
+          <label>Confirm new password<input name="confirmPassword" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label>
           <button className="button button-green" type="submit" disabled={busy}>{busy ? 'Updating…' : 'Update password'} <ArrowRight size={15} /></button>
         </form></>}
 
