@@ -26,6 +26,7 @@ import { WhatsAppProductLink } from './components/WhatsAppProductLink'
 import { useStoreWhatsAppNumber } from './components/whatsapp-product'
 
 const AdminRoute = lazy(() => import('./pages/AdminPages').then((module) => ({ default: module.AdminRoute })))
+const OperationsRoute = lazy(() => import('./pages/OperationsPages').then((module) => ({ default: module.OperationsRoute })))
 const MarketplacePage = lazy(() => import('./pages/ShopPages').then((module) => ({ default: module.MarketplacePage })))
 const ProductPage = lazy(() => import('./pages/ShopPages').then((module) => ({ default: module.ProductPage })))
 const ShopPage = lazy(() => import('./pages/ShopPages').then((module) => ({ default: module.ShopPage })))
@@ -231,6 +232,7 @@ function App() {
   const navigate = useNavigate()
   const { notify } = useNotifications()
   const pagePath = location.pathname
+  const isOperationsPage = pagePath === '/operations'
   const isAdminPage = pagePath.startsWith('/admin')
   const isHomePage = pagePath === '/'
   const isShopPage = pagePath === '/shop' || pagePath === '/new-arrivals' || pagePath.startsWith('/categories/')
@@ -251,7 +253,7 @@ function App() {
   const isPortalMarketplaceTeam = /^\/account\/marketplace\/teams\/[^/]+\/[^/]+$/.test(pagePath)
   const isPortalMarketplaceRoute = pagePath === '/account/marketplace' || isPortalMarketplaceProduct || isPortalMarketplaceTeam
   const isPortalPath = isAccountPage || pagePath === '/account/dashboard' || isOrdersPage || isAccountSubpage || isAccountCartRoute || isAccountCheckoutRoute || isPortalMarketplaceRoute
-  const isNotFoundPage = !isAdminPage && !isHomePage && !isShopPage && !isMarketplacePage && !isProductPage && !isCustomerAuthRoute && !isCartPage && !isCheckoutPage && !isAccountPortalRoute
+  const isNotFoundPage = !isAdminPage && !isOperationsPage && !isHomePage && !isShopPage && !isMarketplacePage && !isProductPage && !isCustomerAuthRoute && !isCartPage && !isCheckoutPage && !isAccountPortalRoute
   const whatsappNumber = useStoreWhatsAppNumber(isHomePage || pagePath === '/account' || pagePath === '/account/dashboard')
   const [cart, setCart] = useState<CartLine[]>(() => {
     try { return JSON.parse(localStorage.getItem('kitculture-cart') ?? '[]') as CartLine[] } catch { return [] }
@@ -383,6 +385,7 @@ function App() {
 
   useEffect(() => { localStorage.setItem('kitculture-cart', JSON.stringify(cart)) }, [cart])
   useEffect(() => {
+    if (isOperationsPage) return
     const controller = new AbortController()
     fetch('/api/v1/auth/me', { signal: controller.signal })
       .then(async (response) => {
@@ -400,7 +403,7 @@ function App() {
         notify(userFacingErrorMessage(error, 'Account services are temporarily unavailable.'), 'error')
       })
     return () => controller.abort()
-  }, [notify])
+  }, [isOperationsPage, notify])
   useEffect(() => {
     if (!introVisible) return
     const timer = window.setTimeout(() => dismissIntro(), 3000)
@@ -836,6 +839,7 @@ function App() {
   }
 
   if (isAdminPage) return <Suspense fallback={<DelayedBrandLoader label="Loading administration" />}><AdminRoute /></Suspense>
+  if (isOperationsPage) return <Suspense fallback={<DelayedBrandLoader label="Loading IT operations" />}><OperationsRoute /></Suspense>
 
   if (isAccountPortalRoute || isCustomerAuthRoute) {
     if (!authChecked) return <DelayedBrandLoader label="Checking your account" />

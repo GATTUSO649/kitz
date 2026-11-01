@@ -9,6 +9,7 @@ const { mysqlSslOptions } = await import('../../config/database.js')
 const { isAllowedClientOrigin, productionDarajaConfigurationErrors, resolveDarajaEnvironment, resolveDarajaTransactionType } = await import('../../config/env.js')
 const { bcryptPasswordSchema } = await import('../../config/password-policy.js')
 const { adminIdleTimeoutMs, adminLoginSchema, invalidAdminCredentialsMessage, matchesAdminSignupSecret } = await import('../admin/auth.js')
+const { matchesOperationsSignupSecret } = await import('../operations/routes.js')
 const { adminSessionAbsoluteLifetimeMs, customerSessionAbsoluteLifetimeMs, customerSessionIdleTimeoutMs, nextSessionExpiry, shouldRefreshSession } = await import('../../config/session-policy.js')
 const { attemptPasswordResetDelivery, loginSchema, registerSchema } = await import('./routes.js')
 const { createOrderSchema, createTemporaryOrderNumber, exceedsProductQuantityLimit, ordersRouter } = await import('../orders/routes.js')
@@ -697,6 +698,13 @@ test('administrator signup requires an exact configured setup secret', () => {
   assert.equal(matchesAdminSignupSecret(configuredSecret, configuredSecret), true)
   assert.equal(matchesAdminSignupSecret(`${configuredSecret}x`, configuredSecret), false)
   assert.equal(matchesAdminSignupSecret(configuredSecret, undefined), false)
+})
+
+test('IT operator signup requires an exact configured setup secret', () => {
+  const configuredSecret = 'render-generated-operations-setup-secret-0123456789'
+  assert.equal(matchesOperationsSignupSecret(configuredSecret, configuredSecret), true)
+  assert.equal(matchesOperationsSignupSecret(`${configuredSecret}x`, configuredSecret), false)
+  assert.equal(matchesOperationsSignupSecret(configuredSecret, undefined), false)
 })
 
 test('administrator login uses email and password without the signup secret', () => {

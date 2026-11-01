@@ -255,7 +255,8 @@ export function AdminLoginPage() {
           password: String(form.get('password')),
         }),
       })
-      navigate('/admin', { replace: true })
+      const returnTo = new URLSearchParams(location.search).get('returnTo')
+      navigate(returnTo === '/operations' ? '/operations' : '/admin', { replace: true })
     } catch (issue) {
       setError(issue instanceof TypeError ? 'We couldn\'t connect to the server. Please check your connection and try again.' : issue instanceof Error ? issue.message : 'Administrator sign in failed.')
     } finally {
