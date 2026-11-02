@@ -9,11 +9,13 @@ import {
   BriefcaseBusiness,
   CloudCog,
   Database,
+  Download,
   FileWarning,
   HardDrive,
   LayoutDashboard,
   Lock,
   LogOut,
+  Printer,
   Radar,
   RefreshCw,
   Search,
@@ -194,6 +196,58 @@ function label(value: string) {
 
 function clampPercent(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
+}
+
+const securityAssessmentFindings = [
+  { severity: 'MEDIUM', title: 'Runtime PostgreSQL role bypasses RLS', status: 'Open - owner decision required', recommendation: 'Review a dedicated least-privilege runtime role and RLS strategy in staging before changing grants.' },
+  { severity: 'MEDIUM', title: 'Administrator accounts have broad shared access', status: 'Open - permission matrix required', recommendation: 'Approve least-privilege business roles and test route authorization before rollout.' },
+  { severity: 'LOW', title: 'Public quick ratings accept client-selected visitor IDs', status: 'Open - abuse controls limited', recommendation: 'Treat ratings as non-authoritative until stronger identity or abuse controls are approved.' },
+  { severity: 'LOW', title: 'Uploaded images are signature-checked but not decoded and re-encoded', status: 'Open - bounded upload validation', recommendation: 'Evaluate bounded decoding and dimension limits with compatibility tests.' },
+  { severity: 'LOW', title: 'Registration can reveal whether an email is already registered', status: 'Open - response contract decision required', recommendation: 'Consider uniform registration acknowledgements without changing the existing contract before approval.' },
+  { severity: 'UNVERIFIED', title: 'Live M-Pesa service behavior', status: 'Unverified - STK unavailable in assessment', recommendation: 'Perform an approved low-value transaction and verify callback reconciliation before live-commerce assurance.' },
+  { severity: 'UNVERIFIED', title: 'Backup and restore readiness', status: 'Unverified - restore test not evidenced', recommendation: 'Complete and record a restore test in an isolated staging environment.' },
+  { severity: 'UNVERIFIED', title: 'Render and Cloudflare security configuration', status: 'Unverified - provider settings not inspected', recommendation: 'Verify DNS proxy coverage, WAF, TLS, and origin reachability in authorized provider dashboards.' },
+]
+
+function escapeReportHtml(value: unknown) {
+  return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[character]!)
+}
+
+function buildSecurityReportHtml(overview: OperationsOverview | undefined, generatedAt: Date) {
+  const requests = overview?.requests
+  const databaseRows = (overview?.databases ?? []).map((database) => `<tr><td>${escapeReportHtml(database.name)}</td><td>${escapeReportHtml(database.status)}</td><td>${database.latencyMs === null ? 'Unavailable' : `${escapeReportHtml(database.latencyMs)} ms`}</td></tr>`).join('')
+  const providerRows = Object.entries(overview?.externalServices ?? {}).map(([name, service]) => `<tr><td>${escapeReportHtml(name)}</td><td>${escapeReportHtml(service.status)}</td><td>${escapeReportHtml(service.reason ?? 'No reason reported')}</td></tr>`).join('')
+  const findingRows = securityAssessmentFindings.map((finding) => `<tr><td><span class="severity">${escapeReportHtml(finding.severity)}</span></td><td><strong>${escapeReportHtml(finding.title)}</strong><br><span class="muted">${escapeReportHtml(finding.status)}</span></td><td>${escapeReportHtml(finding.recommendation)}</td></tr>`).join('')
+  const endpointRows = (requests?.endpoints ?? []).slice(0, 20).map((endpoint) => `<tr><td>${escapeReportHtml(endpoint.endpoint)}</td><td>${endpoint.requests}</td><td>${endpoint.errors}</td><td>${escapeReportHtml(endpoint.averageResponseMs)} ms</td></tr>`).join('')
+  const generatedLabel = generatedAt.toISOString()
+  const trafficCollected = requests?.collectedAt ? new Date(requests.collectedAt).toISOString() : 'Unavailable'
+  const requestSignalScore = requests?.requestCount
+    ? `${(10 * requests.securitySignalCount / requests.requestCount).toFixed(1)} / 10`
+    : 'Unavailable - no request samples'
+
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KitCulture Website Security Report</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#eef3f8;color:#182538;font:14px/1.55 Arial,sans-serif}.report{width:min(100%,1000px);margin:28px auto;background:#fff;padding:44px 52px;box-shadow:0 12px 38px #18304a1c}.eyebrow{color:#2676a9;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}.top{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;border-bottom:3px solid #176a75;padding-bottom:24px}.top h1{margin:7px 0 8px;font-size:30px;line-height:1.15}.top p,.muted{color:#5d6c7d}.meta{text-align:right;font-size:12px;color:#536579}.actions{display:flex;gap:8px;margin:18px 0 26px}.actions button{border:0;border-radius:4px;padding:10px 14px;background:#176a75;color:#fff;font-weight:700;cursor:pointer}.actions button.secondary{background:#e8eff4;color:#203b52}h2{margin:28px 0 10px;padding-bottom:7px;border-bottom:1px solid #d5e0e9;font-size:18px}h3{margin:0 0 6px;font-size:15px}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0}.metric{border:1px solid #d5e0e9;border-radius:5px;padding:12px;background:#f8fafc}.metric span{display:block;color:#607185;font-size:10px;text-transform:uppercase}.metric strong{display:block;margin-top:5px;font-size:20px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px 8px;border-bottom:1px solid #e1e8ee;text-align:left;vertical-align:top}th{background:#f3f7fa;color:#506376;font-size:10px;text-transform:uppercase}.severity{display:inline-block;min-width:60px;color:#8a4c18;font-weight:700}.notice{border-left:4px solid #d49a3b;background:#fff8e9;padding:12px 14px;color:#513c1a}.foot{margin-top:30px;border-top:1px solid #d5e0e9;padding-top:12px;color:#617286;font-size:11px}.nowrap{white-space:nowrap}@media(max-width:700px){.report{margin:0;padding:24px 18px}.top{display:block}.meta{text-align:left;margin-top:12px}.summary{grid-template-columns:repeat(2,1fr)}table{font-size:11px}}@media print{body{background:#fff}.report{width:100%;margin:0;padding:14mm;box-shadow:none}.actions{display:none}h2,h3{break-after:avoid}tr{break-inside:avoid}thead{display:table-header-group}}
+</style></head><body><main class="report"><header class="top"><div><span class="eyebrow">KitCulture · Security Operations</span><h1>Website Security Report</h1><p>Current application telemetry and the latest documented security assessment findings.</p></div><div class="meta"><strong>Generated</strong><br>${escapeReportHtml(generatedLabel)}<br><br><strong>Assessment snapshot</strong><br>2026-11-02</div></header>
+<div class="actions"><button onclick="window.print()" type="button">Print / Save as PDF</button></div>
+<div class="notice"><strong>Scope and limitations.</strong> This is an operational summary, not a penetration test or security certification. Application traffic is process-local, bounded, and limited to requests reaching this application. Infrastructure, CDN, production payment behavior, and backup recoverability are not inferred where provider verification is unavailable.</div>
+<h2>Executive summary</h2><p>The security assessment is <strong>NOT READY for an unconditional production-security claim</strong>. Application-layer controls were observed, but material database, privilege, and external verification risks remain open. No finding below is marked resolved by this report.</p>
+<div class="summary"><div class="metric"><span>Requests sampled</span><strong>${requests ? requests.requestCount : 'Unavailable'}</strong></div><div class="metric"><span>HTTP errors</span><strong>${requests ? requests.errorCount : 'Unavailable'}</strong></div><div class="metric"><span>Server errors</span><strong>${requests ? requests.serverErrorCount : 'Unavailable'}</strong></div><div class="metric"><span>Request signal index</span><strong>${escapeReportHtml(requestSignalScore)}</strong></div></div>
+<h2>Application telemetry</h2><p>Collected at ${escapeReportHtml(trafficCollected)}. The 0–10 request signal index is a heuristic based on the proportion of 401, 403, and 429 responses; it is not a confirmed threat level or alert.</p><table><thead><tr><th>Metric</th><th>Current value</th></tr></thead><tbody><tr><td>Requests in bounded sample</td><td>${requests ? requests.requestCount : 'Unavailable'}</td></tr><tr><td>Requests in last minute</td><td>${requests ? requests.requestsLastMinute : 'Unavailable'}</td></tr><tr><td>Successful responses (below 400)</td><td>${requests ? requests.successfulRequestCount : 'Unavailable'}</td></tr><tr><td>Client errors (4xx)</td><td>${requests ? requests.clientErrorCount : 'Unavailable'}</td></tr><tr><td>Server errors (5xx)</td><td>${requests ? requests.serverErrorCount : 'Unavailable'}</td></tr><tr><td>Average response time</td><td>${requests?.averageResponseMs === null || !requests ? 'Unavailable' : `${escapeReportHtml(requests.averageResponseMs)} ms`}</td></tr><tr><td>P95 response time</td><td>${requests?.p95ResponseMs === null || !requests ? 'Unavailable' : `${escapeReportHtml(requests.p95ResponseMs)} ms`}</td></tr><tr><td>Security-related HTTP status signals (401/403/429)</td><td>${requests ? requests.securitySignalCount : 'Unavailable'}</td></tr></tbody></table>
+<h2>Database health probes</h2><table><thead><tr><th>Database</th><th>Status</th><th>Current latency</th></tr></thead><tbody>${databaseRows || '<tr><td colspan="3">Unavailable</td></tr>'}</tbody></table>
+<h2>External service verification</h2><table><thead><tr><th>Service</th><th>Status</th><th>Evidence / limitation</th></tr></thead><tbody>${providerRows || '<tr><td colspan="3">Unavailable</td></tr>'}</tbody></table>
+<h2>Highest-volume route templates</h2><table><thead><tr><th>Endpoint template</th><th>Requests</th><th>Errors</th><th>Average</th></tr></thead><tbody>${endpointRows || '<tr><td colspan="4">No route samples available</td></tr>'}</tbody></table>
+<h2>Tracked security findings</h2><table><thead><tr><th>Severity</th><th>Finding / status</th><th>Recommended next step</th></tr></thead><tbody>${findingRows}</tbody></table>
+<h2>Observed controls</h2><p>Bcrypt password hashing; opaque database-backed sessions; HttpOnly/SameSite cookies; origin validation; bounded JSON payloads; rate limits; schema validation; parameterized Drizzle queries; generic production errors; sensitive log redaction; and server-side payment callback reconciliation were observed in the source review. These controls do not resolve the open findings above.</p>
+<h2>Production verification required</h2><ul><li>Obtain a database-owner decision and staged verification for runtime RLS bypass.</li><li>Approve least-privilege administrator roles and test sensitive route authorization.</li><li>Verify Render/Cloudflare edge and origin configuration in authorized dashboards.</li><li>Perform an isolated backup restore test and an approved live payment callback verification.</li><li>Review all open findings with the accountable owners before making a readiness claim.</li></ul>
+<footer class="foot">Source: docs/security-assessment-2026-11-02.md and current protected operations overview. Historical findings are reproduced as assessed and are not automatically updated or closed by current telemetry.</footer></main></body></html>`
 }
 
 type ChartSeries = { label: string; color: string; values: number[] }
@@ -474,6 +528,32 @@ function OperationsConsole() {
     } finally {
       await queryClient.invalidateQueries({ queryKey: ['operations'] })
     }
+  }
+
+  function downloadSecurityReport() {
+    const reportHtml = buildSecurityReportHtml(overviewQuery.data, new Date())
+    const reportBlob = new Blob([reportHtml], { type: 'text/html;charset=utf-8' })
+    const reportUrl = URL.createObjectURL(reportBlob)
+    const link = document.createElement('a')
+    link.href = reportUrl
+    link.download = `kitculture-security-report-${new Date().toISOString().slice(0, 10)}.html`
+    document.body.append(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(reportUrl), 1000)
+  }
+
+  function printSecurityReport() {
+    const reportWindow = window.open('', '_blank')
+    if (!reportWindow) {
+      setError('The report window was blocked. Allow pop-ups for this site and try again.')
+      return
+    }
+    reportWindow.opener = null
+    reportWindow.document.open()
+    reportWindow.document.write(buildSecurityReportHtml(overviewQuery.data, new Date()))
+    reportWindow.document.close()
+    reportWindow.addEventListener('load', () => reportWindow.print(), { once: true })
   }
 
   if (sessionExpired || (overviewQuery.error instanceof OperationsApiError && overviewQuery.error.status === 401)) {
@@ -1006,17 +1086,26 @@ function OperationsConsole() {
         <div className="operations-masthead">
           <div>
             <span className="operations-eyebrow">Reporting</span>
-            <h2>Operational reports</h2>
-            <p>Historical report generation is grouped by source and time range.</p>
+            <h2>Website security report</h2>
+            <p>Generated from the documented security assessment and the current protected operations snapshot.</p>
           </div>
         </div>
+        <article className="operations-panel-card full-span operations-report-panel">
+          <header><span className="operations-eyebrow">Portable report</span><h3>Current security posture</h3></header>
+          <p>Includes the assessment findings, application request summary, current database probes, provider availability, and verification limitations. No credentials, full incident descriptions, or audit event details are exported.</p>
+          <div className="operations-report-actions">
+            <button type="button" className="operations-report-download" onClick={downloadSecurityReport}><Download size={15} /> Download HTML report</button>
+            <button type="button" className="operations-report-print" onClick={printSecurityReport}><Printer size={15} /> Print / Save as PDF</button>
+          </div>
+          <p className="operations-chart-footnote">The report is a point-in-time snapshot. Open findings remain open, provider health is not inferred, and request telemetry retains its process-local sampling limits.</p>
+        </article>
         <article className="operations-panel-card full-span">
-          <header><span className="operations-eyebrow">Available reports</span><h3>Current coverage</h3></header>
+          <header><span className="operations-eyebrow">Coverage and limitations</span><h3>Source status</h3></header>
           <div className="operations-mini-list">
-            <div className="operations-mini-item"><span>Traffic</span><strong className="status-ok">Available</strong><small>Current request sample and endpoint metrics</small></div>
-            <div className="operations-mini-item"><span>Security</span><strong className="status-watch">Partially configured</strong><small>Rule-based posture only</small></div>
-            <div className="operations-mini-item"><span>Payments</span><strong className="status-watch">Pending integration</strong><small>Requires provider verification</small></div>
-            <div className="operations-mini-item"><span>Backups</span><strong className="status-watch">Pending source</strong><small>Restore validation not active</small></div>
+            <div className="operations-mini-item"><span>Security assessment</span><strong className="status-ok">Included</strong><small>2026-11-02 assessment findings reproduced as documented</small></div>
+            <div className="operations-mini-item"><span>Application traffic</span><strong className="status-ok">Live sample</strong><small>Bounded, process-local request middleware</small></div>
+            <div className="operations-mini-item"><span>Security events</span><strong className="status-watch">Partial</strong><small>401/403/429 status signals are not confirmed attacks</small></div>
+            <div className="operations-mini-item"><span>Infrastructure, backups, payments</span><strong className="status-watch">Unverified</strong><small>Requires authorized provider checks</small></div>
           </div>
         </article>
       </>
