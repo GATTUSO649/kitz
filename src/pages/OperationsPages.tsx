@@ -219,6 +219,67 @@ function escapeReportHtml(value: unknown) {
   })[character]!)
 }
 
+function reportLineChart(title: string, labels: string[], series: { label: string; color: string; values: (number | null)[] }[]) {
+  const numericValues = series.flatMap((item) => item.values.filter((value): value is number => value !== null && Number.isFinite(value)))
+  if (!numericValues.length || !labels.length) return `<section class="chart" style="break-inside:avoid;border:1px solid #d5e0e9;border-radius:6px;padding:16px;margin:0 0 14px"><h3>${escapeReportHtml(title)}</h3><p class="muted">No samples available for this chart.</p></section>`
+
+  const maximum = Math.max(1, ...numericValues)
+  const chartWidth = 680
+  const chartHeight = 210
+  const xFor = (index: number) => labels.length < 2 ? 340 : 34 + (index * 612) / (labels.length - 1)
+  const yFor = (value: number) => 166 - (value / maximum) * 132
+  const grid = [34, 78, 122, 166].map((y) => `<line x1="34" x2="646" y1="${y}" y2="${y}" stroke="#d8e2eb" stroke-width="1" stroke-dasharray="3 5"/>`).join('')
+  const plottedSeries = series.map((item) => {
+    let segments: string[][] = []
+    let currentSegment: string[] = []
+    const points = item.values.map((value, index) => {
+      if (value === null || !Number.isFinite(value)) {
+        if (currentSegment.length) segments.push(currentSegment)
+        currentSegment = []
+        return ''
+      }
+      const x = xFor(index)
+      const y = yFor(value)
+      currentSegment.push(`${x},${y}`)
+      return `<circle cx="${x}" cy="${y}" r="3" fill="${item.color}"><title>${escapeReportHtml(labels[index])} · ${escapeReportHtml(item.label)}: ${value}</title></circle>`
+    }).join('')
+    if (currentSegment.length) segments.push(currentSegment)
+    const lines = segments.filter((segment) => segment.length > 1).map((segment) => `<polyline points="${segment.join(' ')}" fill="none" stroke="${item.color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`).join('')
+    return `<g>${lines}${points}</g>`
+  }).join('')
+  const axisLabels = [labels[0], labels[Math.floor((labels.length - 1) / 2)], labels.at(-1) ?? ''].map(escapeReportHtml)
+
+  return `<section class="chart" style="break-inside:avoid;border:1px solid #d5e0e9;border-radius:6px;padding:16px;margin:0 0 14px;background:#fbfdff"><header style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px"><h3 style="margin:0 0 8px;font-size:15px">${escapeReportHtml(title)}</h3><div style="display:flex;flex-wrap:wrap;gap:10px;font-size:10px">${series.map((item) => `<span><i style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;background:${item.color}"></i>${escapeReportHtml(item.label)}</span>`).join('')}</div></header><svg style="display:block;width:100%;height:auto;max-height:240px" viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="${escapeReportHtml(title)}"><g>${grid}</g>${plottedSeries}</svg><div style="display:flex;justify-content:space-between;color:#5d6c7d;font-size:10px"><span>${axisLabels[0]}</span><span>${axisLabels[1]}</span><span>${axisLabels[2]}</span></div></section>`
+}
+
+function reportDonutChart(title: string, entries: { label: string; value: number; color: string }[]) {
+  const total = entries.reduce((sum, entry) => sum + Math.max(0, entry.value), 0)
+  if (!total) return `<section class="chart" style="break-inside:avoid;border:1px solid #d5e0e9;border-radius:6px;padding:16px;margin:0 0 14px"><h3>${escapeReportHtml(title)}</h3><p class="muted">No samples available for this chart.</p></section>`
+
+  const radius = 52
+  const circumference = 2 * Math.PI * radius
+  let offset = 0
+  const arcs = entries.filter((entry) => entry.value > 0).map((entry) => {
+    const length = (entry.value / total) * circumference
+    const arc = `<circle cx="70" cy="70" r="${radius}" fill="none" stroke="${entry.color}" stroke-width="22" stroke-dasharray="${length} ${circumference - length}" stroke-dashoffset="${-offset}"/>`
+    offset += length
+    return arc
+  }).join('')
+  const legend = entries.map((entry) => `<li style="display:grid;grid-template-columns:10px minmax(70px,1fr) auto;align-items:center;gap:7px;margin:0 0 7px"><i style="width:8px;height:8px;border-radius:50%;background:${entry.color}"></i><span>${escapeReportHtml(entry.label)}</span><strong>${entry.value}</strong></li>`).join('')
+  return `<section class="chart" style="break-inside:avoid;border:1px solid #d5e0e9;border-radius:6px;padding:16px;margin:0 0 14px;background:#fbfdff"><header style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px"><h3 style="margin:0 0 8px;font-size:15px">${escapeReportHtml(title)}</h3><strong>${total} responses</strong></header><div style="display:flex;align-items:center;justify-content:center;gap:28px;min-height:180px"><svg style="width:152px;height:152px;flex:none" viewBox="0 0 140 140" role="img" aria-label="${escapeReportHtml(title)} across ${total} responses"><g transform="rotate(-90 70 70)">${arcs}</g><circle cx="70" cy="70" r="39" fill="#fff"/><text x="70" y="76" text-anchor="middle" style="font-size:16px;font-weight:bold;fill:#182538">${total}</text></svg><ul style="list-style:none;padding:0;margin:0;font-size:11px">${legend}</ul></div></section>`
+}
+
+function reportBarChart(title: string, items: { label: string; value: number }[]) {
+  const validItems = items.filter((item) => Number.isFinite(item.value) && item.value >= 0)
+  if (!validItems.length) return `<section class="chart" style="break-inside:avoid;border:1px solid #d5e0e9;border-radius:6px;padding:16px;margin:0 0 14px"><h3>${escapeReportHtml(title)}</h3><p class="muted">No samples available for this chart.</p></section>`
+  const maximum = Math.max(1, ...validItems.map((item) => item.value))
+  const bars = validItems.map((item) => {
+    const width = Math.max(item.value > 0 ? 2 : 0, (item.value / maximum) * 100)
+    return `<div style="display:grid;grid-template-columns:minmax(90px,1.3fr) minmax(45px,3fr) 40px;align-items:center;gap:10px;margin:0 0 11px;font-size:11px"><span title="${escapeReportHtml(item.label)}" style="overflow:hidden;text-overflow:ellipsis">${escapeReportHtml(item.label)}</span><div style="height:9px;overflow:hidden;border-radius:99px;background:#e6edf2"><i style="display:block;height:100%;border-radius:99px;background:#287ca8;width:${width.toFixed(2)}%"></i></div><strong style="text-align:right">${escapeReportHtml(item.value)}</strong></div>`
+  }).join('')
+  return `<section class="chart" style="break-inside:avoid;border:1px solid #d5e0e9;border-radius:6px;padding:16px;margin:0 0 14px;background:#fbfdff"><header style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px"><h3 style="margin:0 0 12px;font-size:15px">${escapeReportHtml(title)}</h3><span class="muted">${validItems.length} items</span></header><div>${bars}</div></section>`
+}
+
 function buildSecurityReportHtml(overview: OperationsOverview | undefined, generatedAt: Date) {
   const requests = overview?.requests
   const databaseRows = (overview?.databases ?? []).map((database) => `<tr><td>${escapeReportHtml(database.name)}</td><td>${escapeReportHtml(database.status)}</td><td>${database.latencyMs === null ? 'Unavailable' : `${escapeReportHtml(database.latencyMs)} ms`}</td></tr>`).join('')
@@ -230,6 +291,30 @@ function buildSecurityReportHtml(overview: OperationsOverview | undefined, gener
   const requestSignalScore = requests?.requestCount
     ? `${(10 * requests.securitySignalCount / requests.requestCount).toFixed(1)} / 10`
     : 'Unavailable - no request samples'
+  const timeline = requests?.timeline ?? []
+  const timelineLabels = timeline.map((bucket) => new Date(bucket.bucketStartedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+  const reportCharts = [
+    reportLineChart('Application requests and errors', timelineLabels, [
+      { label: 'Requests', color: '#287ca8', values: timeline.map((bucket) => bucket.requestCount) },
+      { label: 'Errors', color: '#c94949', values: timeline.map((bucket) => bucket.errorCount) },
+    ]),
+    reportLineChart('Response-time trend', timelineLabels, [
+      { label: 'Average ms', color: '#c18a21', values: timeline.map((bucket) => bucket.averageResponseMs) },
+      { label: 'P95 ms', color: '#287ca8', values: timeline.map((bucket) => bucket.p95ResponseMs) },
+    ]),
+    reportLineChart('Authentication and rate-limit status signals', timelineLabels, [
+      { label: '401 · 403 · 429', color: '#c94949', values: timeline.map((bucket) => bucket.securitySignalCount) },
+    ]),
+    reportDonutChart('HTTP response distribution', [
+      { label: '2xx', value: requests?.responseDistribution.success ?? 0, color: '#27805b' },
+      { label: '3xx', value: requests?.responseDistribution.redirect ?? 0, color: '#287ca8' },
+      { label: '4xx', value: requests?.responseDistribution.clientError ?? 0, color: '#c18a21' },
+      { label: '5xx', value: requests?.responseDistribution.serverError ?? 0, color: '#c94949' },
+    ]),
+    reportBarChart('Requests by endpoint', (requests?.endpoints ?? []).slice(0, 10).map((endpoint) => ({ label: endpoint.endpoint, value: endpoint.requests }))),
+    reportBarChart('Traffic by HTTP method', (requests?.methods ?? []).map((method) => ({ label: method.method, value: method.requests }))),
+    reportBarChart('Current database probe latency · ms', (overview?.databases ?? []).flatMap((database) => database.latencyMs === null ? [] : [{ label: database.name, value: database.latencyMs }]))
+  ].join('')
 
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KitCulture Website Security Report</title>
@@ -241,6 +326,7 @@ function buildSecurityReportHtml(overview: OperationsOverview | undefined, gener
 <h2>Executive summary</h2><p>The security assessment is <strong>NOT READY for an unconditional production-security claim</strong>. Application-layer controls were observed, but material database, privilege, and external verification risks remain open. No finding below is marked resolved by this report.</p>
 <div class="summary"><div class="metric"><span>Requests sampled</span><strong>${requests ? requests.requestCount : 'Unavailable'}</strong></div><div class="metric"><span>HTTP errors</span><strong>${requests ? requests.errorCount : 'Unavailable'}</strong></div><div class="metric"><span>Server errors</span><strong>${requests ? requests.serverErrorCount : 'Unavailable'}</strong></div><div class="metric"><span>Request signal index</span><strong>${escapeReportHtml(requestSignalScore)}</strong></div></div>
 <h2>Application telemetry</h2><p>Collected at ${escapeReportHtml(trafficCollected)}. The 0–10 request signal index is a heuristic based on the proportion of 401, 403, and 429 responses; it is not a confirmed threat level or alert.</p><table><thead><tr><th>Metric</th><th>Current value</th></tr></thead><tbody><tr><td>Requests in bounded sample</td><td>${requests ? requests.requestCount : 'Unavailable'}</td></tr><tr><td>Requests in last minute</td><td>${requests ? requests.requestsLastMinute : 'Unavailable'}</td></tr><tr><td>Successful responses (below 400)</td><td>${requests ? requests.successfulRequestCount : 'Unavailable'}</td></tr><tr><td>Client errors (4xx)</td><td>${requests ? requests.clientErrorCount : 'Unavailable'}</td></tr><tr><td>Server errors (5xx)</td><td>${requests ? requests.serverErrorCount : 'Unavailable'}</td></tr><tr><td>Average response time</td><td>${requests?.averageResponseMs === null || !requests ? 'Unavailable' : `${escapeReportHtml(requests.averageResponseMs)} ms`}</td></tr><tr><td>P95 response time</td><td>${requests?.p95ResponseMs === null || !requests ? 'Unavailable' : `${escapeReportHtml(requests.p95ResponseMs)} ms`}</td></tr><tr><td>Security-related HTTP status signals (401/403/429)</td><td>${requests ? requests.securitySignalCount : 'Unavailable'}</td></tr></tbody></table>
+<h2>Telemetry graphs</h2><div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px">${reportCharts}</div>
 <h2>Database health probes</h2><table><thead><tr><th>Database</th><th>Status</th><th>Current latency</th></tr></thead><tbody>${databaseRows || '<tr><td colspan="3">Unavailable</td></tr>'}</tbody></table>
 <h2>External service verification</h2><table><thead><tr><th>Service</th><th>Status</th><th>Evidence / limitation</th></tr></thead><tbody>${providerRows || '<tr><td colspan="3">Unavailable</td></tr>'}</tbody></table>
 <h2>Highest-volume route templates</h2><table><thead><tr><th>Endpoint template</th><th>Requests</th><th>Errors</th><th>Average</th></tr></thead><tbody>${endpointRows || '<tr><td colspan="4">No route samples available</td></tr>'}</tbody></table>
