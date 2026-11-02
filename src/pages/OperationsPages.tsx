@@ -52,14 +52,20 @@ type OperationsOverview = {
     securitySignalCount: number
     securitySignalsLastMinute: number
     averageResponseMs: number | null
+    minResponseMs?: number | null
+    maxResponseMs?: number | null
+    p50ResponseMs?: number | null
     p95ResponseMs: number | null
+    p99ResponseMs?: number | null
+    requestRatePerSecond?: number
+    telemetryFreshness?: string
     endpoints: EndpointMetric[]
     collectedAt: string
-    telemetryFreshness?: string
     timeline: RequestSeriesBucket[]
     methods: { method: string; requests: number }[]
     responseDistribution: { success: number; redirect: number; clientError: number; serverError: number }
   }
+  databasePool?: { totalConnections: number; idleConnections: number; waitingRequests: number; maxConnections: number | null } | null
   incidents: { open: number; investigating: number }
   externalServices: Record<string, { status: string; reason?: string }>
 }
@@ -83,6 +89,10 @@ type Incident = {
 type IncidentEvent = { id: number; eventType: string; message: string; createdAt: string; actorName: string }
 type OperationsAudit = { id: number; actorType: string; actorName: string | null; action: string; targetType: string; targetId: string; details: string | null; createdAt: string }
 type OperationsUser = { id: number; fullName: string }
+type MonitoringRule = { ruleId: string; name: string; description: string; condition: string; threshold: number; windowSeconds: number; severity: string; cooldownSeconds: number; enabled: boolean; recommendedResponse: string }
+type MonitoringAlert = { id: number; severity: string; description: string; affectedService: string; status: string; firstOccurrence: string; lastOccurrence: string; occurrenceCount: number; assignedOperationsUserId: number | null; resolutionInformation: string | null; ruleId: string; ruleName: string }
+type MonitoringWorker = { workerName: string; lastHeartbeatAt: string | null; lastSuccessAt: string | null; lastFailureAt: string | null; failureCount: number; lastErrorCode: string | null; status: string }
+type MonitoringHealth = { checkedAt: string; telemetryFreshness: string; services: { name: string; state: string; latencyMs?: number | null; source: string }[]; queue: { queueDepth: number; droppedEvents: number; storageFailures: number; persistedEvents: number; lastPersistedAt: string | null; lastFailureAt: string | null; storageConfigured: boolean } }
 type ModuleKey =
   | 'overview'
   | 'traffic'
@@ -376,7 +386,7 @@ function OperationsDonut({ title, entries }: { title: string; entries: { label: 
 
   return (
     <article className="operations-chart-panel operations-donut-panel">
-      <header><div><span className="operations-eyebrow">Application sample</span><h3>{title}</h3></div><strong>{total || '—'}</strong></header>
+      <header><div><span className="operations-eyebrow">Request telemetry</span><h3>{title}</h3></div><strong>{total || '—'}</strong></header>
       <div className="operations-donut-layout">
         <div className={`operations-donut${total ? '' : ' is-empty'}`} style={{ background: total ? `conic-gradient(${stops.join(', ')})` : undefined }} role="img" aria-label={total ? `${title}, ${total} total` : `${title} unavailable`}><span>{total || '—'}</span></div>
         <ul>{entries.map((entry) => <li key={entry.label}><i style={{ backgroundColor: entry.color }} /><span>{entry.label}</span><strong>{total ? entry.value : '—'}</strong></li>)}</ul>
@@ -389,7 +399,7 @@ function OperationsBars({ title, items }: { title: string; items: { label: strin
   const maximum = Math.max(1, ...items.map((item) => item.value))
   return (
     <article className="operations-chart-panel">
-      <header><div><span className="operations-eyebrow">Application sample</span><h3>{title}</h3></div><strong>{items.length || '—'}</strong></header>
+      <header><div><span className="operations-eyebrow">Request telemetry</span><h3>{title}</h3></div><strong>{items.length || '—'}</strong></header>
       {items.length ? <div className="operations-horizontal-bars">{items.map((item) => <div key={item.label}><span title={item.label}>{item.label}</span><div><i style={{ width: `${Math.max(3, (item.value / maximum) * 100)}%` }} /></div><strong>{item.value}</strong></div>)}</div> : <p className="operations-chart-empty">No request samples in this window.</p>}
     </article>
   )
@@ -485,6 +495,34 @@ function OperationsConsole() {
   const overviewQuery = useQuery({
     queryKey: ['operations', 'overview'],
     queryFn: async () => (await operationsApi<OperationsOverview>('/api/v1/operations/overview')).data!,
+    refetchInterval: 30_000,
+    retry: false,
+  })
+
+  const detectionsQuery = useQuery({
+    queryKey: ['operations', 'detections'],
+    queryFn: async () => (await operationsApi<MonitoringRule[]>('/api/v1/operations/detections')).data ?? [],
+    refetchInterval: 30_000,
+    retry: false,
+  })
+
+  const alertsQuery = useQuery({
+    queryKey: ['operations', 'alerts'],
+    queryFn: async () => (await operationsApi<MonitoringAlert[]>('/api/v1/operations/alerts?limit=25')).data ?? [],
+    refetchInterval: 30_000,
+    retry: false,
+  })
+
+  const workersQuery = useQuery({
+    queryKey: ['operations', 'workers'],
+    queryFn: async () => (await operationsApi<MonitoringWorker[]>('/api/v1/operations/workers')).data ?? [],
+    refetchInterval: 30_000,
+    retry: false,
+  })
+
+  const monitoringHealthQuery = useQuery({
+    queryKey: ['operations', 'monitoring-health'],
+    queryFn: async () => (await operationsApi<MonitoringHealth>('/api/v1/operations/health')).data!,
     refetchInterval: 30_000,
     retry: false,
   })
@@ -598,6 +636,19 @@ function OperationsConsole() {
     }
   }
 
+  async function updateAlert(alert: MonitoringAlert, status: 'acknowledged' | 'investigating' | 'resolved') {
+    setError('')
+    try {
+      await operationsApi(`/api/v1/operations/alerts/${alert.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      })
+      await queryClient.invalidateQueries({ queryKey: ['operations', 'alerts'] })
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Alert could not be updated.')
+    }
+  }
+
   async function saveIncidentResolution(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!selectedIncident) return
@@ -648,7 +699,20 @@ function OperationsConsole() {
   }
 
   const overview = overviewQuery.data
+  const detectionRules = detectionsQuery.data ?? []
+  const monitoringAlerts = alertsQuery.data ?? []
+  const monitoringWorkers = workersQuery.data ?? []
+  const monitoringHealth = monitoringHealthQuery.data
+  const unresolvedMonitoringAlerts = monitoringAlerts.filter((alert) => !['resolved', 'closed'].includes(alert.status))
   const requestSamples = overview?.requests.requestCount ?? 0
+  const requestSuccessRate = overview && requestSamples > 0
+    ? Number((100 * overview.requests.successfulRequestCount / requestSamples).toFixed(1))
+    : null
+  const requestErrorRate = overview && requestSamples > 0
+    ? Number((100 * overview.requests.errorCount / requestSamples).toFixed(1))
+    : null
+  const averageRequestRate = overview?.requests.requestRatePerSecond
+    ?? (overview ? Number((overview.requests.requestsLastMinute / 60).toFixed(2)) : null)
   const securitySignalCount = overview?.requests.securitySignalCount ?? 0
   const threatSignalScore = requestSamples
     ? Number((10 * securitySignalCount / requestSamples).toFixed(1))
@@ -722,10 +786,13 @@ function OperationsConsole() {
         </div>
 
         <div className="operations-stat-grid">
-          <article className="operations-stat-card"><span>Requests, last minute</span><strong>{overview?.requests.requestsLastMinute ?? 0}</strong><small>Application requests</small></article>
-          <article className="operations-stat-card"><span>HTTP errors</span><strong>{overview?.requests.errorCount ?? 0}</strong><small>4xx + 5xx</small></article>
-          <article className="operations-stat-card"><span>Avg response</span><strong>{overview?.requests.averageResponseMs === null ? '—' : `${overview?.requests.averageResponseMs} ms`}</strong><small>Service latency</small></article>
-          <article className="operations-stat-card"><span>Request security-signal index</span><strong>{threatPosture.label}</strong><small>Heuristic from 401/403/429 statuses</small></article>
+          <article className="operations-stat-card"><span>Requests, last minute</span><strong>{overview?.requests.requestsLastMinute ?? 'Unavailable'}</strong><small>Latest minute</small></article>
+          <article className="operations-stat-card"><span>Average throughput</span><strong>{averageRequestRate === null ? 'Unavailable' : `${averageRequestRate} req/s`}</strong><small>Selected one-hour window</small></article>
+          <article className="operations-stat-card"><span>HTTP errors</span><strong>{overview?.requests.errorCount ?? 'Unavailable'}</strong><small>4xx + 5xx</small></article>
+          <article className="operations-stat-card"><span>HTTP error rate</span><strong>{requestErrorRate === null ? 'Unavailable' : `${requestErrorRate}%`}</strong><small>4xx + 5xx over the window</small></article>
+          <article className="operations-stat-card"><span>Successful responses</span><strong>{requestSuccessRate === null ? 'Unavailable' : `${requestSuccessRate}%`}</strong><small>Responses below 400</small></article>
+          <article className="operations-stat-card"><span>Average response</span><strong>{overview?.requests.averageResponseMs == null ? 'Unavailable' : `${overview.requests.averageResponseMs} ms`}</strong><small>One-hour window</small></article>
+          <article className="operations-stat-card"><span>P50 / P95 / P99</span><strong>{overview?.requests.p50ResponseMs == null || overview.requests.p95ResponseMs == null || overview.requests.p99ResponseMs == null ? 'Unavailable' : `${overview.requests.p50ResponseMs} / ${overview.requests.p95ResponseMs} / ${overview.requests.p99ResponseMs} ms`}</strong><small>Raw response-time distribution</small></article>
         </div>
 
         <section className="operations-charts-grid">
@@ -790,9 +857,14 @@ function OperationsConsole() {
           </div>
         </div>
         <div className="operations-stat-grid">
-          <article className="operations-stat-card"><span>Requests / min</span><strong>{overview?.requests.requestsLastMinute ?? 0}</strong><small>Most recent minute</small></article>
-          <article className="operations-stat-card"><span>Failed requests</span><strong>{overview?.requests.errorCount ?? 0}</strong><small>4xx + 5xx</small></article>
-          <article className="operations-stat-card"><span>P95</span><strong>{overview?.requests.p95ResponseMs === null ? '—' : `${overview?.requests.p95ResponseMs} ms`}</strong><small>Response distribution</small></article>
+          <article className="operations-stat-card"><span>Requests / min</span><strong>{overview?.requests.requestsLastMinute ?? 'Unavailable'}</strong><small>Most recent minute</small></article>
+          <article className="operations-stat-card"><span>Average throughput</span><strong>{averageRequestRate === null ? 'Unavailable' : `${averageRequestRate} req/s`}</strong><small>Selected one-hour window</small></article>
+          <article className="operations-stat-card"><span>Failed requests</span><strong>{overview?.requests.errorCount ?? 'Unavailable'}</strong><small>4xx + 5xx</small></article>
+          <article className="operations-stat-card"><span>HTTP error rate</span><strong>{requestErrorRate === null ? 'Unavailable' : `${requestErrorRate}%`}</strong><small>4xx + 5xx over the window</small></article>
+          <article className="operations-stat-card"><span>Average response</span><strong>{overview?.requests.averageResponseMs == null ? 'Unavailable' : `${overview.requests.averageResponseMs} ms`}</strong><small>Selected window</small></article>
+          <article className="operations-stat-card"><span>P50</span><strong>{overview?.requests.p50ResponseMs == null ? 'Unavailable' : `${overview.requests.p50ResponseMs} ms`}</strong><small>Median response</small></article>
+          <article className="operations-stat-card"><span>P95</span><strong>{overview?.requests.p95ResponseMs == null ? 'Unavailable' : `${overview.requests.p95ResponseMs} ms`}</strong><small>Response distribution</small></article>
+          <article className="operations-stat-card"><span>P99</span><strong>{overview?.requests.p99ResponseMs == null ? 'Unavailable' : `${overview.requests.p99ResponseMs} ms`}</strong><small>Tail latency</small></article>
           <article className="operations-stat-card"><span>Security signal index</span><strong>{threatPosture.label}</strong><small>Heuristic from 401/403/429 responses</small></article>
         </div>
         <section className="operations-charts-grid">
@@ -840,14 +912,25 @@ function OperationsConsole() {
           </div>
         </div>
         <div className="operations-stat-grid">
-          <article className="operations-stat-card"><span>Uptime</span><strong>{formatDuration(overview?.application.uptimeSeconds ?? 0)}</strong><small>Node {overview?.application.nodeVersion ?? 'unknown'}</small></article>
-          <article className="operations-stat-card"><span>Memory RSS</span><strong>{formatBytes(overview?.application.memoryRssBytes ?? 0)}</strong><small>Heap {formatBytes(overview?.application.heapUsedBytes ?? 0)}</small></article>
-          <article className="operations-stat-card"><span>Errors</span><strong>{overview?.requests.errorCount ?? 0}</strong><small>Request failures</small></article>
-          <article className="operations-stat-card"><span>Trace source</span><strong>Express</strong><small>Request IDs enabled</small></article>
+          <article className="operations-stat-card"><span>Uptime</span><strong>{overview ? formatDuration(overview.application.uptimeSeconds) : 'Unavailable'}</strong><small>Node {overview?.application.nodeVersion ?? 'unknown'}</small></article>
+          <article className="operations-stat-card"><span>Memory RSS</span><strong>{overview ? formatBytes(overview.application.memoryRssBytes) : 'Unavailable'}</strong><small>Heap {overview ? formatBytes(overview.application.heapUsedBytes) : 'Unavailable'}</small></article>
+          <article className="operations-stat-card"><span>Errors</span><strong>{overview?.requests.errorCount ?? 'Unavailable'}</strong><small>Persistent request failures</small></article>
+          <article className="operations-stat-card"><span>Worker</span><strong>{workersQuery.isError ? 'Unavailable' : monitoringWorkers[0]?.status ?? 'Unknown'}</strong><small>{monitoringWorkers[0]?.lastHeartbeatAt ? `Heartbeat ${new Date(monitoringWorkers[0].lastHeartbeatAt).toLocaleTimeString()}` : workersQuery.isError ? 'Worker status could not be loaded' : 'No heartbeat recorded'}</small></article>
         </div>
         <section className="operations-charts-grid">
           <OperationsLineChart title="Request errors over time" labels={timelineLabels} series={[{ label: 'Errors', color: '#ed7b7b', values: timeline.map((bucket) => bucket.errorCount) }]} />
           <OperationsLineChart title="Average response time" labels={timelineLabels.filter((_, index) => timeline[index].averageResponseMs !== null)} series={[{ label: 'Milliseconds', color: '#f0bd62', values: responseTimeSeries }]} />
+        </section>
+        <section className="operations-panel-card full-span">
+          <header><span className="operations-eyebrow">Monitoring pipeline</span><h3>Collection and worker health</h3></header>
+          {monitoringHealthQuery.isError ? <div className="operations-empty">Monitoring health is unavailable: {monitoringHealthQuery.error.message}</div> : (
+            <div className="operations-stat-grid">
+              <article className="operations-stat-card"><span>Telemetry freshness</span><strong>{monitoringHealth?.telemetryFreshness ?? 'Loading'}</strong><small>{monitoringHealth?.queue.lastPersistedAt ? `Last stored ${new Date(monitoringHealth.queue.lastPersistedAt).toLocaleString()}` : 'No persisted event yet'}</small></article>
+              <article className="operations-stat-card"><span>Queue depth</span><strong>{monitoringHealth?.queue.queueDepth ?? '—'}</strong><small>{monitoringHealth?.queue.droppedEvents ?? 0} dropped · {monitoringHealth?.queue.storageFailures ?? 0} storage failures</small></article>
+              <article className="operations-stat-card"><span>Events persisted</span><strong>{monitoringHealth?.queue.persistedEvents ?? '—'}</strong><small>Since this process started</small></article>
+              <article className="operations-stat-card"><span>Worker failures</span><strong>{workersQuery.isError ? 'Unavailable' : monitoringWorkers.reduce((total, worker) => total + worker.failureCount, 0)}</strong><small>Current stored worker counters</small></article>
+            </div>
+          )}
         </section>
       </>
     ),
@@ -886,11 +969,29 @@ function OperationsConsole() {
           </div>
         </div>
         <div className="operations-stat-grid">
-          <article className="operations-stat-card"><span>Detection rules</span><strong>Unavailable</strong><small>No rule engine is configured</small></article>
-          <article className="operations-stat-card"><span>HTTP signals</span><strong>{overview?.requests.securitySignalCount ?? 0}</strong><small>401 / 403 / 429 responses only</small></article>
-          <article className="operations-stat-card"><span>Escalation</span><strong>Manual</strong><small>Approval required before blocks</small></article>
+          <article className="operations-stat-card"><span>Detection rules</span><strong>{detectionsQuery.isError ? 'Unavailable' : detectionRules.length}</strong><small>{detectionRules.filter((rule) => rule.enabled).length} enabled</small></article>
+          <article className="operations-stat-card"><span>Open alerts</span><strong>{alertsQuery.isError ? 'Unavailable' : unresolvedMonitoringAlerts.length}</strong><small>From the latest 25 stored alerts</small></article>
+          <article className="operations-stat-card"><span>HTTP signals</span><strong>{overview?.requests.securitySignalCount ?? 'Unavailable'}</strong><small>401 / 403 / 429 responses only</small></article>
           <article className="operations-stat-card"><span>Request index</span><strong>{threatPosture.label}</strong><small>Heuristic, not a threat verdict</small></article>
         </div>
+        <section className="operations-panel-card full-span">
+          <header><span className="operations-eyebrow">Persisted configuration</span><h3>Detection rules</h3></header>
+          {detectionsQuery.isError ? <div className="operations-empty">Detection rules are unavailable: {detectionsQuery.error.message}</div> : (
+            <div className="operations-table-wrap"><table className="operations-table"><thead><tr><th>Rule</th><th>Condition</th><th>Threshold</th><th>Window</th><th>Severity</th><th>State</th></tr></thead><tbody>
+              {detectionRules.map((rule) => <tr key={rule.ruleId}><td><strong>{rule.name}</strong><br />{rule.description}</td><td>{label(rule.condition)}</td><td>{rule.threshold}</td><td>{rule.windowSeconds}s</td><td>{label(rule.severity)}</td><td>{rule.enabled ? 'Enabled' : 'Disabled'}</td></tr>)}
+              {!detectionRules.length && <tr><td colSpan={6}>{detectionsQuery.isPending ? 'Loading detection rules…' : 'No persisted rules. Apply the monitoring migrations and start the worker.'}</td></tr>}
+            </tbody></table></div>
+          )}
+        </section>
+        <section className="operations-panel-card full-span">
+          <header><span className="operations-eyebrow">Alert lifecycle</span><h3>Recent detected alerts</h3></header>
+          {alertsQuery.isError ? <div className="operations-empty">Alerts are unavailable: {alertsQuery.error.message}</div> : (
+            <div className="operations-table-wrap"><table className="operations-table"><thead><tr><th>Severity</th><th>Rule and service</th><th>Occurrences</th><th>Status</th><th>Last seen</th><th>Actions</th></tr></thead><tbody>
+              {monitoringAlerts.map((alert) => <tr key={alert.id}><td>{label(alert.severity)}</td><td><strong>{alert.ruleName}</strong><br />{alert.affectedService}<br />{alert.description}</td><td>{alert.occurrenceCount}</td><td>{label(alert.status)}</td><td>{new Date(alert.lastOccurrence).toLocaleString()}</td><td><div className="operations-report-actions">{alert.status === 'new' && <button type="button" className="operations-report-print" onClick={() => void updateAlert(alert, 'acknowledged')}>Acknowledge</button>}{['new', 'acknowledged'].includes(alert.status) && <button type="button" className="operations-report-print" onClick={() => void updateAlert(alert, 'investigating')}>Investigate</button>}{!['resolved', 'closed'].includes(alert.status) && <button type="button" className="operations-report-download" onClick={() => void updateAlert(alert, 'resolved')}>Resolve</button>}</div></td></tr>)}
+              {!monitoringAlerts.length && <tr><td colSpan={6}>{alertsQuery.isPending ? 'Loading alerts…' : 'No persisted alerts in the latest page.'}</td></tr>}
+            </tbody></table></div>
+          )}
+        </section>
         <section className="operations-charts-grid"><OperationsLineChart title="Request security indicators" labels={timelineLabels} series={[{ label: 'Status signals', color: '#ed7b7b', values: securitySeries }]} /></section>
       </>
     ),
@@ -940,7 +1041,7 @@ function OperationsConsole() {
         <div className="operations-stat-grid">
           <article className="operations-stat-card"><span>Store DB</span><strong>{overview?.databases[0]?.status ?? 'unavailable'}</strong><small>{overview?.databases[0]?.latencyMs === null ? 'Probe unavailable' : `${overview?.databases[0]?.latencyMs ?? 0} ms`}</small></article>
           <article className="operations-stat-card"><span>Admin DB</span><strong>{overview?.databases[1]?.status ?? 'unavailable'}</strong><small>{overview?.databases[1]?.latencyMs === null ? 'Probe unavailable' : `${overview?.databases[1]?.latencyMs ?? 0} ms`}</small></article>
-          <article className="operations-stat-card"><span>Connection model</span><strong>Pool-based</strong><small>Read-only health checks</small></article>
+          <article className="operations-stat-card"><span>Pool usage</span><strong>{overview?.databasePool ? `${overview.databasePool.totalConnections}/${overview.databasePool.maxConnections ?? '—'}` : 'Unavailable'}</strong><small>{overview?.databasePool ? `${overview.databasePool.idleConnections} idle · ${overview.databasePool.waitingRequests} waiting` : 'Pool metrics not available'}</small></article>
           <article className="operations-stat-card"><span>RLS finding</span><strong>Tracked</strong><small>Security audit remains documented</small></article>
         </div>
         <section className="operations-charts-grid">
@@ -984,6 +1085,10 @@ function OperationsConsole() {
             <h3>Dependency map</h3>
           </header>
           <div className="operations-mini-list">
+            {monitoringHealthQuery.isError && <div className="operations-empty">Service health is unavailable: {monitoringHealthQuery.error.message}</div>}
+            {(monitoringHealth?.services ?? []).map((service) => (
+              <div key={service.name} className="operations-mini-item"><span>{label(service.name)}</span><strong className={service.state === 'healthy' ? 'status-ok' : 'status-watch'}>{service.state}</strong><small>{service.source}{service.latencyMs == null ? '' : ` · ${service.latencyMs} ms`}</small></div>
+            ))}
             {Object.entries(overview?.externalServices ?? {}).map(([service, status]) => (
               <div key={service} className="operations-mini-item">
                 <span>{label(service)}</span>
