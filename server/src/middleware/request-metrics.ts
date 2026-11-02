@@ -39,11 +39,16 @@ export function getRequestMetrics(windowMs = 60 * 60_000, now = Date.now()) {
   const samples = metrics.filter((metric) => metric.at >= start)
   const sortedDurations = samples.map(({ durationMs }) => durationMs).sort((a, b) => a - b)
   const endpoints = new Map<string, { requests: number; errors: number; totalDurationMs: number }>()
-  const timeline = Array.from({ length: bucketCount }, (_, index) => ({
+  const methods = new Map<string, number>()
+  const responseDistribution = { success: 0, redirect: 0, clientError: 0, serverError: 0 }
+  const timelineBuckets = Array.from({ length: bucketCount }, (_, index) => ({
     bucketStartedAt: new Date(start + index * bucketDurationMs).toISOString(),
     requestCount: 0,
     errorCount: 0,
     serverErrorCount: 0,
+    securitySignalCount: 0,
+    totalDurationMs: 0,
+    durations: [] as number[],
   }))
   for (const sample of samples) {
     const key = `${sample.method} ${sample.endpoint}`
@@ -52,23 +57,46 @@ export function getRequestMetrics(windowMs = 60 * 60_000, now = Date.now()) {
     current.errors += sample.status >= 400 ? 1 : 0
     current.totalDurationMs += sample.durationMs
     endpoints.set(key, current)
+    methods.set(sample.method, (methods.get(sample.method) ?? 0) + 1)
+    if (sample.status < 300) responseDistribution.success += 1
+    else if (sample.status < 400) responseDistribution.redirect += 1
+    else if (sample.status < 500) responseDistribution.clientError += 1
+    else responseDistribution.serverError += 1
 
     const bucketIndex = Math.min(bucketCount - 1, Math.floor((sample.at - start) / bucketDurationMs))
-    const bucket = timeline[bucketIndex]
+    const bucket = timelineBuckets[bucketIndex]
     bucket.requestCount += 1
     bucket.errorCount += sample.status >= 400 ? 1 : 0
     bucket.serverErrorCount += sample.status >= 500 ? 1 : 0
+    bucket.securitySignalCount += [401, 403, 429].includes(sample.status) ? 1 : 0
+    bucket.totalDurationMs += sample.durationMs
+    bucket.durations.push(sample.durationMs)
   }
+  const timeline = timelineBuckets.map(({ durations, ...bucket }) => {
+    const sortedBucketDurations = durations.sort((a, b) => a - b)
+    return {
+      ...bucket,
+      averageResponseMs: durations.length
+        ? Number((bucket.totalDurationMs / durations.length).toFixed(1))
+        : null,
+      p95ResponseMs: sortedBucketDurations.length
+        ? Number(sortedBucketDurations[Math.min(sortedBucketDurations.length - 1, Math.ceil(sortedBucketDurations.length * 0.95) - 1)].toFixed(1))
+        : null,
+    }
+  })
   const lastMinuteStart = now - 60_000
+  const lastMinuteSamples = samples.filter(({ at }) => at >= lastMinuteStart)
   return {
     windowStartedAt: new Date(start).toISOString(),
     collectedAt: new Date(now).toISOString(),
     requestCount: samples.length,
-    requestsLastMinute: samples.filter(({ at }) => at >= lastMinuteStart).length,
+    requestsLastMinute: lastMinuteSamples.length,
     errorCount: samples.filter(({ status }) => status >= 400).length,
     serverErrorCount: samples.filter(({ status }) => status >= 500).length,
     clientErrorCount: samples.filter(({ status }) => status >= 400 && status < 500).length,
     successfulRequestCount: samples.filter(({ status }) => status < 400).length,
+    securitySignalCount: samples.filter(({ status }) => [401, 403, 429].includes(status)).length,
+    securitySignalsLastMinute: lastMinuteSamples.filter(({ status }) => [401, 403, 429].includes(status)).length,
     averageResponseMs: samples.length
       ? Number((samples.reduce((total, { durationMs }) => total + durationMs, 0) / samples.length).toFixed(1))
       : null,
@@ -82,5 +110,7 @@ export function getRequestMetrics(windowMs = 60 * 60_000, now = Date.now()) {
       averageResponseMs: Number((totals.totalDurationMs / totals.requests).toFixed(1)),
     })).sort((a, b) => b.requests - a.requests).slice(0, 50),
     timeline,
+    methods: [...methods.entries()].map(([method, requests]) => ({ method, requests })).sort((a, b) => b.requests - a.requests),
+    responseDistribution,
   }
 }

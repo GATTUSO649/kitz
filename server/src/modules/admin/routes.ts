@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { adminDb, adminPool, db, pool } from '../../config/database.js'
 import { isAllowedClientOrigin } from '../../config/env.js'
 import { adminAuditLogs, adminUsers, itAccessRoles, operationsAuditEvents, operationsIncidentEvents, operationsIncidents, operationsOperators, operationsUsers } from '../../database/admin-schema.js'
+import { logger } from '../../config/logger.js'
 import { applicationSettings, categories, deliveryZones, expenseCategories, expenses, homepageSlides, inventoryMovements, jerseyCategories, leagues, notificationCampaigns, notificationRecipients, orderItems, orders, payments, productImages, productVariants, productVideos, products, supportMessages, supportRequests, teams, users } from '../../database/schema.js'
 import { authenticateAdmin, authenticatedAdmin } from '../../middleware/authenticate.js'
 import { isCustomerOnline, publishChatMessage, publishMessageReceipt, registerAdminStream } from '../../realtime/chat-events.js'
@@ -1284,7 +1285,14 @@ async function requireItPermission(request: import('express').Request, response:
     response.status(503).json({ error: { code: 'IT_ACCESS_UNAVAILABLE', message: 'IT access is unavailable.' } })
     return false
   }
-  const grant = await activeItGrant(actor.id)
+  let grant: Awaited<ReturnType<typeof activeItGrant>>
+  try {
+    grant = await activeItGrant(actor.id)
+  } catch {
+    logger.warn({ requestId: String(request.id) }, 'IT permission lookup failed; verify the admin database migrations')
+    response.status(503).json({ error: { code: 'IT_ACCESS_UNAVAILABLE', message: 'IT access could not be verified. Confirm the admin database schema is up to date.' } })
+    return false
+  }
   if (!grant || !hasItPermission(grant.role, permission)) {
     response.status(403).json({ error: { code: 'IT_PERMISSION_REQUIRED', message: 'You do not have permission to access this IT resource.' } })
     return false

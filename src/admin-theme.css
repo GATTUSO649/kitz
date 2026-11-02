@@ -424,9 +424,48 @@ html[data-admin-auth-transition="reveal"] .admin-auth-split::before {
   }
 }
 
+.admin-it-risk-meter{display:grid;gap:8px;margin:12px 0 16px;padding:12px;border:1px solid var(--dark-border);background:var(--dark-raised)}
+.admin-it-risk-meter>div{display:flex;align-items:center;justify-content:space-between;gap:12px;color:var(--dark-muted);font-size:11px;font-weight:700}
+.admin-it-risk-meter>div strong{color:var(--dark-text);font-size:16px;font-variant-numeric:tabular-nums}
+.admin-it-risk-meter meter{width:100%;height:9px;appearance:none;background:#101d2d}
+.admin-it-risk-meter meter::-webkit-meter-bar{border:0;border-radius:999px;background:#101d2d}
+.admin-it-risk-meter meter::-webkit-meter-optimum-value{border-radius:999px;background:#62c89a}
+.admin-it-risk-meter meter::-webkit-meter-suboptimum-value{border-radius:999px;background:#f1bf63}
+.admin-it-risk-meter meter::-webkit-meter-even-less-good-value{border-radius:999px;background:#ef7777}
+.admin-it-risk-meter>small{color:var(--dark-muted);font-size:10px;line-height:1.5}
+.admin-it-chart-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:12px}
+.admin-it-chart-card{min-width:0;padding:13px;border:1px solid var(--dark-border);background:var(--dark-raised)}
+.admin-it-chart-card>header{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px}
+.admin-it-chart-card>header h3{margin:4px 0 0;color:var(--dark-text);font-size:13px}
+.admin-it-chart-card>header>strong{color:var(--dark-text);font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.admin-it-chart-card>header>strong small{color:var(--dark-muted);font-size:9px;font-weight:500}
+.admin-it-line-chart{display:block;width:100%;height:180px;overflow:visible}
+.admin-it-chart-gridline{stroke:var(--dark-border);stroke-width:1;stroke-dasharray:3 5}
+.admin-it-chart-labels{display:flex;justify-content:space-between;color:var(--dark-muted);font-size:9px}
+.admin-it-chart-empty{display:grid;min-height:145px;place-items:center;color:var(--dark-muted);font-size:11px}
+.admin-it-donut-layout{display:flex;align-items:center;justify-content:center;gap:24px;min-height:180px}
+.admin-it-donut{position:relative;display:grid;width:142px;aspect-ratio:1;flex:none;place-items:center;border-radius:50%}
+.admin-it-donut::after{position:absolute;width:68%;aspect-ratio:1;border-radius:50%;background:var(--dark-raised);content:""}
+.admin-it-donut.is-empty{border:12px solid #33445c;background:transparent!important}
+.admin-it-donut span{z-index:1;color:var(--dark-text);font-size:18px;font-weight:700;font-variant-numeric:tabular-nums}
+.admin-it-chart-legend{display:grid;gap:9px;margin:0;padding:0;list-style:none}
+.admin-it-chart-legend li{display:grid;grid-template-columns:10px 32px 32px;align-items:center;gap:7px;color:var(--dark-muted);font-size:10px}
+.admin-it-chart-legend li i{width:8px;height:8px;border-radius:50%}
+.admin-it-chart-legend li strong{color:var(--dark-text);text-align:right;font-variant-numeric:tabular-nums}
+.admin-it-endpoint-chart{margin-bottom:12px}
+.admin-it-endpoint-bars{display:grid;gap:10px}
+.admin-it-endpoint-bar-row{display:grid;grid-template-columns:minmax(100px,1.2fr) minmax(40px,3fr) 42px;align-items:center;gap:10px;color:var(--dark-muted);font-size:10px}
+.admin-it-endpoint-bar-row>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.admin-it-endpoint-bar-row>div{height:8px;overflow:hidden;border-radius:999px;background:#101d2d}
+.admin-it-endpoint-bar-row>div i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#448bd2,#73c7ff)}
+.admin-it-endpoint-bar-row>strong{color:var(--dark-text);text-align:right;font-variant-numeric:tabular-nums}
+
 @media (max-width: 760px) {
   .admin-it-status-grid,.admin-it-coverage{grid-template-columns:repeat(2,minmax(0,1fr))}
   .admin-it-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .admin-it-chart-grid{grid-template-columns:minmax(0,1fr)}
+  .admin-it-donut-layout{gap:16px}
+  .admin-it-line-chart{height:155px}
   .admin-it-access-form{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
   .admin-it-access-form button{grid-column:1/-1}
 }

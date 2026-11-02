@@ -15,11 +15,13 @@ type CatalogueTeam = { id: number; leagueId: number; name: string; slug: string;
 type CatalogueJerseyCategory = { id: number; name: string; slug: string; sortOrder: number; active: boolean }
 type CatalogueOptions = { leagues: CatalogueLeague[]; teams: CatalogueTeam[]; jerseyCategories: CatalogueJerseyCategory[] }
 type ItAccessRole = 'super_admin' | 'security_analyst' | 'it_support' | 'database_admin' | 'infrastructure_admin' | 'viewer'
+type ItRequestBucket = { bucketStartedAt: string; requestCount: number; errorCount: number; serverErrorCount: number; securitySignalCount: number; averageResponseMs: number | null; p95ResponseMs: number | null }
+type ItChartPoint = { label: string; value: number; detail: string }
 type ItOverviewData = {
   access: { role: ItAccessRole; permissions: string[] }
   application: { status: string; uptimeSeconds: number; nodeVersion: string; memoryRssBytes: number; heapUsedBytes: number }
   databases: { name: string; status: 'healthy' | 'unavailable'; latencyMs: number | null }[]
-  requests: { requestCount: number; errorCount: number; serverErrorCount: number; averageResponseMs: number | null; p95ResponseMs: number | null; endpoints: { endpoint: string; requests: number; errors: number; averageResponseMs: number }[] }
+  requests: { requestCount: number; requestsLastMinute: number; errorCount: number; clientErrorCount: number; serverErrorCount: number; successfulRequestCount: number; securitySignalCount: number; securitySignalsLastMinute: number; averageResponseMs: number | null; p95ResponseMs: number | null; collectedAt: string; endpoints: { endpoint: string; requests: number; errors: number; averageResponseMs: number }[]; timeline: ItRequestBucket[]; methods: { method: string; requests: number }[]; responseDistribution: { success: number; redirect: number; clientError: number; serverError: number } }
   incidents: { status: 'available' | 'unavailable'; total: number | null; open: number | null; investigating: number | null }
   coverage: Record<string, { status: string }>
   externalServices: Record<string, { status: string; reason?: string }>
@@ -1816,6 +1818,60 @@ function ItAuditPanel() {
   return <section className="admin-it-panel"><header><Shield size={18} /><div><span className="admin-kicker">APPEND-ONLY OPERATIONS HISTORY</span><h3>IT audit events</h3></div></header>{auditQuery.isPending ? <div className="admin-empty">Loading audit events…</div> : auditQuery.isError ? <div className="admin-empty admin-error">{auditQuery.error.message}</div> : <div className="admin-it-table-wrap"><table className="admin-it-table"><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Details</th></tr></thead><tbody>{rows.map((entry) => <tr key={entry.id}><td>{new Date(entry.createdAt).toLocaleString()}</td><td>{entry.actorName ?? itLabel(entry.actorType)}</td><td>{itLabel(entry.action)}</td><td>{entry.targetType} · {entry.targetId}</td><td>{entry.details ?? '—'}</td></tr>)}{!rows.length && <tr><td colSpan={5}>No IT audit events are recorded yet.</td></tr>}</tbody></table></div>}{auditQuery.hasNextPage && <button className="admin-it-button" type="button" onClick={() => void auditQuery.fetchNextPage()} disabled={auditQuery.isFetchingNextPage}>{auditQuery.isFetchingNextPage ? 'Loading…' : 'Load more'}</button>}</section>
 }
 
+function ItLineChart({ title, points, color, suffix }: { title: string; points: ItChartPoint[]; color: string; suffix?: string }) {
+  const maximum = Math.max(1, ...points.map((point) => point.value))
+  const coordinates = points.map((point, index) => ({
+    x: points.length < 2 ? 370 : 32 + (index * 676) / (points.length - 1),
+    y: 154 - (point.value / maximum) * 126,
+  }))
+  const path = coordinates.map(({ x, y }, index) => `${index ? 'L' : 'M'} ${x} ${y}`).join(' ')
+
+  return <article className="admin-it-chart-card">
+    <header><div><span className="admin-kicker">LAST 60 MINUTES · 5-MINUTE BUCKETS</span><h3>{title}</h3></div><strong>{points.at(-1)?.value ?? '—'}{points.length ? suffix : ''}</strong></header>
+    {points.length ? <>
+      <svg className="admin-it-line-chart" viewBox="0 0 740 190" role="img" aria-label={`${title} over the last 60 minutes`}>
+        {[28, 70, 112, 154].map((y) => <line key={y} x1="32" x2="708" y1={y} y2={y} className="admin-it-chart-gridline" />)}
+        <path d={path} fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+        {coordinates.map(({ x, y }, index) => <circle key={`${points[index].label}-${index}`} cx={x} cy={y} r="3" fill={color}><title>{points[index].label}: {points[index].value}{suffix}</title></circle>)}
+      </svg>
+      <div className="admin-it-chart-labels"><span>{points[0].label}</span><span>{points[Math.floor((points.length - 1) / 2)].label}</span><span>{points.at(-1)?.label}</span></div>
+    </> : <div className="admin-it-chart-empty">No request samples in this window.</div>}
+  </article>
+}
+
+function ItResponseDonut({ distribution }: { distribution: ItOverviewData['requests']['responseDistribution'] }) {
+  const total = distribution.success + distribution.redirect + distribution.clientError + distribution.serverError
+  const sections = [
+    { label: '2xx', value: distribution.success, color: '#62c89a' },
+    { label: '3xx', value: distribution.redirect, color: '#70b5f5' },
+    { label: '4xx', value: distribution.clientError, color: '#f1bf63' },
+    { label: '5xx', value: distribution.serverError, color: '#ef7777' },
+  ]
+  let accumulated = 0
+  const stops = sections.map((section) => {
+    const start = total ? (accumulated / total) * 100 : 0
+    accumulated += section.value
+    const end = total ? (accumulated / total) * 100 : 0
+    return `${section.color} ${start}% ${end}%`
+  })
+
+  return <article className="admin-it-chart-card admin-it-donut-card">
+    <header><div><span className="admin-kicker">LAST 60 MINUTES</span><h3>HTTP response mix</h3></div><strong>{total || '—'}<small> responses</small></strong></header>
+    <div className="admin-it-donut-layout">
+      <div className={`admin-it-donut${total ? '' : ' is-empty'}`} style={{ background: total ? `conic-gradient(${stops.join(', ')})` : undefined }} role="img" aria-label={total ? `Response codes across ${total} application requests` : 'No response codes recorded'}><span>{total || '—'}</span></div>
+      <ul className="admin-it-chart-legend">{sections.map((section) => <li key={section.label}><i style={{ backgroundColor: section.color }} /><span>{section.label}</span><strong>{total ? section.value : '—'}</strong></li>)}</ul>
+    </div>
+  </article>
+}
+
+function ItMethodBars({ methods }: { methods: ItOverviewData['requests']['methods'] }) {
+  const maximum = Math.max(1, ...methods.map((method) => method.requests))
+  return <article className="admin-it-chart-card admin-it-method-chart">
+    <header><div><span className="admin-kicker">APPLICATION REQUESTS</span><h3>Traffic by method</h3></div><strong>{methods.length || '—'} methods</strong></header>
+    {methods.length ? <div className="admin-it-endpoint-bars">{methods.map((method) => <div key={method.method} className="admin-it-endpoint-bar-row"><span>{method.method}</span><div><i style={{ width: `${Math.max(3, (method.requests / maximum) * 100)}%` }} /></div><strong>{method.requests}</strong></div>)}</div> : <div className="admin-it-chart-empty">No request samples in this window.</div>}
+  </article>
+}
+
 function ItOperationsPanel() {
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<'overview' | 'incidents' | 'audit'>('overview')
@@ -1879,6 +1935,25 @@ function ItOperationsPanel() {
   const overview = overviewQuery.data
   const superAdmin = role === 'super_admin'
   const availability = (status: string) => status === 'healthy' ? 'Healthy' : status === 'unavailable' ? 'Unavailable' : 'Unknown'
+  const requestPoints = overview.requests.timeline.map((bucket) => ({
+    label: new Date(bucket.bucketStartedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    value: bucket.requestCount,
+    detail: `${bucket.errorCount} errors`,
+  }))
+  const latencyPoints = overview.requests.timeline.flatMap((bucket) => bucket.averageResponseMs === null ? [] : [{
+    label: new Date(bucket.bucketStartedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    value: bucket.averageResponseMs,
+    detail: 'average milliseconds',
+  }])
+  const securityPoints = overview.requests.timeline.map((bucket) => ({
+    label: new Date(bucket.bucketStartedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    value: bucket.securitySignalCount,
+    detail: '401, 403, and 429 responses',
+  }))
+  const topEndpoints = overview.requests.endpoints.slice(0, 8)
+  const requestRiskScore = overview.requests.requestCount
+    ? Number((10 * overview.requests.securitySignalCount / overview.requests.requestCount).toFixed(1))
+    : null
 
   return <div className="admin-it-page">
     <div className="admin-it-intro"><div><span className="admin-kicker">RESTRICTED OPERATIONS · {itLabel(role ?? '')}</span><h2>IT operations</h2><p>Live process and database signals. Provider feeds and historical monitoring are shown only when configured.</p></div><button className="admin-it-button" type="button" onClick={() => void overviewQuery.refetch()} disabled={overviewQuery.isFetching}>Refresh</button></div>
@@ -1892,7 +1967,21 @@ function ItOperationsPanel() {
       <article><span>Incidents</span><strong><AlertTriangle size={16} /> {overview.incidents.status === 'available' ? String(overview.incidents.open ?? 0) : 'Unavailable'}</strong><small>{overview.incidents.status === 'available' ? `${overview.incidents.investigating ?? 0} investigating · ${overview.incidents.total ?? 0} total` : 'Incident totals unavailable'}</small></article>
     </section>
 
-    <section className="admin-it-panel"><header><Activity size={18} /><div><span className="admin-kicker">PER-PROCESS SAMPLE · LAST 60 MINUTES</span><h3>API activity</h3></div></header><div className="admin-it-metrics"><article><span>Requests sampled</span><strong>{overview.requests.requestCount}</strong></article><article><span>HTTP errors</span><strong>{overview.requests.errorCount}</strong></article><article><span>Server errors</span><strong>{overview.requests.serverErrorCount}</strong></article><article><span>Average response</span><strong>{overview.requests.averageResponseMs === null ? 'Unavailable' : `${overview.requests.averageResponseMs} ms`}</strong></article><article><span>P95 response</span><strong>{overview.requests.p95ResponseMs === null ? 'Unavailable' : `${overview.requests.p95ResponseMs} ms`}</strong></article></div><div className="admin-it-table-wrap"><table className="admin-it-table"><thead><tr><th>Endpoint</th><th>Requests</th><th>Errors</th><th>Average</th></tr></thead><tbody>{overview.requests.endpoints.map((metric) => <tr key={metric.endpoint}><td>{metric.endpoint}</td><td>{metric.requests}</td><td>{metric.errors}</td><td>{metric.averageResponseMs} ms</td></tr>)}{!overview.requests.endpoints.length && <tr><td colSpan={4}>No requests sampled yet.</td></tr>}</tbody></table></div><p className="admin-it-footnote">This bounded sample is process-local, resets on restart, and is not shared across instances.</p></section>
+    <section className="admin-it-panel"><header><Activity size={18} /><div><span className="admin-kicker">LIVE APPLICATION TELEMETRY · REFRESHES EVERY 30 SECONDS</span><h3>Traffic and performance</h3></div></header>
+      <div className="admin-it-metrics"><article><span>Requests last minute</span><strong>{overview.requests.requestsLastMinute}</strong></article><article><span>HTTP errors</span><strong>{overview.requests.errorCount}</strong></article><article><span>2xx success</span><strong>{overview.requests.successfulRequestCount}</strong></article><article><span>Average response</span><strong>{overview.requests.averageResponseMs === null ? 'Unavailable' : `${overview.requests.averageResponseMs} ms`}</strong></article><article><span>P95 response</span><strong>{overview.requests.p95ResponseMs === null ? 'Unavailable' : `${overview.requests.p95ResponseMs} ms`}</strong></article></div>
+      <div className="admin-it-risk-meter"><div><span>Request security-signal index</span><strong>{requestRiskScore === null ? 'Unavailable' : `${requestRiskScore}/10`}</strong></div><meter min="0" max="10" value={requestRiskScore ?? 0} /><small>Heuristic from the share of 401, 403, and 429 responses in this sample. It is not a confirmed threat level or security alert.</small></div>
+      <div className="admin-it-chart-grid">
+        <ItLineChart title="Requests per 5 minutes" points={requestPoints} color="#73c7ff" />
+        <ItLineChart title="Average response time" points={latencyPoints} color="#f0bd62" suffix=" ms" />
+        <ItLineChart title="Authentication and rate-limit signals" points={securityPoints} color="#ed7b7b" />
+        <ItResponseDonut distribution={overview.requests.responseDistribution} />
+        <ItMethodBars methods={overview.requests.methods} />
+      </div>
+      <section className="admin-it-chart-card admin-it-endpoint-chart"><header><div><span className="admin-kicker">ROUTE TEMPLATE · TOP 8</span><h3>Requests by endpoint</h3></div><strong>{overview.requests.endpoints.length || '—'} routes</strong></header>
+        {topEndpoints.length ? <div className="admin-it-endpoint-bars">{topEndpoints.map((endpoint) => <div key={endpoint.endpoint} className="admin-it-endpoint-bar-row"><span title={endpoint.endpoint}>{endpoint.endpoint}</span><div><i style={{ width: `${Math.max(3, (endpoint.requests / Math.max(topEndpoints[0].requests, 1)) * 100)}%` }} /></div><strong>{endpoint.requests}</strong></div>)}</div> : <div className="admin-it-chart-empty">No request samples in this window.</div>}
+      </section>
+      <div className="admin-it-table-wrap"><table className="admin-it-table"><thead><tr><th>Endpoint</th><th>Requests</th><th>Errors</th><th>Average</th></tr></thead><tbody>{overview.requests.endpoints.map((metric) => <tr key={metric.endpoint}><td>{metric.endpoint}</td><td>{metric.requests}</td><td>{metric.errors}</td><td>{metric.averageResponseMs} ms</td></tr>)}{!overview.requests.endpoints.length && <tr><td colSpan={4}>No requests sampled yet.</td></tr>}</tbody></table></div><p className="admin-it-footnote">Last collected {new Date(overview.requests.collectedAt).toLocaleTimeString()}. This bounded sample is process-local, resets on restart, and is not shared across instances. Traffic represents requests reaching this application, not edge or network traffic.</p>
+    </section>
 
     <section className="admin-it-panel"><header><Database size={18} /><div><span className="admin-kicker">TELEMETRY COVERAGE</span><h3>Unconfigured monitors</h3></div></header><div className="admin-it-coverage">{Object.entries(overview.coverage).map(([name, item]) => <article key={name}><span>{itLabel(name)}</span><strong><CircleHelp size={15} /> {itLabel(item.status)}</strong></article>)}</div></section>
 
