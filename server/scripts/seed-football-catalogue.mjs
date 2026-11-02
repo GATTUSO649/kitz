@@ -3,6 +3,21 @@ import pg from 'pg'
 import { createPostgresSslOptions } from '../src/config/postgres-ssl.mjs'
 
 const season = '2026/27'
+const collections = [
+  { name: 'Club kits', slug: 'club-kits', sortOrder: 1 },
+  { name: 'National teams', slug: 'national-teams', sortOrder: 2 },
+  { name: 'Retro', slug: 'retro', sortOrder: 3 },
+  { name: 'Training', slug: 'training', sortOrder: 4 },
+]
+const jerseyCategories = [
+  { name: 'Home', slug: 'home', sortOrder: 1 },
+  { name: 'Away', slug: 'away', sortOrder: 2 },
+  { name: 'Third', slug: 'third', sortOrder: 3 },
+  { name: 'Goalkeeper', slug: 'goalkeeper', sortOrder: 4 },
+  { name: 'Training', slug: 'training', sortOrder: 5 },
+  { name: 'Retro', slug: 'retro', sortOrder: 6 },
+  { name: 'Kids', slug: 'kids', sortOrder: 7 },
+]
 const leagues = [
   {
     name: 'Premier League', slug: 'premier-league', country: 'England', countryCode: 'GB', sortOrder: 1,
@@ -75,7 +90,29 @@ try {
 
   let insertedLeagues = 0
   let insertedTeams = 0
+  let insertedCollections = 0
+  let insertedJerseyCategories = 0
   let verifiedTeams = 0
+  for (const collection of collections) {
+    const result = await client.query(
+      `INSERT INTO categories (name, slug, sort_order, active)
+       VALUES ($1, $2, $3, true)
+       ON CONFLICT (slug) DO NOTHING`,
+      [collection.name, collection.slug, collection.sortOrder],
+    )
+    insertedCollections += result.rowCount ?? 0
+  }
+
+  for (const category of jerseyCategories) {
+    const result = await client.query(
+      `INSERT INTO jersey_categories (name, slug, sort_order, active)
+       VALUES ($1, $2, $3, true)
+       ON CONFLICT (slug) DO NOTHING`,
+      [category.name, category.slug, category.sortOrder],
+    )
+    insertedJerseyCategories += result.rowCount ?? 0
+  }
+
   for (const league of leagues) {
     const result = await client.query(
       `INSERT INTO leagues (name, slug, country, country_code, season, sort_order, active)
@@ -110,7 +147,7 @@ try {
   }
 
   await client.query('COMMIT')
-  console.log(`Football catalogue verified: ${leagues.length} leagues and ${verifiedTeams} teams. Newly added: ${insertedLeagues} leagues and ${insertedTeams} teams; existing records preserved.`)
+  console.log(`Catalogue verified: ${collections.length} collections, ${jerseyCategories.length} jersey categories, ${leagues.length} leagues, and ${verifiedTeams} teams. Newly added: ${insertedCollections} collections, ${insertedJerseyCategories} jersey categories, ${insertedLeagues} leagues, and ${insertedTeams} teams; existing records preserved.`)
 } catch (error) {
   await client?.query('ROLLBACK').catch(() => {})
   const code = typeof error?.code === 'string' ? error.code : 'SAFE_CONFIGURATION_OR_DATABASE_ERROR'
