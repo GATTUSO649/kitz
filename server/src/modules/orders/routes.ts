@@ -82,13 +82,13 @@ function toCents(amount: string) {
   return Math.round(Number(amount) * 100)
 }
 
-function hasMysqlErrorCode(error: unknown, code: string, seen = new Set<unknown>()): boolean {
+function hasDuplicateKeyError(error: unknown, seen = new Set<unknown>()): boolean {
   if (!error || typeof error !== 'object' || seen.has(error)) return false
   seen.add(error)
   const candidate = error as { code?: unknown; cause?: unknown; errors?: unknown }
-  if (candidate.code === code) return true
-  return hasMysqlErrorCode(candidate.cause, code, seen)
-    || (Array.isArray(candidate.errors) && candidate.errors.some((nested) => hasMysqlErrorCode(nested, code, seen)))
+  if (candidate.code === '23505' || candidate.code === 'ER_DUP_ENTRY') return true
+  return hasDuplicateKeyError(candidate.cause, seen)
+    || (Array.isArray(candidate.errors) && candidate.errors.some((nested) => hasDuplicateKeyError(nested, seen)))
 }
 
 const rejectCrossOrigin: RequestHandler = (request, response, next) => {
@@ -206,11 +206,12 @@ ordersRouter.post('/orders/guest', rejectCrossOrigin, guestCheckoutLimiter, asyn
         discount: '0.00',
         total: (totalCents / 100).toFixed(2),
         deliveryAddressSnapshot: JSON.stringify({ ...input.data.address, email: input.data.email, deliveryZone: zone.name }),
-      }).$returningId()
+      }).returning({ id: orders.id })
       for (const item of itemSnapshots) {
-        const [updated] = await transaction.update(productVariants).set({ stock: sql`${productVariants.stock} - ${item.quantity}` })
+        const updated = await transaction.update(productVariants).set({ stock: sql`${productVariants.stock} - ${item.quantity}` })
           .where(and(eq(productVariants.id, item.variantId), gte(productVariants.stock, item.quantity)))
-        if (updated.affectedRows !== 1) throw new OrderRequestError(409, 'INSUFFICIENT_STOCK', `${item.productName} (${item.size}) no longer has enough stock.`)
+          .returning({ id: productVariants.id })
+        if (updated.length !== 1) throw new OrderRequestError(409, 'INSUFFICIENT_STOCK', `${item.productName} (${item.size}) no longer has enough stock.`)
         await transaction.insert(inventoryMovements).values({ variantId: item.variantId, movementType: 'reservation', quantityChange: -item.quantity, note: `Reserved for guest order ${orderId}` })
         await transaction.insert(orderItems).values({
           orderId, productId: item.productId, variantId: item.variantId, productNameSnapshot: item.productName,
@@ -315,13 +316,14 @@ ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, re
         discount: '0.00',
         total: (totalCents / 100).toFixed(2),
         deliveryAddressSnapshot: addressSnapshot,
-      }).$returningId()
+      }).returning({ id: orders.id })
 
       for (const item of itemSnapshots) {
-        const [updated] = await transaction.update(productVariants)
+        const updated = await transaction.update(productVariants)
           .set({ stock: sql`${productVariants.stock} - ${item.quantity}` })
           .where(and(eq(productVariants.id, item.variantId), gte(productVariants.stock, item.quantity)))
-        if (updated.affectedRows !== 1) {
+          .returning({ id: productVariants.id })
+        if (updated.length !== 1) {
           throw new OrderRequestError(409, 'INSUFFICIENT_STOCK', `${item.productName} (${item.size}) no longer has enough stock.`)
         }
 
@@ -357,7 +359,7 @@ ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, re
         body: `Your order ${orderNumber} has been received and is pending payment.`,
         href: `/account/orders/${encodeURIComponent(orderNumber)}`,
         audienceType: 'system',
-      }).$returningId()
+      }).returning({ id: notificationCampaigns.id })
       await transaction.insert(notificationRecipients).values({ campaignId: notificationId, userId: auth.userId })
       const address = input.data.address
       const addressLines = [address.address, address.estate, address.town, address.county].filter(Boolean)
@@ -378,7 +380,7 @@ ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, re
         category: 'delivery',
         subject: `Delivery tracking · ${orderNumber}`,
         message,
-      }).$returningId()
+      }).returning({ id: notificationCampaigns.id })
       await transaction.insert(supportMessages).values({
         supportRequestId: conversationId,
         senderType: 'customer',
@@ -396,7 +398,7 @@ ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, re
       response.status(error.status).json({ error: { code: error.code, message: error.message } })
       return
     }
-    if (hasMysqlErrorCode(error, 'ER_DUP_ENTRY')) {
+    if (hasDuplicateKeyError(error)) {
       const [replayedOrder] = await db.select({ orderNumber: orders.orderNumber, status: orders.status, paymentMethod: orders.paymentMethod, subtotal: orders.subtotal, deliveryFee: orders.deliveryFee, total: orders.total })
         .from(orders).where(and(eq(orders.userId, auth.userId), eq(orders.idempotencyKey, idempotencyKey.data))).limit(1)
       if (replayedOrder) {
@@ -436,14 +438,14 @@ ordersRouter.post('/orders/guest/:orderNumber/mpesa/stk-push', rejectCrossOrigin
         .where(and(eq(payments.orderId, guestOrder.id), eq(payments.provider, 'mpesa'))).orderBy(desc(payments.createdAt)).limit(1)
       const retryable = existingPayment && ['failed', 'cancelled', 'expired'].includes(existingPayment.status)
       if (existingPayment && !retryable) throw new OrderRequestError(409, 'MPESA_REQUEST_ALREADY_EXISTS', 'The existing payment request is unresolved. Check its status before trying again.')
-      const [createdPayment] = await transaction.insert(payments).values({ orderId: guestOrder.id, provider: 'mpesa', amount: guestOrder.total, status: 'initiated', merchantShortcode: shortcodes.businessShortcode, payerPhone: phone }).$returningId()
+      const [createdPayment] = await transaction.insert(payments).values({ orderId: guestOrder.id, provider: 'mpesa', amount: guestOrder.total, status: 'initiated', merchantShortcode: shortcodes.businessShortcode, payerPhone: phone }).returning({ id: payments.id })
       return { order: guestOrder, amountCents, paymentId: createdPayment.id }
     })
     order = creation.order
     paymentId = creation.paymentId
     const result = await initiateStkPush({ businessShortcode: shortcodes.businessShortcode, partyB: shortcodes.partyB, phone, amount: creation.amountCents / 100, accountReference: order.orderNumber })
     providerAccepted = true
-    await db.update(payments).set({ providerRequestId: result.checkoutRequestId, merchantRequestId: result.merchantRequestId, status: 'pending', verificationMessage: 'Daraja accepted the STK request; waiting for verified payment confirmation.' }).where(eq(payments.id, paymentId))
+    await db.update(payments).set({ providerRequestId: result.checkoutRequestId, merchantRequestId: result.merchantRequestId, status: 'pending', verificationMessage: 'Daraja accepted the STK request; waiting for verified payment confirmation.' }).where(eq(payments.id, paymentId!))
     return response.status(202).json({ data: { orderNumber: order.orderNumber, status: 'pending', message: result.customerMessage } })
   } catch (error) {
     if (error instanceof OrderRequestError) return response.status(error.status).json({ error: { code: error.code, message: error.message } })
@@ -518,7 +520,7 @@ ordersRouter.post('/orders/:orderNumber/mpesa/stk-push', rejectCrossOrigin, stkP
         status: 'initiated',
         merchantShortcode: shortcodes.businessShortcode,
         payerPhone: phone,
-      }).$returningId()
+      }).returning({ id: payments.id })
       return { order: lockedOrder, amountCents, paymentId: createdPayment.id }
     })
     order = paymentCreation.order
@@ -538,13 +540,13 @@ ordersRouter.post('/orders/:orderNumber/mpesa/stk-push', rejectCrossOrigin, stkP
       accountReference: order.orderNumber,
     })
     providerAccepted = true
-    const [updated] = await db.update(payments).set({
+    const updated = await db.update(payments).set({
       providerRequestId: result.checkoutRequestId,
       merchantRequestId: result.merchantRequestId,
       status: 'pending',
       verificationMessage: 'Daraja accepted the STK request; waiting for verified payment confirmation.',
-    }).where(eq(payments.id, paymentId))
-    if (updated.affectedRows !== 1) throw new Error('STK request accepted but its payment record could not be updated.')
+    }).where(eq(payments.id, paymentId)).returning({ id: payments.id })
+    if (updated.length !== 1) throw new Error('STK request accepted but its payment record could not be updated.')
     request.log.info({
       requestId: request.id,
       operation: 'orders.mpesa.stk-push',
@@ -693,18 +695,19 @@ ordersRouter.post(darajaCallbackRoute, async (request, response) => {
   }
 
   await db.transaction(async (transaction) => {
-    const [paymentUpdate] = await transaction.update(payments).set({
+    const paymentUpdate = await transaction.update(payments).set({
       status: 'succeeded',
       providerResultCode: resultCode,
       providerReceipt: receipt,
       payerPhone: callbackPhone,
       transactionAt,
       verificationMessage: 'Payment was verified against the Daraja STK query and matched this order.',
-    }).where(and(eq(payments.id, payment.id), eq(payments.status, 'pending')))
-    if (paymentUpdate.affectedRows !== 1) return
-    const [orderUpdate] = await transaction.update(orders).set({ status: 'paid' })
+    }).where(and(eq(payments.id, payment.id), eq(payments.status, 'pending'))).returning({ id: payments.id })
+    if (paymentUpdate.length !== 1) return
+    const orderUpdate = await transaction.update(orders).set({ status: 'paid' })
       .where(and(eq(orders.id, order.id), eq(orders.status, 'pending_payment')))
-    if (orderUpdate.affectedRows !== 1) throw new Error('Order changed while verifying the M-Pesa payment.')
+      .returning({ id: orders.id })
+    if (orderUpdate.length !== 1) throw new Error('Order changed while verifying the M-Pesa payment.')
     await transaction.insert(auditLogs).values({
       actorUserId: null,
       action: 'payment.mpesa_verified',
@@ -717,7 +720,7 @@ ordersRouter.post(darajaCallbackRoute, async (request, response) => {
       body: `Payment ${receipt} for order ${order.orderNumber} has been verified.`,
       href: `/account/orders/${encodeURIComponent(order.orderNumber)}`,
       audienceType: 'system',
-    }).$returningId()
+    }).returning({ id: notificationCampaigns.id })
     if (order.userId !== null) await transaction.insert(notificationRecipients).values({ campaignId: notificationId, userId: order.userId })
   })
   response.json({ ResultCode: 0, ResultDesc: 'Accepted' })
@@ -872,9 +875,10 @@ ordersRouter.post('/orders/:orderNumber/cancel', rejectCrossOrigin, authenticate
         throw new OrderRequestError(409, 'ORDER_CANNOT_BE_CANCELLED', 'Only orders awaiting payment can be cancelled.')
       }
 
-      const [cancelled] = await transaction.update(orders).set({ status: 'cancelled' })
+      const cancelled = await transaction.update(orders).set({ status: 'cancelled' })
         .where(and(eq(orders.id, order.id), eq(orders.status, 'pending_payment')))
-      if (cancelled.affectedRows !== 1) {
+        .returning({ id: orders.id })
+      if (cancelled.length !== 1) {
         throw new OrderRequestError(409, 'ORDER_CANNOT_BE_CANCELLED', 'This order has already changed status.')
       }
       const reservations = await transaction.select({

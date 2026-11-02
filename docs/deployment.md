@@ -1,5 +1,7 @@
 # Deployment
 
+> **Database mode:** The active application adapter is now PostgreSQL/Supabase. The MySQL deployment instructions below describe the preserved legacy/source environment and rollback path; do not use their MySQL `DATABASE_URL` with the current runtime. The Supabase schema exists but source data has not been imported, so do not switch production traffic. Follow [Supabase PostgreSQL migration status](supabase-postgresql.md).
+
 ## Build and run
 
 Use `npm ci` to install dependencies, `npm run build:deploy` to build the Vite client and compile the API, and `npm run start:server` to start the compiled server. The frontend output is in `dist`; the API entry point is `server/dist/server.js`. When `dist/index.html` exists, the server serves the frontend, generated assets, and client-side routes alongside the API on the same origin. Set `NODE_ENV=production` for secure cookies and verified MySQL TLS, and use the platform-provided `PORT`.

@@ -24,7 +24,7 @@ async function main() {
       fullName,
       passwordHash,
       emailVerifiedAt: new Date(),
-    }).$returningId()
+    }).returning({ id: adminUsers.id })
     return created.id
   })
   console.info(`Administrator provisioned: ${email} (user ${result}). Remove ADMIN_PASSWORD from the environment now.`)

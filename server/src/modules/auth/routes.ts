@@ -145,7 +145,7 @@ authRouter.post('/register', async (request, response) => {
       passwordHash,
       fullName: input.data.fullName,
       phone: input.data.phone || null,
-    }).$returningId()
+    }).returning({ id: users.id })
     return { id: created.id, email: input.data.email, fullName: input.data.fullName }
   })
 
@@ -298,12 +298,12 @@ authRouter.post('/reset-password', async (request, response) => {
       .for('update')
     if (!tokenRecord) return false
 
-    const [consumed] = await transaction.update(passwordResetTokens).set({ consumedAt: now }).where(and(
+    const consumed = await transaction.update(passwordResetTokens).set({ consumedAt: now }).where(and(
       eq(passwordResetTokens.id, tokenRecord.id),
       gt(passwordResetTokens.expiresAt, now),
       isNull(passwordResetTokens.consumedAt),
-    ))
-    if (consumed.affectedRows !== 1) return false
+    )).returning({ id: passwordResetTokens.id })
+    if (consumed.length !== 1) return false
 
     await transaction.update(users).set({ passwordHash }).where(eq(users.id, tokenRecord.userId))
     await transaction.delete(userSessions).where(eq(userSessions.userId, tokenRecord.userId))
@@ -348,11 +348,11 @@ authRouter.post('/session/activity', async (request, response, next) => {
   const [session] = await db.select({ id: userSessions.id, createdAt: userSessions.createdAt, expiresAt: userSessions.expiresAt })
     .from(userSessions).where(and(eq(userSessions.tokenHash, tokenHash), eq(userSessions.userId, user.userId), gt(userSessions.expiresAt, now))).limit(1)
   const nextExpiry = session ? nextSessionExpiry(session.createdAt, now, customerSessionIdleTimeoutMs, customerSessionAbsoluteLifetimeMs) : null
-  const [updated] = session && nextExpiry ? await db.update(userSessions).set({ expiresAt: nextExpiry }).where(and(
+  const updated = session && nextExpiry ? await db.update(userSessions).set({ expiresAt: nextExpiry }).where(and(
     eq(userSessions.id, session.id),
     gt(userSessions.expiresAt, now),
-  )) : [{ affectedRows: 0 }]
-  if (!nextExpiry || updated.affectedRows !== 1) {
+  )).returning({ id: userSessions.id }) : []
+  if (!nextExpiry || updated.length !== 1) {
     response.clearCookie(sessionCookie, { httpOnly: true, secure: env.NODE_ENV === 'production', sameSite: 'strict', path: '/api/v1' })
     return response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Sign in to continue.' } })
   }

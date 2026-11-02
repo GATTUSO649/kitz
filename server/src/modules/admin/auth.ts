@@ -104,7 +104,7 @@ adminAuthRouter.post('/register', async (request, response) => {
       email: input.data.email,
       fullName: input.data.fullName,
       passwordHash,
-    }).$returningId()
+    }).returning({ id: adminUsers.id })
     await transaction.insert(adminVerificationTokens).values({
       adminUserId: created.id,
       tokenHash: hashToken(verificationToken),
@@ -152,13 +152,13 @@ adminAuthRouter.post('/verify', async (request, response) => {
         .from(adminUsers).where(eq(adminUsers.id, record.adminUserId)).limit(1)
       return Boolean(admin?.emailVerifiedAt)
     }
-    const [consumed] = await transaction.update(adminVerificationTokens).set({ consumedAt: now })
+    const consumed = await transaction.update(adminVerificationTokens).set({ consumedAt: now })
       .where(and(
         eq(adminVerificationTokens.id, record.id),
         gt(adminVerificationTokens.expiresAt, now),
         isNull(adminVerificationTokens.consumedAt),
-      ))
-    if (consumed.affectedRows !== 1) return false
+      )).returning({ id: adminVerificationTokens.id })
+    if (consumed.length !== 1) return false
     await transaction.update(adminUsers).set({ emailVerifiedAt: now })
       .where(eq(adminUsers.id, record.adminUserId))
     return true
@@ -238,11 +238,11 @@ adminAuthRouter.post('/session/activity', (request, response, next) => {
   const [session] = await adminDb.select({ id: adminSessions.id, createdAt: adminSessions.createdAt, expiresAt: adminSessions.expiresAt })
     .from(adminSessions).where(and(eq(adminSessions.tokenHash, hashToken(token)), gt(adminSessions.expiresAt, now))).limit(1)
   const nextExpiry = session ? nextSessionExpiry(session.createdAt, now, adminIdleTimeoutMs, adminSessionAbsoluteLifetimeMs) : null
-  const [refreshed] = session && nextExpiry ? await adminDb.update(adminSessions).set({ expiresAt: nextExpiry }).where(and(
+  const refreshed = session && nextExpiry ? await adminDb.update(adminSessions).set({ expiresAt: nextExpiry }).where(and(
     eq(adminSessions.id, session.id),
     gt(adminSessions.expiresAt, now),
-  )) : [{ affectedRows: 0 }]
-  if (refreshed.affectedRows !== 1) {
+  )).returning({ id: adminSessions.id }) : []
+  if (refreshed.length !== 1) {
     response.clearCookie(cookieName, { httpOnly: true, secure: env.NODE_ENV === 'production', sameSite: 'strict', path: '/api/v1/admin' })
     response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Administrator sign in is required.' } })
     return

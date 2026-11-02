@@ -184,7 +184,7 @@ operationsRouter.post('/register', operationsSignupLimiter, async (request, resp
       email: input.data.email,
       fullName: input.data.fullName,
       passwordHash,
-    }).$returningId()
+    }).returning({ id: operationsUsers.id })
     await transaction.insert(operationsSessions).values({
       operationsUserId: created.id,
       tokenHash: hashOperationsToken(token),
@@ -274,9 +274,10 @@ operationsRouter.post('/session/activity', authenticateOperations, async (reques
     response.status(401).json({ error: { code: 'OPERATIONS_UNAUTHENTICATED', message: 'Operations sign in is required.' } })
     return
   }
-  const [updated] = await adminDb.update(operationsSessions).set({ expiresAt: expiry })
+  const updated = await adminDb.update(operationsSessions).set({ expiresAt: expiry })
     .where(and(eq(operationsSessions.id, session.id), gt(operationsSessions.expiresAt, now)))
-  if (updated.affectedRows !== 1) {
+    .returning({ id: operationsSessions.id })
+  if (updated.length !== 1) {
     clearOperationsCookie(response)
     response.status(401).json({ error: { code: 'OPERATIONS_UNAUTHENTICATED', message: 'Operations sign in is required.' } })
     return
@@ -409,7 +410,7 @@ operationsRouter.post('/incidents', async (request, response) => {
       affectedComponent: input.data.affectedComponent,
       createdByOperationsUserId: actor.id,
       detectedAt: now,
-    }).$returningId()
+    }).returning({ id: operationsIncidents.id })
     await transaction.insert(operationsIncidentEvents).values({
       incidentId: id,
       actorAdminUserId: null,

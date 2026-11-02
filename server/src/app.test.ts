@@ -6,8 +6,8 @@ import { after, before, test } from 'node:test'
 process.env.NODE_ENV = 'development'
 process.env.PORT = '4000'
 process.env.CLIENT_ORIGIN = 'http://localhost:5173'
-process.env.DATABASE_URL = 'mysql://test:test@127.0.0.1:1/kitculture'
-process.env.ADMIN_DATABASE_URL = 'mysql://test:test@127.0.0.1:1/kitculture_admin'
+process.env.DATABASE_URL = 'postgresql://test:test@127.0.0.1:1/kitculture'
+process.env.ADMIN_DATABASE_URL = 'postgresql://test:test@127.0.0.1:1/kitculture_admin'
 process.env.LOG_LEVEL = 'silent'
 delete process.env.OPERATIONS_SIGNUP_SECRET
 
@@ -30,7 +30,8 @@ before(async () => {
 
 after(async () => {
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
-  await Promise.all([pool?.end(), adminPool?.end()])
+  if (pool) await pool.end()
+  if (adminPool && adminPool !== pool) await adminPool.end()
 })
 
 test('reads Railway-style MYSQL_URL values when DATABASE_URL is not set', async () => {
@@ -278,6 +279,20 @@ test('preserves IP addresses in sanitized database connection errors', () => {
 test('distinguishes missing MySQL tables and columns from connection failures', () => {
   assert.equal(inspectDatabaseError(Object.assign(new Error("Table 'railway.products' doesn't exist"), { code: 'ER_NO_SUCH_TABLE' })).category, 'missing_table')
   assert.equal(inspectDatabaseError(Object.assign(new Error("Unknown column 'published' in 'where clause'"), { code: 'ER_BAD_FIELD_ERROR' })).category, 'missing_column')
+})
+
+test('classifies PostgreSQL SQLSTATEs and redacts PostgreSQL connection URLs', () => {
+  const missingTable = inspectDatabaseError(Object.assign(new Error('relation products does not exist'), { code: '42P01' }))
+  assert.equal(missingTable.category, 'missing_table')
+  assert.equal(missingTable.errors[0].message, 'PostgreSQL table is missing.')
+
+  const connection = inspectDatabaseError(Object.assign(
+    new Error('connection failed: postgresql://user:secret@db.example.test/postgres'),
+    { code: '08006' },
+  ))
+  assert.equal(connection.category, 'connection')
+  assert.ok(connection.errors[0].message.includes('[redacted-db-url]'))
+  assert.ok(!connection.errors[0].message.includes('secret'))
 })
 
 test('returns temporary-unavailability responses when MySQL is unreachable', async () => {

@@ -34,6 +34,7 @@ const schema = z.object({
   CLIENT_ORIGIN: z.string().url().default('http://localhost:5173'),
   DATABASE_URL: z.string().min(1).optional(),
   ADMIN_DATABASE_URL: z.string().min(1).optional(),
+  SUPABASE_CA_CERT_FILE: z.string().trim().min(1).optional(),
   ADMIN_SIGNUP_SECRET: z.string().min(32).max(512).optional(),
   OPERATIONS_SIGNUP_SECRET: z.string().min(32).max(512).optional(),
   ORIGIN_AUTH_TOKEN: z.string().min(32).max(256).optional(),
@@ -94,11 +95,6 @@ const parsed = schema.safeParse({
 if (!parsed.success) {
   throw new Error(`Invalid environment configuration: ${parsed.error.issues.map((issue) => issue.path.join('.') + ' ' + issue.message).join('; ')}`)
 }
-const databaseTlsErrors = productionDatabaseTlsConfigurationErrors(parsed.data)
-if (databaseTlsErrors.length) {
-  throw new Error(`Invalid production database configuration: ${databaseTlsErrors.join('; ')}`)
-}
-
 export function resolveDarajaEnvironment(nodeEnvironment: string, configuredEnvironment?: 'sandbox' | 'production') {
   if (configuredEnvironment) return configuredEnvironment
   return nodeEnvironment === 'development' || nodeEnvironment === 'test' ? 'sandbox' : undefined

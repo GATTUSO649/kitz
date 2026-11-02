@@ -342,10 +342,11 @@ test('admin notifications validate audience and same-site destinations', () => {
   assert.equal(adminNotificationSchema.safeParse({ ...notification, href: '/\\example.com' }).success, false)
 })
 
-test('duplicate MySQL key errors are detected through wrapped query errors', () => {
+test('duplicate MySQL and PostgreSQL key errors are detected through wrapped query errors', () => {
   const driverError = Object.assign(new Error('duplicate entry'), { code: 'ER_DUP_ENTRY', errno: 1062 })
   const queryError = Object.assign(new Error('database query failed'), { cause: driverError })
   assert.equal(isDuplicateKeyError(queryError), true)
+  assert.equal(isDuplicateKeyError(Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505' })), true)
   assert.equal(isDuplicateKeyError(new Error('connection unavailable')), false)
 })
 

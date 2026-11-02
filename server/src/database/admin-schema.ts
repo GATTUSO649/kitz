@@ -1,7 +1,11 @@
-import { index, int, mysqlEnum, mysqlTable, primaryKey, text, timestamp, varchar } from 'drizzle-orm/mysql-core'
+import { sql } from 'drizzle-orm'
+import { check, index, integer as int, pgTable as mysqlTable, primaryKey, text, timestamp as pgTimestamp, varchar } from 'drizzle-orm/pg-core'
+
+const timestamp = (name: string) => pgTimestamp(name, { withTimezone: true, mode: 'date' })
+const enumText = <T extends string>(name: string, length: number) => varchar(name, { length }).$type<T>()
 
 export const adminUsers = mysqlTable('admin_users', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   email: varchar('email', { length: 254 }).notNull().unique(),
   passwordHash: varchar('password_hash', { length: 255 }).notNull(),
   fullName: varchar('full_name', { length: 160 }).notNull(),
@@ -10,7 +14,7 @@ export const adminUsers = mysqlTable('admin_users', {
 })
 
 export const adminSessions = mysqlTable('admin_sessions', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   adminUserId: int('admin_user_id').notNull().references(() => adminUsers.id, { onDelete: 'cascade' }),
   tokenHash: varchar('token_hash', { length: 64 }).notNull().unique(),
   expiresAt: timestamp('expires_at').notNull(),
@@ -18,7 +22,7 @@ export const adminSessions = mysqlTable('admin_sessions', {
 }, (table) => [index('admin_sessions_user_expiry_idx').on(table.adminUserId, table.expiresAt)])
 
 export const adminVerificationTokens = mysqlTable('admin_verification_tokens', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   adminUserId: int('admin_user_id').notNull().references(() => adminUsers.id, { onDelete: 'cascade' }),
   tokenHash: varchar('token_hash', { length: 64 }).notNull().unique(),
   expiresAt: timestamp('expires_at').notNull(),
@@ -26,7 +30,7 @@ export const adminVerificationTokens = mysqlTable('admin_verification_tokens', {
 }, (table) => [index('admin_verification_user_expiry_idx').on(table.adminUserId, table.expiresAt)])
 
 export const adminAuditLogs = mysqlTable('admin_audit_logs', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   adminUserId: int('admin_user_id').notNull().references(() => adminUsers.id, { onDelete: 'restrict' }),
   action: varchar('action', { length: 100 }).notNull(),
   targetType: varchar('target_type', { length: 80 }),
@@ -40,7 +44,7 @@ export const adminSetupLocks = mysqlTable('admin_setup_locks', {
 })
 
 export const operationsUsers = mysqlTable('operations_users', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   email: varchar('email', { length: 254 }).notNull().unique(),
   passwordHash: varchar('password_hash', { length: 255 }).notNull(),
   fullName: varchar('full_name', { length: 160 }).notNull(),
@@ -50,7 +54,7 @@ export const operationsUsers = mysqlTable('operations_users', {
 })
 
 export const operationsSessions = mysqlTable('operations_sessions', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   operationsUserId: int('operations_user_id').notNull().references(() => operationsUsers.id, { onDelete: 'cascade' }),
   tokenHash: varchar('token_hash', { length: 64 }).notNull().unique(),
   expiresAt: timestamp('expires_at').notNull(),
@@ -67,10 +71,10 @@ export const operationsOperators = mysqlTable('operations_operators', {
 ])
 
 export const operationsIncidents = mysqlTable('operations_incidents', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   incidentNumber: varchar('incident_number', { length: 24 }).notNull().unique(),
-  severity: mysqlEnum('severity', ['P1', 'P2', 'P3', 'P4']).notNull(),
-  status: mysqlEnum('status', ['open', 'investigating', 'resolved', 'closed']).default('open').notNull(),
+  severity: enumText<'P1' | 'P2' | 'P3' | 'P4'>('severity', 2).notNull(),
+  status: enumText<'open' | 'investigating' | 'resolved' | 'closed'>('status', 16).default('open').notNull(),
   title: varchar('title', { length: 160 }).notNull(),
   description: text('description').notNull(),
   affectedComponent: varchar('affected_component', { length: 80 }).notNull(),
@@ -83,15 +87,17 @@ export const operationsIncidents = mysqlTable('operations_incidents', {
   detectedAt: timestamp('detected_at').defaultNow().notNull(),
   resolvedAt: timestamp('resolved_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
 }, (table) => [
   index('operations_incidents_status_created_idx').on(table.status, table.createdAt),
   index('operations_incidents_severity_created_idx').on(table.severity, table.createdAt),
   index('operations_incidents_assignee_idx').on(table.assignedOperationsUserId, table.status),
+  check('operations_incidents_severity_check', sql`${table.severity} IN ('P1', 'P2', 'P3', 'P4')`),
+  check('operations_incidents_status_check', sql`${table.status} IN ('open', 'investigating', 'resolved', 'closed')`),
 ])
 
 export const operationsIncidentEvents = mysqlTable('operations_incident_events', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   incidentId: int('incident_id').notNull().references(() => operationsIncidents.id, { onDelete: 'cascade' }),
   actorAdminUserId: int('actor_admin_user_id').references(() => adminUsers.id, { onDelete: 'set null' }),
   actorOperationsUserId: int('actor_operations_user_id').references(() => operationsUsers.id, { onDelete: 'set null' }),
@@ -101,13 +107,17 @@ export const operationsIncidentEvents = mysqlTable('operations_incident_events',
 }, (table) => [index('operations_incident_events_created_idx').on(table.incidentId, table.createdAt)])
 
 export const operationsAuditEvents = mysqlTable('operations_audit_events', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   actorAdminUserId: int('actor_admin_user_id').references(() => adminUsers.id, { onDelete: 'set null' }),
   actorOperationsUserId: int('actor_operations_user_id').references(() => operationsUsers.id, { onDelete: 'set null' }),
-  actorType: mysqlEnum('actor_type', ['admin', 'operations_user', 'provisioning_cli']).notNull(),
+  actorType: enumText<'admin' | 'operations_user' | 'provisioning_cli'>('actor_type', 24).notNull(),
   action: varchar('action', { length: 80 }).notNull(),
   targetType: varchar('target_type', { length: 80 }).notNull(),
   targetId: varchar('target_id', { length: 80 }).notNull(),
   details: text('details'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (table) => [index('operations_audit_created_idx').on(table.createdAt), index('operations_audit_actor_created_idx').on(table.actorOperationsUserId, table.createdAt)])
+}, (table) => [
+  index('operations_audit_created_idx').on(table.createdAt),
+  index('operations_audit_actor_created_idx').on(table.actorOperationsUserId, table.createdAt),
+  check('operations_audit_events_actor_type_check', sql`${table.actorType} IN ('admin', 'operations_user', 'provisioning_cli')`),
+])

@@ -202,7 +202,7 @@ export function isDuplicateKeyError(error: unknown): boolean {
   while (typeof current === 'object' && current !== null && !visited.has(current)) {
     visited.add(current)
     const candidate = current as { code?: unknown; errno?: unknown; cause?: unknown }
-    if (candidate.code === 'ER_DUP_ENTRY' || candidate.errno === 1062) return true
+    if (candidate.code === '23505' || candidate.code === 'ER_DUP_ENTRY' || candidate.errno === 1062) return true
     current = candidate.cause
   }
   return false
@@ -270,7 +270,7 @@ adminRouter.post('/leagues', async (request, response) => {
   if (!db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Catalogue services are not configured.' } })
   let created: { id: number }
   try {
-    [created] = await db.insert(leagues).values(input.data).$returningId()
+    [created] = await db.insert(leagues).values(input.data).returning({ id: leagues.id })
   } catch (error) {
     if (!isDuplicateKeyError(error)) throw error
     return response.status(409).json({ error: { code: 'LEAGUE_EXISTS', message: 'A league with that slug already exists.' } })
@@ -289,7 +289,7 @@ adminRouter.post('/leagues/:id/teams', async (request, response) => {
   if (!league) return response.status(404).json({ error: { code: 'LEAGUE_NOT_FOUND', message: 'League not found.' } })
   let created: { id: number }
   try {
-    [created] = await db.insert(teams).values({ ...input.data, leagueId: leagueId.data }).$returningId()
+    [created] = await db.insert(teams).values({ ...input.data, leagueId: leagueId.data }).returning({ id: teams.id })
   } catch (error) {
     if (!isDuplicateKeyError(error)) throw error
     return response.status(409).json({ error: { code: 'TEAM_EXISTS', message: 'That team already exists in this league.' } })
@@ -305,7 +305,7 @@ adminRouter.post('/jersey-categories', async (request, response) => {
   if (!db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Catalogue services are not configured.' } })
   let created: { id: number }
   try {
-    [created] = await db.insert(jerseyCategories).values(input.data).$returningId()
+    [created] = await db.insert(jerseyCategories).values(input.data).returning({ id: jerseyCategories.id })
   } catch (error) {
     if (!isDuplicateKeyError(error)) throw error
     return response.status(409).json({ error: { code: 'JERSEY_CATEGORY_EXISTS', message: 'A jersey category with that slug already exists.' } })
@@ -354,7 +354,7 @@ adminRouter.post('/products/:id/images', express.raw({ type: 'application/octet-
       altText: altText.data,
       sortOrder: existingImages.length,
       isPrimary,
-    }).$returningId()
+    }).returning({ id: productImages.id })
     if (isPrimary) await db.update(products).set({ imageUrl: asset.secure_url }).where(eq(products.id, productId.data))
     const actor = authenticatedAdmin(request)
     if (actor) await recordAdminAudit(actor.id, 'product.image_uploaded', 'product', String(productId.data))
@@ -447,7 +447,7 @@ adminRouter.post('/products/:id/videos', async (request, response) => {
   const [product] = await db.select({ id: products.id }).from(products).where(eq(products.id, productId.data)).limit(1)
   if (!product) return response.status(404).json({ error: { code: 'PRODUCT_NOT_FOUND', message: 'Product not found.' } })
   const existing = await db.select({ id: productVideos.id }).from(productVideos).where(eq(productVideos.productId, productId.data))
-  const [{ id }] = await db.insert(productVideos).values({ ...input.data, productId: productId.data, sortOrder: existing.length }).$returningId()
+  const [{ id }] = await db.insert(productVideos).values({ ...input.data, productId: productId.data, sortOrder: existing.length }).returning({ id: productVideos.id })
   const actor = authenticatedAdmin(request)
   if (actor) await recordAdminAudit(actor.id, 'product.video_added', 'product', String(productId.data))
   response.status(201).json({ data: { id } })
@@ -493,7 +493,7 @@ adminRouter.post('/homepage/slides', async (request, response) => {
     return response.status(400).json({ error: { code: 'INVALID_SLIDE', message: `Homepage slide details are invalid. ${details}` } })
   }
   if (!db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Homepage content services are unavailable.' } })
-  const [created] = await db.insert(homepageSlides).values(input.data).$returningId()
+  const [created] = await db.insert(homepageSlides).values(input.data).returning({ id: homepageSlides.id })
   const actor = authenticatedAdmin(request)
   if (actor) await recordAdminAudit(actor.id, 'homepage.slide_created', 'homepage_slide', String(created.id))
   response.status(201).json({ data: { id: created.id } })
@@ -506,7 +506,7 @@ adminRouter.post('/homepage/slides/batch', async (request, response) => {
     return response.status(400).json({ error: { code: 'INVALID_SLIDE_BATCH', message: `Homepage slides are invalid. ${details}` } })
   }
   if (!db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Homepage content services are unavailable.' } })
-  const created = await db.insert(homepageSlides).values(input.data).$returningId()
+  const created = await db.insert(homepageSlides).values(input.data).returning({ id: homepageSlides.id })
   const actor = authenticatedAdmin(request)
   if (actor) await Promise.all(created.map((slide) => recordAdminAudit(actor.id, 'homepage.slide_created', 'homepage_slide', String(slide.id))))
   response.status(201).json({ data: { ids: created.map((slide) => slide.id), count: created.length } })
@@ -602,7 +602,7 @@ adminRouter.post('/products', async (request, response) => {
       featured: input.data.featured,
       published: input.data.published,
       trending: input.data.trending,
-    }).$returningId()
+    }).returning({ id: products.id })
     await transaction.insert(productVariants).values(input.data.variants.map((variant) => ({ ...variant, productId: created.id })))
     if (input.data.variants.some((variant) => variant.stock > 0)) {
       const createdVariants = await transaction.select({ id: productVariants.id, sku: productVariants.sku }).from(productVariants).where(eq(productVariants.productId, created.id))
@@ -708,9 +708,10 @@ adminRouter.post('/products/:id/variants/:variantId/stock', async (request, resp
     return
   }
   const result = await db.transaction(async (transaction) => {
-    const [update] = await transaction.update(productVariants).set({ stock: sql`${productVariants.stock} + ${input.data.delta}` })
+    const updated = await transaction.update(productVariants).set({ stock: sql`${productVariants.stock} + ${input.data.delta}` })
       .where(and(eq(productVariants.id, variantId.data), eq(productVariants.productId, productId.data), sql`${productVariants.stock} + ${input.data.delta} >= 0`))
-    if (update.affectedRows !== 1) return null
+      .returning({ id: productVariants.id })
+    if (updated.length !== 1) return null
     const [variant] = await transaction.select({ stock: productVariants.stock }).from(productVariants).where(eq(productVariants.id, variantId.data)).limit(1)
     await transaction.insert(inventoryMovements).values({ variantId: variantId.data, movementType: 'adjustment', quantityChange: input.data.delta, note: input.data.note ?? null })
     return variant.stock
@@ -734,7 +735,7 @@ adminRouter.post('/categories', async (request, response) => {
   const input = categorySchema.safeParse(request.body)
   if (!input.success) return response.status(400).json({ error: { code: 'INVALID_INPUT', message: 'Category details are invalid.' } })
   if (!db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Category services are unavailable.' } })
-  const [{ id }] = await db.insert(categories).values(input.data).$returningId()
+  const [{ id }] = await db.insert(categories).values(input.data).returning({ id: categories.id })
   const actor = authenticatedAdmin(request)
   if (actor) await recordAdminAudit(actor.id, 'category.created', 'category', String(id))
   response.status(201).json({ data: { id } })
@@ -756,8 +757,8 @@ adminRouter.get('/orders', async (_request, response) => {
   const rows = await db.select({
     id: orders.id, orderNumber: orders.orderNumber, status: orders.status, paymentMethod: orders.paymentMethod, total: orders.total,
     subtotal: orders.subtotal, deliveryFee: orders.deliveryFee, createdAt: orders.createdAt,
-    customerName: sql<string | null>`COALESCE(${users.fullName}, JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.recipientName')))`,
-    customerEmail: sql<string | null>`COALESCE(${users.email}, JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.email')))`,
+    customerName: sql<string | null>`COALESCE(${users.fullName}, jsonb_extract_path_text(${orders.deliveryAddressSnapshot}::jsonb, 'recipientName')`,
+    customerEmail: sql<string | null>`COALESCE(${users.email}, jsonb_extract_path_text(${orders.deliveryAddressSnapshot}::jsonb, 'email')`,
   }).from(orders).leftJoin(users, eq(orders.userId, users.id)).orderBy(desc(orders.createdAt)).limit(200)
   const paymentRows = rows.length ? await db.select({ orderId: payments.orderId, status: payments.status }).from(payments)
     .where(inArray(payments.orderId, rows.map(({ id }) => id))).orderBy(desc(payments.createdAt)) : []
@@ -779,17 +780,17 @@ adminRouter.get('/guest-orders', async (_request, response) => {
     subtotal: orders.subtotal,
     deliveryFee: orders.deliveryFee,
     createdAt: orders.createdAt,
-    customerName: sql<string | null>`JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.recipientName'))`,
-    customerEmail: sql<string | null>`JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.email'))`,
-    customerPhone: sql<string | null>`JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.phone'))`,
-    address: sql<string | null>`JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.address'))`,
-    town: sql<string | null>`JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.town'))`,
-    county: sql<string | null>`JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.county'))`,
-    estate: sql<string | null>`JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.estate'))`,
-    landmark: sql<string | null>`JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.landmark'))`,
-    deliveryZone: sql<string | null>`JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.deliveryZone'))`,
-    latitude: sql<string | null>`JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.latitude'))`,
-    longitude: sql<string | null>`JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.longitude'))`,
+    customerName: sql<string | null>`jsonb_extract_path_text(${orders.deliveryAddressSnapshot}::jsonb, 'recipientName')`,
+    customerEmail: sql<string | null>`jsonb_extract_path_text(${orders.deliveryAddressSnapshot}::jsonb, 'email')`,
+    customerPhone: sql<string | null>`jsonb_extract_path_text(${orders.deliveryAddressSnapshot}::jsonb, 'phone')`,
+    address: sql<string | null>`jsonb_extract_path_text(${orders.deliveryAddressSnapshot}::jsonb, 'address')`,
+    town: sql<string | null>`jsonb_extract_path_text(${orders.deliveryAddressSnapshot}::jsonb, 'town')`,
+    county: sql<string | null>`jsonb_extract_path_text(${orders.deliveryAddressSnapshot}::jsonb, 'county')`,
+    estate: sql<string | null>`jsonb_extract_path_text(${orders.deliveryAddressSnapshot}::jsonb, 'estate')`,
+    landmark: sql<string | null>`jsonb_extract_path_text(${orders.deliveryAddressSnapshot}::jsonb, 'landmark')`,
+    deliveryZone: sql<string | null>`jsonb_extract_path_text(${orders.deliveryAddressSnapshot}::jsonb, 'deliveryZone')`,
+    latitude: sql<string | null>`jsonb_extract_path_text(${orders.deliveryAddressSnapshot}::jsonb, 'latitude')`,
+    longitude: sql<string | null>`jsonb_extract_path_text(${orders.deliveryAddressSnapshot}::jsonb, 'longitude')`,
   }).from(orders).where(isNull(orders.userId)).orderBy(desc(orders.createdAt)).limit(250)
   const orderIds = guestOrders.map(({ id }) => id)
   const [paymentRows, itemRows] = orderIds.length ? await Promise.all([
@@ -831,9 +832,10 @@ adminRouter.patch('/orders/:id/status', async (request, response) => {
     const [order] = await transaction.select({ status: orders.status, paymentMethod: orders.paymentMethod, userId: orders.userId, orderNumber: orders.orderNumber }).from(orders).where(eq(orders.id, id.data)).limit(1)
     if (!order) return 'missing' as const
     if (!canTransitionOrderStatus(order.status, input.data.status, order.paymentMethod)) return 'conflict' as const
-    const [updated] = await transaction.update(orders).set({ status: input.data.status })
+    const updated = await transaction.update(orders).set({ status: input.data.status })
       .where(and(eq(orders.id, id.data), eq(orders.status, order.status)))
-    if (updated.affectedRows !== 1) return 'conflict' as const
+      .returning({ id: orders.id })
+    if (updated.length !== 1) return 'conflict' as const
     if (input.data.status === 'cancelled') {
       const reservations = await transaction.select({
         variantId: orderItems.variantId,
@@ -861,7 +863,7 @@ adminRouter.patch('/orders/:id/status', async (request, response) => {
       body: `Your order ${order.orderNumber} is now ${statusLabel}.`,
       href: `/account/orders/${encodeURIComponent(order.orderNumber)}`,
       audienceType: 'system',
-    }).$returningId()
+    }).returning({ id: notificationCampaigns.id })
     if (order.userId !== null) await transaction.insert(notificationRecipients).values({ campaignId: notificationId, userId: order.userId })
     return 'updated' as const
   })
@@ -918,7 +920,7 @@ adminRouter.post('/notifications', async (request, response) => {
       audienceType: input.data.audience,
       audienceUserId: input.data.customerId ?? null,
       createdByAdminId: actor?.id ?? null,
-    }).$returningId()
+    }).returning({ id: notificationCampaigns.id })
     for (let offset = 0; offset < recipientIds.length; offset += 500) {
       await transaction.insert(notificationRecipients).values(recipientIds.slice(offset, offset + 500).map(({ id: userId }) => ({ campaignId: id, userId })))
     }
@@ -935,8 +937,8 @@ adminRouter.delete('/notifications/:id', async (request, response) => {
   const deleted = await db.delete(notificationCampaigns).where(and(
     eq(notificationCampaigns.id, id.data),
     eq(notificationCampaigns.type, 'announcement'),
-  ))
-  if (deleted[0].affectedRows !== 1) return response.status(404).json({ error: { code: 'NOTIFICATION_NOT_FOUND', message: 'Announcement not found.' } })
+  )).returning({ id: notificationCampaigns.id })
+  if (deleted.length !== 1) return response.status(404).json({ error: { code: 'NOTIFICATION_NOT_FOUND', message: 'Announcement not found.' } })
   const actor = authenticatedAdmin(request)
   if (actor) await recordAdminAudit(actor.id, 'notification.retracted', 'notification', String(id.data))
   response.status(204).end()
@@ -1017,7 +1019,7 @@ adminRouter.patch('/support/:id', async (request, response) => {
           : `Your support request ${existing.subject} is now ${input.data.status?.replaceAll('_', ' ')}.`,
         href: '/account/support',
         audienceType: 'system',
-      }).$returningId()
+      }).returning({ id: notificationCampaigns.id })
       await transaction.insert(notificationRecipients).values({ campaignId: notificationId, userId: existing.userId })
     }
     return 'updated' as const
@@ -1098,7 +1100,7 @@ adminRouter.post('/support/:id/messages', async (request, response) => {
       body: `The KitCulture team replied to your support request: ${conversation.subject}.`,
       href: '/account/support',
       audienceType: 'system',
-    }).$returningId()
+    }).returning({ id: notificationCampaigns.id })
     await transaction.insert(notificationRecipients).values({ campaignId: notificationId, userId: conversation.customerId })
   })
   const actor = authenticatedAdmin(request)
@@ -1146,7 +1148,7 @@ adminRouter.post('/delivery/zones', async (request, response) => {
   const input = zoneSchema.safeParse(request.body)
   if (!input.success) return response.status(400).json({ error: { code: 'INVALID_INPUT', message: 'Delivery area details are invalid.' } })
   if (!db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Delivery services are unavailable.' } })
-  const [{ id }] = await db.insert(deliveryZones).values(input.data).$returningId()
+  const [{ id }] = await db.insert(deliveryZones).values(input.data).returning({ id: deliveryZones.id })
   const actor = authenticatedAdmin(request)
   if (actor) await recordAdminAudit(actor.id, 'delivery_zone.created', 'delivery_zone', String(id))
   response.status(201).json({ data: { id } })
@@ -1194,7 +1196,7 @@ adminRouter.post('/expenses', async (request, response) => {
     incurredAt: new Date(input.data.incurredAt),
     categoryId: input.data.categoryId ?? null,
     createdBy: null,
-  }).$returningId()
+  }).returning({ id: expenses.id })
   const actor = authenticatedAdmin(request)
   if (actor) await recordAdminAudit(actor.id, 'expense.created', 'expense', String(id))
   response.status(201).json({ data: { id } })
@@ -1248,7 +1250,7 @@ adminRouter.patch('/settings', async (request, response) => {
   await db.transaction(async (transaction) => {
     for (const [key, value] of Object.entries(input.data)) {
       await transaction.insert(applicationSettings).values({ key, value, updatedBy: null })
-        .onDuplicateKeyUpdate({ set: { value, updatedBy: null } })
+        .onConflictDoUpdate({ target: applicationSettings.key, set: { value, updatedBy: null } })
     }
   })
   const actor = authenticatedAdmin(request)

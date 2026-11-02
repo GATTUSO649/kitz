@@ -204,7 +204,7 @@ accountRouter.post('/addresses', async (request, response) => {
       latitude: input.data.latitude == null ? null : String(input.data.latitude),
       longitude: input.data.longitude == null ? null : String(input.data.longitude),
       isDefault: input.data.isDefault ?? false,
-    }).$returningId()
+    }).returning({ id: customerAddresses.id })
     const [created] = await transaction.select().from(customerAddresses).where(eq(customerAddresses.id, id)).limit(1)
     return created
   })
@@ -235,11 +235,11 @@ accountRouter.patch('/addresses/:id', async (request, response) => {
     const values: Record<string, unknown> = { ...input.data }
     if (input.data.latitude !== undefined) values.latitude = input.data.latitude === null ? null : String(input.data.latitude)
     if (input.data.longitude !== undefined) values.longitude = input.data.longitude === null ? null : String(input.data.longitude)
-    const [result] = await transaction.update(customerAddresses).set(values).where(and(
+    const result = await transaction.update(customerAddresses).set(values).where(and(
       eq(customerAddresses.id, id.data),
       eq(customerAddresses.userId, auth.userId),
-    ))
-    return result.affectedRows === 1
+    )).returning({ id: customerAddresses.id })
+    return result.length === 1
   })
   if (!updated) {
     response.status(404).json({ error: { code: 'ADDRESS_NOT_FOUND', message: 'Delivery address not found.' } })
@@ -261,11 +261,11 @@ accountRouter.delete('/addresses/:id', async (request, response) => {
     response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Sign in to continue.' } })
     return
   }
-  const [deleted] = await db.delete(customerAddresses).where(and(
+  const deleted = await db.delete(customerAddresses).where(and(
     eq(customerAddresses.id, id.data),
     eq(customerAddresses.userId, auth.userId),
-  ))
-  if (deleted.affectedRows !== 1) {
+  )).returning({ id: customerAddresses.id })
+  if (deleted.length !== 1) {
     response.status(404).json({ error: { code: 'ADDRESS_NOT_FOUND', message: 'Delivery address not found.' } })
     return
   }
@@ -363,8 +363,8 @@ accountRouter.delete('/notifications/:id', async (request, response) => {
   const deleted = await db.delete(notificationRecipients).where(and(
     eq(notificationRecipients.id, id.data),
     eq(notificationRecipients.userId, auth.userId),
-  ))
-  if (deleted[0].affectedRows !== 1) return response.status(404).json({ error: { code: 'NOTIFICATION_NOT_FOUND', message: 'Notification not found.' } })
+  )).returning({ id: notificationRecipients.id })
+  if (deleted.length !== 1) return response.status(404).json({ error: { code: 'NOTIFICATION_NOT_FOUND', message: 'Notification not found.' } })
   response.status(204).end()
 })
 
@@ -542,7 +542,7 @@ accountRouter.post('/support/chat', async (request, response) => {
       category: 'other',
       subject,
       message: input.data.body,
-    }).$returningId()
+    }).returning({ id: supportRequests.id })
     await transaction.insert(supportMessages).values({
       supportRequestId: created.id,
       senderType: 'customer',
@@ -598,7 +598,7 @@ accountRouter.post('/support', async (request, response) => {
       category: input.data.category,
       subject: input.data.subject,
       message: input.data.message,
-    }).$returningId()
+    }).returning({ id: supportRequests.id })
     await transaction.insert(supportMessages).values({
       supportRequestId: created.id,
       senderType: 'customer',
@@ -634,7 +634,8 @@ accountRouter.post('/wishlist', async (request, response) => {
     response.status(404).json({ error: { code: 'PRODUCT_NOT_FOUND', message: 'Product not found.' } })
     return
   }
-  await db.insert(wishlists).values({ userId: auth.userId, productId: product.id }).onDuplicateKeyUpdate({ set: { productId: product.id } })
+  await db.insert(wishlists).values({ userId: auth.userId, productId: product.id })
+    .onConflictDoNothing({ target: [wishlists.userId, wishlists.productId] })
   response.status(201).json({ data: { saved: true } })
 })
 
@@ -659,7 +660,10 @@ accountRouter.post('/products/:productId/reviews', async (request, response) => 
     return
   }
   await db.insert(productReviews).values({ productId: product.id, userId: auth.userId, ...input.data })
-    .onDuplicateKeyUpdate({ set: { ...input.data, updatedAt: new Date() } })
+    .onConflictDoUpdate({
+      target: [productReviews.productId, productReviews.userId],
+      set: { ...input.data, updatedAt: new Date() },
+    })
   response.json({ data: { saved: true } })
 })
 

@@ -85,7 +85,8 @@ export function resolveReportingRange(
 }
 
 const salesOrderStatuses = ['paid', 'processing', 'dispatched', 'delivered'] as const
-const settledAt = sql`COALESCE(${payments.transactionAt}, ${payments.updatedAt})`
+const settledAt = sql`COALESCE(${payments.transactionAt} AT TIME ZONE 'UTC', ${payments.updatedAt})`
+const settledDate = sql`(${settledAt} AT TIME ZONE 'UTC')::date`
 
 export async function buildAdminDashboardReport(database: typeof db, range: ReportingRange) {
   if (!database) return null
@@ -150,18 +151,18 @@ export async function buildAdminDashboardReport(database: typeof db, range: Repo
       .orderBy(desc(sum(orderItems.quantity)))
       .limit(8),
     database.select({
-      location: sql<string>`COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.county')), ''), 'Unknown')`,
+      location: sql<string>`COALESCE(NULLIF(jsonb_extract_path_text(${orders.deliveryAddressSnapshot}::jsonb, 'county'), ''), 'Unknown')`,
       orders: count(),
     }).from(orders)
       .where(and(orderRange, inArray(orders.status, salesOrderStatuses)))
       .groupBy(sql`location`)
       .orderBy(desc(count()))
       .limit(8),
-    database.select({ date: sql<string>`DATE(${settledAt})`, revenue: sum(payments.amount) })
+    database.select({ date: settledDate, revenue: sum(payments.amount) })
       .from(payments)
       .where(and(eq(payments.status, 'succeeded'), paymentRange))
-      .groupBy(sql`DATE(${settledAt})`)
-      .orderBy(sql`DATE(${settledAt})`),
+      .groupBy(settledDate)
+      .orderBy(settledDate),
   ])
 
   const [recentOrders] = await Promise.all([database.select({
@@ -169,8 +170,8 @@ export async function buildAdminDashboardReport(database: typeof db, range: Repo
     status: orders.status,
     total: orders.total,
     createdAt: orders.createdAt,
-    customerName: sql<string | null>`COALESCE(${users.fullName}, JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.recipientName')))`,
-    customerEmail: sql<string | null>`COALESCE(${users.email}, JSON_UNQUOTE(JSON_EXTRACT(${orders.deliveryAddressSnapshot}, '$.email')))`,
+      customerName: sql<string | null>`COALESCE(${users.fullName}, jsonb_extract_path_text(${orders.deliveryAddressSnapshot}::jsonb, 'recipientName'))`,
+      customerEmail: sql<string | null>`COALESCE(${users.email}, jsonb_extract_path_text(${orders.deliveryAddressSnapshot}::jsonb, 'email'))`,
   }).from(orders).leftJoin(users, eq(orders.userId, users.id))
     .where(orderRange)
     .orderBy(desc(orders.createdAt))

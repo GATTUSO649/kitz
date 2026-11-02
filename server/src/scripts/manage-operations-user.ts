@@ -24,7 +24,7 @@ async function main() {
       const [existing] = await adminDb.select({ id: operationsUsers.id }).from(operationsUsers).where(eq(operationsUsers.email, email)).limit(1)
       if (existing) throw new Error('That operations email already exists. Use enable to reactivate a disabled account.')
       const [{ id }] = await adminDb.transaction(async (transaction) => {
-        const [created] = await transaction.insert(operationsUsers).values({ email, fullName: fullName!, passwordHash }).$returningId()
+        const [created] = await transaction.insert(operationsUsers).values({ email, fullName: fullName!, passwordHash }).returning({ id: operationsUsers.id })
         await transaction.insert(operationsAuditEvents).values({
           actorOperationsUserId: null,
           actorType: 'provisioning_cli',

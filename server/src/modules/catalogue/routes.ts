@@ -54,7 +54,10 @@ catalogueRouter.post('/products/:productId/ratings', productRatingLimiter, async
   }
   try {
     await db.insert(productRatings).values({ productId: product.id, visitorId: input.data.visitorId, rating: input.data.rating })
-      .onDuplicateKeyUpdate({ set: { rating: input.data.rating, updatedAt: new Date() } })
+      .onConflictDoUpdate({
+        target: [productRatings.productId, productRatings.visitorId],
+        set: { rating: input.data.rating, updatedAt: new Date() },
+      })
   } catch (error) {
     if (inspectDatabaseError(error).category === 'missing_table') {
       response.status(503).json({ error: { code: 'PRODUCT_RATINGS_UNAVAILABLE', message: 'Quick ratings are unavailable until the product ratings database migration is applied.' } })

@@ -1,31 +1,35 @@
+import { sql } from 'drizzle-orm'
 import {
   boolean,
-  decimal,
-  datetime,
+  check,
+  numeric as decimal,
   index,
-  int,
-  mysqlEnum,
-  mysqlTable,
+  integer as int,
+  pgTable as mysqlTable,
   primaryKey,
   text,
-  timestamp,
+  timestamp as pgTimestamp,
   unique,
   varchar,
-} from 'drizzle-orm/mysql-core'
+} from 'drizzle-orm/pg-core'
+
+const timestamp = (name: string) => pgTimestamp(name, { withTimezone: true, mode: 'date' })
+const datetime = (name: string) => pgTimestamp(name, { withTimezone: false, mode: 'date' })
+const enumText = <T extends string>(name: string, length: number) => varchar(name, { length }).$type<T>()
 
 export const users = mysqlTable('users', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   email: varchar('email', { length: 254 }).notNull().unique(),
   passwordHash: varchar('password_hash', { length: 255 }).notNull(),
   fullName: varchar('full_name', { length: 160 }).notNull(),
   phone: varchar('phone', { length: 20 }),
   emailVerifiedAt: timestamp('email_verified_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
 })
 
 export const customerAddresses = mysqlTable('customer_addresses', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   userId: int('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   label: varchar('label', { length: 80 }).notNull(),
   recipientName: varchar('recipient_name', { length: 160 }).notNull(),
@@ -40,11 +44,11 @@ export const customerAddresses = mysqlTable('customer_addresses', {
   longitude: decimal('longitude', { precision: 10, scale: 7 }),
   isDefault: boolean('is_default').default(false).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
 }, (table) => [index('customer_addresses_user_idx').on(table.userId, table.isDefault)])
 
 export const categories = mysqlTable('categories', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   name: varchar('name', { length: 120 }).notNull(),
   slug: varchar('slug', { length: 140 }).notNull().unique(),
   sortOrder: int('sort_order').default(0).notNull(),
@@ -52,7 +56,7 @@ export const categories = mysqlTable('categories', {
 })
 
 export const leagues = mysqlTable('leagues', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   name: varchar('name', { length: 120 }).notNull(),
   slug: varchar('slug', { length: 140 }).notNull().unique(),
   country: varchar('country', { length: 80 }).notNull(),
@@ -63,7 +67,7 @@ export const leagues = mysqlTable('leagues', {
 }, (table) => [index('leagues_active_order_idx').on(table.active, table.sortOrder)])
 
 export const teams = mysqlTable('teams', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   leagueId: int('league_id').notNull().references(() => leagues.id, { onDelete: 'cascade' }),
   name: varchar('name', { length: 120 }).notNull(),
   slug: varchar('slug', { length: 140 }).notNull(),
@@ -75,7 +79,7 @@ export const teams = mysqlTable('teams', {
 ])
 
 export const jerseyCategories = mysqlTable('jersey_categories', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   name: varchar('name', { length: 80 }).notNull(),
   slug: varchar('slug', { length: 100 }).notNull().unique(),
   sortOrder: int('sort_order').default(0).notNull(),
@@ -83,7 +87,7 @@ export const jerseyCategories = mysqlTable('jersey_categories', {
 })
 
 export const products = mysqlTable('products', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   categoryId: int('category_id').references(() => categories.id, { onDelete: 'set null' }),
   teamId: int('team_id').references(() => teams.id, { onDelete: 'set null' }),
   jerseyCategoryId: int('jersey_category_id').references(() => jerseyCategories.id, { onDelete: 'set null' }),
@@ -100,11 +104,11 @@ export const products = mysqlTable('products', {
   featured: boolean('featured').default(false).notNull(),
   trending: boolean('trending').default(false).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
 }, (table) => [index('products_category_published_idx').on(table.categoryId, table.published)])
 
 export const productImages = mysqlTable('product_images', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   productId: int('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
   publicId: varchar('public_id', { length: 255 }).notNull().unique(),
   imageUrl: varchar('image_url', { length: 2048 }).notNull(),
@@ -119,7 +123,7 @@ export const productImages = mysqlTable('product_images', {
 }, (table) => [index('product_images_product_order_idx').on(table.productId, table.sortOrder)])
 
 export const productVideos = mysqlTable('product_videos', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   productId: int('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
   videoUrl: varchar('video_url', { length: 2048 }).notNull(),
   title: varchar('title', { length: 240 }).notNull(),
@@ -128,7 +132,7 @@ export const productVideos = mysqlTable('product_videos', {
 }, (table) => [index('product_videos_product_order_idx').on(table.productId, table.sortOrder)])
 
 export const homepageSlides = mysqlTable('homepage_slides', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   imageUrl: varchar('image_url', { length: 2048 }).notNull(),
   title: varchar('title', { length: 180 }).notNull(),
   subtitle: varchar('subtitle', { length: 500 }).notNull(),
@@ -141,62 +145,65 @@ export const homepageSlides = mysqlTable('homepage_slides', {
   startsAt: timestamp('starts_at'),
   endsAt: timestamp('ends_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
 }, (table) => [index('homepage_slides_active_order_idx').on(table.active, table.sortOrder)])
 
 export const productVariants = mysqlTable('product_variants', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   productId: int('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
   sku: varchar('sku', { length: 80 }).notNull().unique(),
   size: varchar('size', { length: 16 }).notNull(),
   price: decimal('price', { precision: 10, scale: 2 }),
   stock: int('stock').default(0).notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
 }, (table) => [unique('product_variant_size_unique').on(table.productId, table.size)])
 
 export const wishlists = mysqlTable('wishlists', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   userId: int('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   productId: int('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (table) => [unique('wishlist_user_product_unique').on(table.userId, table.productId), index('wishlist_user_idx').on(table.userId)])
 
 export const productReviews = mysqlTable('product_reviews', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   productId: int('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
   userId: int('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   rating: int('rating').notNull(),
   body: text('body').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
 }, (table) => [
   unique('product_reviews_user_product_unique').on(table.productId, table.userId),
   index('product_reviews_product_created_idx').on(table.productId, table.createdAt),
 ])
 
 export const productRatings = mysqlTable('product_ratings', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   productId: int('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
   visitorId: varchar('visitor_id', { length: 36 }).notNull(),
   rating: int('rating').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
 }, (table) => [
   unique('product_ratings_product_visitor_unique').on(table.productId, table.visitorId),
   index('product_ratings_product_created_idx').on(table.productId, table.createdAt),
 ])
 
 export const inventoryMovements = mysqlTable('inventory_movements', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   variantId: int('variant_id').notNull().references(() => productVariants.id),
-  movementType: mysqlEnum('movement_type', ['restock', 'sale', 'adjustment', 'reservation', 'release']).notNull(),
+  movementType: enumText<'restock' | 'sale' | 'adjustment' | 'reservation' | 'release'>('movement_type', 20).notNull(),
   quantityChange: int('quantity_change').notNull(),
   note: varchar('note', { length: 500 }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (table) => [index('inventory_variant_created_idx').on(table.variantId, table.createdAt)])
+}, (table) => [
+  index('inventory_variant_created_idx').on(table.variantId, table.createdAt),
+  check('inventory_movements_movement_type_check', sql`${table.movementType} IN ('restock', 'sale', 'adjustment', 'reservation', 'release')`),
+])
 
 export const carts = mysqlTable('carts', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   userId: int('user_id').references(() => users.id, { onDelete: 'cascade' }),
   anonymousTokenHash: varchar('anonymous_token_hash', { length: 64 }).unique(),
   expiresAt: timestamp('expires_at'),
@@ -204,7 +211,7 @@ export const carts = mysqlTable('carts', {
 })
 
 export const cartItems = mysqlTable('cart_items', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   cartId: int('cart_id').notNull().references(() => carts.id, { onDelete: 'cascade' }),
   variantId: int('variant_id').notNull().references(() => productVariants.id),
   quantity: int('quantity').notNull(),
@@ -212,12 +219,12 @@ export const cartItems = mysqlTable('cart_items', {
 }, (table) => [unique('cart_variant_unique').on(table.cartId, table.variantId)])
 
 export const orders = mysqlTable('orders', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   orderNumber: varchar('order_number', { length: 32 }).notNull().unique(),
   idempotencyKey: varchar('idempotency_key', { length: 36 }).unique(),
   userId: int('user_id').references(() => users.id),
-  status: mysqlEnum('status', ['pending_payment', 'paid', 'processing', 'dispatched', 'delivered', 'cancelled', 'refunded']).default('pending_payment').notNull(),
-  paymentMethod: mysqlEnum('payment_method', ['pay_on_delivery', 'mpesa']).default('pay_on_delivery').notNull(),
+  status: enumText<'pending_payment' | 'paid' | 'processing' | 'dispatched' | 'delivered' | 'cancelled' | 'refunded'>('status', 32).default('pending_payment').notNull(),
+  paymentMethod: enumText<'pay_on_delivery' | 'mpesa'>('payment_method', 24).default('pay_on_delivery').notNull(),
   currency: varchar('currency', { length: 3 }).default('KES').notNull(),
   subtotal: decimal('subtotal', { precision: 12, scale: 2 }).notNull(),
   deliveryFee: decimal('delivery_fee', { precision: 12, scale: 2 }).notNull(),
@@ -225,11 +232,16 @@ export const orders = mysqlTable('orders', {
   total: decimal('total', { precision: 12, scale: 2 }).notNull(),
   deliveryAddressSnapshot: text('delivery_address_snapshot').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
-}, (table) => [index('orders_user_created_idx').on(table.userId, table.createdAt), index('orders_status_created_idx').on(table.status, table.createdAt)])
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
+}, (table) => [
+  index('orders_user_created_idx').on(table.userId, table.createdAt),
+  index('orders_status_created_idx').on(table.status, table.createdAt),
+  check('orders_status_check', sql`${table.status} IN ('pending_payment', 'paid', 'processing', 'dispatched', 'delivered', 'cancelled', 'refunded')`),
+  check('orders_payment_method_check', sql`${table.paymentMethod} IN ('pay_on_delivery', 'mpesa')`),
+])
 
 export const orderItems = mysqlTable('order_items', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   orderId: int('order_id').notNull().references(() => orders.id, { onDelete: 'cascade' }),
   productId: int('product_id').references(() => products.id, { onDelete: 'set null' }),
   variantId: int('variant_id').references(() => productVariants.id, { onDelete: 'set null' }),
@@ -241,25 +253,27 @@ export const orderItems = mysqlTable('order_items', {
 }, (table) => [index('order_items_order_idx').on(table.orderId)])
 
 export const supportRequests = mysqlTable('support_requests', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   userId: int('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   orderId: int('order_id').references(() => orders.id, { onDelete: 'set null' }),
-  category: mysqlEnum('category', ['order', 'payment', 'delivery', 'product', 'account', 'other']).notNull(),
+  category: enumText<'order' | 'payment' | 'delivery' | 'product' | 'account' | 'other'>('category', 20).notNull(),
   subject: varchar('subject', { length: 120 }).notNull(),
   message: text('message').notNull(),
-  status: mysqlEnum('status', ['pending', 'in_progress', 'resolved', 'closed']).default('pending').notNull(),
+  status: enumText<'pending' | 'in_progress' | 'resolved' | 'closed'>('status', 20).default('pending').notNull(),
   adminResponse: text('admin_response'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
 }, (table) => [
   index('support_requests_user_created_idx').on(table.userId, table.createdAt),
   index('support_requests_status_created_idx').on(table.status, table.createdAt),
+  check('support_requests_category_check', sql`${table.category} IN ('order', 'payment', 'delivery', 'product', 'account', 'other')`),
+  check('support_requests_status_check', sql`${table.status} IN ('pending', 'in_progress', 'resolved', 'closed')`),
 ])
 
 export const supportMessages = mysqlTable('support_messages', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   supportRequestId: int('support_request_id').notNull().references(() => supportRequests.id, { onDelete: 'cascade' }),
-  senderType: mysqlEnum('sender_type', ['customer', 'admin']).notNull(),
+  senderType: enumText<'customer' | 'admin'>('sender_type', 12).notNull(),
   body: text('body').notNull(),
   latitude: decimal('latitude', { precision: 10, scale: 7 }),
   longitude: decimal('longitude', { precision: 10, scale: 7 }),
@@ -270,22 +284,29 @@ export const supportMessages = mysqlTable('support_messages', {
   deliveredAt: timestamp('delivered_at'),
   readAt: timestamp('read_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (table) => [index('support_messages_request_created_idx').on(table.supportRequestId, table.createdAt)])
+}, (table) => [
+  index('support_messages_request_created_idx').on(table.supportRequestId, table.createdAt),
+  check('support_messages_sender_type_check', sql`${table.senderType} IN ('customer', 'admin')`),
+])
 
 export const notificationCampaigns = mysqlTable('notification_campaigns', {
-  id: int('id').autoincrement().primaryKey(),
-  type: mysqlEnum('type', ['order', 'support', 'announcement']).notNull(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  type: enumText<'order' | 'support' | 'announcement'>('type', 20).notNull(),
   title: varchar('title', { length: 160 }).notNull(),
   body: text('body').notNull(),
   href: varchar('href', { length: 320 }),
-  audienceType: mysqlEnum('audience_type', ['all', 'customer', 'system']).notNull(),
+  audienceType: enumText<'all' | 'customer' | 'system'>('audience_type', 20).notNull(),
   audienceUserId: int('audience_user_id').references(() => users.id, { onDelete: 'set null' }),
   createdByAdminId: int('created_by_admin_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (table) => [index('notification_campaigns_created_idx').on(table.createdAt)])
+}, (table) => [
+  index('notification_campaigns_created_idx').on(table.createdAt),
+  check('notification_campaigns_type_check', sql`${table.type} IN ('order', 'support', 'announcement')`),
+  check('notification_campaigns_audience_type_check', sql`${table.audienceType} IN ('all', 'customer', 'system')`),
+])
 
 export const notificationRecipients = mysqlTable('notification_recipients', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   campaignId: int('campaign_id').notNull().references(() => notificationCampaigns.id, { onDelete: 'cascade' }),
   userId: int('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   readAt: timestamp('read_at'),
@@ -296,39 +317,43 @@ export const notificationRecipients = mysqlTable('notification_recipients', {
 ])
 
 export const payments = mysqlTable('payments', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   orderId: int('order_id').notNull().references(() => orders.id),
-  provider: mysqlEnum('provider', ['mpesa', 'manual', 'simulated']).notNull(),
+  provider: enumText<'mpesa' | 'manual' | 'simulated'>('provider', 16).notNull(),
   providerRequestId: varchar('provider_request_id', { length: 120 }).unique(),
   merchantRequestId: varchar('merchant_request_id', { length: 120 }),
   merchantShortcode: varchar('merchant_shortcode', { length: 20 }),
   providerReceipt: varchar('provider_receipt', { length: 120 }).unique(),
   amount: decimal('amount', { precision: 12, scale: 2 }).notNull(),
-  status: mysqlEnum('payment_status', ['initiated', 'pending', 'succeeded', 'failed', 'cancelled', 'expired', 'requires_review', 'refunded']).default('initiated').notNull(),
+  status: enumText<'initiated' | 'pending' | 'succeeded' | 'failed' | 'cancelled' | 'expired' | 'requires_review' | 'refunded'>('status', 24).default('initiated').notNull(),
   providerResultCode: varchar('provider_result_code', { length: 32 }),
   payerPhone: varchar('payer_phone', { length: 20 }),
   payerName: varchar('payer_name', { length: 160 }),
   transactionAt: datetime('transaction_at'),
   verificationMessage: varchar('verification_message', { length: 500 }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
-}, (table) => [index('payments_order_status_idx').on(table.orderId, table.status)])
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
+}, (table) => [
+  index('payments_order_status_idx').on(table.orderId, table.status),
+  check('payments_provider_check', sql`${table.provider} IN ('mpesa', 'manual', 'simulated')`),
+  check('payments_status_check', sql`${table.status} IN ('initiated', 'pending', 'succeeded', 'failed', 'cancelled', 'expired', 'requires_review', 'refunded')`),
+])
 
 export const deliveryZones = mysqlTable('delivery_zones', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   name: varchar('name', { length: 120 }).notNull().unique(),
   fee: decimal('fee', { precision: 10, scale: 2 }).notNull(),
   active: boolean('active').default(true).notNull(),
 })
 
 export const expenseCategories = mysqlTable('expense_categories', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   name: varchar('name', { length: 120 }).notNull().unique(),
   active: boolean('active').default(true).notNull(),
 })
 
 export const expenses = mysqlTable('expenses', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   categoryId: int('category_id').references(() => expenseCategories.id, { onDelete: 'set null' }),
   description: varchar('description', { length: 240 }).notNull(),
   amount: decimal('amount', { precision: 12, scale: 2 }).notNull(),
@@ -341,11 +366,11 @@ export const applicationSettings = mysqlTable('application_settings', {
   key: varchar('key', { length: 100 }).primaryKey(),
   value: text('value').notNull(),
   updatedBy: int('updated_by').references(() => users.id, { onDelete: 'set null' }),
-  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
 })
 
 export const roles = mysqlTable('roles', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   key: varchar('key', { length: 40 }).notNull().unique(),
   label: varchar('label', { length: 80 }).notNull(),
 })
@@ -356,7 +381,7 @@ export const userRoles = mysqlTable('user_roles', {
 }, (table) => [primaryKey({ columns: [table.userId, table.roleId] })])
 
 export const userSessions = mysqlTable('user_sessions', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   userId: int('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   tokenHash: varchar('token_hash', { length: 64 }).notNull().unique(),
   expiresAt: timestamp('expires_at').notNull(),
@@ -364,7 +389,7 @@ export const userSessions = mysqlTable('user_sessions', {
 })
 
 export const emailVerificationTokens = mysqlTable('email_verification_tokens', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   userId: int('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   tokenHash: varchar('token_hash', { length: 64 }).notNull().unique(),
   expiresAt: timestamp('expires_at').notNull(),
@@ -372,7 +397,7 @@ export const emailVerificationTokens = mysqlTable('email_verification_tokens', {
 })
 
 export const passwordResetTokens = mysqlTable('password_reset_tokens', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   userId: int('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   tokenHash: varchar('token_hash', { length: 64 }).notNull().unique(),
   expiresAt: timestamp('expires_at').notNull(),
@@ -380,22 +405,26 @@ export const passwordResetTokens = mysqlTable('password_reset_tokens', {
 })
 
 export const emailDeliveryLogs = mysqlTable('email_delivery_logs', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   userId: int('user_id').references(() => users.id, { onDelete: 'set null' }),
   orderId: int('order_id').references(() => orders.id, { onDelete: 'set null' }),
   notificationType: varchar('notification_type', { length: 64 }).notNull(),
   recipientEmail: varchar('recipient_email', { length: 254 }).notNull(),
   providerMessageId: varchar('provider_message_id', { length: 128 }),
-  status: mysqlEnum('status', ['queued', 'accepted', 'delivered', 'rejected', 'failed']).default('queued').notNull(),
+  status: enumText<'queued' | 'accepted' | 'delivered' | 'rejected' | 'failed'>('status', 16).default('queued').notNull(),
   attempts: int('attempts').default(0).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   lastAttemptAt: timestamp('last_attempt_at'),
   errorCategory: varchar('error_category', { length: 64 }),
   errorMessage: text('error_message'),
-}, (table) => [index('email_delivery_logs_user_created_idx').on(table.userId, table.createdAt), index('email_delivery_logs_order_idx').on(table.orderId)])
+}, (table) => [
+  index('email_delivery_logs_user_created_idx').on(table.userId, table.createdAt),
+  index('email_delivery_logs_order_idx').on(table.orderId),
+  check('email_delivery_logs_status_check', sql`${table.status} IN ('queued', 'accepted', 'delivered', 'rejected', 'failed')`),
+])
 
 export const auditLogs = mysqlTable('audit_logs', {
-  id: int('id').autoincrement().primaryKey(),
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   actorUserId: int('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
   action: varchar('action', { length: 100 }).notNull(),
   targetType: varchar('target_type', { length: 80 }),
