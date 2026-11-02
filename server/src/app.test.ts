@@ -123,6 +123,13 @@ test('keeps unknown API routes as JSON 404s', async () => {
   assert.equal(result.error.code, 'NOT_FOUND')
 })
 
+test('rejects excessive public catalogue pagination before querying the database', async () => {
+  const response = await fetch(`${baseUrl}/api/v1/products?page=101`)
+  assert.equal(response.status, 400)
+  const result = await response.json() as { error: { code: string } }
+  assert.equal(result.error.code, 'INVALID_QUERY')
+})
+
 test('guest checkout endpoints validate publicly without requiring a customer session', async () => {
   const orderResponse = await fetch(`${baseUrl}/api/v1/orders/guest`, {
     method: 'POST',
@@ -314,6 +321,22 @@ test('returns temporary-unavailability responses when MySQL is unreachable', asy
   assert.equal(login.headers.get('set-cookie'), null)
 })
 
+test('IT operations overview and grant APIs require an administrator session', async () => {
+  for (const path of [
+    '/api/v1/admin/it/overview',
+    '/api/v1/admin/it/access',
+    '/api/v1/admin/it/administrators',
+    '/api/v1/admin/it/incidents',
+    '/api/v1/admin/it/incidents/1/events',
+    '/api/v1/admin/it/audit',
+  ]) {
+    const response = await fetch(`${baseUrl}${path}`)
+    assert.equal(response.status, 401)
+    const result = await response.json() as { error: { code: string } }
+    assert.equal(result.error.code, 'UNAUTHENTICATED')
+  }
+})
+
 test('trusts the observed Render and Cloudflare proxy chain for rate limiting', async () => {
   assert.equal(app.get('trust proxy'), 3)
   const response = await fetch(`${baseUrl}/api/v1/missing`, {
@@ -359,4 +382,13 @@ test('operations sign-in uses its own login endpoint and validation contract', a
   })
   assert.equal(response.status, 400)
   assert.equal((await response.json() as { error: { code: string } }).error.code, 'INVALID_OPERATIONS_LOGIN')
+})
+
+test('IT operations APIs require an administrator session', async () => {
+  for (const path of ['/api/v1/admin/it/overview', '/api/v1/admin/it/access']) {
+    const response = await fetch(`${baseUrl}${path}`)
+    assert.equal(response.status, 401)
+    const result = await response.json() as { error: { code: string } }
+    assert.equal(result.error.code, 'UNAUTHENTICATED')
+  }
 })

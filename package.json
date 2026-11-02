@@ -30,6 +30,7 @@
     "db:mysql:generate:admin": "drizzle-kit generate --config=server/drizzle.admin.mysql.config.ts",
     "db:mysql:migrate:admin": "drizzle-kit migrate --config=server/drizzle.admin.mysql.config.ts",
     "admin:provision": "tsx server/src/scripts/provision-admin.ts",
+    "it:access": "tsx server/src/scripts/manage-it-access.ts",
     "operations:user": "tsx server/src/scripts/manage-operations-user.ts",
     "lint": "oxlint",
     "preview": "vite preview"

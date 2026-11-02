@@ -18,6 +18,7 @@ const { combinedRating, quickProductRatingSchema } = await import('../catalogue/
 const { buildDarajaCallbackUrl, callbackFailureStatus, canVerifySuccessfulStkPayment, DarajaRequestError, darajaCallbackRoute, initiateStkPush, isFinalDarajaPaymentStatus, isValidDarajaPaymentAmount, matchesCallbackToken, normalizeKenyanPhone, parseDarajaTimestamp, parseStkCallback, resolveDarajaShortcodes } = await import('../orders/daraja.js')
 const { createAddressSchema, passwordSchema, productReviewSchema, profileSchema, supportMessageSchema, supportRequestSchema } = await import('../account/routes.js')
 const { adminNotificationSchema, canTransitionOrderStatus, createProductSchema, homepageSlideBatchSchema, homepageSlideSchema, isDuplicateKeyError, settingsSchema, supportUpdateSchema } = await import('../admin/routes.js')
+const { hasItPermission } = await import('../admin/it-access.js')
 const { detectImageFormat } = await import('../admin/image-storage.js')
 
 test('registration normalizes email and accepts a long password', () => {
@@ -768,4 +769,17 @@ test('password verification compares unknown accounts against a dummy bcrypt has
   assert.equal(await verifyPassword('correct-test-passphrase', passwordHash), true)
   assert.equal(await verifyPassword('wrong-test-passphrase', passwordHash), false)
   assert.equal(await verifyPassword('wrong-test-passphrase', undefined), false)
+})
+
+test('IT roles follow least privilege and viewer access is read-only overview', () => {
+  assert.equal(hasItPermission('super_admin', 'security.read'), true)
+  assert.equal(hasItPermission('security_analyst', 'security.read'), true)
+  assert.equal(hasItPermission('security_analyst', 'database.read'), false)
+  assert.equal(hasItPermission('database_admin', 'database.read'), true)
+  assert.equal(hasItPermission('database_admin', 'infrastructure.read'), false)
+  assert.equal(hasItPermission('infrastructure_admin', 'infrastructure.read'), true)
+  assert.equal(hasItPermission('it_support', 'incidents.write'), true)
+  assert.equal(hasItPermission('it_support', 'audit.read'), false)
+  assert.equal(hasItPermission('viewer', 'overview.read'), true)
+  assert.equal(hasItPermission('viewer', 'incidents.write'), false)
 })

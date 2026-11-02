@@ -1,16 +1,19 @@
-import { and, asc, count, desc, eq, gte, inArray, isNull, lt, sql, sum } from 'drizzle-orm'
+import { randomBytes } from 'node:crypto'
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, sql, sum } from 'drizzle-orm'
 import { Router } from 'express'
 import express from 'express'
 import { z } from 'zod'
-import { adminDb, db } from '../../config/database.js'
+import { adminDb, adminPool, db, pool } from '../../config/database.js'
 import { isAllowedClientOrigin } from '../../config/env.js'
-import { adminAuditLogs, adminUsers } from '../../database/admin-schema.js'
+import { adminAuditLogs, adminUsers, itAccessRoles, operationsAuditEvents, operationsIncidentEvents, operationsIncidents, operationsOperators, operationsUsers } from '../../database/admin-schema.js'
 import { applicationSettings, categories, deliveryZones, expenseCategories, expenses, homepageSlides, inventoryMovements, jerseyCategories, leagues, notificationCampaigns, notificationRecipients, orderItems, orders, payments, productImages, productVariants, productVideos, products, supportMessages, supportRequests, teams, users } from '../../database/schema.js'
 import { authenticateAdmin, authenticatedAdmin } from '../../middleware/authenticate.js'
 import { isCustomerOnline, publishChatMessage, publishMessageReceipt, registerAdminStream } from '../../realtime/chat-events.js'
 import { recordAdminAudit } from './auth.js'
 import { deleteProductImage, ImageStorageError, uploadHomepageSlideImage, uploadProductImage } from './image-storage.js'
 import { buildAdminDashboardReport, reportPeriods, resolveOptionalDateRange, resolveReportingRange } from './reporting.js'
+import { hasItPermission, itPermissions, type ItPermission } from './it-access.js'
+import { getRequestMetrics } from '../../middleware/request-metrics.js'
 
 export const adminRouter = Router()
 adminRouter.use((request, response, next) => {
@@ -1265,4 +1268,364 @@ adminRouter.get('/audit', async (_request, response) => {
     createdAt: adminAuditLogs.createdAt, actorName: adminUsers.fullName, actorEmail: adminUsers.email,
   }).from(adminAuditLogs).innerJoin(adminUsers, eq(adminAuditLogs.adminUserId, adminUsers.id)).orderBy(desc(adminAuditLogs.createdAt)).limit(500)
   response.json({ data: rows })
+})
+
+async function activeItGrant(adminUserId: number) {
+  if (!adminDb) return null
+  const [grant] = await adminDb.select({ role: operationsOperators.role }).from(operationsOperators)
+    .where(and(eq(operationsOperators.adminUserId, adminUserId), isNull(operationsOperators.revokedAt)))
+    .limit(1)
+  return grant?.role ? { role: grant.role } : null
+}
+
+async function requireItPermission(request: import('express').Request, response: import('express').Response, permission: ItPermission) {
+  const actor = authenticatedAdmin(request)
+  if (!actor || !adminDb) {
+    response.status(503).json({ error: { code: 'IT_ACCESS_UNAVAILABLE', message: 'IT access is unavailable.' } })
+    return false
+  }
+  const grant = await activeItGrant(actor.id)
+  if (!grant || !hasItPermission(grant.role, permission)) {
+    response.status(403).json({ error: { code: 'IT_PERMISSION_REQUIRED', message: 'You do not have permission to access this IT resource.' } })
+    return false
+  }
+  return grant.role
+}
+
+async function probeItDatabase(database: typeof pool, name: string) {
+  if (!database) return { name, status: 'unavailable' as const, latencyMs: null }
+  const startedAt = performance.now()
+  try {
+    await database.query('SELECT 1')
+    return { name, status: 'healthy' as const, latencyMs: Number((performance.now() - startedAt).toFixed(1)) }
+  } catch {
+    return { name, status: 'unavailable' as const, latencyMs: null }
+  }
+}
+
+adminRouter.get('/it/overview', async (request, response) => {
+  const role = await requireItPermission(request, response, 'overview.read')
+  if (!role) return
+  const [storeProbe, adminProbe, incidentCounts] = await Promise.allSettled([
+    probeItDatabase(pool, 'store'),
+    adminPool === pool ? probeItDatabase(adminPool, 'admin') : probeItDatabase(adminPool, 'admin'),
+    adminDb!.select({
+      total: count(),
+      open: sql<number>`COUNT(*) FILTER (WHERE ${operationsIncidents.status} = 'open')`,
+      investigating: sql<number>`COUNT(*) FILTER (WHERE ${operationsIncidents.status} = 'investigating')`,
+    }).from(operationsIncidents),
+  ])
+  const databaseProbes = [
+    storeProbe.status === 'fulfilled' ? storeProbe.value : { name: 'store', status: 'unavailable' as const, latencyMs: null },
+    adminProbe.status === 'fulfilled' ? adminProbe.value : { name: 'admin', status: 'unavailable' as const, latencyMs: null },
+  ]
+  const incidentSummary = incidentCounts.status === 'fulfilled'
+    ? { status: 'available' as const, total: Number(incidentCounts.value[0]?.total ?? 0), open: Number(incidentCounts.value[0]?.open ?? 0), investigating: Number(incidentCounts.value[0]?.investigating ?? 0) }
+    : { status: 'unavailable' as const, total: null, open: null, investigating: null }
+  const memory = process.memoryUsage()
+  response.json({ data: {
+    access: { role, permissions: itPermissions.filter((permission) => hasItPermission(role, permission)) },
+    application: { status: 'healthy', uptimeSeconds: Math.floor(process.uptime()), nodeVersion: process.version, memoryRssBytes: memory.rss, heapUsedBytes: memory.heapUsed },
+    databases: databaseProbes,
+    requests: getRequestMetrics(),
+    incidents: incidentSummary,
+    coverage: {
+      securityEvents: { status: 'not_configured' },
+      vulnerabilities: { status: 'not_configured' },
+      supportTickets: { status: 'not_configured' },
+      backupMonitoring: { status: 'not_configured' },
+    },
+    externalServices: {
+      render: { status: 'unknown', reason: 'No authorized Render telemetry is configured.' },
+      cloudinary: { status: 'unknown', reason: 'No authorized Cloudinary health feed is configured.' },
+      daraja: { status: 'unknown', reason: 'No safe provider health check is configured; no payment request was sent.' },
+      email: { status: 'unknown', reason: 'Provider delivery health is not exposed as a live check.' },
+    },
+  } })
+})
+
+const itIncidentQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+  cursor: z.coerce.number().int().positive().optional(),
+}).strict()
+
+adminRouter.get('/it/incidents', async (request, response) => {
+  if (!await requireItPermission(request, response, 'incidents.read')) return
+  if (!adminDb) return response.status(503).json({ error: { code: 'IT_DATABASE_UNAVAILABLE', message: 'IT incident data is unavailable.' } })
+  const query = itIncidentQuerySchema.safeParse(request.query)
+  if (!query.success) return response.status(400).json({ error: { code: 'INVALID_QUERY', message: 'Incident pagination is invalid.' } })
+  const rows = await adminDb.select({
+    id: operationsIncidents.id,
+    incidentNumber: operationsIncidents.incidentNumber,
+    severity: operationsIncidents.severity,
+    status: operationsIncidents.status,
+    title: operationsIncidents.title,
+    description: operationsIncidents.description,
+    affectedComponent: operationsIncidents.affectedComponent,
+    assignedAdminUserId: operationsIncidents.assignedAdminUserId,
+    assignedOperationsUserId: operationsIncidents.assignedOperationsUserId,
+    assigneeName: sql<string | null>`COALESCE(${adminUsers.fullName}, ${operationsUsers.fullName})`,
+    rootCause: operationsIncidents.rootCause,
+    resolutionNotes: operationsIncidents.resolutionNotes,
+    detectedAt: operationsIncidents.detectedAt,
+    resolvedAt: operationsIncidents.resolvedAt,
+    createdAt: operationsIncidents.createdAt,
+    updatedAt: operationsIncidents.updatedAt,
+  }).from(operationsIncidents)
+    .leftJoin(adminUsers, eq(operationsIncidents.assignedAdminUserId, adminUsers.id))
+    .leftJoin(operationsUsers, eq(operationsIncidents.assignedOperationsUserId, operationsUsers.id))
+    .where(query.data.cursor ? lt(operationsIncidents.id, query.data.cursor) : undefined)
+    .orderBy(desc(operationsIncidents.id))
+    .limit(query.data.limit + 1)
+  const hasMore = rows.length > query.data.limit
+  const data = rows.slice(0, query.data.limit)
+  response.json({ data, pagination: { limit: query.data.limit, nextCursor: hasMore ? data.at(-1)?.id ?? null : null, hasMore } })
+})
+
+adminRouter.get('/it/administrators', async (request, response) => {
+  if (!await requireItPermission(request, response, 'incidents.write')) return
+  if (!adminDb) return response.status(503).json({ error: { code: 'IT_ACCESS_UNAVAILABLE', message: 'IT account data is unavailable.' } })
+  const rows = await adminDb.select({ id: adminUsers.id, email: adminUsers.email, fullName: adminUsers.fullName })
+    .from(adminUsers).where(isNotNull(adminUsers.emailVerifiedAt)).orderBy(asc(adminUsers.fullName)).limit(200)
+  response.json({ data: rows })
+})
+
+const createItIncidentSchema = z.object({
+  severity: z.enum(['P1', 'P2', 'P3', 'P4']),
+  title: z.string().trim().min(4).max(160),
+  description: z.string().trim().min(10).max(4000),
+  affectedComponent: z.enum(['website', 'api', 'database', 'payments', 'email', 'security', 'other']),
+}).strict()
+
+adminRouter.post('/it/incidents', async (request, response) => {
+  const actor = authenticatedAdmin(request)
+  const input = createItIncidentSchema.safeParse(request.body)
+  if (!input.success) return response.status(400).json({ error: { code: 'INVALID_INCIDENT', message: 'Incident details are invalid.' } })
+  if (!actor || !await requireItPermission(request, response, 'incidents.write')) return
+  if (!adminDb) return response.status(503).json({ error: { code: 'IT_DATABASE_UNAVAILABLE', message: 'IT incident data is unavailable.' } })
+  const incidentNumber = `IT-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}-${randomBytes(3).toString('hex').toUpperCase()}`
+  const now = new Date()
+  const id = await adminDb.transaction(async (transaction) => {
+    const [{ id: incidentId }] = await transaction.insert(operationsIncidents).values({
+      incidentNumber,
+      severity: input.data.severity,
+      status: 'open',
+      title: input.data.title,
+      description: input.data.description,
+      affectedComponent: input.data.affectedComponent,
+      createdByAdminUserId: actor.id,
+      detectedAt: now,
+    }).returning({ id: operationsIncidents.id })
+    await transaction.insert(operationsIncidentEvents).values({
+      incidentId,
+      actorAdminUserId: actor.id,
+      eventType: 'created',
+      message: `Incident opened: ${input.data.title}`,
+    })
+    await transaction.insert(operationsAuditEvents).values({
+      actorAdminUserId: actor.id,
+      actorType: 'admin',
+      action: 'it_incident.created',
+      targetType: 'incident',
+      targetId: incidentNumber,
+      details: JSON.stringify({ severity: input.data.severity, affectedComponent: input.data.affectedComponent }),
+    })
+    await transaction.insert(adminAuditLogs).values({ adminUserId: actor.id, action: 'it_incident.created', targetType: 'incident', targetId: incidentNumber })
+    return incidentId
+  })
+  response.status(201).json({ data: { id, incidentNumber } })
+})
+
+const patchItIncidentSchema = z.object({
+  severity: z.enum(['P1', 'P2', 'P3', 'P4']).optional(),
+  status: z.enum(['open', 'investigating', 'resolved', 'closed']).optional(),
+  assignedAdminUserId: z.number().int().positive().nullable().optional(),
+  rootCause: z.string().trim().max(4000).nullable().optional(),
+  resolutionNotes: z.string().trim().max(4000).nullable().optional(),
+}).strict().refine((value) => Object.keys(value).length > 0)
+
+adminRouter.patch('/it/incidents/:id', async (request, response) => {
+  const actor = authenticatedAdmin(request)
+  const id = z.coerce.number().int().positive().safeParse(request.params.id)
+  const input = patchItIncidentSchema.safeParse(request.body)
+  if (!id.success || !input.success) return response.status(400).json({ error: { code: 'INVALID_INCIDENT_UPDATE', message: 'Incident update is invalid.' } })
+  if (!actor || !await requireItPermission(request, response, 'incidents.write')) return
+  if (!adminDb) return response.status(503).json({ error: { code: 'IT_DATABASE_UNAVAILABLE', message: 'IT incident data is unavailable.' } })
+  if (input.data.assignedAdminUserId) {
+    const [assignee] = await adminDb.select({ id: adminUsers.id }).from(adminUsers)
+      .where(eq(adminUsers.id, input.data.assignedAdminUserId)).limit(1)
+    if (!assignee) return response.status(400).json({ error: { code: 'INVALID_ASSIGNEE', message: 'The assignee is not an administrator.' } })
+  }
+  const now = new Date()
+  const incidentNumber = await adminDb.transaction(async (transaction) => {
+    const [existing] = await transaction.select({ id: operationsIncidents.id, incidentNumber: operationsIncidents.incidentNumber })
+      .from(operationsIncidents).where(eq(operationsIncidents.id, id.data)).limit(1).for('update')
+    if (!existing) return null
+    await transaction.update(operationsIncidents).set({
+      ...input.data,
+      ...(input.data.status ? { resolvedAt: ['resolved', 'closed'].includes(input.data.status) ? now : null } : {}),
+    }).where(eq(operationsIncidents.id, id.data))
+    const changedFields = Object.keys(input.data)
+    await transaction.insert(operationsIncidentEvents).values({
+      incidentId: id.data,
+      actorAdminUserId: actor.id,
+      eventType: 'updated',
+      message: `IT incident updated: ${changedFields.join(', ')}`,
+    })
+    await transaction.insert(operationsAuditEvents).values({
+      actorAdminUserId: actor.id,
+      actorType: 'admin',
+      action: 'it_incident.updated',
+      targetType: 'incident',
+      targetId: existing.incidentNumber,
+      details: JSON.stringify(changedFields),
+    })
+    await transaction.insert(adminAuditLogs).values({ adminUserId: actor.id, action: 'it_incident.updated', targetType: 'incident', targetId: existing.incidentNumber })
+    return existing.incidentNumber
+  })
+  if (!incidentNumber) return response.status(404).json({ error: { code: 'INCIDENT_NOT_FOUND', message: 'Incident not found.' } })
+  response.json({ data: { id: id.data, incidentNumber } })
+})
+
+adminRouter.get('/it/incidents/:id/events', async (request, response) => {
+  const id = z.coerce.number().int().positive().safeParse(request.params.id)
+  if (!id.success) return response.status(400).json({ error: { code: 'INVALID_INCIDENT_ID', message: 'Incident ID is invalid.' } })
+  if (!await requireItPermission(request, response, 'incidents.read')) return
+  if (!adminDb) return response.status(503).json({ error: { code: 'IT_DATABASE_UNAVAILABLE', message: 'IT incident data is unavailable.' } })
+  const rows = await adminDb.select({
+    id: operationsIncidentEvents.id,
+    eventType: operationsIncidentEvents.eventType,
+    message: operationsIncidentEvents.message,
+    createdAt: operationsIncidentEvents.createdAt,
+    actorName: sql<string | null>`COALESCE(${adminUsers.fullName}, ${operationsUsers.fullName})`,
+  }).from(operationsIncidentEvents)
+    .leftJoin(adminUsers, eq(operationsIncidentEvents.actorAdminUserId, adminUsers.id))
+    .leftJoin(operationsUsers, eq(operationsIncidentEvents.actorOperationsUserId, operationsUsers.id))
+    .where(eq(operationsIncidentEvents.incidentId, id.data))
+    .orderBy(desc(operationsIncidentEvents.createdAt))
+    .limit(100)
+  response.json({ data: rows.reverse() })
+})
+
+adminRouter.get('/it/audit', async (request, response) => {
+  if (!await requireItPermission(request, response, 'audit.read')) return
+  if (!adminDb) return response.status(503).json({ error: { code: 'IT_DATABASE_UNAVAILABLE', message: 'IT audit data is unavailable.' } })
+  const query = itIncidentQuerySchema.safeParse(request.query)
+  if (!query.success) return response.status(400).json({ error: { code: 'INVALID_QUERY', message: 'Audit pagination is invalid.' } })
+  const rows = await adminDb.select({
+    id: operationsAuditEvents.id,
+    actorType: operationsAuditEvents.actorType,
+    actorName: sql<string | null>`COALESCE(${adminUsers.fullName}, ${operationsUsers.fullName})`,
+    action: operationsAuditEvents.action,
+    targetType: operationsAuditEvents.targetType,
+    targetId: operationsAuditEvents.targetId,
+    details: operationsAuditEvents.details,
+    createdAt: operationsAuditEvents.createdAt,
+  }).from(operationsAuditEvents)
+    .leftJoin(adminUsers, eq(operationsAuditEvents.actorAdminUserId, adminUsers.id))
+    .leftJoin(operationsUsers, eq(operationsAuditEvents.actorOperationsUserId, operationsUsers.id))
+    .where(query.data.cursor ? lt(operationsAuditEvents.id, query.data.cursor) : undefined)
+    .orderBy(desc(operationsAuditEvents.id))
+    .limit(query.data.limit + 1)
+  const hasMore = rows.length > query.data.limit
+  const data = rows.slice(0, query.data.limit)
+  response.json({ data, pagination: { limit: query.data.limit, nextCursor: hasMore ? data.at(-1)?.id ?? null : null, hasMore } })
+})
+
+adminRouter.get('/it/access', async (request, response) => {
+  const actor = authenticatedAdmin(request)
+  if (!actor || !adminDb) return response.status(503).json({ error: { code: 'IT_ACCESS_UNAVAILABLE', message: 'IT access is unavailable.' } })
+  const grant = await activeItGrant(actor.id)
+  if (grant?.role !== 'super_admin') return response.status(403).json({ error: { code: 'IT_PERMISSION_REQUIRED', message: 'Only an IT super-admin can manage IT access.' } })
+  const rows = await adminDb.select({
+    adminUserId: operationsOperators.adminUserId,
+    email: adminUsers.email,
+    fullName: adminUsers.fullName,
+    role: operationsOperators.role,
+    grantedAt: operationsOperators.grantedAt,
+  }).from(operationsOperators).innerJoin(adminUsers, eq(operationsOperators.adminUserId, adminUsers.id))
+    .where(and(isNull(operationsOperators.revokedAt), isNotNull(operationsOperators.role)))
+    .orderBy(asc(adminUsers.fullName))
+  response.json({ data: rows })
+})
+
+const itAccessChangeSchema = z.object({
+  action: z.enum(['grant', 'revoke']),
+  email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
+  role: z.enum(itAccessRoles).optional(),
+}).strict().superRefine((value, context) => {
+  if (value.action === 'grant' && !value.role) context.addIssue({ code: 'custom', path: ['role'], message: 'A role is required for a grant.' })
+  if (value.action === 'revoke' && value.role) context.addIssue({ code: 'custom', path: ['role'], message: 'A role is not accepted for a revocation.' })
+})
+
+adminRouter.post('/it/access', async (request, response) => {
+  const actor = authenticatedAdmin(request)
+  const input = itAccessChangeSchema.safeParse(request.body)
+  if (!input.success) return response.status(400).json({ error: { code: 'INVALID_IT_ACCESS_CHANGE', message: 'IT access change is invalid.' } })
+  if (!actor || !adminDb) return response.status(503).json({ error: { code: 'IT_ACCESS_UNAVAILABLE', message: 'IT access is unavailable.' } })
+  const now = new Date()
+  const result = await adminDb.transaction(async (transaction) => {
+    const [grantor] = await transaction.select({ role: operationsOperators.role })
+      .from(operationsOperators).where(and(
+        eq(operationsOperators.adminUserId, actor.id),
+        isNull(operationsOperators.revokedAt),
+      )).limit(1).for('update')
+    if (grantor?.role !== 'super_admin') return { status: 403 as const, code: 'IT_PERMISSION_REQUIRED', message: 'Only an IT super-admin can manage IT access.' }
+
+    const [target] = await transaction.select({ id: adminUsers.id, emailVerifiedAt: adminUsers.emailVerifiedAt })
+      .from(adminUsers).where(eq(adminUsers.email, input.data.email)).limit(1).for('update')
+    if (!target?.emailVerifiedAt) return { status: 404 as const, code: 'ADMIN_ACCOUNT_NOT_FOUND', message: 'Verified administrator account not found.' }
+
+    const [existingGrant] = await transaction.select({ role: operationsOperators.role }).from(operationsOperators)
+      .where(and(eq(operationsOperators.adminUserId, target.id), isNull(operationsOperators.revokedAt))).limit(1).for('update')
+    if (input.data.action === 'revoke' && !existingGrant) {
+      return { status: 404 as const, code: 'IT_GRANT_NOT_FOUND', message: 'No active IT grant exists for this administrator.' }
+    }
+    const removesSuperAdmin = existingGrant?.role === 'super_admin'
+      && (input.data.action === 'revoke' || input.data.role !== 'super_admin')
+    if (removesSuperAdmin) {
+      const activeSuperAdmins = await transaction.select({ adminUserId: operationsOperators.adminUserId })
+        .from(operationsOperators).where(and(
+          eq(operationsOperators.role, 'super_admin'),
+          isNull(operationsOperators.revokedAt),
+        )).for('update')
+      if (activeSuperAdmins.length <= 1) return { status: 409 as const, code: 'LAST_IT_SUPER_ADMIN', message: 'The last IT super-admin grant cannot be revoked.' }
+    }
+
+    if (input.data.action === 'grant') {
+      await transaction.insert(operationsOperators).values({
+        adminUserId: target.id,
+        grantedByAdminUserId: actor.id,
+        role: input.data.role!,
+        grantedAt: now,
+        revokedAt: null,
+        revokedByAdminUserId: null,
+      }).onConflictDoUpdate({
+        target: operationsOperators.adminUserId,
+        set: { grantedByAdminUserId: actor.id, role: input.data.role!, grantedAt: now, revokedAt: null, revokedByAdminUserId: null },
+      })
+    } else {
+      if (!existingGrant) return { status: 404 as const, code: 'IT_GRANT_NOT_FOUND', message: 'No active IT grant exists for this administrator.' }
+      await transaction.update(operationsOperators).set({ revokedAt: now, revokedByAdminUserId: actor.id })
+        .where(and(eq(operationsOperators.adminUserId, target.id), isNull(operationsOperators.revokedAt)))
+    }
+    const details = input.data.action === 'grant' ? { role: input.data.role } : { role: existingGrant?.role }
+    await transaction.insert(operationsAuditEvents).values({
+      actorAdminUserId: actor.id,
+      actorType: 'admin',
+      action: `it_access.${input.data.action}ed`,
+      targetType: 'admin_user',
+      targetId: String(target.id),
+      details: JSON.stringify(details),
+    })
+    await transaction.insert(adminAuditLogs).values({
+      adminUserId: actor.id,
+      action: `it_access.${input.data.action}ed`,
+      targetType: 'admin_user',
+      targetId: String(target.id),
+    })
+    return { status: 200 as const, code: 'IT_ACCESS_UPDATED', message: 'IT access updated.' }
+  })
+  if (result.status !== 200) return response.status(result.status).json({ error: { code: result.code, message: result.message } })
+  response.json({ data: { updated: true } })
 })

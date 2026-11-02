@@ -8,6 +8,13 @@
       "when": 1793577164139,
       "tag": "0000_jittery_brother_voodoo",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793621873126,
+      "tag": "0001_mean_karnak",
+      "breakpoints": true
     }
   ]
 }

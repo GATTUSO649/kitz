@@ -1,5 +1,15 @@
 # KitCulture IT Operations Portal
 
+## Admin-integrated IT Operations (staged)
+
+The `/admin/it` page and `/api/v1/admin/it/*` APIs use the existing administrator session. Access is denied unless an explicit active IT role grant exists in `operations_operators`; no existing administrator or independent Operations user is automatically granted access. The existing `/operations` login, users, sessions, incidents, and audit history remain unchanged during this transition. The initial IT page provides a verified overview, incident create/list/update/timeline, read-only IT audit, and super-admin-only grant management.
+
+IT roles are `super_admin`, `security_analyst`, `it_support`, `database_admin`, `infrastructure_admin`, and `viewer`. The first IT super-admin is an owner-selected, verified administrator and must be explicitly bootstrapped once with `IT_ACCESS_BOOTSTRAP_APPROVED=YES`, `IT_ACCESS_BOOTSTRAP_EMAIL`, and `npm run it:access -- bootstrap-super-admin <same-admin-email>`. Remove those one-shot environment values immediately. Subsequent grants and revocations are available only to an active IT super-admin through `/admin/it`; the last super-admin cannot be downgraded or revoked. Each change writes administrator and Operations audit entries.
+
+The required PostgreSQL migration is generated at `server/src/database/postgres-drizzle-migrations/0001_mean_karnak.sql`. It adds nullable IT role/revocation fields and a constraint/index; it does not backfill existing grant rows. **It has not been applied to any database.** Before rollout, confirm the deployed baseline, backup/restore in staging, review the SQL, apply it through the controlled migration process, then bootstrap only the explicitly selected account. Until migration and bootstrap are complete, `/admin/it` is unavailable and no administrator has IT permissions.
+
+The initial `/admin/it` overview uses current process memory/uptime, shared API request samples, read-only PostgreSQL latency probes, and persisted incident counts. Incidents and audit history reuse existing PostgreSQL tables. Security event ingestion, vulnerability records, support ticketing, provider health, and backup verification are returned as not configured/unknown; the UI does not report fabricated healthy metrics. The API does not expose SQL, shell commands, payment controls, provider credentials, or production configuration changes.
+
 ## Scope and trust boundary
 
 The portal is available at `/operations` and has its own login form and API namespace at `/api/v1/operations`. Operations users, password hashes, sessions, and audit records are stored in dedicated tables; sessions use the separate HTTP-only `kc_ops_session` cookie scoped to `/api/v1/operations`. Store-admin credentials and cookies do not authenticate operations requests, and store-admin accounts do not receive operations access automatically. There is no default operator, no fallback to `/admin/login`, and no shared identity table.

@@ -102,7 +102,7 @@ const listQuery = z.object({
   team: z.string().trim().max(140).optional(),
   jerseyCategory: z.string().trim().max(100).optional(),
   limit: z.coerce.number().int().min(1).max(60).default(48),
-  page: z.coerce.number().int().min(1).max(100_000).default(1),
+  page: z.coerce.number().int().min(1).max(100).default(1),
 })
 
 async function getProducts(
@@ -165,7 +165,7 @@ async function getProducts(
     .leftJoin(jerseyCategories, eq(products.jerseyCategoryId, jerseyCategories.id))
     .where(and(...filters))
     .orderBy(options.orderIds?.length
-      ? sql`FIELD(${products.id}, ${sql.join(options.orderIds.map((id) => sql`${id}`), sql`, `)})`
+      ? sql`array_position(ARRAY[${sql.join(options.orderIds.map((id) => sql`${id}`), sql`, `)}]::integer[], ${products.id})`
       : options.order === 'recent' ? desc(products.createdAt)
         : options.order === 'featured' ? desc(products.featured)
           : options.order === 'trending' ? desc(products.trending)

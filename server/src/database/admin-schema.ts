@@ -21,6 +21,9 @@ export const adminSessions = mysqlTable('admin_sessions', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (table) => [index('admin_sessions_user_expiry_idx').on(table.adminUserId, table.expiresAt)])
 
+export const itAccessRoles = ['super_admin', 'security_analyst', 'it_support', 'database_admin', 'infrastructure_admin', 'viewer'] as const
+export type ItAccessRole = typeof itAccessRoles[number]
+
 export const adminVerificationTokens = mysqlTable('admin_verification_tokens', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   adminUserId: int('admin_user_id').notNull().references(() => adminUsers.id, { onDelete: 'cascade' }),
@@ -64,10 +67,15 @@ export const operationsSessions = mysqlTable('operations_sessions', {
 export const operationsOperators = mysqlTable('operations_operators', {
   adminUserId: int('admin_user_id').notNull().references(() => adminUsers.id, { onDelete: 'cascade' }),
   grantedByAdminUserId: int('granted_by_admin_user_id').references(() => adminUsers.id, { onDelete: 'set null' }),
+  role: varchar('it_role', { length: 32 }).$type<ItAccessRole>(),
   grantedAt: timestamp('granted_at').defaultNow().notNull(),
+  revokedAt: timestamp('revoked_at'),
+  revokedByAdminUserId: int('revoked_by_admin_user_id').references(() => adminUsers.id, { onDelete: 'set null' }),
 }, (table) => [
   primaryKey({ columns: [table.adminUserId] }),
   index('operations_operators_granted_by_idx').on(table.grantedByAdminUserId),
+  index('operations_operators_active_role_idx').on(table.role, table.revokedAt),
+  check('operations_operators_it_role_check', sql`${table.role} IS NULL OR ${table.role} IN ('super_admin', 'security_analyst', 'it_support', 'database_admin', 'infrastructure_admin', 'viewer')`),
 ])
 
 export const operationsIncidents = mysqlTable('operations_incidents', {

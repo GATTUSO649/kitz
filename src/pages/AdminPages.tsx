@@ -1,19 +1,33 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type MouseEvent, type ReactNode } from 'react'
 import { Link, Navigate, useLocation, useNavigate, type NavigateFunction } from 'react-router-dom'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { userFacingErrorMessage } from '../components/notification-api'
 import { AdminApiError, formatAdminOrderNumber, isAdminSessionExpired } from './admin-tools'
-import { ArrowRight, ArrowUpDown, BarChart3, Bell, Copy, Filter, Image as ImageIcon, LayoutDashboard, LogOut, MapPin, Menu, MessageCircle, Package, Search, Send, Star, Trash2, Trophy, Upload, Users, X } from 'lucide-react'
+import { Activity, AlertTriangle, ArrowRight, ArrowUpDown, BarChart3, Bell, Check, CircleHelp, Copy, Database, Filter, Image as ImageIcon, LayoutDashboard, LogOut, MapPin, Menu, MessageCircle, Package, Search, Send, Shield, Star, Trash2, Trophy, Upload, Users, X } from 'lucide-react'
 import { GoogleMapView } from '../components/GoogleMapView'
 import { matchesNationalTeam, NATIONAL_TEAM_NAMES } from '../nationalTeams'
 
 type AdminRecord = Record<string, unknown>
-type AdminPayload<T> = { data?: T; error?: { code?: string; message?: string } }
+type AdminPayload<T> = { data?: T; error?: { code?: string; message?: string }; pagination?: { limit: number; nextCursor: number | null; hasMore: boolean } }
 const adminSessionExpiredEvent = 'kitculture:admin-session-expired'
 type CatalogueLeague = { id: number; name: string; slug: string; country: string; countryCode: string; season: string; sortOrder: number; active: boolean }
 type CatalogueTeam = { id: number; leagueId: number; name: string; slug: string; sortOrder: number; active: boolean }
 type CatalogueJerseyCategory = { id: number; name: string; slug: string; sortOrder: number; active: boolean }
 type CatalogueOptions = { leagues: CatalogueLeague[]; teams: CatalogueTeam[]; jerseyCategories: CatalogueJerseyCategory[] }
+type ItAccessRole = 'super_admin' | 'security_analyst' | 'it_support' | 'database_admin' | 'infrastructure_admin' | 'viewer'
+type ItOverviewData = {
+  access: { role: ItAccessRole; permissions: string[] }
+  application: { status: string; uptimeSeconds: number; nodeVersion: string; memoryRssBytes: number; heapUsedBytes: number }
+  databases: { name: string; status: 'healthy' | 'unavailable'; latencyMs: number | null }[]
+  requests: { requestCount: number; errorCount: number; serverErrorCount: number; averageResponseMs: number | null; p95ResponseMs: number | null; endpoints: { endpoint: string; requests: number; errors: number; averageResponseMs: number }[] }
+  incidents: { status: 'available' | 'unavailable'; total: number | null; open: number | null; investigating: number | null }
+  coverage: Record<string, { status: string }>
+  externalServices: Record<string, { status: string; reason?: string }>
+}
+type ItAccessGrant = { adminUserId: number; email: string; fullName: string; role: ItAccessRole; grantedAt: string }
+type ItIncident = { id: number; incidentNumber: string; severity: 'P1' | 'P2' | 'P3' | 'P4'; status: 'open' | 'investigating' | 'resolved' | 'closed'; title: string; description: string; affectedComponent: string; assignedAdminUserId: number | null; assignedOperationsUserId: number | null; assigneeName: string | null; rootCause: string | null; resolutionNotes: string | null; detectedAt: string; resolvedAt: string | null; createdAt: string; updatedAt: string }
+type ItIncidentEvent = { id: number; eventType: string; message: string; createdAt: string; actorName: string | null }
+type ItAuditEntry = { id: number; actorType: string; actorName: string | null; action: string; targetType: string; targetId: string; details: string | null; createdAt: string }
 const slugify = (value: string) => value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 const productSlug = (...parts: string[]) => {
   const value = slugify(parts.filter(Boolean).join('-'))
@@ -50,6 +64,7 @@ function availableProductSeasons(leagues: CatalogueLeague[]) {
 
 const sections = [
   ['dashboard', 'Overview', '/admin', LayoutDashboard],
+  ['it', 'IT operations', '/admin/it', Shield],
   ['products', 'Products', '/admin/products', Package],
   ['football', 'Leagues & teams', '/admin/football', Trophy],
   ['homepage', 'Homepage', '/admin/homepage', ImageIcon],
@@ -90,6 +105,20 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
   if (!response.ok) throw new AdminApiError('error' in payload ? payload.error?.message ?? 'Request failed.' : 'Request failed.', response.status, payload.error?.code)
   if (!('data' in payload) || payload.data === undefined) throw new Error('The administrator service returned an invalid response.')
   return payload.data
+}
+
+async function apiPage<T>(url: string): Promise<{ data: T; pagination?: AdminPayload<T>['pagination'] }> {
+  let response: Response
+  try {
+    response = await fetch(url, { credentials: 'include' })
+  } catch (error) {
+    throw new Error(userFacingErrorMessage(error, 'The administrator service is unavailable. Please try again shortly.'))
+  }
+  if (response.status === 401) window.dispatchEvent(new Event(adminSessionExpiredEvent))
+  const payload = await response.json().catch(() => ({})) as AdminPayload<T>
+  if (!response.ok) throw new AdminApiError(payload.error?.message ?? 'Request failed.', response.status, payload.error?.code)
+  if (payload.data === undefined) throw new Error('The administrator service returned an invalid response.')
+  return { data: payload.data, pagination: payload.pagination }
 }
 
 const adminVerificationRequests = new Map<string, Promise<unknown>>()
@@ -1643,6 +1672,240 @@ function GuestOrdersManager({ orders, onUpdate }: { orders: GuestAdminOrder[]; o
   </section>
 }
 
+const itRoleOptions: { value: ItAccessRole; label: string }[] = [
+  { value: 'security_analyst', label: 'Security analyst' },
+  { value: 'it_support', label: 'IT support' },
+  { value: 'database_admin', label: 'Database administrator' },
+  { value: 'infrastructure_admin', label: 'Infrastructure administrator' },
+  { value: 'viewer', label: 'Viewer' },
+  { value: 'super_admin', label: 'IT super-admin' },
+]
+
+function itLabel(value: string) {
+  return value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function itDuration(seconds: number) {
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  return `${hours}h ${minutes}m`
+}
+
+function itBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes < 0) return 'Unavailable'
+  return bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(0)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function ItIncidentPanel() {
+  const queryClient = useQueryClient()
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const incidentsQuery = useInfiniteQuery({
+    queryKey: ['admin', 'it-incidents'],
+    initialPageParam: undefined as number | undefined,
+    queryFn: async ({ pageParam }) => {
+      const query = new URLSearchParams({ limit: '25' })
+      if (pageParam) query.set('cursor', String(pageParam))
+      return apiPage<ItIncident[]>(`/api/v1/admin/it/incidents?${query}`)
+    },
+    getNextPageParam: (page) => page.pagination?.hasMore ? page.pagination.nextCursor ?? undefined : undefined,
+    retry: false,
+  })
+  const administratorsQuery = useQuery({
+    queryKey: ['admin', 'it-administrators'],
+    queryFn: () => api<{ id: number; fullName: string; email: string }[]>('/api/v1/admin/it/administrators'),
+    retry: false,
+  })
+  const incidents = incidentsQuery.data?.pages.flatMap((page) => page.data) ?? []
+  const selected = incidents.find((incident) => incident.id === selectedId)
+  const eventsQuery = useQuery({
+    queryKey: ['admin', 'it-incident-events', selectedId],
+    queryFn: () => api<ItIncidentEvent[]>(`/api/v1/admin/it/incidents/${selectedId}/events`),
+    enabled: selectedId !== null,
+    retry: false,
+  })
+
+  async function createIncident(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setError('')
+    const form = new FormData(event.currentTarget)
+    setBusy(true)
+    try {
+      const created = await api<{ id: number }>('/api/v1/admin/it/incidents', {
+        method: 'POST',
+        body: JSON.stringify({
+          severity: form.get('severity'),
+          affectedComponent: form.get('affectedComponent'),
+          title: form.get('title'),
+          description: form.get('description'),
+        }),
+      })
+      event.currentTarget.reset()
+      setSelectedId(created.id)
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'it-incidents'] })
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'it-overview'] })
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Incident could not be created.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function updateIncident(incident: ItIncident, patch: Record<string, unknown>) {
+    setError('')
+    try {
+      await api(`/api/v1/admin/it/incidents/${incident.id}`, { method: 'PATCH', body: JSON.stringify(patch) })
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'it-incidents'] })
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'it-incident-events', incident.id] })
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'it-overview'] })
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Incident could not be updated.')
+    }
+  }
+
+  async function addNote(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (selectedId === null) return
+    const form = new FormData(event.currentTarget)
+    const message = String(form.get('message') ?? '').trim()
+    if (!message) return
+    try {
+      await api(`/api/v1/admin/it/incidents/${selectedId}/events`, { method: 'POST', body: JSON.stringify({ message }) })
+      event.currentTarget.reset()
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'it-incident-events', selectedId] })
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Incident note could not be saved.')
+    }
+  }
+
+  async function saveResolution(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selected) return
+    const form = new FormData(event.currentTarget)
+    await updateIncident(selected, {
+      rootCause: String(form.get('rootCause') ?? '').trim() || null,
+      resolutionNotes: String(form.get('resolutionNotes') ?? '').trim() || null,
+    })
+  }
+
+  return <div className="admin-it-incident-layout">
+    <section className="admin-it-panel"><header><AlertTriangle size={18} /><div><span className="admin-kicker">INCIDENT REGISTER</span><h3>IT incidents</h3></div></header>
+      {error && <p className="admin-error" role="alert">{error}</p>}
+      {incidentsQuery.isPending ? <div className="admin-empty">Loading incidents…</div> : incidentsQuery.isError ? <div className="admin-empty admin-error">{incidentsQuery.error.message}</div> : incidents.map((incident) => <button className={`admin-it-incident-row${selectedId === incident.id ? ' is-selected' : ''}`} key={incident.id} type="button" onClick={() => setSelectedId(incident.id)}><strong>{incident.severity}</strong><span><b>{incident.title}</b><small>{incident.incidentNumber} · {itLabel(incident.status)} · {itLabel(incident.affectedComponent)}</small></span><ArrowRight size={14} /></button>)}
+      {incidentsQuery.hasNextPage && <button className="admin-it-button" type="button" onClick={() => void incidentsQuery.fetchNextPage()} disabled={incidentsQuery.isFetchingNextPage}>{incidentsQuery.isFetchingNextPage ? 'Loading…' : 'Load more incidents'}</button>}
+      <form className="admin-it-create-form" onSubmit={(event) => void createIncident(event)}><h4>Report an incident</h4><div className="admin-it-form-row"><label>Severity<select name="severity" defaultValue="P3"><option>P1</option><option>P2</option><option>P3</option><option>P4</option></select></label><label>Component<select name="affectedComponent" defaultValue="api"><option value="website">Website</option><option value="api">API</option><option value="database">Database</option><option value="payments">Payments</option><option value="email">Email</option><option value="security">Security</option><option value="other">Other</option></select></label></div><label>Title<input name="title" minLength={4} maxLength={160} required /></label><label>Description<textarea name="description" minLength={10} maxLength={4000} rows={3} required /></label><button className="admin-it-button" type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create incident'}</button></form>
+    </section>
+    <section className="admin-it-panel admin-it-incident-detail"><header><Shield size={18} /><div><span className="admin-kicker">INCIDENT TIMELINE</span><h3>{selected?.incidentNumber ?? 'Select an incident'}</h3></div></header>{selected ? <><h4>{selected.title}</h4><p>{selected.description}</p><div className="admin-it-form-row"><label>Status<select value={selected.status} onChange={(event) => void updateIncident(selected, { status: event.target.value })}><option value="open">Open</option><option value="investigating">Investigating</option><option value="resolved">Resolved</option><option value="closed">Closed</option></select></label><label>Severity<select value={selected.severity} onChange={(event) => void updateIncident(selected, { severity: event.target.value })}><option>P1</option><option>P2</option><option>P3</option><option>P4</option></select></label></div><label className="admin-it-field">Assign administrator<select value={selected.assignedAdminUserId ?? ''} disabled={administratorsQuery.isPending || administratorsQuery.isError} onChange={(event) => void updateIncident(selected, { assignedAdminUserId: event.target.value ? Number(event.target.value) : null })}><option value="">Unassigned</option>{administratorsQuery.data?.map((admin) => <option key={admin.id} value={admin.id}>{admin.fullName}</option>)}</select></label><form className="admin-it-create-form" onSubmit={(event) => void saveResolution(event)}><label>Root cause<textarea key={`it-cause-${selected.id}`} name="rootCause" defaultValue={selected.rootCause ?? ''} maxLength={4000} rows={2} /></label><label>Resolution notes<textarea key={`it-resolution-${selected.id}`} name="resolutionNotes" defaultValue={selected.resolutionNotes ?? ''} maxLength={4000} rows={2} /></label><button className="admin-it-button" type="submit">Save resolution</button></form><form className="admin-it-create-form" onSubmit={(event) => void addNote(event)}><label>Add timeline note<textarea name="message" minLength={1} maxLength={4000} rows={2} required /></label><button className="admin-it-button" type="submit">Add note</button></form><div className="admin-it-timeline">{eventsQuery.isPending ? <p>Loading incident history…</p> : eventsQuery.isError ? <p>{eventsQuery.error.message}</p> : eventsQuery.data?.map((entry) => <article key={entry.id}><strong>{itLabel(entry.eventType)}</strong><small>{entry.actorName ?? 'System'} · {new Date(entry.createdAt).toLocaleString()}</small><p>{entry.message}</p></article>)}</div></> : <p>Select an incident to inspect its history and response state.</p>}</section>
+  </div>
+}
+
+function ItAuditPanel() {
+  const auditQuery = useInfiniteQuery({
+    queryKey: ['admin', 'it-audit'],
+    initialPageParam: undefined as number | undefined,
+    queryFn: async ({ pageParam }) => {
+      const query = new URLSearchParams({ limit: '25' })
+      if (pageParam) query.set('cursor', String(pageParam))
+      return apiPage<ItAuditEntry[]>(`/api/v1/admin/it/audit?${query}`)
+    },
+    getNextPageParam: (page) => page.pagination?.hasMore ? page.pagination.nextCursor ?? undefined : undefined,
+    retry: false,
+  })
+  const rows = auditQuery.data?.pages.flatMap((page) => page.data) ?? []
+  return <section className="admin-it-panel"><header><Shield size={18} /><div><span className="admin-kicker">APPEND-ONLY OPERATIONS HISTORY</span><h3>IT audit events</h3></div></header>{auditQuery.isPending ? <div className="admin-empty">Loading audit events…</div> : auditQuery.isError ? <div className="admin-empty admin-error">{auditQuery.error.message}</div> : <div className="admin-it-table-wrap"><table className="admin-it-table"><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Details</th></tr></thead><tbody>{rows.map((entry) => <tr key={entry.id}><td>{new Date(entry.createdAt).toLocaleString()}</td><td>{entry.actorName ?? itLabel(entry.actorType)}</td><td>{itLabel(entry.action)}</td><td>{entry.targetType} · {entry.targetId}</td><td>{entry.details ?? '—'}</td></tr>)}{!rows.length && <tr><td colSpan={5}>No IT audit events are recorded yet.</td></tr>}</tbody></table></div>}{auditQuery.hasNextPage && <button className="admin-it-button" type="button" onClick={() => void auditQuery.fetchNextPage()} disabled={auditQuery.isFetchingNextPage}>{auditQuery.isFetchingNextPage ? 'Loading…' : 'Load more'}</button>}</section>
+}
+
+function ItOperationsPanel() {
+  const queryClient = useQueryClient()
+  const [activeTab, setActiveTab] = useState<'overview' | 'incidents' | 'audit'>('overview')
+  const [accessError, setAccessError] = useState('')
+  const [accessBusy, setAccessBusy] = useState(false)
+  const overviewQuery = useQuery({
+    queryKey: ['admin', 'it-overview'],
+    queryFn: () => api<ItOverviewData>('/api/v1/admin/it/overview'),
+    retry: false,
+    refetchInterval: 30_000,
+  })
+  const role = overviewQuery.data?.access.role
+  const accessQuery = useQuery({
+    queryKey: ['admin', 'it-access-grants'],
+    queryFn: () => api<ItAccessGrant[]>('/api/v1/admin/it/access'),
+    enabled: role === 'super_admin',
+    retry: false,
+  })
+
+  async function changeAccess(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setAccessError('')
+    setAccessBusy(true)
+    const form = new FormData(event.currentTarget)
+    try {
+      await api('/api/v1/admin/it/access', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'grant', email: form.get('email'), role: form.get('role') }),
+      })
+      event.currentTarget.reset()
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'it-access-grants'] })
+    } catch (issue) {
+      setAccessError(issue instanceof Error ? issue.message : 'IT access could not be granted.')
+    } finally {
+      setAccessBusy(false)
+    }
+  }
+
+  async function revokeAccess(grant: ItAccessGrant) {
+    setAccessError('')
+    setAccessBusy(true)
+    try {
+      await api('/api/v1/admin/it/access', { method: 'POST', body: JSON.stringify({ action: 'revoke', email: grant.email }) })
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'it-access-grants'] })
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'it-overview'] })
+    } catch (issue) {
+      setAccessError(issue instanceof Error ? issue.message : 'IT access could not be revoked.')
+    } finally {
+      setAccessBusy(false)
+    }
+  }
+
+  if (overviewQuery.isPending) return <div className="admin-empty" role="status">Checking IT access…</div>
+  if (overviewQuery.error instanceof AdminApiError && overviewQuery.error.code === 'IT_PERMISSION_REQUIRED') {
+    return <section className="admin-it-panel"><header><Shield size={20} /><div><span className="admin-kicker">RESTRICTED IT OPERATIONS</span><h2>IT access is not assigned</h2></div></header><p>Your administrator account has not been granted an IT role. Access is explicitly assigned by an IT super-admin.</p></section>
+  }
+  if (overviewQuery.isError || !overviewQuery.data) {
+    return <section className="admin-it-panel"><header><AlertTriangle size={20} /><div><span className="admin-kicker">IT OPERATIONS</span><h2>Operations data unavailable</h2></div></header><p>{overviewQuery.error instanceof Error ? overviewQuery.error.message : 'Retry the request or contact the system administrator.'}</p><button className="admin-it-button" type="button" onClick={() => void overviewQuery.refetch()}>Retry</button></section>
+  }
+
+  const overview = overviewQuery.data
+  const superAdmin = role === 'super_admin'
+  const availability = (status: string) => status === 'healthy' ? 'Healthy' : status === 'unavailable' ? 'Unavailable' : 'Unknown'
+
+  return <div className="admin-it-page">
+    <div className="admin-it-intro"><div><span className="admin-kicker">RESTRICTED OPERATIONS · {itLabel(role ?? '')}</span><h2>IT operations</h2><p>Live process and database signals. Provider feeds and historical monitoring are shown only when configured.</p></div><button className="admin-it-button" type="button" onClick={() => void overviewQuery.refetch()} disabled={overviewQuery.isFetching}>Refresh</button></div>
+    <nav className="admin-it-tabs" aria-label="IT operations views">{(['overview', 'incidents', 'audit'] as const).map((tab) => <button key={tab} type="button" className={activeTab === tab ? 'is-active' : ''} aria-current={activeTab === tab ? 'page' : undefined} onClick={() => setActiveTab(tab)}>{itLabel(tab)}</button>)}</nav>
+
+    {activeTab === 'overview' ? <>
+    <section className="admin-it-status-grid" aria-label="Current system health">
+      <article><span>Application process</span><strong><Activity size={16} /> {availability(overview.application.status)}</strong><small>Uptime {itDuration(overview.application.uptimeSeconds)} · Node {overview.application.nodeVersion}</small></article>
+      {overview.databases.map((database) => <article key={database.name}><span>{itLabel(database.name)} database</span><strong>{database.status === 'healthy' ? <Check size={16} /> : <AlertTriangle size={16} />}{availability(database.status)}</strong><small>{database.latencyMs === null ? 'Latency unavailable' : `${database.latencyMs} ms read-only probe`}</small></article>)}
+      <article><span>Process memory</span><strong><Activity size={16} /> {itBytes(overview.application.memoryRssBytes)}</strong><small>Heap {itBytes(overview.application.heapUsedBytes)}</small></article>
+      <article><span>Incidents</span><strong><AlertTriangle size={16} /> {overview.incidents.status === 'available' ? String(overview.incidents.open ?? 0) : 'Unavailable'}</strong><small>{overview.incidents.status === 'available' ? `${overview.incidents.investigating ?? 0} investigating · ${overview.incidents.total ?? 0} total` : 'Incident totals unavailable'}</small></article>
+    </section>
+
+    <section className="admin-it-panel"><header><Activity size={18} /><div><span className="admin-kicker">PER-PROCESS SAMPLE · LAST 60 MINUTES</span><h3>API activity</h3></div></header><div className="admin-it-metrics"><article><span>Requests sampled</span><strong>{overview.requests.requestCount}</strong></article><article><span>HTTP errors</span><strong>{overview.requests.errorCount}</strong></article><article><span>Server errors</span><strong>{overview.requests.serverErrorCount}</strong></article><article><span>Average response</span><strong>{overview.requests.averageResponseMs === null ? 'Unavailable' : `${overview.requests.averageResponseMs} ms`}</strong></article><article><span>P95 response</span><strong>{overview.requests.p95ResponseMs === null ? 'Unavailable' : `${overview.requests.p95ResponseMs} ms`}</strong></article></div><div className="admin-it-table-wrap"><table className="admin-it-table"><thead><tr><th>Endpoint</th><th>Requests</th><th>Errors</th><th>Average</th></tr></thead><tbody>{overview.requests.endpoints.map((metric) => <tr key={metric.endpoint}><td>{metric.endpoint}</td><td>{metric.requests}</td><td>{metric.errors}</td><td>{metric.averageResponseMs} ms</td></tr>)}{!overview.requests.endpoints.length && <tr><td colSpan={4}>No requests sampled yet.</td></tr>}</tbody></table></div><p className="admin-it-footnote">This bounded sample is process-local, resets on restart, and is not shared across instances.</p></section>
+
+    <section className="admin-it-panel"><header><Database size={18} /><div><span className="admin-kicker">TELEMETRY COVERAGE</span><h3>Unconfigured monitors</h3></div></header><div className="admin-it-coverage">{Object.entries(overview.coverage).map(([name, item]) => <article key={name}><span>{itLabel(name)}</span><strong><CircleHelp size={15} /> {itLabel(item.status)}</strong></article>)}</div></section>
+
+    <section className="admin-it-panel"><header><CircleHelp size={18} /><div><span className="admin-kicker">EXTERNAL PROVIDERS</span><h3>Provider health</h3></div></header><div className="admin-it-coverage">{Object.entries(overview.externalServices).map(([name, service]) => <article key={name}><span>{itLabel(name)}</span><strong><CircleHelp size={15} /> {itLabel(service.status)}</strong><small>{service.reason}</small></article>)}</div></section>
+    </> : activeTab === 'incidents' ? <ItIncidentPanel /> : <ItAuditPanel />}
+
+    {superAdmin && <section className="admin-it-panel"><header><Shield size={18} /><div><span className="admin-kicker">EXPLICIT GRANTS</span><h3>IT access</h3></div></header><p>Only listed, verified administrator accounts have an IT role. Existing administrators receive no access automatically.</p>{accessError && <p className="admin-error" role="alert">{accessError}</p>}
+      <form className="admin-it-access-form" onSubmit={(event) => void changeAccess(event)}><label>Verified admin email<input name="email" type="email" required maxLength={254} /></label><label>IT role<select name="role" defaultValue="viewer">{itRoleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label><button className="admin-it-button" type="submit" disabled={accessBusy}>Grant access</button></form>
+      {accessQuery.isPending ? <div className="admin-empty">Loading explicit grants…</div> : accessQuery.isError ? <div className="admin-empty admin-error">{accessQuery.error.message}</div> : <div className="admin-it-table-wrap"><table className="admin-it-table"><thead><tr><th>Administrator</th><th>Role</th><th>Granted</th><th>Action</th></tr></thead><tbody>{accessQuery.data?.map((grant) => <tr key={grant.adminUserId}><td>{grant.fullName}<small>{grant.email}</small></td><td>{itLabel(grant.role)}</td><td>{new Date(grant.grantedAt).toLocaleString()}</td><td><button className="admin-it-button is-danger" type="button" disabled={accessBusy} onClick={() => void revokeAccess(grant)}>Revoke</button></td></tr>)}{!accessQuery.data?.length && <tr><td colSpan={4}>No explicit IT grants exist.</td></tr>}</tbody></table></div>}
+    </section>}
+  </div>
+}
+
 export function AdminConsole() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -1671,6 +1934,7 @@ export function AdminConsole() {
       }
       return api<AdminRecord>(`/api/v1/admin/${endpoint}?${query}`)
     },
+    enabled: current[0] !== 'it',
     retry: false,
     refetchInterval: false,
   })
@@ -1752,7 +2016,7 @@ export function AdminConsole() {
     {menuOpen && <button className="admin-nav-scrim" aria-label="Close admin menu" onClick={() => setMenuOpen(false)} />}
     <main className={current[0] === 'products' ? 'admin-main admin-products-page' : current[0] === 'football' ? 'admin-main admin-football-page' : current[0] === 'homepage' ? 'admin-main admin-homepage-page' : current[0] === 'settings' ? 'admin-main admin-settings-page' : 'admin-main'}><header className="admin-topbar"><button type="button" className="admin-menu-toggle" aria-label={menuOpen ? 'Close menu' : 'Open menu'} onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X /> : <Menu />}</button><div><span className="admin-kicker">KITCULTURE OPERATIONS</span><h1>{current[1]}</h1></div><Link to="/" className="admin-store-link">View storefront ↗</Link></header>
       {current[0] === 'dashboard' && <div className="admin-report-toolbar"><label>Reporting period<select value={reportPeriod} onChange={(event) => setReportPeriod(event.target.value as typeof reportPeriod)}><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="last7days">Last 7 days</option><option value="last30days">Last 30 days</option><option value="thisMonth">This month</option><option value="lastMonth">Last month</option><option value="thisYear">This year</option><option value="custom">Custom range</option></select></label>{reportPeriod === 'custom' && <><label>From<input type="date" value={customFrom} max={customTo} onChange={(event) => setCustomFrom(event.target.value)} /></label><label>To<input type="date" value={customTo} min={customFrom} onChange={(event) => setCustomTo(event.target.value)} /></label></>}</div>}
-      {sectionQuery.isPending ? <div className="admin-empty">Loading live database records…</div> : sectionQuery.isError ? <div className="admin-empty admin-error"><strong>Admin data unavailable</strong><span>{sectionQuery.error.message}. Confirm the database is configured and your account has the administrator role.</span></div> : <>
+      {current[0] === 'it' ? <ItOperationsPanel /> : sectionQuery.isPending ? <div className="admin-empty">Loading live database records…</div> : sectionQuery.isError ? <div className="admin-empty admin-error"><strong>Admin data unavailable</strong><span>{sectionQuery.error.message}. Confirm the database is configured and your account has the administrator role.</span></div> : <>
         {current[0] === 'dashboard' && <div className="admin-metrics">{dashboardMetrics.map(([key, value]) => <article key={key}><span>{key}</span><strong>{value}</strong></article>)}</div>}
         {current[0] === 'dashboard' && data && !Array.isArray(data) && <AdminDashboardCharts data={data} />}
         {current[0] === 'notifications' || current[0] === 'guest-orders' ? null : current[0] === 'football'
@@ -1788,7 +2052,7 @@ export function AdminConsole() {
           return <article key={String(order.id)}><span><strong>{displayOrderNumber}</strong> · {pretty(status)}</span><select aria-label={`Update ${displayOrderNumber} status`} defaultValue="" disabled={nextStatuses.length === 0} onChange={(event) => { if (event.target.value) void patchOrder(order, event.target.value) }}><option value="" disabled>{nextStatuses.length ? 'Update status' : 'No further updates'}</option>{nextStatuses.map((nextStatus) => <option key={nextStatus} value={nextStatus}>{pretty(nextStatus)}</option>)}</select></article>
         })}</section>}
         {actionError && <p className="admin-error">{actionError}</p>}
-        {!['dashboard', 'homepage', 'support', 'football', 'notifications', 'guest-orders', 'orders'].includes(current[0]) && <DataTable rows={current[0] === 'products' ? records.map(({ images: _images, variants: _variants, ...record }) => record) : records} empty="No records are available for this section yet." />}
+        {!['dashboard', 'it', 'homepage', 'support', 'football', 'notifications', 'guest-orders', 'orders'].includes(current[0]) && <DataTable rows={current[0] === 'products' ? records.map(({ images: _images, variants: _variants, ...record }) => record) : records} empty="No records are available for this section yet." />}
         {current[0] === 'dashboard' && data && !Array.isArray(data) && <section className="admin-dashboard-orders"><div className="admin-analytics-heading"><div><span className="admin-kicker">LATEST ACTIVITY</span><h2>Recent orders</h2></div></div><DataTable rows={Array.isArray(data.recentOrders) ? data.recentOrders as AdminRecord[] : []} empty="No orders have been placed yet." /></section>}
       </>}
     </main>
