@@ -138,6 +138,7 @@ export async function buildAdminDashboardReport(database: typeof db, range: Repo
       .where(and(orderRange, inArray(orders.status, salesOrderStatuses)))
       .groupBy(products.id, products.name, categories.name)
 
+  const salesLocation = sql<string>`COALESCE(NULLIF(jsonb_extract_path_text(${orders.deliveryAddressSnapshot}::jsonb, 'county'), ''), 'Unknown')`
   const [bestSellers, worstSellers, salesByCategory, salesByLocation, revenueTrend] = await Promise.all([
     salesItems().orderBy(desc(sum(orderItems.quantity))).limit(5),
     salesItems().orderBy(sum(orderItems.quantity)).limit(5),
@@ -151,11 +152,11 @@ export async function buildAdminDashboardReport(database: typeof db, range: Repo
       .orderBy(desc(sum(orderItems.quantity)))
       .limit(8),
     database.select({
-      location: sql<string>`COALESCE(NULLIF(jsonb_extract_path_text(${orders.deliveryAddressSnapshot}::jsonb, 'county'), ''), 'Unknown')`,
+      location: salesLocation,
       orders: count(),
     }).from(orders)
       .where(and(orderRange, inArray(orders.status, salesOrderStatuses)))
-      .groupBy(sql`location`)
+      .groupBy(salesLocation)
       .orderBy(desc(count()))
       .limit(8),
     database.select({ date: settledDate, revenue: sum(payments.amount) })
