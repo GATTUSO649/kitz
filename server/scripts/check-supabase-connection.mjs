@@ -1,30 +1,27 @@
 import 'dotenv/config'
-import { readFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
 import pg from 'pg'
+import { createPostgresSslOptions } from '../src/config/postgres-ssl.mjs'
 
 const databaseUrl = process.env.DATABASE_URL?.trim()
 const caFile = process.env.SUPABASE_CA_CERT_FILE?.trim()
+const caContents = process.env.SUPABASE_CA_CERT?.trim()
 
 if (!databaseUrl) {
   console.error('Connection not attempted: DATABASE_URL is not configured.')
   process.exitCode = 1
-} else if (!caFile) {
-  console.error('Connection not attempted: SUPABASE_CA_CERT_FILE is not configured.')
+} else if (!caFile && !caContents) {
+  console.error('Connection not attempted: a Supabase CA file or PEM is not configured.')
   process.exitCode = 1
 } else {
-  let ca
+  let ssl
   try {
-    ca = await readFile(resolve(caFile), 'utf8')
-    if (!ca.includes('-----BEGIN CERTIFICATE-----') || !ca.includes('-----END CERTIFICATE-----')) {
-      throw new Error('Invalid PEM certificate')
-    }
+    ssl = createPostgresSslOptions({ caFile, caContents })
   } catch {
-    console.error('Connection not attempted: CA certificate file is unreadable or is not a PEM certificate.')
+    console.error('Connection not attempted: Supabase CA configuration is unreadable or invalid.')
     process.exitCode = 1
   }
 
-  if (ca) {
+  if (ssl) {
     let connectionUrl
     try {
       connectionUrl = new URL(databaseUrl)
@@ -40,7 +37,7 @@ if (!databaseUrl) {
     if (connectionUrl) {
       const client = new pg.Client({
         connectionString: connectionUrl.toString(),
-        ssl: { rejectUnauthorized: true, ca },
+        ssl,
         connectionTimeoutMillis: 10_000,
         application_name: 'kitculture-connectivity-check',
       })

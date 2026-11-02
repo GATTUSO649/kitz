@@ -11,9 +11,11 @@ Set these only in the server environment or secret manager:
 ```env
 DATABASE_URL=postgresql://<user>:<password>@<supabase-host>:5432/postgres
 SUPABASE_CA_CERT_FILE=<path-to-verified-supabase-ca-pem>
+# Or, on hosts without a deployed certificate file, set the official PEM as a server-only secret:
+SUPABASE_CA_CERT=<official-supabase-ca-pem>
 ```
 
-The runtime loads the CA file with Node filesystem APIs and always uses `rejectUnauthorized: true`. Do not add database URLs, CA contents, Supabase keys, or credentials to Vite variables or frontend code. The app does not use Supabase Auth or Edge Functions; existing Express authentication, bcrypt hashes, cookie sessions, authorization, CSRF/origin checks, and payment callbacks remain application-managed.
+The runtime prefers the server-side `SUPABASE_CA_CERT` PEM and otherwise loads `SUPABASE_CA_CERT_FILE` with Node filesystem APIs. It always uses `rejectUnauthorized: true`. For Render, deploy the latest backend code and set `SUPABASE_CA_CERT` from the official CA certificate shown in the Supabase project's Connect/SSL settings; do not set `rejectUnauthorized=false`. Do not add database URLs, CA contents, Supabase keys, or credentials to Vite variables or frontend code. The app does not use Supabase Auth or Edge Functions; existing Express authentication, bcrypt hashes, cookie sessions, authorization, CSRF/origin checks, and payment callbacks remain application-managed.
 
 Do not configure the legacy MySQL source as `DATABASE_URL` while running the PostgreSQL runtime. Keep any source URL in a separate server-only variable for export tooling. Do not expose a Supabase service-role key to the browser.
 

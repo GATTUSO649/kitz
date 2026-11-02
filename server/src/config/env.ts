@@ -35,6 +35,7 @@ const schema = z.object({
   DATABASE_URL: z.string().min(1).optional(),
   ADMIN_DATABASE_URL: z.string().min(1).optional(),
   SUPABASE_CA_CERT_FILE: z.string().trim().min(1).optional(),
+  SUPABASE_CA_CERT: z.string().trim().min(1).optional(),
   ADMIN_SIGNUP_SECRET: z.string().min(32).max(512).optional(),
   OPERATIONS_SIGNUP_SECRET: z.string().min(32).max(512).optional(),
   ORIGIN_AUTH_TOKEN: z.string().min(32).max(256).optional(),

@@ -1,8 +1,7 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { env } from './env.js'
+import { createPostgresSslOptions } from './postgres-ssl.mjs'
 import * as schema from '../database/schema.js'
 import * as adminSchema from '../database/admin-schema.js'
 
@@ -11,18 +10,8 @@ export function mysqlSslOptions(nodeEnvironment: string, ca?: string) {
   return { rejectUnauthorized: true, ...(ca ? { ca } : {}) }
 }
 
-function supabaseSslOptions(caFile?: string) {
-  if (!caFile) return { rejectUnauthorized: true }
-  let ca: string
-  try {
-    ca = readFileSync(resolve(caFile), 'utf8')
-  } catch {
-    throw new Error('SUPABASE_CA_CERT_FILE could not be read.')
-  }
-  if (!ca.includes('-----BEGIN CERTIFICATE-----') || !ca.includes('-----END CERTIFICATE-----')) {
-    throw new Error('SUPABASE_CA_CERT_FILE must point to a PEM certificate.')
-  }
-  return { rejectUnauthorized: true, ca }
+export function supabaseSslOptions(caFile?: string, configuredCa?: string, requireCa = false) {
+  return createPostgresSslOptions({ caFile, caContents: configuredCa }, { requireCa })
 }
 
 const databaseUrl = env.DATABASE_URL
@@ -37,7 +26,7 @@ if (connectionUrl) {
 export const pool = connectionUrl
   ? new Pool({
       connectionString: connectionUrl.toString(),
-      ssl: supabaseSslOptions(env.SUPABASE_CA_CERT_FILE),
+      ssl: supabaseSslOptions(env.SUPABASE_CA_CERT_FILE, env.SUPABASE_CA_CERT, env.NODE_ENV === 'production'),
       max: 10,
       connectionTimeoutMillis: 8_000,
       idleTimeoutMillis: 30_000,

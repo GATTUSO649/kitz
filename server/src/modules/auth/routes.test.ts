@@ -5,7 +5,8 @@ import express from 'express'
 process.env.NODE_ENV = 'development'
 process.env.CLIENT_ORIGIN = 'http://localhost:5173'
 
-const { mysqlSslOptions } = await import('../../config/database.js')
+const { mysqlSslOptions, supabaseSslOptions } = await import('../../config/database.js')
+const { normalizeCaPem } = await import('../../config/postgres-ssl.mjs')
 const { isAllowedClientOrigin, productionDatabaseTlsConfigurationErrors, productionDarajaConfigurationErrors, resolveDarajaEnvironment, resolveDarajaTransactionType } = await import('../../config/env.js')
 const { bcryptPasswordSchema, verifyPassword } = await import('../../config/password-policy.js')
 const { adminIdleTimeoutMs, adminLoginSchema, invalidAdminCredentialsMessage, matchesAdminSignupSecret } = await import('../admin/auth.js')
@@ -93,6 +94,16 @@ test('production MySQL connections require verified TLS and accept a custom CA',
   assert.deepEqual(mysqlSslOptions('production'), { rejectUnauthorized: true })
   assert.deepEqual(mysqlSslOptions('production', 'test-ca'), { rejectUnauthorized: true, ca: 'test-ca' })
   assert.equal(mysqlSslOptions('development'), undefined)
+})
+
+test('Supabase PostgreSQL TLS requires a CA in production and always verifies certificates', () => {
+  const certificate = '-----BEGIN CERTIFICATE-----\nline\n-----END CERTIFICATE-----'
+  assert.deepEqual(supabaseSslOptions(), { rejectUnauthorized: true })
+  assert.throws(() => supabaseSslOptions(undefined, undefined, true), /CA certificate is required/)
+  assert.equal(normalizeCaPem('-----BEGIN CERTIFICATE-----\\nline\\r\\n-----END CERTIFICATE-----'), certificate)
+  assert.throws(() => supabaseSslOptions(undefined, certificate, true), /valid X.509 certificate/)
+  assert.throws(() => supabaseSslOptions(undefined, certificate), /valid X.509 certificate/)
+  assert.throws(() => supabaseSslOptions(undefined, 'not-a-certificate'), /PEM certificate/)
 })
 
 test('production rejects disabled MySQL TLS certificate verification', () => {

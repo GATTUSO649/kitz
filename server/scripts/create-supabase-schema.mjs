@@ -1,33 +1,31 @@
 import 'dotenv/config'
 import { readFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
 import pg from 'pg'
+import { createPostgresSslOptions } from '../src/config/postgres-ssl.mjs'
 
 const databaseUrl = process.env.DATABASE_URL?.trim()
 const caFile = process.env.SUPABASE_CA_CERT_FILE?.trim()
+const caContents = process.env.SUPABASE_CA_CERT?.trim()
 const expectedTableCount = 46
 
 if (!databaseUrl) {
   console.error('Schema creation not attempted: DATABASE_URL is not configured.')
   process.exitCode = 1
-} else if (!caFile) {
-  console.error('Schema creation not attempted: SUPABASE_CA_CERT_FILE is not configured.')
+} else if (!caFile && !caContents) {
+  console.error('Schema creation not attempted: a Supabase CA file or PEM is not configured.')
   process.exitCode = 1
 } else {
-  let ca
+  let ssl
   let migration
   try {
-    ca = await readFile(resolve(caFile), 'utf8')
-    if (!ca.includes('-----BEGIN CERTIFICATE-----') || !ca.includes('-----END CERTIFICATE-----')) {
-      throw new Error('Invalid PEM certificate')
-    }
+    ssl = createPostgresSslOptions({ caFile, caContents })
     migration = await readFile(new URL('../src/database/postgres-drizzle-migrations/0000_jittery_brother_voodoo.sql', import.meta.url), 'utf8')
   } catch {
     console.error('Schema creation not attempted: CA certificate or baseline migration is missing or invalid.')
     process.exitCode = 1
   }
 
-  if (ca && migration) {
+  if (ssl && migration) {
     let connectionUrl
     try {
       connectionUrl = new URL(databaseUrl)
@@ -43,7 +41,7 @@ if (!databaseUrl) {
     if (connectionUrl) {
       const client = new pg.Client({
         connectionString: connectionUrl.toString(),
-        ssl: { rejectUnauthorized: true, ca },
+        ssl,
         connectionTimeoutMillis: 10_000,
         application_name: 'kitculture-schema-setup',
       })

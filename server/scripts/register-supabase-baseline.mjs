@@ -1,29 +1,27 @@
 import 'dotenv/config'
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
 import pg from 'pg'
+import { createPostgresSslOptions } from '../src/config/postgres-ssl.mjs'
 
 const databaseUrl = process.env.DATABASE_URL?.trim()
 const caFile = process.env.SUPABASE_CA_CERT_FILE?.trim()
+const caContents = process.env.SUPABASE_CA_CERT?.trim()
 const migrationUrl = new URL('../src/database/postgres-drizzle-migrations/0000_jittery_brother_voodoo.sql', import.meta.url)
 const journalUrl = new URL('../src/database/postgres-drizzle-migrations/meta/_journal.json', import.meta.url)
 
 if (!databaseUrl) {
   console.error('Baseline registration not attempted: DATABASE_URL is not configured.')
   process.exitCode = 1
-} else if (!caFile) {
-  console.error('Baseline registration not attempted: SUPABASE_CA_CERT_FILE is not configured.')
+} else if (!caFile && !caContents) {
+  console.error('Baseline registration not attempted: a Supabase CA file or PEM is not configured.')
   process.exitCode = 1
 } else {
-  let ca
+  let ssl
   let migration
   let journal
   try {
-    ca = await readFile(resolve(caFile), 'utf8')
-    if (!ca.includes('-----BEGIN CERTIFICATE-----') || !ca.includes('-----END CERTIFICATE-----')) {
-      throw new Error('Invalid CA certificate')
-    }
+    ssl = createPostgresSslOptions({ caFile, caContents })
     migration = await readFile(migrationUrl, 'utf8')
     journal = JSON.parse(await readFile(journalUrl, 'utf8'))
   } catch {
@@ -31,7 +29,7 @@ if (!databaseUrl) {
     process.exitCode = 1
   }
 
-  if (ca && migration && journal) {
+  if (ssl && migration && journal) {
     const baseline = journal.entries?.[0]
     if (!baseline || baseline.tag !== '0000_jittery_brother_voodoo' || journal.entries.length !== 1) {
       console.error('Baseline registration not attempted: generated migration history is not the expected initial baseline.')
@@ -45,7 +43,7 @@ if (!databaseUrl) {
         for (const key of ['sslmode', 'ssl', 'sslcert', 'sslkey', 'sslrootcert']) url.searchParams.delete(key)
         const client = new pg.Client({
           connectionString: url.toString(),
-          ssl: { rejectUnauthorized: true, ca },
+          ssl,
           connectionTimeoutMillis: 10_000,
           application_name: 'kitculture-baseline-registration',
         })
