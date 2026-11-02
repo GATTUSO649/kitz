@@ -1798,10 +1798,11 @@ export function AdminConsole() {
 export function AdminRoute() {
   const location = useLocation()
   const isAdminPortalRoute = location.pathname === '/admin' || location.pathname.startsWith('/admin/')
+  const isAdminAuthRoute = ['/admin/login', '/admin/register', '/admin/verify'].includes(location.pathname)
   const sessionQuery = useQuery({
     queryKey: ['admin-session'],
     queryFn: () => api<{ user: { id: number } }>('/api/v1/admin/me'),
-    enabled: isAdminPortalRoute,
+    enabled: isAdminPortalRoute && !isAdminAuthRoute,
     retry: false,
   })
 
