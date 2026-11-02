@@ -757,8 +757,8 @@ adminRouter.get('/orders', async (_request, response) => {
   const rows = await db.select({
     id: orders.id, orderNumber: orders.orderNumber, status: orders.status, paymentMethod: orders.paymentMethod, total: orders.total,
     subtotal: orders.subtotal, deliveryFee: orders.deliveryFee, createdAt: orders.createdAt,
-    customerName: sql<string | null>`COALESCE(${users.fullName}, jsonb_extract_path_text(${orders.deliveryAddressSnapshot}::jsonb, 'recipientName')`,
-    customerEmail: sql<string | null>`COALESCE(${users.email}, jsonb_extract_path_text(${orders.deliveryAddressSnapshot}::jsonb, 'email')`,
+    customerName: sql<string | null>`COALESCE(${users.fullName}, jsonb_extract_path_text(${orders.deliveryAddressSnapshot}::jsonb, 'recipientName'))`,
+    customerEmail: sql<string | null>`COALESCE(${users.email}, jsonb_extract_path_text(${orders.deliveryAddressSnapshot}::jsonb, 'email'))`,
   }).from(orders).leftJoin(users, eq(orders.userId, users.id)).orderBy(desc(orders.createdAt)).limit(200)
   const paymentRows = rows.length ? await db.select({ orderId: payments.orderId, status: payments.status }).from(payments)
     .where(inArray(payments.orderId, rows.map(({ id }) => id))).orderBy(desc(payments.createdAt)) : []
