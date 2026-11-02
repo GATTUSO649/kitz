@@ -2,11 +2,27 @@
 
 **Phase:** A — existing-system audit and implementation plan  
 **Date:** 2026-11-02  
-**Status:** Phase A complete; first Phase B vertical slice implemented locally. The generated migration is not applied and no user is granted access yet.
+**Status:** Existing portal and role work remain as recorded below. A monitoring-engine foundation is implemented locally; its additive migrations are generated but not applied.
 
 ## Implementation Update — 2026-11-02
 
 The first Phase B vertical slice is now implemented locally: admin-session-protected `/admin/it` overview/access APIs, explicit nullable IT role grants, super-admin-only grant/revoke controls, and a one-time bootstrap CLI. The Operations role migration is generated as `server/src/database/postgres-drizzle-migrations/0001_mean_karnak.sql` and is not applied. No administrator has been granted IT access; no one-time bootstrap was run. Existing `/operations` identity, sessions, users, and portal behavior remain unchanged. Provider telemetry, security-event ingestion, alert rules, vulnerability records, support ticketing, backup monitoring, and historical metrics remain future phases and are not represented as implemented.
+
+## Monitoring Engine Implementation Update — 2026-11-02
+
+- Added validated monitoring event contracts and asynchronous, bounded PostgreSQL persistence for route-template HTTP telemetry. Request IDs are generated server-side; only UUID correlation IDs are accepted. Request bodies, cookies, tokens, IP addresses, and raw URLs are not recorded.
+- Added persistent security status signals for 401/403/429 and generic application failure events for 5xx responses. These are signals, not individual attack determinations.
+- Added protected `/api/v1/operations/telemetry`, `/events`, `/metrics`, `/detections`, `/alerts`, `/workers`, and `/health` endpoints. The existing overview now prefers persistent aggregates and labels the prior bounded sample `process_local_fallback` when storage is unavailable.
+- Persistent request summaries include RPS, response counts/distribution, route/method breakdowns, average/min/max and raw-sample P50/P95/P99 latency, and 12 time buckets. Historical source events are retained for 30 days.
+- Added configurable rule, deduplication history, alert lifecycle, and worker state tables. A PostgreSQL advisory lock coordinates detection across instances; default rules evaluate only recorded aggregate HTTP route/status signals, and never auto-block users.
+- Added queue retry/backoff, queue bounds, collection freshness counters, worker heartbeats, and bounded statement timeout. Monitoring persistence errors do not fail customer responses.
+- Generated PostgreSQL migrations `0002_lumpy_nemesis.sql` through `0007_remarkable_chat.sql`. They have not been applied to any database and contain only additive monitoring tables/columns/constraints/indexes.
+
+Rollback: the migration set is not auto-applied at startup. Before deployment, rehearse against a restored staging database and verify backups. If application code must be rolled back after migration, first stop the worker and deploy the prior code; leave additive tables in place. Drop tables only in reverse dependency order (`monitoring_alerts`, `monitoring_detection_history`, `monitoring_detection_rules`, `monitoring_worker_state`, then `monitoring_events`) after confirming telemetry retention/export needs and obtaining database-owner approval. Reversing `0003`/`0005`/`0006` columns or constraints is not required for code rollback and would discard operational data.
+
+Not yet implemented: durable job/dead-letter tables and worker retry audit, 1/5/15-minute/hour/day aggregate tables, business/auth/upload/provider event hooks beyond HTTP status signals, alert notification delivery, rule-management mutations, role-granular authorization beyond the existing Operations session gate, integration credentials/probes, scheduled reports, and account-distinct metrics. Provider and infrastructure health remain unknown without authorized provider data. Production rollout requires review and application of the generated migrations through the existing staging/backup process.
+
+Verification for this update: `npm test` passed (102 tests); `npm run typecheck` passed; `npm run build:deploy` passed; focused Oxlint on all changed engine/UI files passed. Repository-wide `npm run lint` passed with 12 existing React hook warnings in unrelated frontend files. `drizzle-kit check` reported a consistent migration history. Migrations were generated only; migration application, staging rehearsal, and live database-backed worker/event verification were not performed.
 
 ## Objective and Constraints
 

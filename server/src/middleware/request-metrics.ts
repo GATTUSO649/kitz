@@ -1,4 +1,7 @@
+import { randomUUID } from 'node:crypto'
 import type { Request, RequestHandler } from 'express'
+import { createMonitoringEvent } from '../modules/operations/monitoring-events.js'
+import { enqueueMonitoringEvent } from '../modules/operations/telemetry-store.js'
 
 export type RequestMetric = {
   at: number
@@ -16,17 +19,92 @@ function endpointTemplate(request: Request) {
   return typeof route === 'string' ? `${request.baseUrl}${route}` : 'unmatched'
 }
 
+function userAgentCategory(request: Request) {
+  const userAgent = request.get('user-agent')?.toLowerCase() ?? ''
+  if (!userAgent) return 'unknown'
+  if (/bot|crawler|spider|preview/.test(userAgent)) return 'bot'
+  if (/ipad|tablet/.test(userAgent)) return 'tablet'
+  if (/mobile|android|iphone/.test(userAgent)) return 'mobile'
+  return 'desktop'
+}
+
+function originHost(request: Request) {
+  const origin = request.get('origin')
+  if (!origin) return 'none'
+  try { return new URL(origin).host.slice(0, 120) } catch { return 'invalid' }
+}
+
+function safeCorrelationId(request: Request) {
+  const value = request.get('x-correlation-id')
+  return value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    ? value
+    : undefined
+}
+
 export const requestMetrics: RequestHandler = (request, response, next) => {
   const startedAt = performance.now()
+  const telemetryRequestId = randomUUID()
+  const correlationId = safeCorrelationId(request)
   response.once('finish', () => {
+    const at = Date.now()
+    const endpoint = endpointTemplate(request)
+    const durationMs = Math.max(0, performance.now() - startedAt)
+    const authenticated = Boolean('auth' in request || 'admin' in request || 'operationsUser' in request)
     metrics.push({
-      at: Date.now(),
+      at,
       method: request.method,
-      endpoint: endpointTemplate(request),
+      endpoint,
       status: response.statusCode,
-      durationMs: Math.max(0, performance.now() - startedAt),
+      durationMs,
     })
     if (metrics.length > maxSamples) metrics.splice(0, metrics.length - maxSamples)
+    try {
+      const event = createMonitoringEvent({
+        eventType: 'http.request.completed',
+        category: 'request',
+        severity: response.statusCode >= 500 ? 'error' : response.statusCode >= 400 ? 'warning' : 'info',
+        sourceService: 'kitculture-api',
+        instanceId: process.env.RENDER_INSTANCE_ID || process.env.HOSTNAME || 'local',
+        requestId: telemetryRequestId,
+        ...(correlationId ? { correlationId } : {}),
+        metadata: {
+          method: request.method,
+          route: endpoint,
+          status: response.statusCode,
+          durationMs: Number(durationMs.toFixed(1)),
+          responseBytes: Number(response.getHeader('content-length')) || null,
+          userAgentCategory: userAgentCategory(request),
+          originHost: originHost(request),
+          authentication: authenticated ? 'authenticated' : 'anonymous',
+          rateLimitOutcome: response.statusCode === 429 ? 'limited' : 'unknown',
+        },
+      })
+      enqueueMonitoringEvent(event)
+      if ([401, 403, 429].includes(response.statusCode)) {
+        enqueueMonitoringEvent(createMonitoringEvent({
+          eventType: 'http.security_signal',
+          category: 'security',
+          severity: 'info',
+          sourceService: 'kitculture-api',
+          instanceId: process.env.RENDER_INSTANCE_ID || process.env.HOSTNAME || 'local',
+          requestId: telemetryRequestId,
+          metadata: { route: endpoint, status: response.statusCode, signal: 'http_response_status' },
+        }))
+      }
+      if (response.statusCode >= 500) {
+        enqueueMonitoringEvent(createMonitoringEvent({
+          eventType: 'application.http_failure',
+          category: 'application',
+          severity: 'error',
+          sourceService: 'kitculture-api',
+          instanceId: process.env.RENDER_INSTANCE_ID || process.env.HOSTNAME || 'local',
+          requestId: telemetryRequestId,
+          metadata: { route: endpoint, status: response.statusCode },
+        }))
+      }
+    } catch {
+      // Telemetry collection is isolated from the completed customer response.
+    }
   })
   next()
 }

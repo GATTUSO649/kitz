@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { hash } from 'bcryptjs'
-import { and, asc, count, desc, eq, gt, isNull, lt, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gt, gte, isNull, lt, lte, sql } from 'drizzle-orm'
 import { Router, type NextFunction, type Request, type Response } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
@@ -10,7 +10,8 @@ import { inspectDatabaseError } from '../../config/database-diagnostics.js'
 import { isAllowedClientOrigin } from '../../config/env.js'
 import { bcryptPasswordSchema, verifyPassword } from '../../config/password-policy.js'
 import { nextSessionExpiry, operationsSessionAbsoluteLifetimeMs, operationsSessionIdleTimeoutMs } from '../../config/session-policy.js'
-import { adminUsers, operationsAuditEvents, operationsIncidentEvents, operationsIncidents, operationsSessions, operationsUsers } from '../../database/admin-schema.js'
+import { adminUsers, monitoringAlerts, monitoringDetectionRules, monitoringEvents, monitoringWorkerState, operationsAuditEvents, operationsIncidentEvents, operationsIncidents, operationsSessions, operationsUsers } from '../../database/admin-schema.js'
+import { getTelemetryQueueState } from './telemetry-store.js'
 import { getRequestMetrics } from '../../middleware/request-metrics.js'
 
 export const operationsRouter = Router()
@@ -319,13 +320,286 @@ operationsRouter.get('/operators', async (request, response) => {
   response.json({ data: operators })
 })
 
+const monitoringRangeQuery = z.object({
+  start: z.coerce.date().optional(),
+  end: z.coerce.date().optional(),
+}).strict().refine((value) => !value.start || !value.end || value.start < value.end, 'Start must precede end.')
+  .refine((value) => !value.start || !value.end || value.end.getTime() - value.start.getTime() <= 31 * 24 * 60 * 60_000, 'Date range cannot exceed 31 days.')
+
+operationsRouter.get('/telemetry', (_request, response) => {
+  const queue = getTelemetryQueueState()
+  response.json({ data: {
+    ...queue,
+    freshness: queue.lastPersistedAt ? 'available' : queue.storageConfigured ? 'awaiting_first_event' : 'unavailable',
+  } })
+})
+
+operationsRouter.get('/detections', async (request, response) => {
+  if (!adminDb) return operationsUnavailable(response, String(request.id))
+  const rules = await adminDb.select({
+    ruleId: monitoringDetectionRules.ruleId,
+    name: monitoringDetectionRules.name,
+    description: monitoringDetectionRules.description,
+    condition: monitoringDetectionRules.condition,
+    threshold: monitoringDetectionRules.threshold,
+    windowSeconds: monitoringDetectionRules.windowSeconds,
+    severity: monitoringDetectionRules.severity,
+    cooldownSeconds: monitoringDetectionRules.cooldownSeconds,
+    enabled: monitoringDetectionRules.enabled,
+    recommendedResponse: monitoringDetectionRules.recommendedResponse,
+  }).from(monitoringDetectionRules).orderBy(asc(monitoringDetectionRules.ruleId))
+  response.json({ data: rules })
+})
+
+operationsRouter.get('/workers', async (request, response) => {
+  if (!adminDb) return operationsUnavailable(response, String(request.id))
+  const workers = await adminDb.select({
+    workerName: monitoringWorkerState.workerName,
+    lastHeartbeatAt: monitoringWorkerState.lastHeartbeatAt,
+    lastSuccessAt: monitoringWorkerState.lastSuccessAt,
+    lastFailureAt: monitoringWorkerState.lastFailureAt,
+    failureCount: monitoringWorkerState.failureCount,
+    lastErrorCode: monitoringWorkerState.lastErrorCode,
+  }).from(monitoringWorkerState).orderBy(asc(monitoringWorkerState.workerName))
+  response.json({ data: workers.map((worker) => ({
+    ...worker,
+    status: !worker.lastHeartbeatAt ? 'unknown' : Date.now() - worker.lastHeartbeatAt.getTime() > 2 * 60_000 ? 'down' : worker.failureCount > 0 ? 'degraded' : 'healthy',
+  })) })
+})
+
+operationsRouter.get('/health', async (_request, response) => {
+  const queue = getTelemetryQueueState()
+  const [storeDatabase, [worker]] = await Promise.all([
+    probeDatabase(pool, 'store'),
+    adminDb ? adminDb.select({ lastHeartbeatAt: monitoringWorkerState.lastHeartbeatAt, failureCount: monitoringWorkerState.failureCount })
+      .from(monitoringWorkerState).where(eq(monitoringWorkerState.workerName, 'monitoring-detection')).limit(1)
+      : Promise.resolve([]),
+  ])
+  const workerState = !worker?.lastHeartbeatAt ? 'unknown'
+    : Date.now() - worker.lastHeartbeatAt.getTime() > 2 * 60_000 ? 'down'
+      : worker.failureCount > 0 ? 'degraded' : 'healthy'
+  const collectionState = queue.freshness === 'available' ? 'healthy'
+    : queue.freshness === 'stale' ? 'degraded' : 'unknown'
+  response.json({ data: {
+    checkedAt: new Date().toISOString(),
+    services: [
+      { name: 'backend-api', state: 'healthy', source: 'current-request' },
+      { name: 'postgresql', state: storeDatabase.status === 'healthy' ? 'healthy' : 'down', latencyMs: storeDatabase.latencyMs, source: 'live-select-1' },
+      { name: 'monitoring-collection', state: collectionState, source: 'last-successful-persistence' },
+      { name: 'monitoring-processing', state: workerState, source: 'persisted-worker-heartbeat' },
+      { name: 'external-integrations', state: 'unknown', source: 'no-authorized-provider-probes-configured' },
+    ],
+    telemetryFreshness: queue.freshness,
+    queue,
+  } })
+})
+
+operationsRouter.get('/events', async (request, response) => {
+  if (!adminDb) return operationsUnavailable(response, String(request.id))
+  const query = incidentListQuery.extend({ category: z.enum(['request', 'application', 'security', 'business', 'system']).optional() }).strict().safeParse(request.query)
+  if (!query.success) return response.status(400).json({ error: { code: 'INVALID_QUERY', message: 'Event pagination or category is invalid.' } })
+  const rows = await adminDb.select({
+    id: monitoringEvents.id,
+    eventId: monitoringEvents.eventId,
+    eventType: monitoringEvents.eventType,
+    category: monitoringEvents.category,
+    severity: monitoringEvents.severity,
+    occurredAt: monitoringEvents.occurredAt,
+    sourceService: monitoringEvents.sourceService,
+    instanceId: monitoringEvents.instanceId,
+    requestId: monitoringEvents.requestId,
+    correlationId: monitoringEvents.correlationId,
+    relatedResourceId: monitoringEvents.relatedResourceId,
+    metadata: monitoringEvents.metadata,
+  }).from(monitoringEvents)
+    .where(and(
+      query.data.cursor ? lt(monitoringEvents.id, query.data.cursor) : undefined,
+      query.data.category ? eq(monitoringEvents.category, query.data.category) : undefined,
+    ))
+    .orderBy(desc(monitoringEvents.id))
+    .limit(query.data.limit + 1)
+  const hasMore = rows.length > query.data.limit
+  const data = rows.slice(0, query.data.limit)
+  response.json({ data, pagination: { limit: query.data.limit, nextCursor: hasMore ? data.at(-1)?.id ?? null : null, hasMore } })
+})
+
+operationsRouter.get('/alerts', async (request, response) => {
+  if (!adminDb) return operationsUnavailable(response, String(request.id))
+  const query = incidentListQuery.extend({ status: z.enum(['new', 'acknowledged', 'investigating', 'resolved', 'closed']).optional() }).strict().safeParse(request.query)
+  if (!query.success) return response.status(400).json({ error: { code: 'INVALID_QUERY', message: 'Alert pagination or status is invalid.' } })
+  const rows = await adminDb.select({
+    id: monitoringAlerts.id,
+    severity: monitoringAlerts.severity,
+    description: monitoringAlerts.description,
+    affectedService: monitoringAlerts.affectedService,
+    status: monitoringAlerts.status,
+    firstOccurrence: monitoringAlerts.firstOccurrence,
+    lastOccurrence: monitoringAlerts.lastOccurrence,
+    occurrenceCount: monitoringAlerts.occurrenceCount,
+    assignedOperationsUserId: monitoringAlerts.assignedOperationsUserId,
+    resolutionInformation: monitoringAlerts.resolutionInformation,
+    ruleId: monitoringDetectionRules.ruleId,
+    ruleName: monitoringDetectionRules.name,
+  }).from(monitoringAlerts).innerJoin(monitoringDetectionRules, eq(monitoringAlerts.detectionRuleId, monitoringDetectionRules.id))
+    .where(and(
+      query.data.cursor ? lt(monitoringAlerts.id, query.data.cursor) : undefined,
+      query.data.status ? eq(monitoringAlerts.status, query.data.status) : undefined,
+    )).orderBy(desc(monitoringAlerts.id)).limit(query.data.limit + 1)
+  const hasMore = rows.length > query.data.limit
+  const data = rows.slice(0, query.data.limit)
+  response.json({ data, pagination: { limit: query.data.limit, nextCursor: hasMore ? data.at(-1)?.id ?? null : null, hasMore } })
+})
+
+const updateAlertSchema = z.object({
+  status: z.enum(['acknowledged', 'investigating', 'resolved', 'closed']).optional(),
+  assignedOperationsUserId: z.number().int().positive().nullable().optional(),
+  resolutionInformation: z.string().trim().max(4000).nullable().optional(),
+}).strict().refine((value) => Object.keys(value).length > 0)
+
+operationsRouter.patch('/alerts/:id', async (request, response) => {
+  const id = z.coerce.number().int().positive().safeParse(request.params.id)
+  const input = updateAlertSchema.safeParse(request.body)
+  if (!id.success || !input.success) return response.status(400).json({ error: { code: 'INVALID_ALERT_UPDATE', message: 'Alert update is invalid.' } })
+  if (!adminDb) return operationsUnavailable(response, String(request.id))
+  if (input.data.assignedOperationsUserId !== undefined && input.data.assignedOperationsUserId !== null) {
+    const [assignee] = await adminDb.select({ id: operationsUsers.id }).from(operationsUsers)
+      .where(and(eq(operationsUsers.id, input.data.assignedOperationsUserId), isNull(operationsUsers.disabledAt))).limit(1)
+    if (!assignee) return response.status(400).json({ error: { code: 'INVALID_ASSIGNEE', message: 'The assignee is not an authorized operations operator.' } })
+  }
+  const [updated] = await adminDb.update(monitoringAlerts).set({ ...input.data, updatedAt: new Date() })
+    .where(eq(monitoringAlerts.id, id.data)).returning({ id: monitoringAlerts.id })
+  if (!updated) return response.status(404).json({ error: { code: 'ALERT_NOT_FOUND', message: 'Alert not found.' } })
+  response.json({ data: updated })
+})
+
+operationsRouter.get('/metrics', async (request, response) => {
+  if (!adminDb) return operationsUnavailable(response, String(request.id))
+  const parsed = monitoringRangeQuery.safeParse(request.query)
+  if (!parsed.success) return response.status(400).json({ error: { code: 'INVALID_DATE_RANGE', message: 'Metric date range is invalid.' } })
+  const end = parsed.data.end ?? new Date()
+  const start = parsed.data.start ?? new Date(end.getTime() - 60 * 60_000)
+  if (end.getTime() - start.getTime() > 31 * 24 * 60 * 60_000) {
+    return response.status(400).json({ error: { code: 'INVALID_DATE_RANGE', message: 'Metric date range cannot exceed 31 days.' } })
+  }
+  const metrics = await persistentRequestMetrics(start, end)
+  if (!metrics) return response.status(503).json({ error: { code: 'TELEMETRY_UNAVAILABLE', message: 'Persistent request telemetry is not available.' } })
+  response.json({ data: { ...metrics, windowStartedAt: start.toISOString(), windowEndedAt: end.toISOString(), collectedAt: new Date().toISOString() } })
+})
+
+async function persistentRequestMetrics(start: Date, end: Date) {
+  if (!adminDb) return null
+  try {
+    const bucketCount = 12
+    const bucketDurationMs = (end.getTime() - start.getTime()) / bucketCount
+    const bucketSeconds = bucketDurationMs / 1000
+    const requestConditions = and(
+      eq(monitoringEvents.eventType, 'http.request.completed'),
+      gte(monitoringEvents.occurredAt, start),
+      lte(monitoringEvents.occurredAt, end),
+    )
+    const status = sql<number>`(${monitoringEvents.metadata}->>'status')::integer`
+    const duration = sql<number>`(${monitoringEvents.metadata}->>'durationMs')::double precision`
+    const [[aggregate], endpointRows, methodRows, distribution, bucketRows] = await Promise.all([
+      adminDb.select({
+        requestCount: count(),
+        requestsLastMinute: sql<number>`count(*) filter (where ${monitoringEvents.occurredAt} >= ${new Date(end.getTime() - 60_000)})`,
+        errorCount: sql<number>`count(*) filter (where ${status} >= 400)`,
+        serverErrorCount: sql<number>`count(*) filter (where ${status} >= 500)`,
+        clientErrorCount: sql<number>`count(*) filter (where ${status} between 400 and 499)`,
+        successfulRequestCount: sql<number>`count(*) filter (where ${status} < 400)`,
+        securitySignalCount: sql<number>`count(*) filter (where ${status} in (401, 403, 429))`,
+        securitySignalsLastMinute: sql<number>`count(*) filter (where ${status} in (401, 403, 429) and ${monitoringEvents.occurredAt} >= ${new Date(end.getTime() - 60_000)})`,
+        averageResponseMs: sql<number | null>`avg(${duration})`,
+        minResponseMs: sql<number | null>`min(${duration})`,
+        maxResponseMs: sql<number | null>`max(${duration})`,
+        p50ResponseMs: sql<number | null>`percentile_cont(0.50) within group (order by ${duration})`,
+        p95ResponseMs: sql<number | null>`percentile_cont(0.95) within group (order by ${duration})`,
+        p99ResponseMs: sql<number | null>`percentile_cont(0.99) within group (order by ${duration})`,
+      }).from(monitoringEvents).where(requestConditions),
+      adminDb.select({
+        method: sql<string>`(${monitoringEvents.metadata}->>'method')`,
+        endpoint: sql<string>`(${monitoringEvents.metadata}->>'route')`,
+        requests: count(),
+        errors: sql<number>`count(*) filter (where ${status} >= 400)`,
+        averageResponseMs: sql<number>`avg(${duration})`,
+      }).from(monitoringEvents).where(requestConditions)
+        .groupBy(sql`(${monitoringEvents.metadata}->>'method')`, sql`(${monitoringEvents.metadata}->>'route')`)
+        .orderBy(desc(count())).limit(50),
+      adminDb.select({ method: sql<string>`(${monitoringEvents.metadata}->>'method')`, requests: count() })
+        .from(monitoringEvents).where(requestConditions).groupBy(sql`(${monitoringEvents.metadata}->>'method')`).orderBy(desc(count())),
+      adminDb.select({
+        success: sql<number>`count(*) filter (where ${status} < 300)`,
+        redirect: sql<number>`count(*) filter (where ${status} between 300 and 399)`,
+        clientError: sql<number>`count(*) filter (where ${status} between 400 and 499)`,
+        serverError: sql<number>`count(*) filter (where ${status} >= 500)`,
+      }).from(monitoringEvents).where(requestConditions),
+      adminDb.select({
+        bucketIndex: sql<number>`floor(extract(epoch from (${monitoringEvents.occurredAt} - ${start})) / ${bucketSeconds})::integer`,
+        requestCount: count(),
+        errorCount: sql<number>`count(*) filter (where ${status} >= 400)`,
+        serverErrorCount: sql<number>`count(*) filter (where ${status} >= 500)`,
+        securitySignalCount: sql<number>`count(*) filter (where ${status} in (401, 403, 429))`,
+        averageResponseMs: sql<number | null>`avg(${duration})`,
+        p95ResponseMs: sql<number | null>`percentile_cont(0.95) within group (order by ${duration})`,
+      }).from(monitoringEvents).where(requestConditions)
+        .groupBy(sql`floor(extract(epoch from (${monitoringEvents.occurredAt} - ${start})) / ${bucketSeconds})::integer`),
+    ])
+    const bucketMap = new Map(bucketRows.map((row) => [Number(row.bucketIndex), row]))
+    const timeline = Array.from({ length: bucketCount }, (_, index) => {
+      const row = bucketMap.get(index)
+      return {
+        bucketStartedAt: new Date(start.getTime() + index * bucketDurationMs).toISOString(),
+        requestCount: Number(row?.requestCount ?? 0),
+        errorCount: Number(row?.errorCount ?? 0),
+        serverErrorCount: Number(row?.serverErrorCount ?? 0),
+        securitySignalCount: Number(row?.securitySignalCount ?? 0),
+        averageResponseMs: row?.averageResponseMs === null || row?.averageResponseMs === undefined ? null : Number(Number(row.averageResponseMs).toFixed(1)),
+        p95ResponseMs: row?.p95ResponseMs === null || row?.p95ResponseMs === undefined ? null : Number(Number(row.p95ResponseMs).toFixed(1)),
+      }
+    })
+    const distributionCounts = distribution[0]
+    return {
+      requestCount: Number(aggregate.requestCount),
+      requestsLastMinute: Number(aggregate.requestsLastMinute),
+      errorCount: Number(aggregate.errorCount),
+      serverErrorCount: Number(aggregate.serverErrorCount),
+      clientErrorCount: Number(aggregate.clientErrorCount),
+      successfulRequestCount: Number(aggregate.successfulRequestCount),
+      securitySignalCount: Number(aggregate.securitySignalCount),
+      securitySignalsLastMinute: Number(aggregate.securitySignalsLastMinute),
+      requestRatePerSecond: Number((Number(aggregate.requestCount) / Math.max(1, (end.getTime() - start.getTime()) / 1000)).toFixed(2)),
+      averageResponseMs: aggregate.averageResponseMs === null ? null : Number(Number(aggregate.averageResponseMs).toFixed(1)),
+      minResponseMs: aggregate.minResponseMs === null ? null : Number(Number(aggregate.minResponseMs).toFixed(1)),
+      maxResponseMs: aggregate.maxResponseMs === null ? null : Number(Number(aggregate.maxResponseMs).toFixed(1)),
+      p50ResponseMs: aggregate.p50ResponseMs === null ? null : Number(Number(aggregate.p50ResponseMs).toFixed(1)),
+      p95ResponseMs: aggregate.p95ResponseMs === null ? null : Number(Number(aggregate.p95ResponseMs).toFixed(1)),
+      p99ResponseMs: aggregate.p99ResponseMs === null ? null : Number(Number(aggregate.p99ResponseMs).toFixed(1)),
+      endpoints: endpointRows.map((row) => ({ method: row.method, endpoint: row.endpoint, requests: Number(row.requests), errors: Number(row.errors), averageResponseMs: Number(Number(row.averageResponseMs).toFixed(1)) })),
+      methods: methodRows.map((row) => ({ method: row.method, requests: Number(row.requests) })),
+      responseDistribution: {
+        success: Number(distributionCounts.success),
+        redirect: Number(distributionCounts.redirect),
+        clientError: Number(distributionCounts.clientError),
+        serverError: Number(distributionCounts.serverError),
+      },
+      timeline,
+      telemetryFreshness: getTelemetryQueueState().freshness,
+    }
+  } catch {
+    return null
+  }
+}
+
 operationsRouter.get('/overview', async (request, response) => {
   if (!adminDb) return operationsUnavailable(response, String(request.id))
-  const [storeDatabase, adminDatabase, [openIncidentCount], [investigatingIncidentCount]] = await Promise.all([
+  const metricEnd = new Date()
+  const metricStart = new Date(metricEnd.getTime() - 60 * 60_000)
+  const [storeDatabase, adminDatabase, [openIncidentCount], [investigatingIncidentCount], requestMetrics] = await Promise.all([
     probeDatabase(pool, 'store'),
     adminPool === pool ? Promise.resolve({ name: 'admin', status: 'healthy' as const, latencyMs: null }) : probeDatabase(adminPool, 'admin'),
     adminDb.select({ total: count() }).from(operationsIncidents).where(eq(operationsIncidents.status, 'open')),
     adminDb.select({ total: count() }).from(operationsIncidents).where(eq(operationsIncidents.status, 'investigating')),
+    persistentRequestMetrics(metricStart, metricEnd),
   ])
   const memory = process.memoryUsage()
   response.json({ data: {
@@ -337,7 +611,22 @@ operationsRouter.get('/overview', async (request, response) => {
       heapUsedBytes: memory.heapUsed,
     },
     databases: [storeDatabase, adminDatabase],
-    requests: getRequestMetrics(),
+    databasePool: pool ? {
+      totalConnections: pool.totalCount,
+      idleConnections: pool.idleCount,
+      waitingRequests: pool.waitingCount,
+      maxConnections: pool.options.max ?? null,
+    } : null,
+    requests: requestMetrics ? {
+      ...requestMetrics,
+      windowStartedAt: metricStart.toISOString(),
+      collectedAt: metricEnd.toISOString(),
+      telemetryFreshness: getTelemetryQueueState().freshness,
+    } : {
+      ...getRequestMetrics(),
+      telemetryFreshness: 'process_local_fallback',
+      reason: 'Persistent request telemetry is unavailable; these values are process-local only.',
+    },
     incidents: { open: Number(openIncidentCount.total), investigating: Number(investigatingIncidentCount.total) },
     externalServices: {
       render: { status: 'unknown', reason: 'Provider API credentials are not configured.' },

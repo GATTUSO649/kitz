@@ -1,0 +1,2 @@
+ALTER TABLE "monitoring_detection_rules" DROP CONSTRAINT "monitoring_detection_rules_condition_check";--> statement-breakpoint
+ALTER TABLE "monitoring_detection_rules" ADD CONSTRAINT "monitoring_detection_rules_condition_check" CHECK ("monitoring_detection_rules"."condition" IN ('login_failures', 'status_401', 'status_403', 'status_429', 'api_scanning', 'payment_callback_failures', 'abnormal_volume', 'password_reset_activity'));

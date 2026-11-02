@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { check, index, integer as int, pgTable as mysqlTable, primaryKey, text, timestamp as pgTimestamp, varchar } from 'drizzle-orm/pg-core'
+import { boolean, check, index, integer as int, jsonb, pgTable as mysqlTable, primaryKey, text, timestamp as pgTimestamp, unique, varchar } from 'drizzle-orm/pg-core'
 
 const timestamp = (name: string) => pgTimestamp(name, { withTimezone: true, mode: 'date' })
 const enumText = <T extends string>(name: string, length: number) => varchar(name, { length }).$type<T>()
@@ -129,3 +129,96 @@ export const operationsAuditEvents = mysqlTable('operations_audit_events', {
   index('operations_audit_actor_created_idx').on(table.actorOperationsUserId, table.createdAt),
   check('operations_audit_events_actor_type_check', sql`${table.actorType} IN ('admin', 'operations_user', 'provisioning_cli')`),
 ])
+
+export const monitoringEvents = mysqlTable('monitoring_events', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  eventId: varchar('event_id', { length: 36 }).notNull(),
+  eventType: varchar('event_type', { length: 80 }).notNull(),
+  category: varchar('category', { length: 24 }).notNull(),
+  severity: varchar('severity', { length: 16 }).notNull(),
+  occurredAt: timestamp('occurred_at').notNull(),
+  sourceService: varchar('source_service', { length: 40 }).notNull(),
+  instanceId: varchar('instance_id', { length: 120 }).notNull(),
+  requestId: varchar('request_id', { length: 120 }),
+  correlationId: varchar('correlation_id', { length: 36 }),
+  relatedResourceId: varchar('related_resource_id', { length: 80 }),
+  metadata: jsonb('metadata').$type<Record<string, string | number | boolean | null>>().notNull(),
+  ingestedAt: timestamp('ingested_at').defaultNow().notNull(),
+}, (table) => [
+  unique('monitoring_events_event_id_unique').on(table.eventId),
+  index('monitoring_events_occurred_idx').on(table.occurredAt),
+  index('monitoring_events_category_occurred_idx').on(table.category, table.occurredAt),
+  index('monitoring_events_type_occurred_idx').on(table.eventType, table.occurredAt),
+  index('monitoring_events_instance_occurred_idx').on(table.instanceId, table.occurredAt),
+  check('monitoring_events_category_check', sql`${table.category} IN ('request', 'application', 'security', 'business', 'system')`),
+  check('monitoring_events_severity_check', sql`${table.severity} IN ('debug', 'info', 'warning', 'error', 'critical')`),
+])
+
+export const monitoringDetectionRules = mysqlTable('monitoring_detection_rules', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  ruleId: varchar('rule_id', { length: 80 }).notNull().unique(),
+  name: varchar('name', { length: 120 }).notNull(),
+  description: text('description').notNull(),
+  condition: varchar('condition', { length: 40 }).notNull(),
+  threshold: int('threshold').notNull(),
+  windowSeconds: int('window_seconds').notNull(),
+  severity: varchar('severity', { length: 16 }).notNull(),
+  cooldownSeconds: int('cooldown_seconds').notNull(),
+  enabled: boolean('enabled').default(true).notNull(),
+  recommendedResponse: text('recommended_response').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
+}, (table) => [
+  index('monitoring_detection_rules_enabled_idx').on(table.enabled, table.ruleId),
+  check('monitoring_detection_rules_condition_check', sql`${table.condition} IN ('login_failures', 'status_401', 'status_403', 'status_429', 'api_scanning', 'payment_callback_failures', 'abnormal_volume', 'password_reset_activity')`),
+  check('monitoring_detection_rules_severity_check', sql`${table.severity} IN ('debug', 'info', 'warning', 'error', 'critical')`),
+  check('monitoring_detection_rules_threshold_check', sql`${table.threshold} > 0 AND ${table.windowSeconds} > 0 AND ${table.cooldownSeconds} >= 0`),
+])
+
+export const monitoringAlerts = mysqlTable('monitoring_alerts', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  deduplicationKey: varchar('deduplication_key', { length: 180 }).notNull().unique(),
+  detectionRuleId: int('detection_rule_id').notNull().references(() => monitoringDetectionRules.id, { onDelete: 'restrict' }),
+  sourceEventId: int('source_event_id').references(() => monitoringEvents.id, { onDelete: 'set null' }),
+  severity: varchar('severity', { length: 16 }).notNull(),
+  description: text('description').notNull(),
+  affectedService: varchar('affected_service', { length: 80 }).notNull(),
+  status: varchar('status', { length: 20 }).default('new').notNull(),
+  firstOccurrence: timestamp('first_occurrence').defaultNow().notNull(),
+  lastOccurrence: timestamp('last_occurrence').defaultNow().notNull(),
+  occurrenceCount: int('occurrence_count').default(1).notNull(),
+  assignedOperationsUserId: int('assigned_operations_user_id').references(() => operationsUsers.id, { onDelete: 'set null' }),
+  resolutionInformation: text('resolution_information'),
+  notificationSuppressedUntil: timestamp('notification_suppressed_until'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
+}, (table) => [
+  index('monitoring_alerts_status_severity_created_idx').on(table.status, table.severity, table.createdAt),
+  index('monitoring_alerts_rule_last_occurrence_idx').on(table.detectionRuleId, table.lastOccurrence),
+  check('monitoring_alerts_severity_check', sql`${table.severity} IN ('debug', 'info', 'warning', 'error', 'critical')`),
+  check('monitoring_alerts_status_check', sql`${table.status} IN ('new', 'acknowledged', 'investigating', 'resolved', 'closed')`),
+  check('monitoring_alerts_occurrence_count_check', sql`${table.occurrenceCount} > 0`),
+])
+
+export const monitoringDetectionHistory = mysqlTable('monitoring_detection_history', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  ruleId: varchar('rule_id', { length: 80 }).notNull(),
+  groupKey: varchar('group_key', { length: 120 }).notNull(),
+  lastEventId: int('last_event_id').default(0).notNull(),
+  lastEvaluatedAt: timestamp('last_evaluated_at').notNull(),
+  lastAlertedAt: timestamp('last_alerted_at'),
+  lastMatchCount: int('last_match_count').default(0).notNull(),
+}, (table) => [
+  unique('monitoring_detection_history_rule_group_unique').on(table.ruleId, table.groupKey),
+  index('monitoring_detection_history_evaluated_idx').on(table.lastEvaluatedAt),
+])
+
+export const monitoringWorkerState = mysqlTable('monitoring_worker_state', {
+  workerName: varchar('worker_name', { length: 80 }).primaryKey(),
+  lastHeartbeatAt: timestamp('last_heartbeat_at'),
+  lastSuccessAt: timestamp('last_success_at'),
+  lastFailureAt: timestamp('last_failure_at'),
+  failureCount: int('failure_count').default(0).notNull(),
+  lastErrorCode: varchar('last_error_code', { length: 80 }),
+  updatedAt: timestamp('updated_at').defaultNow().notNull().$onUpdateFn(() => new Date()),
+}, (table) => [index('monitoring_worker_state_heartbeat_idx').on(table.lastHeartbeatAt)])

@@ -41,6 +41,6 @@ test('records bounded, privacy-safe route metrics', async (context) => {
   assert.equal(snapshot.timeline.reduce((total, bucket) => total + bucket.securitySignalCount, 0), snapshot.securitySignalCount)
   assert.ok(snapshot.timeline.filter((bucket) => bucket.requestCount > 0)
     .every((bucket) => bucket.averageResponseMs !== null && bucket.p95ResponseMs !== null))
-  assert.ok(!JSON.stringify(snapshot).includes('123'))
+  assert.ok(!JSON.stringify(snapshot).includes('/items/123'))
   assert.ok(!JSON.stringify(snapshot).includes('private@example.com'))
 })

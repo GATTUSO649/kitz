@@ -1,0 +1,1 @@
+CREATE INDEX "monitoring_events_occurred_idx" ON "monitoring_events" USING btree ("occurred_at");
