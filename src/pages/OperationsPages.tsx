@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Activity,
@@ -34,17 +34,23 @@ type OperationsPayload<T> = {
 }
 
 type EndpointMetric = { endpoint: string; requests: number; errors: number; averageResponseMs: number }
+type RequestBucket = { bucketStartedAt: string; requestCount: number; errorCount: number; serverErrorCount: number }
 
 type OperationsOverview = {
   application: { status: string; uptimeSeconds: number; nodeVersion: string; memoryRssBytes: number; heapUsedBytes: number }
   databases: { name: string; status: string; latencyMs: number | null }[]
   requests: {
     requestCount: number
+    requestsLastMinute: number
     errorCount: number
+    clientErrorCount: number
     serverErrorCount: number
+    successfulRequestCount: number
     averageResponseMs: number | null
     p95ResponseMs: number | null
     endpoints: EndpointMetric[]
+    collectedAt: string
+    timeline: RequestBucket[]
   }
   incidents: { open: number; investigating: number }
   externalServices: Record<string, { status: string; reason?: string }>
@@ -407,15 +413,9 @@ function OperationsConsole() {
   }
 
   const overview = overviewQuery.data
-  const threatLevel = useMemo(() => {
-    const errorRate = overview ? (overview.requests.errorCount / Math.max(overview.requests.requestCount, 1)) * 100 : 0
-    if (errorRate >= 25) return { label: 'Critical', tone: 'threat-critical' }
-    if (errorRate >= 10) return { label: 'Elevated', tone: 'threat-warning' }
-    if (errorRate >= 3) return { label: 'Watch', tone: 'threat-watch' }
-    return { label: 'Nominal', tone: 'threat-ok' }
-  }, [overview])
-
+  const threatPosture = { label: 'Unavailable', tone: 'threat-unknown' }
   const topEndpoints = overview?.requests.endpoints.slice(0, 5) ?? []
+  const trafficPeak = Math.max(1, ...(overview?.requests.timeline.map((bucket) => bucket.requestCount) ?? []))
 
   const moduleContent: Record<ModuleKey, ReactNode> = {
     overview: (
@@ -426,17 +426,40 @@ function OperationsConsole() {
             <h2>Platform status</h2>
             <p>Application telemetry, request health, and protected service signals.</p>
           </div>
-          <span className={`operations-threat-pill ${threatLevel.tone}`}>{threatLevel.label}</span>
+          <span className={`operations-threat-pill ${threatPosture.tone}`}>Security feed unavailable</span>
         </div>
 
         <div className="operations-stat-grid">
-          <article className="operations-stat-card"><span>Requests / min</span><strong>{overview?.requests.requestCount ?? 0}</strong><small>Rolling sample</small></article>
+          <article className="operations-stat-card"><span>Requests, last minute</span><strong>{overview?.requests.requestsLastMinute ?? 0}</strong><small>Application requests</small></article>
           <article className="operations-stat-card"><span>HTTP errors</span><strong>{overview?.requests.errorCount ?? 0}</strong><small>4xx + 5xx</small></article>
           <article className="operations-stat-card"><span>Avg response</span><strong>{overview?.requests.averageResponseMs === null ? '—' : `${overview?.requests.averageResponseMs} ms`}</strong><small>Service latency</small></article>
-          <article className="operations-stat-card"><span>Threat level</span><strong>{threatLevel.label}</strong><small>Current posture</small></article>
+          <article className="operations-stat-card"><span>Threat level</span><strong>{threatPosture.label}</strong><small>No security-event feed configured</small></article>
         </div>
 
         <section className="operations-panel-grid">
+          <article className="operations-panel-card operations-traffic-chart">
+            <header>
+              <span className="operations-eyebrow">Application traffic · last hour</span>
+              <h3>Requests over time</h3>
+            </header>
+            {overview?.requests.timeline.length ? (
+              <div className="operations-traffic-plot" role="img" aria-label="Application request counts in twelve five-minute buckets for the last hour">
+                {overview.requests.timeline.map((bucket) => (
+                  <div className="operations-traffic-column" key={bucket.bucketStartedAt} title={`${new Date(bucket.bucketStartedAt).toLocaleTimeString()} · ${bucket.requestCount} requests · ${bucket.errorCount} errors`}>
+                    <span className="operations-traffic-count">{bucket.requestCount}</span>
+                    <div className="operations-traffic-bar-track">
+                      <i style={{ height: `${Math.max(bucket.requestCount ? 8 : 0, (bucket.requestCount / trafficPeak) * 100)}%` }} />
+                    </div>
+                    <small>{new Date(bucket.bucketStartedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="operations-empty-notice">Traffic history is unavailable.</p>
+            )}
+            <p className="operations-chart-footnote">12 five-minute buckets · sampled in this application process · collected {overview?.requests.collectedAt ? new Date(overview.requests.collectedAt).toLocaleTimeString() : '—'}</p>
+          </article>
+
           <article className="operations-panel-card">
             <header>
               <span className="operations-eyebrow">Traffic</span>
@@ -495,7 +518,7 @@ function OperationsConsole() {
           <article className="operations-stat-card"><span>Sampled requests</span><strong>{overview?.requests.requestCount ?? 0}</strong><small>Rolling sample</small></article>
           <article className="operations-stat-card"><span>Failed requests</span><strong>{overview?.requests.errorCount ?? 0}</strong><small>4xx + 5xx</small></article>
           <article className="operations-stat-card"><span>P95</span><strong>{overview?.requests.p95ResponseMs === null ? '—' : `${overview?.requests.p95ResponseMs} ms`}</strong><small>Response distribution</small></article>
-          <article className="operations-stat-card"><span>Threat posture</span><strong>{threatLevel.label}</strong><small>Current pattern</small></article>
+          <article className="operations-stat-card"><span>Security events</span><strong>{threatPosture.label}</strong><small>Request errors are not threat detections</small></article>
         </div>
         <article className="operations-panel-card full-span">
           <header>
@@ -546,7 +569,7 @@ function OperationsConsole() {
           </div>
         </div>
         <div className="operations-stat-grid">
-          <article className="operations-stat-card"><span>Threat level</span><strong>{threatLevel.label}</strong><small>Derived from request patterns</small></article>
+          <article className="operations-stat-card"><span>Threat level</span><strong>{threatPosture.label}</strong><small>No security-event feed configured</small></article>
           <article className="operations-stat-card"><span>Auth checks</span><strong>Protected</strong><small>Session checks enforced</small></article>
           <article className="operations-stat-card"><span>Rate limiting</span><strong>Enabled</strong><small>API and auth throttling applied</small></article>
           <article className="operations-stat-card"><span>Audit trail</span><strong>Active</strong><small>Privileged actions are recorded</small></article>
@@ -564,7 +587,7 @@ function OperationsConsole() {
         </div>
         <div className="operations-stat-grid">
           <article className="operations-stat-card"><span>Detection rules</span><strong>Policy-based</strong><small>Rule engine remains active</small></article>
-          <article className="operations-stat-card"><span>Suspicious activity</span><strong>{threatLevel.label}</strong><small>Current request posture</small></article>
+          <article className="operations-stat-card"><span>Suspicious activity</span><strong>Unavailable</strong><small>No detection rules are connected</small></article>
           <article className="operations-stat-card"><span>Escalation</span><strong>Manual</strong><small>Approval required before blocks</small></article>
           <article className="operations-stat-card"><span>Analysis</span><strong>Guarded</strong><small>Operations data is role-protected</small></article>
         </div>
