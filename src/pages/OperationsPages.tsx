@@ -35,6 +35,7 @@ type OperationsPayload<T> = {
 
 type EndpointMetric = { endpoint: string; requests: number; errors: number; averageResponseMs: number }
 type RequestBucket = { bucketStartedAt: string; requestCount: number; errorCount: number; serverErrorCount: number }
+type RequestSeriesBucket = RequestBucket & { securitySignalCount: number; averageResponseMs: number | null; p95ResponseMs: number | null }
 
 type OperationsOverview = {
   application: { status: string; uptimeSeconds: number; nodeVersion: string; memoryRssBytes: number; heapUsedBytes: number }
@@ -46,11 +47,15 @@ type OperationsOverview = {
     clientErrorCount: number
     serverErrorCount: number
     successfulRequestCount: number
+    securitySignalCount: number
+    securitySignalsLastMinute: number
     averageResponseMs: number | null
     p95ResponseMs: number | null
     endpoints: EndpointMetric[]
     collectedAt: string
-    timeline: RequestBucket[]
+    timeline: RequestSeriesBucket[]
+    methods: { method: string; requests: number }[]
+    responseDistribution: { success: number; redirect: number; clientError: number; serverError: number }
   }
   incidents: { open: number; investigating: number }
   externalServices: Record<string, { status: string; reason?: string }>
@@ -93,6 +98,7 @@ type ModuleKey =
   | 'reports'
   | 'audit'
   | 'settings'
+  | 'security-config'
 
 type ModuleGroup = { label: string; items: { key: ModuleKey; label: string; icon: typeof LayoutDashboard; status: 'live' | 'watch' | 'guarded' }[] }
 
@@ -165,6 +171,10 @@ const moduleGroups: ModuleGroup[] = [
       { key: 'settings', label: 'Settings', icon: Server, status: 'guarded' },
     ],
   },
+  {
+    label: 'Security setup',
+    items: [{ key: 'security-config', label: 'Security Configuration', icon: Shield, status: 'guarded' }],
+  },
 ]
 
 function formatDuration(seconds: number) {
@@ -184,6 +194,64 @@ function label(value: string) {
 
 function clampPercent(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
+}
+
+type ChartSeries = { label: string; color: string; values: number[] }
+
+function OperationsLineChart({ title, labels, series }: { title: string; labels: string[]; series: ChartSeries[] }) {
+  const maximum = Math.max(1, ...series.flatMap((item) => item.values))
+  const coordinates = series.map((item) => item.values.map((value, index) => ({
+    x: labels.length < 2 ? 300 : 34 + (index * 532) / (labels.length - 1),
+    y: 170 - (value / maximum) * 132,
+  })))
+
+  return (
+    <article className="operations-chart-panel">
+      <header><div><span className="operations-eyebrow">Live · 5-minute buckets</span><h3>{title}</h3></div><div className="operations-chart-legend">{series.map((item) => <span key={item.label}><i style={{ backgroundColor: item.color }} />{item.label}</span>)}</div></header>
+      {labels.length ? (
+        <>
+          <svg className="operations-line-chart" viewBox="0 0 600 218" role="img" aria-label={`${title} over the last hour`}>
+            {[38, 82, 126, 170].map((y) => <line key={y} x1="34" x2="566" y1={y} y2={y} className="operations-chart-gridline" />)}
+            {series.map((item, seriesIndex) => <g key={item.label}>
+              <polyline points={coordinates[seriesIndex].map(({ x, y }) => `${x},${y}`).join(' ')} fill="none" stroke={item.color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+              {coordinates[seriesIndex].map(({ x, y }, index) => <circle key={`${item.label}-${index}`} cx={x} cy={y} r="3.5" fill={item.color}><title>{labels[index]} · {item.label}: {item.values[index]}</title></circle>)}
+            </g>)}
+          </svg>
+          <div className="operations-chart-axis"><span>{labels[0]}</span><span>{labels[Math.floor((labels.length - 1) / 2)]}</span><span>{labels.at(-1)}</span></div>
+        </>
+      ) : <p className="operations-chart-empty">Traffic history is unavailable.</p>}
+    </article>
+  )
+}
+
+function OperationsDonut({ title, entries }: { title: string; entries: { label: string; value: number; color: string }[] }) {
+  const total = entries.reduce((sum, entry) => sum + entry.value, 0)
+  let accumulated = 0
+  const stops = entries.map((entry) => {
+    const start = total ? (accumulated / total) * 100 : 0
+    accumulated += entry.value
+    return `${entry.color} ${start}% ${(accumulated / total) * 100}%`
+  })
+
+  return (
+    <article className="operations-chart-panel operations-donut-panel">
+      <header><div><span className="operations-eyebrow">Application sample</span><h3>{title}</h3></div><strong>{total || '—'}</strong></header>
+      <div className="operations-donut-layout">
+        <div className={`operations-donut${total ? '' : ' is-empty'}`} style={{ background: total ? `conic-gradient(${stops.join(', ')})` : undefined }} role="img" aria-label={total ? `${title}, ${total} total` : `${title} unavailable`}><span>{total || '—'}</span></div>
+        <ul>{entries.map((entry) => <li key={entry.label}><i style={{ backgroundColor: entry.color }} /><span>{entry.label}</span><strong>{total ? entry.value : '—'}</strong></li>)}</ul>
+      </div>
+    </article>
+  )
+}
+
+function OperationsBars({ title, items }: { title: string; items: { label: string; value: number }[] }) {
+  const maximum = Math.max(1, ...items.map((item) => item.value))
+  return (
+    <article className="operations-chart-panel">
+      <header><div><span className="operations-eyebrow">Application sample</span><h3>{title}</h3></div><strong>{items.length || '—'}</strong></header>
+      {items.length ? <div className="operations-horizontal-bars">{items.map((item) => <div key={item.label}><span title={item.label}>{item.label}</span><div><i style={{ width: `${Math.max(3, (item.value / maximum) * 100)}%` }} /></div><strong>{item.value}</strong></div>)}</div> : <p className="operations-chart-empty">No request samples in this window.</p>}
+    </article>
+  )
 }
 
 function OperationsLogin({ onAuthenticated }: { onAuthenticated: () => Promise<void> }) {
@@ -413,9 +481,66 @@ function OperationsConsole() {
   }
 
   const overview = overviewQuery.data
-  const threatPosture = { label: 'Unavailable', tone: 'threat-unknown' }
+  const requestSamples = overview?.requests.requestCount ?? 0
+  const securitySignalCount = overview?.requests.securitySignalCount ?? 0
+  const threatSignalScore = requestSamples
+    ? Number((10 * securitySignalCount / requestSamples).toFixed(1))
+    : null
+  const threatPosture = { label: threatSignalScore === null ? 'Unavailable' : `${threatSignalScore}/10`, tone: 'threat-unknown' }
   const topEndpoints = overview?.requests.endpoints.slice(0, 5) ?? []
-  const trafficPeak = Math.max(1, ...(overview?.requests.timeline.map((bucket) => bucket.requestCount) ?? []))
+  const timeline = overview?.requests.timeline ?? []
+  const timelineLabels = timeline.map((bucket) => new Date(bucket.bucketStartedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+  const requestSeries = timeline.map((bucket) => bucket.requestCount)
+  const responseTimeSeries = timeline.flatMap((bucket) => bucket.averageResponseMs === null ? [] : [bucket.averageResponseMs])
+  const securitySeries = timeline.map((bucket) => bucket.securitySignalCount)
+  const methodBars = (overview?.requests.methods ?? []).map(({ method, requests }) => ({ label: method, value: requests }))
+  const endpointBars = topEndpoints.map(({ endpoint, requests }) => ({ label: endpoint, value: requests }))
+  const databaseLatencyBars = (overview?.databases ?? []).flatMap((database) => database.latencyMs === null ? [] : [{ label: label(database.name), value: database.latencyMs }])
+  const responseMix = [
+    { label: '2xx', value: overview?.requests.responseDistribution.success ?? 0, color: '#62c89a' },
+    { label: '3xx', value: overview?.requests.responseDistribution.redirect ?? 0, color: '#70b5f5' },
+    { label: '4xx', value: overview?.requests.responseDistribution.clientError ?? 0, color: '#f1bf63' },
+    { label: '5xx', value: overview?.requests.responseDistribution.serverError ?? 0, color: '#ef7777' },
+  ]
+  const securityConfigurationContent = (
+    <>
+      <div className="operations-masthead">
+        <div>
+          <span className="operations-eyebrow">Security configuration center · read-only</span>
+          <h2>Protection status and safe controls</h2>
+          <p>Review verified safeguards and open protected investigation views. This center does not change production policy, accounts, or secrets.</p>
+        </div>
+        <span className="operations-threat-pill threat-unknown">No rule engine</span>
+      </div>
+      <section className="operations-stat-grid">
+        <article className="operations-stat-card"><span>Operations access</span><strong>Session-gated</strong><small>Protected operations API</small></article>
+        <article className="operations-stat-card"><span>Origin validation</span><strong>Enabled</strong><small>Cross-origin mutations checked</small></article>
+        <article className="operations-stat-card"><span>API throttling</span><strong>Enabled</strong><small>Application rate limits active</small></article>
+        <article className="operations-stat-card"><span>Threat rules</span><strong>Unavailable</strong><small>No detection rule feed configured</small></article>
+      </section>
+      <section className="operations-panel-card full-span operations-security-shortcuts">
+        <header><span className="operations-eyebrow">Protected destinations</span><h3>Review a security area</h3></header>
+        <div className="operations-security-shortcut-grid">
+          {[
+            { key: 'security' as const, label: 'Security Centre', detail: 'Observed request status signals' },
+            { key: 'threat-detection' as const, label: 'Threat Detection', detail: 'No detection rule engine configured' },
+            { key: 'identity-access' as const, label: 'Identity and Access', detail: 'Review role governance' },
+            { key: 'vulnerabilities' as const, label: 'Vulnerabilities', detail: 'Scanner feed unavailable' },
+            { key: 'incidents' as const, label: 'Incidents', detail: 'Investigate and record events' },
+            { key: 'audit' as const, label: 'Audit Logs', detail: 'Review privileged operations' },
+          ].map((destination) => <button type="button" key={destination.key} onClick={() => setActiveModule(destination.key)}><span><strong>{destination.label}</strong><small>{destination.detail}</small></span><ArrowRight size={15} /></button>)}
+        </div>
+      </section>
+      <section className="operations-charts-grid">
+        <OperationsLineChart title="Security-related HTTP responses" labels={timelineLabels} series={[{ label: '401 · 403 · 429', color: '#ed7b7b', values: securitySeries }]} />
+        <OperationsDonut title="Request security-signal share" entries={[
+          { label: '401 / 403 / 429', value: securitySignalCount, color: '#ed7b7b' },
+          { label: 'Other responses', value: Math.max(0, requestSamples - securitySignalCount), color: '#73c7ff' },
+        ]} />
+      </section>
+      <p className="operations-chart-footnote">Status codes are indicators only. No account blocking, IP blocking, secret changes, or production policy edits are available here.</p>
+    </>
+  )
 
   const moduleContent: Record<ModuleKey, ReactNode> = {
     overview: (
@@ -426,39 +551,22 @@ function OperationsConsole() {
             <h2>Platform status</h2>
             <p>Application telemetry, request health, and protected service signals.</p>
           </div>
-          <span className={`operations-threat-pill ${threatPosture.tone}`}>Security feed unavailable</span>
+          <span className={`operations-threat-pill ${threatPosture.tone}`}>Request signal index · {threatPosture.label}</span>
         </div>
 
         <div className="operations-stat-grid">
           <article className="operations-stat-card"><span>Requests, last minute</span><strong>{overview?.requests.requestsLastMinute ?? 0}</strong><small>Application requests</small></article>
           <article className="operations-stat-card"><span>HTTP errors</span><strong>{overview?.requests.errorCount ?? 0}</strong><small>4xx + 5xx</small></article>
           <article className="operations-stat-card"><span>Avg response</span><strong>{overview?.requests.averageResponseMs === null ? '—' : `${overview?.requests.averageResponseMs} ms`}</strong><small>Service latency</small></article>
-          <article className="operations-stat-card"><span>Threat level</span><strong>{threatPosture.label}</strong><small>No security-event feed configured</small></article>
+          <article className="operations-stat-card"><span>Request security-signal index</span><strong>{threatPosture.label}</strong><small>Heuristic from 401/403/429 statuses</small></article>
         </div>
 
-        <section className="operations-panel-grid">
-          <article className="operations-panel-card operations-traffic-chart">
-            <header>
-              <span className="operations-eyebrow">Application traffic · last hour</span>
-              <h3>Requests over time</h3>
-            </header>
-            {overview?.requests.timeline.length ? (
-              <div className="operations-traffic-plot" role="img" aria-label="Application request counts in twelve five-minute buckets for the last hour">
-                {overview.requests.timeline.map((bucket) => (
-                  <div className="operations-traffic-column" key={bucket.bucketStartedAt} title={`${new Date(bucket.bucketStartedAt).toLocaleTimeString()} · ${bucket.requestCount} requests · ${bucket.errorCount} errors`}>
-                    <span className="operations-traffic-count">{bucket.requestCount}</span>
-                    <div className="operations-traffic-bar-track">
-                      <i style={{ height: `${Math.max(bucket.requestCount ? 8 : 0, (bucket.requestCount / trafficPeak) * 100)}%` }} />
-                    </div>
-                    <small>{new Date(bucket.bucketStartedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="operations-empty-notice">Traffic history is unavailable.</p>
-            )}
-            <p className="operations-chart-footnote">12 five-minute buckets · sampled in this application process · collected {overview?.requests.collectedAt ? new Date(overview.requests.collectedAt).toLocaleTimeString() : '—'}</p>
-          </article>
+        <section className="operations-charts-grid">
+          <OperationsLineChart title="Requests per 5 minutes" labels={timelineLabels} series={[{ label: 'Requests', color: '#73c7ff', values: requestSeries }]} />
+          <OperationsDonut title="HTTP response mix" entries={responseMix} />
+          <OperationsBars title="Traffic by request method" items={methodBars} />
+          <OperationsBars title="Requests by endpoint" items={endpointBars} />
+          <OperationsBars title="Current database probe latency · ms" items={databaseLatencyBars} />
 
           <article className="operations-panel-card">
             <header>
@@ -515,11 +623,24 @@ function OperationsConsole() {
           </div>
         </div>
         <div className="operations-stat-grid">
-          <article className="operations-stat-card"><span>Sampled requests</span><strong>{overview?.requests.requestCount ?? 0}</strong><small>Rolling sample</small></article>
+          <article className="operations-stat-card"><span>Requests / min</span><strong>{overview?.requests.requestsLastMinute ?? 0}</strong><small>Most recent minute</small></article>
           <article className="operations-stat-card"><span>Failed requests</span><strong>{overview?.requests.errorCount ?? 0}</strong><small>4xx + 5xx</small></article>
           <article className="operations-stat-card"><span>P95</span><strong>{overview?.requests.p95ResponseMs === null ? '—' : `${overview?.requests.p95ResponseMs} ms`}</strong><small>Response distribution</small></article>
-          <article className="operations-stat-card"><span>Security events</span><strong>{threatPosture.label}</strong><small>Request errors are not threat detections</small></article>
+          <article className="operations-stat-card"><span>Security signal index</span><strong>{threatPosture.label}</strong><small>Heuristic from 401/403/429 responses</small></article>
         </div>
+        <section className="operations-charts-grid">
+          <OperationsLineChart title="Incoming requests and errors" labels={timelineLabels} series={[
+            { label: 'Requests', color: '#73c7ff', values: requestSeries },
+            { label: 'Errors', color: '#ed7b7b', values: timeline.map((bucket) => bucket.errorCount) },
+          ]} />
+          <OperationsLineChart title="Response-time trend" labels={timelineLabels.filter((_, index) => timeline[index].averageResponseMs !== null)} series={[
+            { label: 'Average ms', color: '#f0bd62', values: responseTimeSeries },
+          ]} />
+          <OperationsDonut title="HTTP status distribution" entries={responseMix} />
+          <OperationsBars title="Popular API routes" items={endpointBars} />
+          <OperationsBars title="Traffic by request method" items={methodBars} />
+        </section>
+        <p className="operations-chart-footnote">Actual application requests only · last 60-minute sample · collected {overview?.requests.collectedAt ? new Date(overview.requests.collectedAt).toLocaleTimeString() : '—'}.</p>
         <article className="operations-panel-card full-span">
           <header>
             <span className="operations-eyebrow">Endpoint activity</span>
@@ -557,6 +678,10 @@ function OperationsConsole() {
           <article className="operations-stat-card"><span>Errors</span><strong>{overview?.requests.errorCount ?? 0}</strong><small>Request failures</small></article>
           <article className="operations-stat-card"><span>Trace source</span><strong>Express</strong><small>Request IDs enabled</small></article>
         </div>
+        <section className="operations-charts-grid">
+          <OperationsLineChart title="Request errors over time" labels={timelineLabels} series={[{ label: 'Errors', color: '#ed7b7b', values: timeline.map((bucket) => bucket.errorCount) }]} />
+          <OperationsLineChart title="Average response time" labels={timelineLabels.filter((_, index) => timeline[index].averageResponseMs !== null)} series={[{ label: 'Milliseconds', color: '#f0bd62', values: responseTimeSeries }]} />
+        </section>
       </>
     ),
     security: (
@@ -569,11 +694,19 @@ function OperationsConsole() {
           </div>
         </div>
         <div className="operations-stat-grid">
-          <article className="operations-stat-card"><span>Threat level</span><strong>{threatPosture.label}</strong><small>No security-event feed configured</small></article>
-          <article className="operations-stat-card"><span>Auth checks</span><strong>Protected</strong><small>Session checks enforced</small></article>
+          <article className="operations-stat-card"><span>Request signal index</span><strong>{threatPosture.label}</strong><small>Heuristic, not a threat verdict</small></article>
+          <article className="operations-stat-card"><span>401 / 403 signals</span><strong>{overview?.requests.securitySignalCount ?? 0}</strong><small>Process sample · includes 429</small></article>
           <article className="operations-stat-card"><span>Rate limiting</span><strong>Enabled</strong><small>API and auth throttling applied</small></article>
           <article className="operations-stat-card"><span>Audit trail</span><strong>Active</strong><small>Privileged actions are recorded</small></article>
         </div>
+        <section className="operations-charts-grid">
+          <OperationsLineChart title="Request security signals" labels={timelineLabels} series={[{ label: '401 · 403 · 429', color: '#ed7b7b', values: securitySeries }]} />
+          <OperationsDonut title="Signal share in sampled requests" entries={[
+            { label: '401 / 403 / 429', value: securitySignalCount, color: '#ed7b7b' },
+            { label: 'Other responses', value: Math.max(0, requestSamples - securitySignalCount), color: '#73c7ff' },
+          ]} />
+        </section>
+        <p className="operations-chart-footnote">These are HTTP status indicators only. They are not confirmed attacks, user identities, or automated blocking decisions.</p>
       </>
     ),
     'threat-detection': (
@@ -586,11 +719,12 @@ function OperationsConsole() {
           </div>
         </div>
         <div className="operations-stat-grid">
-          <article className="operations-stat-card"><span>Detection rules</span><strong>Policy-based</strong><small>Rule engine remains active</small></article>
-          <article className="operations-stat-card"><span>Suspicious activity</span><strong>Unavailable</strong><small>No detection rules are connected</small></article>
+          <article className="operations-stat-card"><span>Detection rules</span><strong>Unavailable</strong><small>No rule engine is configured</small></article>
+          <article className="operations-stat-card"><span>HTTP signals</span><strong>{overview?.requests.securitySignalCount ?? 0}</strong><small>401 / 403 / 429 responses only</small></article>
           <article className="operations-stat-card"><span>Escalation</span><strong>Manual</strong><small>Approval required before blocks</small></article>
-          <article className="operations-stat-card"><span>Analysis</span><strong>Guarded</strong><small>Operations data is role-protected</small></article>
+          <article className="operations-stat-card"><span>Request index</span><strong>{threatPosture.label}</strong><small>Heuristic, not a threat verdict</small></article>
         </div>
+        <section className="operations-charts-grid"><OperationsLineChart title="Request security indicators" labels={timelineLabels} series={[{ label: 'Status signals', color: '#ed7b7b', values: securitySeries }]} /></section>
       </>
     ),
     vulnerabilities: (
@@ -642,6 +776,13 @@ function OperationsConsole() {
           <article className="operations-stat-card"><span>Connection model</span><strong>Pool-based</strong><small>Read-only health checks</small></article>
           <article className="operations-stat-card"><span>RLS finding</span><strong>Tracked</strong><small>Security audit remains documented</small></article>
         </div>
+        <section className="operations-charts-grid">
+          <OperationsBars title="Current database probe latency · ms" items={databaseLatencyBars} />
+          <OperationsDonut title="Database probe results" entries={[
+            { label: 'Healthy', value: (overview?.databases ?? []).filter((database) => database.status === 'healthy').length, color: '#62c89a' },
+            { label: 'Unavailable', value: (overview?.databases ?? []).filter((database) => database.status !== 'healthy').length, color: '#ef7777' },
+          ]} />
+        </section>
       </>
     ),
     payments: (
@@ -905,26 +1046,8 @@ function OperationsConsole() {
         )}
       </article>
     ),
-    settings: (
-      <>
-        <div className="operations-masthead">
-          <div>
-            <span className="operations-eyebrow">Configuration</span>
-            <h2>Operational settings</h2>
-            <p>Safe settings are controlled by the admin backend and remain protected by explicit access rules.</p>
-          </div>
-        </div>
-        <article className="operations-panel-card full-span">
-          <header><span className="operations-eyebrow">Safe settings</span><h3>Operational controls</h3></header>
-          <div className="operations-mini-list">
-            <div className="operations-mini-item"><span>Alert thresholds</span><strong className="status-watch">Policy-defined</strong><small>Granular tuning is handled via backend config</small></div>
-            <div className="operations-mini-item"><span>Retention windows</span><strong className="status-watch">Planned</strong><small>Future monitoring policy</small></div>
-            <div className="operations-mini-item"><span>Notifications</span><strong className="status-watch">Guarded</strong><small>Targets remain centralized and approved</small></div>
-            <div className="operations-mini-item"><span>Secrets</span><strong className="status-ok">Protected</strong><small>Never exposed through the operations UI</small></div>
-          </div>
-        </article>
-      </>
-    ),
+    settings: securityConfigurationContent,
+    'security-config': securityConfigurationContent,
   }
 
   return (
@@ -968,6 +1091,7 @@ function OperationsConsole() {
           <div className="operations-main-actions">
             <button type="button" className="operations-icon-button" aria-label="Search"><Search size={15} /></button>
             <button type="button" className="operations-icon-button" aria-label="Notifications"><Bell size={15} /></button>
+            <button type="button" className="operations-security-center-button" onClick={() => setActiveModule('security-config')}><Shield size={14} /> Security centre</button>
             <button type="button" className="operations-refresh" onClick={() => void overviewQuery.refetch()}><RefreshCw size={14} /> Refresh</button>
             <button type="button" className="operations-signout" onClick={() => void signOut()}><LogOut size={14} /> Sign out</button>
           </div>
