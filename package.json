@@ -21,6 +21,7 @@
     "db:supabase:check": "node server/scripts/check-supabase-connection.mjs",
     "db:supabase:create-schema": "node server/scripts/create-supabase-schema.mjs",
     "db:supabase:register-baseline": "node server/scripts/register-supabase-baseline.mjs",
+    "db:catalogue:seed": "node server/scripts/seed-football-catalogue.mjs",
     "db:generate:admin": "npm run db:generate",
     "db:migrate:admin": "npm run db:migrate",
     "db:migrate:all": "npm run db:migrate",
