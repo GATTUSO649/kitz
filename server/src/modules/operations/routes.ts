@@ -14,6 +14,7 @@ import { adminUsers, monitoringAlerts, monitoringDetectionRules, monitoringEvent
 import { getTelemetryQueueState } from './telemetry-store.js'
 import { cancelSecurityScan, getSecurityOverview, getSecurityScan, listSecurityFindings, listSecurityScans, startSecurityScan, updateSecurityFinding, type ScannerModule } from '../security/scanner-engine.js'
 import { getRequestMetrics } from '../../middleware/request-metrics.js'
+import { loadPersistedSecurityScans, persistSecurityScan } from '../security/scanner-persistence.js'
 import { summarizeDatabaseAggregates } from './database-performance.js'
 import { hasItPermission, itPermissions } from '../admin/it-access.js'
 import { itAccessRoles, type ItAccessRole } from '../../database/admin-schema.js'
@@ -1166,8 +1167,23 @@ async function requireSecurityAction(request: Request, response: Response) {
   return actor
 }
 
-operationsRouter.get('/security/overview', (_request, response) => {
-  response.json({ data: getSecurityOverview() })
+operationsRouter.get('/security/overview', async (_request, response) => {
+  const overview = getSecurityOverview()
+  if (!adminDb) return response.json({ data: overview })
+  try {
+    const persisted = await loadPersistedSecurityScans(adminDb)
+    const liveKeys = new Set(listSecurityScans().flatMap((scan) => scan.findings.map((finding) => finding.deduplicationKey)))
+    const persistedFindings = persisted.flatMap((scan) => scan.findings).filter((finding) => !liveKeys.has(finding.deduplicationKey))
+    const severityCounts = { ...overview.severityCounts }
+    for (const finding of persistedFindings) {
+      if (!finding.severity) severityCounts.UNASSESSED++
+      else severityCounts[finding.severity]++
+    }
+    const latest = [...persisted, ...listSecurityScans()].sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0]
+    response.json({ data: { ...overview, findings: overview.findings + persistedFindings.length, severityCounts, latestScan: latest ? { id: latest.id, status: latest.status, completedAt: latest.completedAt ?? null } : null } })
+  } catch {
+    response.json({ data: overview })
+  }
 })
 
 operationsRouter.get('/security/scanners', (_request, response) => {
@@ -1181,8 +1197,14 @@ operationsRouter.get('/security/scanners', (_request, response) => {
   ] })
 })
 
-operationsRouter.get('/security/scans', (_request, response) => {
-  response.json({ data: listSecurityScans() })
+operationsRouter.get('/security/scans', async (_request, response) => {
+  try {
+    const persisted = adminDb ? await loadPersistedSecurityScans(adminDb) : []
+    const liveIds = new Set(listSecurityScans().map((scan) => scan.id))
+    response.json({ data: [...listSecurityScans(), ...persisted.filter((scan) => !liveIds.has(scan.id))].sort((a, b) => b.startedAt.localeCompare(a.startedAt)) })
+  } catch {
+    response.json({ data: listSecurityScans() })
+  }
 })
 
 operationsRouter.post('/security/scans', async (request, response) => {
@@ -1191,7 +1213,9 @@ operationsRouter.post('/security/scans', async (request, response) => {
   const input = securityScanScopeSchema.safeParse(request.body)
   if (!input.success) return response.status(400).json({ error: { code: 'INVALID_SECURITY_SCAN', message: 'The security scan scope or timeout is invalid.' } })
   try {
-    const scan = await startSecurityScan((input.data.scope ?? ['dependency']) as ScannerModule[], process.cwd(), (input.data.timeoutSeconds ?? 120) * 1000)
+    const scan = await startSecurityScan((input.data.scope ?? ['dependency']) as ScannerModule[], process.cwd(), (input.data.timeoutSeconds ?? 120) * 1000, async (current) => {
+      await persistSecurityScan(adminDb!, current, actor.id)
+    })
     await adminDb!.insert(operationsAuditEvents).values({
       actorOperationsUserId: actor.id,
       actorType: 'operations_user',
@@ -1229,10 +1253,18 @@ operationsRouter.post('/security/scans/:id/cancel', async (request, response) =>
   response.status(204).end()
 })
 
-operationsRouter.get('/security/findings', (request, response) => {
+operationsRouter.get('/security/findings', async (request, response) => {
   const severity = typeof request.query.severity === 'string' ? request.query.severity.toUpperCase() : null
   const query = typeof request.query.search === 'string' ? request.query.search.trim().toLowerCase() : ''
-  const findings = listSecurityFindings().filter((finding) => (!severity || finding.severity === severity) && (!query || `${finding.title} ${finding.affectedComponent}`.toLowerCase().includes(query)))
+  let findings = listSecurityFindings()
+  if (adminDb) {
+    try {
+      const persisted = await loadPersistedSecurityScans(adminDb)
+      const liveKeys = new Set(findings.map((finding) => finding.deduplicationKey))
+      findings = [...findings, ...persisted.flatMap((scan) => scan.findings).filter((finding) => !liveKeys.has(finding.deduplicationKey))]
+    } catch { /* Live findings remain authoritative when database history is unavailable. */ }
+  }
+  findings = findings.filter((finding) => (!severity || finding.severity === severity) && (!query || `${finding.title} ${finding.affectedComponent}`.toLowerCase().includes(query)))
   response.json({ data: findings })
 })
 

@@ -37,6 +37,7 @@ const schema = z.object({
   SUPABASE_CA_CERT_FILE: z.string().trim().min(1).optional(),
   SUPABASE_CA_CERT: z.string().trim().min(1).optional(),
   ADMIN_SIGNUP_SECRET: z.string().min(32).max(512).optional(),
+  ADMIN_SECRET_KEY: z.string().min(32).max(512).optional(),
   OPERATIONS_SIGNUP_SECRET: z.string().min(32).max(512).optional(),
   ORIGIN_AUTH_TOKEN: z.string().min(32).max(256).optional(),
   MYSQL_URL: z.string().min(1).optional(),
@@ -48,6 +49,13 @@ const schema = z.object({
   EMAIL_PROVIDER: z.enum(['disabled', 'resend', 'smtp']).default('disabled'),
   EMAIL_FROM: z.string().min(1).optional(),
   EMAIL_REPLY_TO: z.string().min(1).optional(),
+  SMTP_HOST: z.string().trim().min(1).optional(),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).optional(),
+  SMTP_USER: z.string().trim().min(1).optional(),
+  SMTP_PASS: z.string().min(1).optional(),
+  SMTP_SECURE: z.enum(['true', 'false']).optional().transform((value) => value === undefined ? undefined : value === 'true'),
+  SMTP_REQUIRE_TLS: z.enum(['true', 'false']).optional().transform((value) => value === undefined ? undefined : value === 'true'),
+  APP_BASE_URL: z.string().url().optional(),
   RESEND_API_KEY: z.string().min(1).optional(),
   ADMIN_NOTIFICATION_EMAIL: z.string().email().optional(),
   EMAIL_VERIFICATION_REQUIRED: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
@@ -103,6 +111,7 @@ const parsed = schema.safeParse({
   DARAJA_SHORTCODE: process.env.DARAJA_SHORTCODE ?? process.env.MPESA_SHORTCODE,
   DARAJA_CALLBACK_BASE_URL: process.env.DARAJA_CALLBACK_BASE_URL ?? legacyCallbackBaseUrl ?? process.env.APP_URL,
   DARAJA_CALLBACK_TOKEN: process.env.DARAJA_CALLBACK_TOKEN ?? process.env.MPESA_CALLBACK_TOKEN,
+  APP_BASE_URL: process.env.APP_BASE_URL ?? process.env.APP_URL,
 })
 if (!parsed.success) {
   throw new Error(`Invalid environment configuration: ${parsed.error.issues.map((issue) => issue.path.join('.') + ' ' + issue.message).join('; ')}`)

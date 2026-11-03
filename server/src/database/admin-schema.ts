@@ -4,14 +4,31 @@ import { boolean, check, index, integer as int, jsonb, pgTable as mysqlTable, pr
 const timestamp = (name: string) => pgTimestamp(name, { withTimezone: true, mode: 'date' })
 const enumText = <T extends string>(name: string, length: number) => varchar(name, { length }).$type<T>()
 
+export const administratorRoles = ['super_admin', 'it_admin', 'sales_admin', 'finance_admin', 'inventory_admin', 'marketing_admin', 'content_admin'] as const
+export type AdministratorRole = typeof administratorRoles[number]
+export const administratorStatuses = ['pending', 'active', 'suspended', 'disabled'] as const
+export type AdministratorStatus = typeof administratorStatuses[number]
+
 export const adminUsers = mysqlTable('admin_users', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   email: varchar('email', { length: 254 }).notNull().unique(),
   passwordHash: varchar('password_hash', { length: 255 }).notNull(),
   fullName: varchar('full_name', { length: 160 }).notNull(),
+  roleNumber: varchar('role_number', { length: 40 }).unique(),
+  role: varchar('role', { length: 32 }).$type<AdministratorRole>(),
+  status: varchar('status', { length: 24 }).$type<AdministratorStatus>().default('pending').notNull(),
   emailVerifiedAt: timestamp('email_verified_at'),
+  suspendedAt: timestamp('suspended_at'),
+  suspendedReason: text('suspended_reason'),
+  lastLoginAt: timestamp('last_login_at'),
+  passwordUpdatedAt: timestamp('password_updated_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-})
+}, (table) => [
+  index('admin_users_role_idx').on(table.role),
+  index('admin_users_status_idx').on(table.status),
+  check('admin_users_role_check', sql`${table.role} IS NULL OR ${table.role} IN ('super_admin', 'it_admin', 'sales_admin', 'finance_admin', 'inventory_admin', 'marketing_admin', 'content_admin')`),
+  check('admin_users_status_check', sql`${table.status} IN ('pending', 'active', 'suspended', 'disabled')`),
+])
 
 export const adminSessions = mysqlTable('admin_sessions', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
@@ -45,6 +62,59 @@ export const adminSetupLocks = mysqlTable('admin_setup_locks', {
   id: int('id').primaryKey(),
   purpose: varchar('purpose', { length: 40 }).notNull().unique(),
 })
+
+export const adminPermissions = mysqlTable('admin_permissions', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  permission: varchar('permission', { length: 120 }).notNull().unique(),
+  description: text('description').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+})
+
+export const adminRolePermissions = mysqlTable('admin_role_permissions', {
+  role: varchar('role', { length: 32 }).notNull(),
+  permission: varchar('permission', { length: 120 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [primaryKey({ columns: [table.role, table.permission] })])
+
+export const adminUserPermissions = mysqlTable('admin_user_permissions', {
+  adminUserId: int('admin_user_id').notNull().references(() => adminUsers.id, { onDelete: 'cascade' }),
+  permission: varchar('permission', { length: 120 }).notNull(),
+  granted: boolean('granted').notNull(),
+  grantedByAdminUserId: int('granted_by_admin_user_id').references(() => adminUsers.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  revokedAt: timestamp('revoked_at'),
+}, (table) => [primaryKey({ columns: [table.adminUserId, table.permission] })])
+
+export const adminInvitations = mysqlTable('admin_invitations', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  invitationId: varchar('invitation_id', { length: 36 }).notNull().unique(),
+  adminUserId: int('admin_user_id').notNull().references(() => adminUsers.id, { onDelete: 'cascade' }),
+  email: varchar('email', { length: 254 }).notNull(),
+  role: varchar('role', { length: 32 }).$type<AdministratorRole>().notNull(),
+  tokenHash: varchar('token_hash', { length: 64 }).notNull().unique(),
+  passwordHash: varchar('password_hash', { length: 255 }),
+  expiresAt: timestamp('expires_at').notNull(),
+  consumedAt: timestamp('consumed_at'),
+  deliveredAt: timestamp('delivered_at'),
+  deliveryStatus: varchar('delivery_status', { length: 24 }).default('queued').notNull(),
+  deliveryErrorCode: varchar('delivery_error_code', { length: 80 }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('admin_invitations_admin_idx').on(table.adminUserId),
+  index('admin_invitations_email_idx').on(table.email),
+  index('admin_invitations_status_idx').on(table.deliveryStatus, table.expiresAt),
+])
+
+export const adminLoginAttempts = mysqlTable('admin_login_attempts', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  identity: varchar('identity', { length: 254 }).notNull(),
+  adminUserId: int('admin_user_id').references(() => adminUsers.id, { onDelete: 'set null' }),
+  success: boolean('success').default(false).notNull(),
+  failureCode: varchar('failure_code', { length: 80 }),
+  requestId: varchar('request_id', { length: 120 }),
+  ipHash: varchar('ip_hash', { length: 64 }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [index('admin_login_attempts_identity_idx').on(table.identity, table.createdAt)])
 
 export const operationsUsers = mysqlTable('operations_users', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),

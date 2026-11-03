@@ -2,6 +2,7 @@ import { db } from './database.js'
 import { recordProviderMeasurement } from '../modules/operations/monitoring-recorder.js'
 import { env } from './env.js'
 import { emailDeliveryLogs } from '../database/schema.js'
+import nodemailer from 'nodemailer'
 
 export type EmailNotificationType = 'email_verification' | 'password_reset' | 'order_created' | 'order_paid' | 'order_update' | 'security_notice'
 
@@ -29,7 +30,7 @@ function getFromAddress() {
 }
 
 export function buildAbsoluteUrl(path: string) {
-  const base = env.APP_URL ?? 'http://localhost:5173'
+  const base = env.APP_BASE_URL ?? env.APP_URL ?? 'http://localhost:5173'
   return new URL(path, `${base.replace(/\/$/, '')}/`).toString()
 }
 
@@ -67,6 +68,35 @@ async function persistEmailLog(input: SendTransactionalEmailOptions, status: Ema
 }
 
 export async function sendTransactionalEmail(input: SendTransactionalEmailOptions): Promise<EmailSendResult> {
+  if (env.EMAIL_PROVIDER === 'smtp') {
+    if (!env.SMTP_HOST || !env.SMTP_PORT || !env.EMAIL_FROM) {
+      await persistEmailLog(input, 'failed', undefined, 'configuration_error', 'SMTP delivery is not configured.')
+      return { accepted: false, status: 'failed', reason: 'EMAIL_PROVIDER_NOT_CONFIGURED' }
+    }
+    const startedAt = Date.now()
+    try {
+      const secure = env.SMTP_SECURE ?? false
+      const transport = nodemailer.createTransport({
+        host: env.SMTP_HOST,
+        port: env.SMTP_PORT,
+        secure,
+        requireTLS: env.SMTP_REQUIRE_TLS ?? (!secure && env.SMTP_PORT === 2525 ? true : undefined),
+        auth: env.SMTP_USER || env.SMTP_PASS ? { user: env.SMTP_USER ?? '', pass: env.SMTP_PASS ?? '' } : undefined,
+        connectionTimeout: 15_000,
+        greetingTimeout: 15_000,
+        socketTimeout: 15_000,
+      })
+      const result = await transport.sendMail({ from: getFromAddress(), to: input.to, subject: input.subject, text: input.text, html: input.html })
+      recordProviderMeasurement({ provider: 'smtp', operation: 'email_submit', durationMs: Date.now() - startedAt, outcome: result.accepted.length ? 'accepted_by_provider' : 'rejected' })
+      await persistEmailLog(input, result.accepted.length ? 'accepted' : 'failed', result.messageId)
+      return result.accepted.length ? { accepted: true, status: 'accepted', providerMessageId: result.messageId } : { accepted: false, status: 'failed', reason: 'SMTP_RECIPIENT_REJECTED' }
+    } catch (error) {
+      recordProviderMeasurement({ provider: 'smtp', operation: 'email_submit', durationMs: Date.now() - startedAt, outcome: 'network_error' })
+      await persistEmailLog(input, 'failed', undefined, 'smtp_error', error instanceof Error ? error.name : 'SMTP delivery failed.')
+      return { accepted: false, status: 'failed', reason: 'SMTP_DELIVERY_FAILED' }
+    }
+  }
+
   if (env.EMAIL_PROVIDER === 'disabled' || !env.EMAIL_FROM || !env.RESEND_API_KEY) {
     await persistEmailLog(input, 'queued')
     return { accepted: false, status: 'skipped', reason: 'EMAIL_PROVIDER_DISABLED' }

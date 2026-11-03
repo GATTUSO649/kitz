@@ -284,15 +284,15 @@ export function AdminLoginPage() {
     setError('')
     const form = new FormData(event.currentTarget)
     try {
-      await api('/api/v1/admin/login', {
+      const result = await api<{ portal: string }>('/api/v1/admin/login', {
         method: 'POST',
         body: JSON.stringify({
-          email: String(form.get('email')),
+          identity: String(form.get('identity')),
           password: String(form.get('password')),
         }),
       })
       const returnTo = new URLSearchParams(location.search).get('returnTo')
-      navigate(returnTo === '/operations' ? '/operations' : '/admin', { replace: true })
+      navigate(returnTo === '/operations' ? '/operations' : result.portal ?? '/admin', { replace: true })
     } catch (issue) {
       setError(issue instanceof TypeError ? 'We couldn\'t connect to the server. Please check your connection and try again.' : issue instanceof Error ? issue.message : 'Administrator sign in failed.')
     } finally {
@@ -301,10 +301,10 @@ export function AdminLoginPage() {
   }
   return <AdminAuthLayout><form className="admin-login-card" onSubmit={(event) => void submit(event)}>
     <Link to="/" className="admin-back">← KitCulture storefront</Link><span className="admin-kicker">RESTRICTED ADMIN ACCESS</span><h1>Administrator sign in</h1>
-    <p>Sign in with the email and password for your verified administrator account.</p>
+    <p>Sign in with your email address or assigned role number and password.</p>
     {new URLSearchParams(location.search).get('verified') === '1' && <p className="admin-success" role="status">Administrator email verified. You can sign in now.</p>}
     {['expired', 'idle'].includes(new URLSearchParams(location.search).get('reason') ?? '') && <p className="admin-success" role="status">Your session has expired. Please sign in again to continue.</p>}
-    <label>Email<input name="email" type="email" autoComplete="username" required maxLength={254} /></label>
+    <label>Email or role number<input name="identity" type="text" autoComplete="username" required maxLength={254} /></label>
     <label>Password<input name="password" type="password" autoComplete="current-password" required /></label>
     {error && <p className="admin-error" role="alert">{error}</p>}
     <button className="button button-green" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'} <ArrowRight size={16} /></button>
@@ -372,22 +372,72 @@ export function AdminRegisterPage() {
   </section></AdminAuthLayout>
 }
 
+export function AdminOnboardingPage() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [sent, setSent] = useState(false)
+  const token = new URLSearchParams(location.search).get('token') ?? ''
+  const roleFromUrl = new URLSearchParams(location.search).get('role') ?? ''
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setError('')
+    const form = new FormData(event.currentTarget)
+    const password = String(form.get('password') ?? '')
+    if (password !== String(form.get('passwordConfirmation') ?? '')) {
+      setError('Passwords do not match.')
+      return
+    }
+    setBusy(true)
+    try {
+      await api('/api/v1/admin/onboarding', {
+        method: 'POST',
+        body: JSON.stringify({
+          token,
+          email: String(form.get('email')),
+          roleNumber: String(form.get('roleNumber')),
+          password,
+          confirmPassword: String(form.get('passwordConfirmation')),
+        }),
+      })
+      setSent(true)
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Administrator onboarding could not be completed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return <AdminAuthLayout><section className="admin-login-card">
+    <Link to="/admin/login" className="admin-back">← Administrator sign in</Link><span className="admin-kicker">SECURE ACTIVATION</span><h1>Complete administrator onboarding</h1>
+    {sent ? <><p>Check the invited email address to verify and activate this account.</p><button className="button button-green" type="button" onClick={() => navigate('/admin/login')}>Continue to sign in</button></>
+      : !token ? <p className="admin-error" role="alert">The onboarding link is missing its invitation token.</p>
+        : <form onSubmit={(event) => void submit(event)}><p>Use the email address and role number included in your invitation.</p><label>Email address<input name="email" type="email" autoComplete="email" required maxLength={254} /></label><label>Assigned role number<input name="roleNumber" defaultValue={roleFromUrl} required pattern="[A-Z]+-[0-9]+" maxLength={40} /></label><label>Password<input name="password" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label><label>Confirm password<input name="passwordConfirmation" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label>{error && <p className="admin-error" role="alert">{error}</p>}<button className="button button-green" type="submit" disabled={busy}>{busy ? 'Preparing activation…' : 'Continue to email verification'} <ArrowRight size={16} /></button></form>}
+  </section></AdminAuthLayout>
+}
+
 export function AdminVerifyPage() {
   const location = useLocation()
   const navigate = useNavigate()
   const [error, setError] = useState('')
   const token = new URLSearchParams(location.search).get('token')
+  const invitation = new URLSearchParams(location.search).get('invitation') === '1'
 
   useEffect(() => {
     if (!token) return
     let active = true
-    void verifyAdminToken(token).then(() => {
+    const request = invitation
+      ? api('/api/v1/admin/verify-invitation', { method: 'POST', body: JSON.stringify({ token }) })
+      : verifyAdminToken(token)
+    void request.then(() => {
       if (active) navigate('/admin/login?verified=1', { replace: true })
     }).catch((issue: unknown) => {
       if (active) setError(issue instanceof Error ? issue.message : 'Administrator verification failed.')
     })
     return () => { active = false }
-  }, [token, navigate])
+  }, [token, invitation, navigate])
 
   return <AdminAuthLayout><section className="admin-login-card">
     <Link to="/admin/login" className="admin-back">← Administrator sign in</Link><span className="admin-kicker">EMAIL VERIFICATION</span><h1>{error || !token ? 'Administrator verification could not be completed.' : 'Verifying administrator account…'}</h1>
@@ -2150,8 +2200,9 @@ export function AdminConsole() {
 
 export function AdminRoute() {
   const location = useLocation()
-  const isAdminPortalRoute = location.pathname === '/admin' || location.pathname.startsWith('/admin/')
-  const isAdminAuthRoute = ['/admin/login', '/admin/register', '/admin/verify'].includes(location.pathname)
+  const isAdministratorPortalPath = /^(?:\/admin(?:\/|$)|\/operations(?:\/|$)|\/(?:it|sales|finance|inventory|marketing|content)-admin(?:\/|$))/.test(location.pathname)
+  const isAdminPortalRoute = isAdministratorPortalPath
+  const isAdminAuthRoute = ['/admin/login', '/admin/register', '/admin/onboarding', '/admin/verify'].includes(location.pathname)
   const sessionQuery = useQuery({
     queryKey: ['admin-session'],
     queryFn: () => api<{ user: { id: number } }>('/api/v1/admin/me'),
@@ -2161,6 +2212,7 @@ export function AdminRoute() {
 
   if (location.pathname === '/admin/login') return <AdminLoginPage />
   if (location.pathname === '/admin/register') return <AdminRegisterPage />
+  if (location.pathname === '/admin/onboarding') return <AdminOnboardingPage />
   if (location.pathname === '/admin/verify') return <AdminVerifyPage />
   if (isAdminPortalRoute) {
     if (sessionQuery.isPending) return <main className="auth-checking" role="status">Checking administrator session…</main>

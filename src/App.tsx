@@ -27,6 +27,8 @@ import { useStoreWhatsAppNumber } from './components/whatsapp-product'
 
 const AdminRoute = lazy(() => import('./pages/AdminPages').then((module) => ({ default: module.AdminRoute })))
 const OperationsRoute = lazy(() => import('./pages/OperationsPages').then((module) => ({ default: module.OperationsRoute })))
+const SuperAdminRoute = lazy(() => import('./pages/SuperAdminPages').then((module) => ({ default: module.SuperAdminRoute })))
+const RolePortalRoute = lazy(() => import('./pages/RolePortalPages').then((module) => ({ default: module.RolePortalRoute })))
 const MarketplacePage = lazy(() => import('./pages/ShopPages').then((module) => ({ default: module.MarketplacePage })))
 const ProductPage = lazy(() => import('./pages/ShopPages').then((module) => ({ default: module.ProductPage })))
 const ShopPage = lazy(() => import('./pages/ShopPages').then((module) => ({ default: module.ShopPage })))
@@ -233,6 +235,9 @@ function App() {
   const { notify } = useNotifications()
   const pagePath = location.pathname
   const isOperationsPage = pagePath === '/operations'
+  const isItAdminPage = /^\/it-admin(?:\/|$)/.test(pagePath)
+  const isSuperAdminPage = pagePath.startsWith('/super-admin')
+  const roleAdminPage = /^\/((sales|finance|inventory|marketing|content)-admin)(\/|$)/.test(pagePath)
   const isAdminPage = pagePath.startsWith('/admin')
   const isHomePage = pagePath === '/'
   const isShopPage = pagePath === '/shop' || pagePath === '/new-arrivals' || pagePath.startsWith('/categories/')
@@ -838,8 +843,10 @@ function App() {
     }
   }
 
+  if (isSuperAdminPage) return <Suspense fallback={<DelayedBrandLoader label="Loading Super Administrator" />}><SuperAdminRoute /></Suspense>
+  if (roleAdminPage) return <Suspense fallback={<DelayedBrandLoader label="Loading administrator portal" />}><RolePortalRoute /></Suspense>
   if (isAdminPage) return <Suspense fallback={<DelayedBrandLoader label="Loading administration" />}><AdminRoute /></Suspense>
-  if (isOperationsPage) return <Suspense fallback={<DelayedBrandLoader label="Loading IT operations" />}><OperationsRoute /></Suspense>
+  if (isOperationsPage || isItAdminPage) return <Suspense fallback={<DelayedBrandLoader label="Loading IT operations" />}><OperationsRoute /></Suspense>
 
   if (isAccountPortalRoute || isCustomerAuthRoute) {
     if (!authChecked) return <DelayedBrandLoader label="Checking your account" />

@@ -17,6 +17,7 @@ import { accountRouter } from './modules/account/routes.js'
 import { adminAuthRouter } from './modules/admin/auth.js'
 import { adminRouter } from './modules/admin/routes.js'
 import { operationsRouter } from './modules/operations/routes.js'
+import { adminEcosystemRouter } from './modules/admin/ecosystem.js'
 import { publicApiCache } from './middleware/public-cache.js'
 import { createOriginAuthentication } from './middleware/origin-auth.js'
 import { requestMetrics } from './middleware/request-metrics.js'
@@ -124,6 +125,7 @@ app.use('/api/v1/admin', (request, response, next) => {
   }
   next()
 }, adminAuthRouter)
+app.use('/api/v1/admin', adminEcosystemRouter)
 app.use('/api/v1/operations', operationsRouter)
 app.use('/api/v1/admin', adminRouter)
 app.use('/api/v1', catalogueRouter)

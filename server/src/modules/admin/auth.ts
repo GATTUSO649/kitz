@@ -1,13 +1,13 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import { hash } from 'bcryptjs'
 import { and, eq, gt, isNull } from 'drizzle-orm'
 import { Router, type Response } from 'express'
 import { z } from 'zod'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { adminDb } from '../../config/database.js'
-import { bcryptPasswordSchema, verifyPassword } from '../../config/password-policy.js'
+import { verifyPassword } from '../../config/password-policy.js'
 import { adminSessionAbsoluteLifetimeMs, adminSessionIdleTimeoutMs, nextSessionExpiry } from '../../config/session-policy.js'
-import { adminAuditLogs, adminSessions, adminUsers, adminVerificationTokens } from '../../database/admin-schema.js'
+import { adminAuditLogs, adminLoginAttempts, adminSessions, adminUsers, adminVerificationTokens } from '../../database/admin-schema.js'
+import { administratorPortal } from './administration.js'
 import { authenticatedAdmin } from '../../middleware/authenticate.js'
 import { authenticateAdmin } from '../../middleware/authenticate.js'
 
@@ -15,17 +15,12 @@ export const adminAuthRouter = Router()
 const cookieName = 'kc_admin_session'
 export const adminIdleTimeoutMs = adminSessionIdleTimeoutMs
 export const adminLoginSchema = z.object({
-  email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
+  identity: z.string().trim().min(3).max(254).optional(),
+  email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()).optional(),
+  roleNumber: z.string().trim().min(4).max(40).optional(),
   password: z.string().min(1).max(128),
-})
+}).strict().refine((value) => Boolean(value.identity || value.email || value.roleNumber), { message: 'Enter an administrator email or role number.' })
 export const invalidAdminCredentialsMessage = 'The email address or password is incorrect. Please try again.'
-const registerSchema = z.object({
-  email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
-  password: bcryptPasswordSchema(14),
-  fullName: z.string().trim().min(2).max(160),
-  secretKey: z.string().min(1).max(512),
-})
-
 function hashToken(token: string) {
   return createHash('sha256').update(token).digest('hex')
 }
@@ -62,66 +57,16 @@ function rejectCrossOrigin(request: Parameters<Parameters<typeof adminAuthRouter
 }
 
 adminAuthRouter.get('/registration-status', async (_request, response) => {
-  if (!env.ADMIN_SIGNUP_SECRET) {
-    response.json({ data: { available: false } })
-    return
-  }
   if (!adminDb) {
     response.status(503).json({ error: { code: 'ADMIN_DATABASE_UNAVAILABLE', message: 'Administrator database is not configured.' } })
     return
   }
-  response.json({ data: { available: true } })
+  const configuredSecret = env.ADMIN_SECRET_KEY ?? env.ADMIN_SIGNUP_SECRET
+  response.json({ data: { available: false, bootstrapAvailable: Boolean(configuredSecret), mode: 'invitation_only' } })
 })
 
-adminAuthRouter.post('/register', async (request, response) => {
-  if (rejectCrossOrigin(request, response)) return
-  if (!env.ADMIN_SIGNUP_SECRET) {
-    response.status(404).json({ error: { code: 'NOT_FOUND', message: 'Administrator setup is not available.' } })
-    return
-  }
-  const input = registerSchema.safeParse(request.body)
-  if (!input.success) {
-    response.status(400).json({ error: { code: 'INVALID_INPUT', message: 'Check the administrator account details. Passwords must be at least 14 characters.' } })
-    return
-  }
-  if (!matchesAdminSignupSecret(input.data.secretKey)) {
-    response.status(403).json({ error: { code: 'INVALID_ADMIN_SETUP_KEY', message: 'Administrator setup key is invalid.' } })
-    return
-  }
-  if (!adminDb) {
-    response.status(503).json({ error: { code: 'ADMIN_DATABASE_UNAVAILABLE', message: 'Administrator database is not configured.' } })
-    return
-  }
-
-  const passwordHash = await hash(input.data.password, 12)
-  const verificationToken = randomBytes(32).toString('base64url')
-  const registration = await adminDb.transaction(async (transaction) => {
-    const [existingUser] = await transaction.select({ id: adminUsers.id }).from(adminUsers)
-      .where(eq(adminUsers.email, input.data.email)).limit(1)
-    if (existingUser) return 'email-unavailable' as const
-
-    const [created] = await transaction.insert(adminUsers).values({
-      email: input.data.email,
-      fullName: input.data.fullName,
-      passwordHash,
-    }).returning({ id: adminUsers.id })
-    await transaction.insert(adminVerificationTokens).values({
-      adminUserId: created.id,
-      tokenHash: hashToken(verificationToken),
-      expiresAt: new Date(Date.now() + 30 * 60 * 1000),
-    })
-    return 'created' as const
-  })
-  if (registration === 'email-unavailable') {
-    response.status(409).json({ error: { code: 'ACCOUNT_UNAVAILABLE', message: 'Unable to create an administrator account with those details.' } })
-    return
-  }
-  response.status(201).json({
-    data: {
-      verificationUrl: `/admin/verify?token=${encodeURIComponent(verificationToken)}`,
-      expiresInMinutes: 30,
-    },
-  })
+adminAuthRouter.post('/register', async (_request, response) => {
+  response.status(410).json({ error: { code: 'PUBLIC_ADMIN_SIGNUP_DISABLED', message: 'Administrator accounts are created only through an authorized invitation.' } })
 })
 
 adminAuthRouter.post('/verify', async (request, response) => {
@@ -159,7 +104,7 @@ adminAuthRouter.post('/verify', async (request, response) => {
         isNull(adminVerificationTokens.consumedAt),
       )).returning({ id: adminVerificationTokens.id })
     if (consumed.length !== 1) return false
-    await transaction.update(adminUsers).set({ emailVerifiedAt: now })
+    await transaction.update(adminUsers).set({ emailVerifiedAt: now, status: 'active' })
       .where(eq(adminUsers.id, record.adminUserId))
     return true
   })
@@ -181,15 +126,32 @@ adminAuthRouter.post('/login', async (request, response) => {
     response.status(503).json({ error: { code: 'ADMIN_DATABASE_UNAVAILABLE', message: 'Administrator database is not configured.' } })
     return
   }
+  const identity = (input.data.identity ?? input.data.roleNumber ?? input.data.email ?? '').trim()
+  const normalizedIdentity = identity.includes('@') ? identity.toLowerCase() : identity.toUpperCase()
   const [admin] = await adminDb.select({
     id: adminUsers.id,
     email: adminUsers.email,
     fullName: adminUsers.fullName,
     passwordHash: adminUsers.passwordHash,
     emailVerifiedAt: adminUsers.emailVerifiedAt,
-  }).from(adminUsers).where(eq(adminUsers.email, input.data.email)).limit(1)
-  if (!admin || !(await verifyPassword(input.data.password, admin?.passwordHash))) {
+    roleNumber: adminUsers.roleNumber,
+    role: adminUsers.role,
+    status: adminUsers.status,
+  }).from(adminUsers).where(normalizedIdentity.includes('@') ? eq(adminUsers.email, normalizedIdentity) : eq(adminUsers.roleNumber, normalizedIdentity)).limit(1)
+  const passwordMatches = await verifyPassword(input.data.password, admin?.passwordHash)
+  if (!admin || !passwordMatches) {
+    await adminDb.insert(adminLoginAttempts).values({ identity: normalizedIdentity, success: false, failureCode: 'INVALID_CREDENTIALS' })
     response.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: invalidAdminCredentialsMessage } })
+    return
+  }
+  if (admin.status === 'suspended' || admin.status === 'disabled') {
+    await adminDb.insert(adminLoginAttempts).values({ identity: normalizedIdentity, adminUserId: admin.id, success: false, failureCode: 'ACCOUNT_SUSPENDED' })
+    response.status(403).json({ error: { code: 'ADMIN_ACCOUNT_SUSPENDED', message: 'This administrator account is suspended or disabled.' } })
+    return
+  }
+  if (admin.status !== 'active' || !admin.emailVerifiedAt) {
+    await adminDb.insert(adminLoginAttempts).values({ identity: normalizedIdentity, adminUserId: admin.id, success: false, failureCode: 'ACCOUNT_NOT_ACTIVE' })
+    response.status(403).json({ error: { code: 'EMAIL_NOT_VERIFIED', message: 'Verify and activate the administrator account before signing in.' } })
     return
   }
   if (!admin.emailVerifiedAt) {
@@ -213,7 +175,10 @@ adminAuthRouter.post('/login', async (request, response) => {
     targetType: 'admin_user',
     targetId: String(admin.id),
   })
-  response.json({ data: { user: { id: admin.id, email: admin.email, fullName: admin.fullName } } })
+  await adminDb.insert(adminLoginAttempts).values({ identity: normalizedIdentity, adminUserId: admin.id, success: true })
+  await adminDb.update(adminUsers).set({ lastLoginAt: createdAt }).where(eq(adminUsers.id, admin.id))
+  if (!admin.role) return response.status(403).json({ error: { code: 'ADMIN_ROLE_UNASSIGNED', message: 'The administrator account has no assigned role.' } })
+  response.json({ data: { user: { id: admin.id, email: admin.email, fullName: admin.fullName, roleNumber: admin.roleNumber, role: admin.role }, portal: administratorPortal(admin.role) } })
 })
 
 adminAuthRouter.get('/me', authenticateAdmin, async (request, response) => {
@@ -222,7 +187,7 @@ adminAuthRouter.get('/me', authenticateAdmin, async (request, response) => {
     response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Administrator sign in is required.' } })
     return
   }
-  response.json({ data: { user: admin } })
+  response.json({ data: { user: admin, portal: admin.role && admin.status === 'active' ? administratorPortal(admin.role as Parameters<typeof administratorPortal>[0]) : null } })
 })
 
 adminAuthRouter.post('/session/activity', (request, response, next) => {

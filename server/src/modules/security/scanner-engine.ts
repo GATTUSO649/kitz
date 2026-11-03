@@ -109,7 +109,7 @@ export function cancelSecurityScan(id: string) {
   return true
 }
 
-export async function startSecurityScan(scope: ScannerModule[], cwd: string, timeoutMs = 120_000) {
+export async function startSecurityScan(scope: ScannerModule[], cwd: string, timeoutMs = 120_000, onUpdate?: (scan: SecurityScan) => Promise<void> | void) {
   if (activeScanId) throw Object.assign(new Error('A security scan is already running.'), { code: 'SECURITY_SCAN_CONFLICT' })
   const normalizedScope: ScannerModule[] = [...new Set(scope.length ? scope : (['dependency'] as ScannerModule[]))]
   const id = randomUUID()
@@ -129,7 +129,8 @@ export async function startSecurityScan(scope: ScannerModule[], cwd: string, tim
   activeScanId = id
   scan.status = 'running'
 
-  void runScan(scan, controller, cwd, timeoutMs).finally(() => {
+  await Promise.resolve(onUpdate?.(scan)).catch(() => undefined)
+  void runScan(scan, controller, cwd, timeoutMs, onUpdate).finally(() => {
     if (activeScanId === id) {
       activeScanId = null
       activeScan = null
@@ -138,7 +139,7 @@ export async function startSecurityScan(scope: ScannerModule[], cwd: string, tim
   return scan
 }
 
-async function runScan(scan: SecurityScan, controller: AbortController, cwd: string, timeoutMs: number) {
+async function runScan(scan: SecurityScan, controller: AbortController, cwd: string, timeoutMs: number, onUpdate?: (scan: SecurityScan) => Promise<void> | void) {
   let successfulModules = 0
   let failedModules = 0
   let unsupportedModules = 0
@@ -158,6 +159,7 @@ async function runScan(scan: SecurityScan, controller: AbortController, cwd: str
         moduleState.findingCount = result.findings.length
         moduleState.completedAt = new Date().toISOString()
         scan.findings.push(...result.findings)
+        await Promise.resolve(onUpdate?.(scan)).catch(() => undefined)
         scan.summary = { ...scan.summary, ...result.summary }
         successfulModules++
       } catch (error) {
@@ -165,6 +167,7 @@ async function runScan(scan: SecurityScan, controller: AbortController, cwd: str
         moduleState.status = 'failed'
         moduleState.errorCode = error instanceof Error && error.message === 'SCAN_CANCELLED' ? 'SCAN_CANCELLED' : 'NPM_AUDIT_FAILED'
         moduleState.completedAt = new Date().toISOString()
+        await Promise.resolve(onUpdate?.(scan)).catch(() => undefined)
       }
     }
     if (controller.signal.aborted) {
@@ -188,5 +191,6 @@ async function runScan(scan: SecurityScan, controller: AbortController, cwd: str
       failedModules,
       unsupportedModules,
     }
+    await Promise.resolve(onUpdate?.(scan)).catch(() => undefined)
   }
 }

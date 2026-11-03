@@ -48,7 +48,7 @@ export function recordRuntimeMeasurement(metadata: Record<string, string | numbe
 }
 
 export function recordProviderMeasurement(input: {
-  provider: 'daraja' | 'cloudinary' | 'resend'
+  provider: 'daraja' | 'cloudinary' | 'resend' | 'smtp'
   operation: 'oauth' | 'stk_push' | 'stk_query' | 'image_upload' | 'image_delete' | 'email_submit'
   durationMs: number
   outcome: 'response_received' | 'rejected' | 'network_error' | 'timeout' | 'accepted_by_provider'

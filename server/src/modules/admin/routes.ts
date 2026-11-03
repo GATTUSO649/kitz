@@ -26,6 +26,22 @@ adminRouter.use((request, response, next) => {
 })
 adminRouter.use(authenticateAdmin)
 
+const administratorRouteRoles: ReadonlyArray<[RegExp, ReadonlySet<string>]> = [
+  [/^\/(?:payments|reports|expenses)(?:\/|$)/, new Set(['super_admin', 'finance_admin'])],
+  [/^\/inventory(?:\/|$)/, new Set(['super_admin', 'inventory_admin'])],
+  [/^\/(?:products|images|categories|football|catalogue-options|homepage)(?:\/|$)/, new Set(['super_admin', 'content_admin'])],
+  [/^\/(?:orders|customers|support|guest-orders)(?:\/|$)/, new Set(['super_admin', 'sales_admin'])],
+]
+adminRouter.use((request, response, next) => {
+  const actor = authenticatedAdmin(request)
+  const restriction = administratorRouteRoles.find(([pattern]) => pattern.test(request.path))
+  if (restriction && (!actor?.role || !restriction[1].has(actor.role))) {
+    response.status(403).json({ error: { code: 'ADMIN_ROLE_FORBIDDEN', message: 'This administrator role cannot access the requested resource.' } })
+    return
+  }
+  next()
+})
+
 adminRouter.get('/me', (request, response) => {
   const actor = authenticatedAdmin(request)
   response.json({ data: { id: actor?.id, fullName: actor?.fullName, email: actor?.email } })
