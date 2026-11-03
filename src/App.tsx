@@ -28,6 +28,7 @@ import { useStoreWhatsAppNumber } from './components/whatsapp-product'
 const AdminRoute = lazy(() => import('./pages/AdminPages').then((module) => ({ default: module.AdminRoute })))
 const OperationsRoute = lazy(() => import('./pages/OperationsPages').then((module) => ({ default: module.OperationsRoute })))
 const SuperAdminRoute = lazy(() => import('./pages/SuperAdminPages').then((module) => ({ default: module.SuperAdminRoute })))
+const SuperAdminConsole = lazy(() => import('./pages/SuperAdminConsole').then((module) => ({ default: module.SuperAdminConsole })))
 const RolePortalRoute = lazy(() => import('./pages/RolePortalPages').then((module) => ({ default: module.RolePortalRoute })))
 const MarketplacePage = lazy(() => import('./pages/ShopPages').then((module) => ({ default: module.MarketplacePage })))
 const ProductPage = lazy(() => import('./pages/ShopPages').then((module) => ({ default: module.ProductPage })))
@@ -844,7 +845,10 @@ function App() {
   }
 
   if (pagePath === '/admin/register') return <Suspense fallback={<DelayedBrandLoader label="Loading Super Administrator setup" />}><SuperAdminRoute /></Suspense>
-  if (isSuperAdminPage) return <Suspense fallback={<DelayedBrandLoader label="Loading Super Administrator" />}><SuperAdminRoute /></Suspense>
+  if (isSuperAdminPage) {
+    const isSuperAdminAuthRoute = ['/super-admin/signup', '/super-admin/login', '/super-admin/verify'].includes(pagePath)
+    return <Suspense fallback={<DelayedBrandLoader label="Loading Super Administrator" />}>{isSuperAdminAuthRoute ? <SuperAdminRoute /> : <SuperAdminConsole />}</Suspense>
+  }
   if (roleAdminPage) return <Suspense fallback={<DelayedBrandLoader label="Loading administrator portal" />}><RolePortalRoute /></Suspense>
   if (isAdminPage) return <Suspense fallback={<DelayedBrandLoader label="Loading administration" />}><AdminRoute /></Suspense>
   if (isOperationsPage || isItAdminPage) return <Suspense fallback={<DelayedBrandLoader label="Loading IT operations" />}><OperationsRoute /></Suspense>
