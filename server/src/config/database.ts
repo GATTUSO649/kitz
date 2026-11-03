@@ -4,6 +4,15 @@ import { env } from './env.js'
 import { createPostgresSslOptions } from './postgres-ssl.mjs'
 import * as schema from '../database/schema.js'
 import * as adminSchema from '../database/admin-schema.js'
+import { instrumentPostgresPool } from '../modules/operations/postgres-monitoring.js'
+import type { DatabaseMeasurement } from '../modules/operations/postgres-monitoring.js'
+
+let databaseMeasurementRecorder: Promise<typeof import('../modules/operations/database-performance.js')> | null = null
+
+function recordDatabaseMeasurement(measurement: DatabaseMeasurement) {
+  databaseMeasurementRecorder ??= import('../modules/operations/database-performance.js')
+  void databaseMeasurementRecorder.then(({ recordDatabaseMeasurement: record }) => record(measurement)).catch(() => undefined)
+}
 
 export function mysqlSslOptions(nodeEnvironment: string, ca?: string) {
   if (nodeEnvironment !== 'production') return undefined
@@ -33,6 +42,8 @@ export const pool = connectionUrl
       application_name: 'kitculture-api',
     })
   : null
+
+if (pool && process.env.NODE_TEST_CONTEXT === undefined) instrumentPostgresPool(pool, recordDatabaseMeasurement)
 
 export const db = pool ? drizzle(pool, { schema }) : null
 

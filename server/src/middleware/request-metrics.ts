@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Request, RequestHandler } from 'express'
 import { createMonitoringEvent } from '../modules/operations/monitoring-events.js'
+import { runWithMonitoringContext } from '../modules/operations/monitoring-context.js'
 import { enqueueMonitoringEvent } from '../modules/operations/telemetry-store.js'
 
 export type RequestMetric = {
@@ -106,7 +107,11 @@ export const requestMetrics: RequestHandler = (request, response, next) => {
       // Telemetry collection is isolated from the completed customer response.
     }
   })
-  next()
+  runWithMonitoringContext({
+    requestId: telemetryRequestId,
+    ...(correlationId ? { correlationId } : {}),
+    resolveRoute: () => endpointTemplate(request),
+  }, next)
 }
 
 export function getRequestMetrics(windowMs = 60 * 60_000, now = Date.now()) {

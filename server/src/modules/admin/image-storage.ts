@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { env } from '../../config/env.js'
+import { recordProviderMeasurement } from '../operations/monitoring-recorder.js'
 
 const maxImageBytes = 8 * 1024 * 1024
 
@@ -60,22 +61,27 @@ async function uploadImage(folder: string, publicId: string, bytes: Buffer): Pro
   form.set('signature', signedParameters(parameters, apiSecret))
 
   let response: Response
+  const startedAt = Date.now()
   try {
-    response = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudName)}/image/upload`, { method: 'POST', body: form })
-  } catch {
+    response = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudName)}/image/upload`, { method: 'POST', body: form, signal: AbortSignal.timeout(15_000) })
+  } catch (error) {
+    recordProviderMeasurement({ provider: 'cloudinary', operation: 'image_upload', durationMs: Date.now() - startedAt, outcome: error instanceof Error && error.name === 'TimeoutError' ? 'timeout' : 'network_error' })
     throw new ImageStorageError('Image storage could not be reached. Try again.')
   }
   let result: Partial<CloudinaryAsset> & { error?: { message?: string } }
   try {
     result = await response.json() as Partial<CloudinaryAsset> & { error?: { message?: string } }
   } catch {
+    recordProviderMeasurement({ provider: 'cloudinary', operation: 'image_upload', durationMs: Date.now() - startedAt, outcome: 'rejected', httpStatus: response.status })
     throw new ImageStorageError('Image storage returned an invalid response.')
   }
   if (!response.ok || typeof result.public_id !== 'string' || typeof result.secure_url !== 'string'
     || typeof result.format !== 'string' || typeof result.bytes !== 'number'
     || typeof result.width !== 'number' || typeof result.height !== 'number') {
+    recordProviderMeasurement({ provider: 'cloudinary', operation: 'image_upload', durationMs: Date.now() - startedAt, outcome: 'rejected', httpStatus: response.status })
     throw new ImageStorageError('Image storage rejected the upload.')
   }
+  recordProviderMeasurement({ provider: 'cloudinary', operation: 'image_upload', durationMs: Date.now() - startedAt, outcome: 'response_received', httpStatus: response.status })
   return {
     public_id: result.public_id,
     secure_url: result.secure_url,
@@ -105,18 +111,23 @@ export async function deleteProductImage(publicId: string): Promise<void> {
   form.set('signature', signedParameters(parameters, apiSecret))
 
   let response: Response
+  const startedAt = Date.now()
   try {
-    response = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudName)}/image/destroy`, { method: 'POST', body: form })
-  } catch {
+    response = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudName)}/image/destroy`, { method: 'POST', body: form, signal: AbortSignal.timeout(15_000) })
+  } catch (error) {
+    recordProviderMeasurement({ provider: 'cloudinary', operation: 'image_delete', durationMs: Date.now() - startedAt, outcome: error instanceof Error && error.name === 'TimeoutError' ? 'timeout' : 'network_error' })
     throw new ImageStorageError('Image storage could not be reached. Try again.')
   }
   let result: { result?: string; error?: { message?: string } }
   try {
     result = await response.json() as { result?: string; error?: { message?: string } }
   } catch {
+    recordProviderMeasurement({ provider: 'cloudinary', operation: 'image_delete', durationMs: Date.now() - startedAt, outcome: 'rejected', httpStatus: response.status })
     throw new ImageStorageError('Image storage returned an invalid response.')
   }
   if (!response.ok || !['ok', 'not found'].includes(result.result ?? '')) {
+    recordProviderMeasurement({ provider: 'cloudinary', operation: 'image_delete', durationMs: Date.now() - startedAt, outcome: 'rejected', httpStatus: response.status })
     throw new ImageStorageError('Image could not be deleted from storage.')
   }
+  recordProviderMeasurement({ provider: 'cloudinary', operation: 'image_delete', durationMs: Date.now() - startedAt, outcome: 'response_received', httpStatus: response.status })
 }

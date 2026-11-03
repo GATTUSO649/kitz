@@ -67,6 +67,17 @@ const schema = z.object({
   MPESA_ACCOUNT_REFERENCE: z.string().trim().min(1).max(64).default('KitCulture'),
   MPESA_TRANSACTION_DESC: z.string().trim().min(1).max(64).default('Jersey Purchase'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  DATABASE_SLOW_QUERY_WARNING_MS: z.coerce.number().int().min(1).max(60000).default(100),
+  DATABASE_SLOW_QUERY_ERROR_MS: z.coerce.number().int().min(2).max(120000).default(500),
+  DATABASE_SLOW_QUERY_CRITICAL_MS: z.coerce.number().int().min(3).max(300000).default(1000),
+  MONITORING_RAW_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(30),
+}).superRefine((configuration, context) => {
+  if (configuration.DATABASE_SLOW_QUERY_WARNING_MS >= configuration.DATABASE_SLOW_QUERY_ERROR_MS) {
+    context.addIssue({ code: 'custom', path: ['DATABASE_SLOW_QUERY_ERROR_MS'], message: 'Must exceed DATABASE_SLOW_QUERY_WARNING_MS.' })
+  }
+  if (configuration.DATABASE_SLOW_QUERY_ERROR_MS >= configuration.DATABASE_SLOW_QUERY_CRITICAL_MS) {
+    context.addIssue({ code: 'custom', path: ['DATABASE_SLOW_QUERY_CRITICAL_MS'], message: 'Must exceed DATABASE_SLOW_QUERY_ERROR_MS.' })
+  }
 })
 
 export function productionDatabaseTlsConfigurationErrors(configuration: { NODE_ENV: string; MYSQL_SSL_VERIFY: boolean }): string[] {

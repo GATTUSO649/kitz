@@ -2,6 +2,7 @@ import { and, eq, gt, gte, lt, sql } from 'drizzle-orm'
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type { PoolClient } from 'pg'
 import { adminDb, adminPool } from '../../config/database.js'
+import { env } from '../../config/env.js'
 import * as adminSchema from '../../database/admin-schema.js'
 import {
   monitoringAlerts,
@@ -15,7 +16,6 @@ const workerName = 'monitoring-detection'
 const advisoryLockId = 741923861
 const pollIntervalMs = 30_000
 const retentionWorkerName = 'monitoring-retention'
-const retentionDays = 30
 const ruleDefaults = [
   { ruleId: 'repeated-login-failures', name: 'Repeated login failures', description: 'Repeated failed login requests on one normalized endpoint.', condition: 'login_failures', threshold: 10, windowSeconds: 300, severity: 'warning', cooldownSeconds: 900, recommendedResponse: 'Review the affected endpoint and authentication telemetry. Do not block accounts based on this signal alone.' },
   { ruleId: 'repeated-401-responses', name: 'Repeated unauthorized responses', description: 'A high volume of unauthorized responses on one normalized endpoint.', condition: 'status_401', threshold: 30, windowSeconds: 300, severity: 'warning', cooldownSeconds: 900, recommendedResponse: 'Correlate with authentication failures and expected client behavior.' },
@@ -25,6 +25,9 @@ const ruleDefaults = [
   { ruleId: 'payment-callback-failures', name: 'Payment callback failures', description: 'Repeated failed responses from the M-Pesa callback route.', condition: 'payment_callback_failures', threshold: 5, windowSeconds: 300, severity: 'error', cooldownSeconds: 600, recommendedResponse: 'Review safe callback diagnostics and reconcile transaction state through the existing verified payment workflow.' },
   { ruleId: 'password-reset-activity', name: 'Password reset activity', description: 'Unusually high request volume on password recovery endpoints.', condition: 'password_reset_activity', threshold: 20, windowSeconds: 600, severity: 'warning', cooldownSeconds: 1800, recommendedResponse: 'Review authentication telemetry and confirm the recovery flow is behaving normally.' },
   { ruleId: 'abnormal-request-volume', name: 'Abnormal request volume', description: 'Unusually high total request volume across the application.', condition: 'abnormal_volume', threshold: 3000, windowSeconds: 300, severity: 'warning', cooldownSeconds: 900, recommendedResponse: 'Compare the observed traffic rate with expected application usage and provider telemetry.' },
+  { ruleId: 'database-slow-query-spike', name: 'Database slow-query spike', description: 'Repeated actual application database operations exceeded the configured slow-query threshold.', condition: 'database_slow_queries', threshold: 20, windowSeconds: 300, severity: 'warning', cooldownSeconds: 900, recommendedResponse: 'Review normalized operation categories and query fingerprints; SQL text and parameters are not stored.' },
+  { ruleId: 'database-connection-failures', name: 'Database connection failures', description: 'Repeated PostgreSQL connection acquisition or connectivity failures.', condition: 'database_connection_failures', threshold: 5, windowSeconds: 300, severity: 'critical', cooldownSeconds: 300, recommendedResponse: 'Check PostgreSQL availability, pool pressure, and network connectivity.' },
+  { ruleId: 'external-provider-failures', name: 'External provider failures', description: 'Repeated network, timeout, or provider rejection outcomes from actual application operations.', condition: 'provider_failures', threshold: 5, windowSeconds: 300, severity: 'error', cooldownSeconds: 900, recommendedResponse: 'Review provider operation outcomes and authorized provider status; do not infer payment or email delivery.' },
 ] as const
 
 let interval: NodeJS.Timeout | null = null
@@ -34,6 +37,8 @@ let workerStopped = true
 
 const status = sql<number>`(${monitoringEvents.metadata}->>'status')::integer`
 const route = sql<string>`(${monitoringEvents.metadata}->>'route')`
+const databaseErrorCategory = sql<string>`(${monitoringEvents.metadata}->>'errorCategory')`
+const providerOutcome = sql<string>`(${monitoringEvents.metadata}->>'outcome')`
 
 function ruleFilter(condition: string) {
   switch (condition) {
@@ -45,14 +50,37 @@ function ruleFilter(condition: string) {
     case 'payment_callback_failures': return and(gt(status, 399), sql`${route} ILIKE '%mpesa/callback%'`)
     case 'password_reset_activity': return sql`${route} ILIKE '%password%' AND (${route} ILIKE '%reset%' OR ${route} ILIKE '%forgot%')`
     case 'abnormal_volume': return sql`true`
+    case 'database_slow_queries': return and(eq(monitoringEvents.eventType, 'database.query.slow'), gte(sql<number>`(${monitoringEvents.metadata}->>'durationMs')::double precision`, env.DATABASE_SLOW_QUERY_WARNING_MS))
+    case 'database_connection_failures': return and(eq(monitoringEvents.eventType, 'database.operation.failed'), eq(databaseErrorCategory, 'connection'))
+    case 'provider_failures': return and(eq(monitoringEvents.eventType, 'provider.request.completed'), sql`${providerOutcome} IN ('rejected', 'network_error', 'timeout')`)
     default: return sql`false`
   }
 }
 
+function categoryForCondition(condition: string) {
+  return ['database_slow_queries', 'database_connection_failures', 'provider_failures'].includes(condition) ? 'system' : 'request'
+}
+
+function eventTypeForCondition(condition: string) {
+  if (condition === 'database_slow_queries') return 'database.query.slow'
+  if (condition === 'database_connection_failures') return 'database.operation.failed'
+  if (condition === 'provider_failures') return 'provider.request.completed'
+  return 'http.request.completed'
+}
+
 function groupExpression(condition: string) {
+  if (condition === 'provider_failures') return sql<string>`COALESCE(${monitoringEvents.metadata}->>'provider', 'unknown')`
+  if (condition === 'database_slow_queries' || condition === 'database_connection_failures') return sql<string>`COALESCE(${monitoringEvents.metadata}->>'operation', 'unknown')`
   return condition === 'abnormal_volume'
     ? monitoringEvents.sourceService
     : sql<string>`COALESCE(${route}, 'unknown')`
+}
+
+function groupFilter(condition: string, groupKey: string) {
+  if (condition === 'abnormal_volume') return eq(monitoringEvents.sourceService, groupKey)
+  if (condition === 'provider_failures') return eq(sql<string>`(${monitoringEvents.metadata}->>'provider')`, groupKey)
+  if (condition === 'database_slow_queries' || condition === 'database_connection_failures') return eq(sql<string>`(${monitoringEvents.metadata}->>'operation')`, groupKey)
+  return eq(route, groupKey)
 }
 
 export function startMonitoringWorker() {
@@ -160,7 +188,14 @@ async function cleanupRetainedEvents(database: WorkerDatabase, now: Date) {
   const [retentionState] = await database.select({ lastSuccessAt: monitoringWorkerState.lastSuccessAt })
     .from(monitoringWorkerState).where(eq(monitoringWorkerState.workerName, retentionWorkerName)).limit(1)
   if (retentionState?.lastSuccessAt && now.getTime() - retentionState.lastSuccessAt.getTime() < 24 * 60 * 60_000) return
-  await database.delete(monitoringEvents).where(lt(monitoringEvents.occurredAt, new Date(now.getTime() - retentionDays * 24 * 60 * 60_000)))
+  await database.delete(monitoringEvents).where(and(
+    lt(monitoringEvents.occurredAt, new Date(now.getTime() - env.MONITORING_RAW_RETENTION_DAYS * 24 * 60 * 60_000)),
+    sql`NOT EXISTS (
+      SELECT 1 FROM monitoring_alerts
+      WHERE monitoring_alerts.source_event_id = monitoring_events.id
+        AND monitoring_alerts.status NOT IN ('resolved', 'closed')
+    )`,
+  ))
   await database.insert(monitoringWorkerState).values({
     workerName: retentionWorkerName,
     lastHeartbeatAt: now,
@@ -190,8 +225,8 @@ async function evaluateRule(database: WorkerDatabase, rule: typeof monitoringDet
     latestEventId: sql<number>`max(${monitoringEvents.id})`,
     affectedService: monitoringEvents.sourceService,
   }).from(monitoringEvents).where(and(
-    eq(monitoringEvents.category, 'request'),
-    eq(monitoringEvents.eventType, 'http.request.completed'),
+    eq(monitoringEvents.category, categoryForCondition(rule.condition)),
+    eq(monitoringEvents.eventType, eventTypeForCondition(rule.condition)),
     gte(monitoringEvents.occurredAt, windowStart),
     filter,
   )).groupBy(group, monitoringEvents.sourceService)
@@ -202,14 +237,12 @@ async function evaluateRule(database: WorkerDatabase, rule: typeof monitoringDet
       eq(monitoringDetectionHistory.groupKey, match.groupKey),
     )).limit(1)
     const newlyMatched = await database.select({ total: sql<number>`count(*)` }).from(monitoringEvents).where(and(
-      eq(monitoringEvents.category, 'request'),
-      eq(monitoringEvents.eventType, 'http.request.completed'),
+      eq(monitoringEvents.category, categoryForCondition(rule.condition)),
+      eq(monitoringEvents.eventType, eventTypeForCondition(rule.condition)),
       gt(monitoringEvents.id, history?.lastEventId ?? 0),
       gte(monitoringEvents.occurredAt, windowStart),
       filter,
-      rule.condition === 'abnormal_volume'
-        ? eq(monitoringEvents.sourceService, match.affectedService)
-        : eq(route, match.groupKey),
+      groupFilter(rule.condition, match.groupKey),
     ))
     const newCount = Number(newlyMatched[0]?.total ?? 0)
     const shouldAlert = Number(match.matchCount) >= rule.threshold

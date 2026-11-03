@@ -15,7 +15,7 @@
     "build:deploy": "npm run build && npm run build:server",
     "start:server": "node server/dist/server.js",
     "typecheck": "tsc -b --pretty false && tsc -p server/tsconfig.json --noEmit",
-    "test": "tsx --test server/src/app.test.ts server/src/modules/auth/routes.test.ts server/src/modules/admin/reporting.test.ts server/src/modules/operations/monitoring-events.test.ts server/src/middleware/public-cache.test.ts server/src/middleware/origin-auth.test.ts server/src/middleware/request-metrics.test.ts",
+    "test": "tsx --test server/src/app.test.ts server/src/modules/auth/routes.test.ts server/src/modules/admin/reporting.test.ts server/src/modules/operations/monitoring-events.test.ts server/src/modules/operations/postgres-monitoring.test.ts server/src/modules/operations/runtime-performance.test.ts server/src/middleware/public-cache.test.ts server/src/middleware/origin-auth.test.ts server/src/middleware/request-metrics.test.ts",
     "db:generate": "drizzle-kit generate --config=server/drizzle.config.ts",
     "db:migrate": "drizzle-kit migrate --config=server/drizzle.config.ts",
     "db:supabase:check": "node server/scripts/check-supabase-connection.mjs",

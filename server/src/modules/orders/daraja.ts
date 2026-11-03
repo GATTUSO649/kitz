@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { env } from '../../config/env.js'
+import { recordProviderMeasurement } from '../operations/monitoring-recorder.js'
 
 type DarajaResponse = Record<string, unknown>
 type DarajaConfiguration = Pick<typeof env, 'DARAJA_ENV' | 'DARAJA_CONSUMER_KEY' | 'DARAJA_CONSUMER_SECRET' | 'DARAJA_PASSKEY' | 'DARAJA_CALLBACK_BASE_URL' | 'DARAJA_CALLBACK_TOKEN' | 'DARAJA_TRANSACTION_TYPE' | 'MPESA_ACCOUNT_REFERENCE' | 'MPESA_TRANSACTION_DESC'>
@@ -229,7 +230,7 @@ export function canVerifySuccessfulStkPayment(input: {
     && validTime
 }
 
-async function accessToken(configuration: DarajaConfiguration, fetcher: typeof fetch) {
+async function accessToken(configuration: DarajaConfiguration, fetcher: typeof fetch, observeProviderCalls = true) {
   if (!configuration.DARAJA_CONSUMER_KEY || !configuration.DARAJA_CONSUMER_SECRET) {
     throw new DarajaRequestError('oauth', 'not_submitted')
   }
@@ -245,12 +246,16 @@ async function accessToken(configuration: DarajaConfiguration, fetcher: typeof f
       signal: AbortSignal.timeout(12_000),
     })
   } catch (error) {
+    if (observeProviderCalls) recordProviderMeasurement({ provider: 'daraja', operation: 'oauth', durationMs: Date.now() - startedAt, outcome: networkErrorCode(error) === 'TIMEOUT' ? 'timeout' : 'network_error' })
     throw new DarajaRequestError('oauth', 'not_submitted', undefined, undefined, undefined, undefined, networkErrorCode(error), Date.now() - startedAt)
   }
   let result: DarajaResponse
   try { result = await response.json() as DarajaResponse } catch {
+    if (observeProviderCalls) recordProviderMeasurement({ provider: 'daraja', operation: 'oauth', durationMs: Date.now() - startedAt, outcome: 'rejected', httpStatus: response.status })
     throw new DarajaRequestError('oauth', 'not_submitted', undefined, response.status, 'Malformed OAuth response from Daraja.', safeProviderRequestId(response.headers.get('x-request-id')), undefined, Date.now() - startedAt)
   }
+  const oauthAccepted = response.ok && typeof result.access_token === 'string'
+  if (observeProviderCalls) recordProviderMeasurement({ provider: 'daraja', operation: 'oauth', durationMs: Date.now() - startedAt, outcome: oauthAccepted ? 'response_received' : 'rejected', httpStatus: response.status })
   if (!response.ok || typeof result.access_token !== 'string') {
     throw new DarajaRequestError('oauth', 'not_submitted', safeProviderCode(result.errorCode ?? result.error), response.status, providerMessage(result), providerRequestId(result, response), undefined, Date.now() - startedAt)
   }
@@ -275,8 +280,8 @@ function stkPassword(shortcode: string, timestamp: string, passkey?: string) {
 
 type DarajaHttpResponse = { data: DarajaResponse; httpStatus: number; providerRequestId?: string; durationMs: number }
 
-async function authenticatedPost(path: string, body: Record<string, unknown>, configuration: DarajaConfiguration, fetcher: typeof fetch, stage: 'stk_push' | 'stk_query'): Promise<DarajaHttpResponse> {
-  const token = await accessToken(configuration, fetcher)
+async function authenticatedPost(path: string, body: Record<string, unknown>, configuration: DarajaConfiguration, fetcher: typeof fetch, stage: 'stk_push' | 'stk_query', observeProviderCalls = true): Promise<DarajaHttpResponse> {
+  const token = await accessToken(configuration, fetcher, observeProviderCalls)
   const startedAt = Date.now()
   let response: Response
   try {
@@ -287,13 +292,17 @@ async function authenticatedPost(path: string, body: Record<string, unknown>, co
       signal: AbortSignal.timeout(15_000),
     })
   } catch (error) {
+    if (observeProviderCalls) recordProviderMeasurement({ provider: 'daraja', operation: stage, durationMs: Date.now() - startedAt, outcome: networkErrorCode(error) === 'TIMEOUT' ? 'timeout' : 'network_error' })
     throw new DarajaRequestError(stage, 'unknown', undefined, undefined, undefined, undefined, networkErrorCode(error), Date.now() - startedAt)
   }
   const durationMs = Date.now() - startedAt
   let result: DarajaResponse
   try { result = await response.json() as DarajaResponse } catch {
+    if (observeProviderCalls) recordProviderMeasurement({ provider: 'daraja', operation: stage, durationMs, outcome: 'rejected', httpStatus: response.status })
     throw new DarajaRequestError(stage, 'unknown', undefined, response.status, 'Malformed STK response from Daraja.', safeProviderRequestId(response.headers.get('x-request-id')), undefined, durationMs)
   }
+  const providerAccepted = response.ok && (result.ResponseCode === undefined || result.ResponseCode === '0')
+  if (observeProviderCalls) recordProviderMeasurement({ provider: 'daraja', operation: stage, durationMs, outcome: providerAccepted ? 'response_received' : 'rejected', httpStatus: response.status })
   const requestId = providerRequestId(result, response)
   const safeMessage = providerMessage(result)
   const code = safeProviderCode(result.errorCode ?? result.ResponseCode ?? result.error)
@@ -320,7 +329,7 @@ export async function initiateStkPush(input: { businessShortcode: string; partyB
     CallBackURL: darajaCallbackUrl(configuration),
     AccountReference: configuration.MPESA_ACCOUNT_REFERENCE.slice(0, 12),
     TransactionDesc: configuration.MPESA_TRANSACTION_DESC.slice(0, 13),
-  }, configuration, fetcher, 'stk_push')
+  }, configuration, fetcher, 'stk_push', dependencies.fetcher === undefined)
   const result = response.data
   if (result.ResponseCode !== '0') {
     throw new DarajaRequestError('stk_push', 'rejected', safeProviderCode(result.ResponseCode), response.httpStatus, providerMessage(result), response.providerRequestId, undefined, response.durationMs)
@@ -346,7 +355,7 @@ export async function queryStkPush(shortcode: string, checkoutRequestId: string,
     Password: stkPassword(shortcode, timestamp, configuration.DARAJA_PASSKEY),
     Timestamp: timestamp,
     CheckoutRequestID: checkoutRequestId,
-  }, configuration, dependencies.fetcher ?? fetch, 'stk_query')
+  }, configuration, dependencies.fetcher ?? fetch, 'stk_query', dependencies.fetcher === undefined)
   const result = response.data
   if (result.ResponseCode !== '0') throw new DarajaRequestError('stk_query', 'rejected', safeProviderCode(result.ResponseCode), response.httpStatus, providerMessage(result), response.providerRequestId, undefined, response.durationMs)
   return result

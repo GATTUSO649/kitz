@@ -93,6 +93,9 @@ type MonitoringRule = { ruleId: string; name: string; description: string; condi
 type MonitoringAlert = { id: number; severity: string; description: string; affectedService: string; status: string; firstOccurrence: string; lastOccurrence: string; occurrenceCount: number; assignedOperationsUserId: number | null; resolutionInformation: string | null; ruleId: string; ruleName: string }
 type MonitoringWorker = { workerName: string; lastHeartbeatAt: string | null; lastSuccessAt: string | null; lastFailureAt: string | null; failureCount: number; lastErrorCode: string | null; status: string }
 type MonitoringHealth = { checkedAt: string; telemetryFreshness: string; services: { name: string; state: string; latencyMs?: number | null; source: string }[]; queue: { queueDepth: number; droppedEvents: number; storageFailures: number; persistedEvents: number; lastPersistedAt: string | null; lastFailureAt: string | null; storageConfigured: boolean } }
+type DatabasePerformance = { telemetryAvailable: boolean; metrics: { metricType: string; operation: string; sampleCount: number; successCount: number; failureCount: number; slowCount: number; averageDurationMs: number; minDurationMs: number; maxDurationMs: number; p50DurationMs: number | null; p95DurationMs: number | null; p99DurationMs: number | null; histogramEstimate: boolean; instanceCount: number }[] }
+type RuntimePerformance = { telemetryAvailable: boolean; sampleCount: number; instanceCount: number; processCpuAveragePercent: number | null; processCpuP95Percent: number | null; processRssAverageBytes: number | null; processRssMaxBytes: number | null; processHeapAverageBytes: number | null; processHeapMaxBytes: number | null; processExternalAverageBytes: number | null; runtimeAvailableMemoryBytes: number | null; runtimeConstrainedMemoryBytes: number | null; eventLoopUtilizationAveragePercent: number | null; eventLoopP95DelaySampleMaxMs: number | null; hostCpuUtilizationPercent: number | null; hostMemoryBytes: number | null; hostMetricsStatus: string }
+type ProviderPerformance = { metrics: { provider: string; operation: string; requestCount: number; rejectedCount: number; acceptedByProviderCount: number; averageDurationMs: number; p95DurationMs: number | null; p99DurationMs: number | null; lastAttemptAt: string }[]; integrations: { provider: string; state: string; health: string; reason: string }[] }
 type ModuleKey =
   | 'overview'
   | 'traffic'
@@ -527,6 +530,27 @@ function OperationsConsole() {
     retry: false,
   })
 
+  const databasePerformanceQuery = useQuery({
+    queryKey: ['operations', 'database-performance'],
+    queryFn: async () => (await operationsApi<DatabasePerformance>('/api/v1/operations/database-performance')).data!,
+    refetchInterval: 30_000,
+    retry: false,
+  })
+
+  const runtimePerformanceQuery = useQuery({
+    queryKey: ['operations', 'runtime-performance'],
+    queryFn: async () => (await operationsApi<RuntimePerformance>('/api/v1/operations/runtime-performance')).data!,
+    refetchInterval: 30_000,
+    retry: false,
+  })
+
+  const providerPerformanceQuery = useQuery({
+    queryKey: ['operations', 'provider-performance'],
+    queryFn: async () => (await operationsApi<ProviderPerformance>('/api/v1/operations/provider-performance')).data!,
+    refetchInterval: 60_000,
+    retry: false,
+  })
+
   const incidentsQuery = useQuery({
     queryKey: ['operations', 'incidents'],
     queryFn: async () => (await operationsApi<Incident[]>('/api/v1/operations/incidents?limit=25')).data ?? [],
@@ -703,6 +727,22 @@ function OperationsConsole() {
   const monitoringAlerts = alertsQuery.data ?? []
   const monitoringWorkers = workersQuery.data ?? []
   const monitoringHealth = monitoringHealthQuery.data
+  const databasePerformance = databasePerformanceQuery.data
+  const runtimePerformance = runtimePerformanceQuery.data
+  const providerPerformance = providerPerformanceQuery.data
+  const databaseQueryMetrics = databasePerformance?.metrics.filter((metric) => metric.metricType === 'database.query.completed') ?? []
+  const databaseQuerySampleCount = databaseQueryMetrics.reduce((total, metric) => total + metric.sampleCount, 0)
+  const databaseSlowCount = databaseQueryMetrics.reduce((total, metric) => total + metric.slowCount, 0)
+  const databaseFailureCount = databasePerformance?.metrics.reduce((total, metric) => total + metric.failureCount, 0) ?? 0
+  const databaseOperationLatencyBars = (databasePerformance?.metrics ?? []).map((metric) => ({
+    label: `${label(metric.metricType.replace('database.', ''))} · ${metric.operation}`,
+    value: metric.averageDurationMs,
+  }))
+  const databaseOperationOutcomes = [
+    { label: 'Successful', value: databasePerformance?.metrics.reduce((total, metric) => total + metric.successCount, 0) ?? 0, color: '#62c89a' },
+    { label: 'Failed', value: databaseFailureCount, color: '#ef7777' },
+  ]
+  const providerMetricsByName = new Map((providerPerformance?.metrics ?? []).map((metric) => [metric.provider, metric]))
   const unresolvedMonitoringAlerts = monitoringAlerts.filter((alert) => !['resolved', 'closed'].includes(alert.status))
   const requestSamples = overview?.requests.requestCount ?? 0
   const requestSuccessRate = overview && requestSamples > 0
@@ -913,9 +953,9 @@ function OperationsConsole() {
         </div>
         <div className="operations-stat-grid">
           <article className="operations-stat-card"><span>Uptime</span><strong>{overview ? formatDuration(overview.application.uptimeSeconds) : 'Unavailable'}</strong><small>Node {overview?.application.nodeVersion ?? 'unknown'}</small></article>
-          <article className="operations-stat-card"><span>Memory RSS</span><strong>{overview ? formatBytes(overview.application.memoryRssBytes) : 'Unavailable'}</strong><small>Heap {overview ? formatBytes(overview.application.heapUsedBytes) : 'Unavailable'}</small></article>
+          <article className="operations-stat-card"><span>Process CPU</span><strong>{runtimePerformance?.processCpuAveragePercent == null ? 'Unavailable' : `${runtimePerformance.processCpuAveragePercent}%`}</strong><small>{runtimePerformance?.processCpuP95Percent == null ? 'P95 unavailable' : `P95 ${runtimePerformance.processCpuP95Percent}% · RSS ${runtimePerformance.processRssAverageBytes == null ? 'unavailable' : formatBytes(runtimePerformance.processRssAverageBytes)}`}</small></article>
           <article className="operations-stat-card"><span>Errors</span><strong>{overview?.requests.errorCount ?? 'Unavailable'}</strong><small>Persistent request failures</small></article>
-          <article className="operations-stat-card"><span>Worker</span><strong>{workersQuery.isError ? 'Unavailable' : monitoringWorkers[0]?.status ?? 'Unknown'}</strong><small>{monitoringWorkers[0]?.lastHeartbeatAt ? `Heartbeat ${new Date(monitoringWorkers[0].lastHeartbeatAt).toLocaleTimeString()}` : workersQuery.isError ? 'Worker status could not be loaded' : 'No heartbeat recorded'}</small></article>
+          <article className="operations-stat-card"><span>Event loop</span><strong>{runtimePerformance?.eventLoopUtilizationAveragePercent == null ? 'Unavailable' : `${runtimePerformance.eventLoopUtilizationAveragePercent}%`}</strong><small>{runtimePerformance?.eventLoopP95DelaySampleMaxMs == null ? 'Delay unavailable' : `Max sample P95 delay ${runtimePerformance.eventLoopP95DelaySampleMaxMs} ms`}</small></article>
         </div>
         <section className="operations-charts-grid">
           <OperationsLineChart title="Request errors over time" labels={timelineLabels} series={[{ label: 'Errors', color: '#ed7b7b', values: timeline.map((bucket) => bucket.errorCount) }]} />
@@ -932,6 +972,7 @@ function OperationsConsole() {
             </div>
           )}
         </section>
+        <p className="operations-chart-footnote">CPU and memory values are Node process measurements, not host totals. Host CPU/memory, disk and network metrics are unavailable from the current runtime integration.</p>
       </>
     ),
     security: (
@@ -1042,14 +1083,11 @@ function OperationsConsole() {
           <article className="operations-stat-card"><span>Store DB</span><strong>{overview?.databases[0]?.status ?? 'unavailable'}</strong><small>{overview?.databases[0]?.latencyMs === null ? 'Probe unavailable' : `${overview?.databases[0]?.latencyMs ?? 0} ms`}</small></article>
           <article className="operations-stat-card"><span>Admin DB</span><strong>{overview?.databases[1]?.status ?? 'unavailable'}</strong><small>{overview?.databases[1]?.latencyMs === null ? 'Probe unavailable' : `${overview?.databases[1]?.latencyMs ?? 0} ms`}</small></article>
           <article className="operations-stat-card"><span>Pool usage</span><strong>{overview?.databasePool ? `${overview.databasePool.totalConnections}/${overview.databasePool.maxConnections ?? '—'}` : 'Unavailable'}</strong><small>{overview?.databasePool ? `${overview.databasePool.idleConnections} idle · ${overview.databasePool.waitingRequests} waiting` : 'Pool metrics not available'}</small></article>
-          <article className="operations-stat-card"><span>RLS finding</span><strong>Tracked</strong><small>Security audit remains documented</small></article>
+          <article className="operations-stat-card"><span>Measured DB queries</span><strong>{databasePerformanceQuery.isError ? 'Unavailable' : databasePerformance?.telemetryAvailable ? databaseQuerySampleCount : 'No samples'}</strong><small>{databasePerformance?.telemetryAvailable ? `${databaseSlowCount} slow · ${databaseFailureCount} failed` : 'Persistent DB measurements pending'}</small></article>
         </div>
         <section className="operations-charts-grid">
-          <OperationsBars title="Current database probe latency · ms" items={databaseLatencyBars} />
-          <OperationsDonut title="Database probe results" entries={[
-            { label: 'Healthy', value: (overview?.databases ?? []).filter((database) => database.status === 'healthy').length, color: '#62c89a' },
-            { label: 'Unavailable', value: (overview?.databases ?? []).filter((database) => database.status !== 'healthy').length, color: '#ef7777' },
-          ]} />
+          <OperationsBars title="Measured database operation latency · ms" items={databaseOperationLatencyBars} />
+          <OperationsDonut title="Measured database operation outcomes" entries={databaseOperationOutcomes} />
         </section>
       </>
     ),
@@ -1086,6 +1124,11 @@ function OperationsConsole() {
           </header>
           <div className="operations-mini-list">
             {monitoringHealthQuery.isError && <div className="operations-empty">Service health is unavailable: {monitoringHealthQuery.error.message}</div>}
+            {providerPerformanceQuery.isError && <div className="operations-empty">Provider performance history is unavailable: {providerPerformanceQuery.error.message}</div>}
+            {(providerPerformance?.integrations ?? []).map((integration) => {
+              const measured = providerMetricsByName.get(integration.provider)
+              return <div key={integration.provider} className="operations-mini-item"><span>{label(integration.provider)}</span><strong className="status-watch">{integration.health}</strong><small>{measured ? `${measured.requestCount} real requests · avg ${measured.averageDurationMs} ms · P95 ${measured.p95DurationMs ?? 'unavailable'} ms · ${measured.rejectedCount} rejected` : integration.reason}</small></div>
+            })}
             {(monitoringHealth?.services ?? []).map((service) => (
               <div key={service.name} className="operations-mini-item"><span>{label(service.name)}</span><strong className={service.state === 'healthy' ? 'status-ok' : 'status-watch'}>{service.state}</strong><small>{service.source}{service.latencyMs == null ? '' : ` · ${service.latencyMs} ms`}</small></div>
             ))}

@@ -170,7 +170,7 @@ export const monitoringDetectionRules = mysqlTable('monitoring_detection_rules',
   updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
 }, (table) => [
   index('monitoring_detection_rules_enabled_idx').on(table.enabled, table.ruleId),
-  check('monitoring_detection_rules_condition_check', sql`${table.condition} IN ('login_failures', 'status_401', 'status_403', 'status_429', 'api_scanning', 'payment_callback_failures', 'abnormal_volume', 'password_reset_activity')`),
+  check('monitoring_detection_rules_condition_check', sql`${table.condition} IN ('login_failures', 'status_401', 'status_403', 'status_429', 'api_scanning', 'payment_callback_failures', 'abnormal_volume', 'password_reset_activity', 'database_slow_queries', 'database_connection_failures', 'provider_failures')`),
   check('monitoring_detection_rules_severity_check', sql`${table.severity} IN ('debug', 'info', 'warning', 'error', 'critical')`),
   check('monitoring_detection_rules_threshold_check', sql`${table.threshold} > 0 AND ${table.windowSeconds} > 0 AND ${table.cooldownSeconds} >= 0`),
 ])

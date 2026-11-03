@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { hash } from 'bcryptjs'
-import { and, asc, count, desc, eq, gt, gte, isNull, lt, lte, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lt, lte, sql } from 'drizzle-orm'
 import { Router, type NextFunction, type Request, type Response } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
@@ -13,6 +13,7 @@ import { nextSessionExpiry, operationsSessionAbsoluteLifetimeMs, operationsSessi
 import { adminUsers, monitoringAlerts, monitoringDetectionRules, monitoringEvents, monitoringWorkerState, operationsAuditEvents, operationsIncidentEvents, operationsIncidents, operationsSessions, operationsUsers } from '../../database/admin-schema.js'
 import { getTelemetryQueueState } from './telemetry-store.js'
 import { getRequestMetrics } from '../../middleware/request-metrics.js'
+import { summarizeDatabaseAggregates } from './database-performance.js'
 
 export const operationsRouter = Router()
 const operationsCookieName = 'kc_ops_session'
@@ -330,7 +331,6 @@ operationsRouter.get('/telemetry', (_request, response) => {
   const queue = getTelemetryQueueState()
   response.json({ data: {
     ...queue,
-    freshness: queue.lastPersistedAt ? 'available' : queue.storageConfigured ? 'awaiting_first_event' : 'unavailable',
   } })
 })
 
@@ -457,6 +457,7 @@ const updateAlertSchema = z.object({
 }).strict().refine((value) => Object.keys(value).length > 0)
 
 operationsRouter.patch('/alerts/:id', async (request, response) => {
+  const actor = authenticatedOperationsUser(request)
   const id = z.coerce.number().int().positive().safeParse(request.params.id)
   const input = updateAlertSchema.safeParse(request.body)
   if (!id.success || !input.success) return response.status(400).json({ error: { code: 'INVALID_ALERT_UPDATE', message: 'Alert update is invalid.' } })
@@ -466,10 +467,23 @@ operationsRouter.patch('/alerts/:id', async (request, response) => {
       .where(and(eq(operationsUsers.id, input.data.assignedOperationsUserId), isNull(operationsUsers.disabledAt))).limit(1)
     if (!assignee) return response.status(400).json({ error: { code: 'INVALID_ASSIGNEE', message: 'The assignee is not an authorized operations operator.' } })
   }
-  const [updated] = await adminDb.update(monitoringAlerts).set({ ...input.data, updatedAt: new Date() })
-    .where(eq(monitoringAlerts.id, id.data)).returning({ id: monitoringAlerts.id })
+  const updated = await adminDb.transaction(async (transaction) => {
+    const [alert] = await transaction.update(monitoringAlerts).set({ ...input.data, updatedAt: new Date() })
+      .where(eq(monitoringAlerts.id, id.data)).returning({ id: monitoringAlerts.id, deduplicationKey: monitoringAlerts.deduplicationKey })
+    if (!alert) return null
+    await transaction.insert(operationsAuditEvents).values({
+      actorAdminUserId: null,
+      actorOperationsUserId: actor?.id ?? null,
+      actorType: 'operations_user',
+      action: 'monitoring_alert.updated',
+      targetType: 'monitoring_alert',
+      targetId: String(alert.id),
+      details: JSON.stringify(Object.keys(input.data)),
+    })
+    return alert
+  })
   if (!updated) return response.status(404).json({ error: { code: 'ALERT_NOT_FOUND', message: 'Alert not found.' } })
-  response.json({ data: updated })
+  response.json({ data: { id: updated.id } })
 })
 
 operationsRouter.get('/metrics', async (request, response) => {
@@ -484,6 +498,205 @@ operationsRouter.get('/metrics', async (request, response) => {
   const metrics = await persistentRequestMetrics(start, end)
   if (!metrics) return response.status(503).json({ error: { code: 'TELEMETRY_UNAVAILABLE', message: 'Persistent request telemetry is not available.' } })
   response.json({ data: { ...metrics, windowStartedAt: start.toISOString(), windowEndedAt: end.toISOString(), collectedAt: new Date().toISOString() } })
+})
+
+operationsRouter.get('/database-performance', async (request, response) => {
+  if (!adminDb) return operationsUnavailable(response, String(request.id))
+  const parsed = monitoringRangeQuery.safeParse(request.query)
+  if (!parsed.success) return response.status(400).json({ error: { code: 'INVALID_DATE_RANGE', message: 'Database metric date range is invalid.' } })
+  const end = parsed.data.end ?? new Date()
+  const start = parsed.data.start ?? new Date(end.getTime() - 60 * 60_000)
+  if (end.getTime() - start.getTime() > 31 * 24 * 60 * 60_000) {
+    return response.status(400).json({ error: { code: 'INVALID_DATE_RANGE', message: 'Database metric date range cannot exceed 31 days.' } })
+  }
+  const bucketExpressions = Array.from({ length: 12 }, (_, index) => sql`sum(split_part(${monitoringEvents.metadata}->>'latencyBucketCounts', ',', ${index + 1})::bigint)`)
+  const mergedBuckets = sql<string>`array_to_string(ARRAY[${sql.join(bucketExpressions)}], ',')`
+  const databaseSampleEnd = sql<Date>`(${monitoringEvents.metadata}->>'windowEndedAt')::timestamptz`
+  try {
+    const rows = await adminDb.select({
+      metricType: sql<string>`(${monitoringEvents.metadata}->>'metricType')`,
+      operation: sql<string>`(${monitoringEvents.metadata}->>'operation')`,
+      sampleCount: sql<number>`sum((${monitoringEvents.metadata}->>'sampleCount')::bigint)`,
+      successCount: sql<number>`sum((${monitoringEvents.metadata}->>'successCount')::bigint)`,
+      failureCount: sql<number>`sum((${monitoringEvents.metadata}->>'failureCount')::bigint)`,
+      slowCount: sql<number>`sum((${monitoringEvents.metadata}->>'slowCount')::bigint)`,
+      durationTotalMs: sql<number>`sum((${monitoringEvents.metadata}->>'durationTotalMs')::double precision)`,
+      minDurationMs: sql<number>`min((${monitoringEvents.metadata}->>'minDurationMs')::double precision)`,
+      maxDurationMs: sql<number>`max((${monitoringEvents.metadata}->>'maxDurationMs')::double precision)`,
+      latencyBucketCounts: mergedBuckets,
+      instanceCount: sql<number>`count(distinct ${monitoringEvents.instanceId})`,
+      windowStartedAt: sql<string>`min(${monitoringEvents.metadata}->>'windowStartedAt')`,
+      windowEndedAt: sql<string>`max(${monitoringEvents.metadata}->>'windowEndedAt')`,
+    }).from(monitoringEvents).where(and(
+      eq(monitoringEvents.eventType, 'database.performance.aggregate'),
+      gte(databaseSampleEnd, start),
+      lte(databaseSampleEnd, end),
+    )).groupBy(sql`(${monitoringEvents.metadata}->>'metricType')`, sql`(${monitoringEvents.metadata}->>'operation')`)
+    const data = rows.map((row) => {
+      const [summary] = summarizeDatabaseAggregates([{
+        instanceId: 'merged',
+        occurredAt: row.windowEndedAt,
+        metadata: {
+          metricType: row.metricType,
+          operation: row.operation,
+          sampleCount: Number(row.sampleCount),
+          successCount: Number(row.successCount),
+          failureCount: Number(row.failureCount),
+          slowCount: Number(row.slowCount),
+          durationTotalMs: Number(row.durationTotalMs),
+          minDurationMs: Number(row.minDurationMs),
+          maxDurationMs: Number(row.maxDurationMs),
+          latencyBucketCounts: row.latencyBucketCounts,
+          windowStartedAt: row.windowStartedAt,
+          windowEndedAt: row.windowEndedAt,
+        },
+      }])
+      return { ...summary, instanceCount: Number(row.instanceCount) }
+    })
+    response.json({ data: { windowStartedAt: start.toISOString(), windowEndedAt: end.toISOString(), collectedAt: new Date().toISOString(), metrics: data, telemetryAvailable: data.length > 0 } })
+  } catch {
+    response.status(503).json({ error: { code: 'DATABASE_METRICS_UNAVAILABLE', message: 'Persisted database performance metrics are not available.' } })
+  }
+})
+
+operationsRouter.get('/database-performance/events', async (request, response) => {
+  if (!adminDb) return operationsUnavailable(response, String(request.id))
+  const query = incidentListQuery.safeParse(request.query)
+  if (!query.success) return response.status(400).json({ error: { code: 'INVALID_QUERY', message: 'Database event pagination is invalid.' } })
+  const rows = await adminDb.select({
+    id: monitoringEvents.id,
+    eventType: monitoringEvents.eventType,
+    severity: monitoringEvents.severity,
+    occurredAt: monitoringEvents.occurredAt,
+    instanceId: monitoringEvents.instanceId,
+    requestId: monitoringEvents.requestId,
+    correlationId: monitoringEvents.correlationId,
+    metadata: monitoringEvents.metadata,
+  }).from(monitoringEvents).where(and(
+    query.data.cursor ? lt(monitoringEvents.id, query.data.cursor) : undefined,
+    inArray(monitoringEvents.eventType, ['database.query.slow', 'database.operation.failed']),
+  )).orderBy(desc(monitoringEvents.id)).limit(query.data.limit + 1)
+  const hasMore = rows.length > query.data.limit
+  const data = rows.slice(0, query.data.limit)
+  response.json({ data, pagination: { limit: query.data.limit, nextCursor: hasMore ? data.at(-1)?.id ?? null : null, hasMore } })
+})
+
+operationsRouter.get('/runtime-performance', async (request, response) => {
+  if (!adminDb) return operationsUnavailable(response, String(request.id))
+  const parsed = monitoringRangeQuery.safeParse(request.query)
+  if (!parsed.success) return response.status(400).json({ error: { code: 'INVALID_DATE_RANGE', message: 'Runtime metric date range is invalid.' } })
+  const end = parsed.data.end ?? new Date()
+  const start = parsed.data.start ?? new Date(end.getTime() - 60 * 60_000)
+  if (end.getTime() - start.getTime() > 31 * 24 * 60 * 60_000) {
+    return response.status(400).json({ error: { code: 'INVALID_DATE_RANGE', message: 'Runtime metric date range cannot exceed 31 days.' } })
+  }
+  try {
+    const [summary] = await adminDb.select({
+      sampleCount: count(),
+      instanceCount: sql<number>`count(distinct ${monitoringEvents.instanceId})`,
+      processCpuAveragePercent: sql<number | null>`avg((${monitoringEvents.metadata}->>'processCpuPercentOfAvailableCapacity')::double precision)`,
+      processCpuP95Percent: sql<number | null>`percentile_cont(0.95) within group (order by (${monitoringEvents.metadata}->>'processCpuPercentOfAvailableCapacity')::double precision)`,
+      rssAverageBytes: sql<number | null>`avg((${monitoringEvents.metadata}->>'processRssBytes')::double precision)`,
+      rssMaxBytes: sql<number | null>`max((${monitoringEvents.metadata}->>'processRssBytes')::bigint)`,
+      heapAverageBytes: sql<number | null>`avg((${monitoringEvents.metadata}->>'processHeapUsedBytes')::double precision)`,
+      heapMaxBytes: sql<number | null>`max((${monitoringEvents.metadata}->>'processHeapUsedBytes')::bigint)`,
+      externalAverageBytes: sql<number | null>`avg((${monitoringEvents.metadata}->>'processExternalBytes')::double precision)`,
+      runtimeAvailableMemoryBytes: sql<number | null>`min(nullif(${monitoringEvents.metadata}->>'runtimeAvailableMemoryBytes', 'null')::bigint)`,
+      runtimeConstrainedMemoryBytes: sql<number | null>`max(nullif(${monitoringEvents.metadata}->>'runtimeConstrainedMemoryBytes', 'null')::bigint)`,
+      eventLoopUtilizationAveragePercent: sql<number | null>`avg((${monitoringEvents.metadata}->>'eventLoopUtilizationPercent')::double precision)`,
+      eventLoopP95DelaySampleMaxMs: sql<number | null>`max((${monitoringEvents.metadata}->>'eventLoopP95DelayMs')::double precision)`,
+    }).from(monitoringEvents).where(and(
+      eq(monitoringEvents.eventType, 'runtime.performance.sampled'),
+      eq(sql<string>`${monitoringEvents.metadata}->>'sampleType'`, 'process_performance'),
+      gte(monitoringEvents.occurredAt, start),
+      lte(monitoringEvents.occurredAt, end),
+    ))
+    const samples = Number(summary.sampleCount)
+    const round = (value: number | null, digits = 2) => value === null ? null : Number(Number(value).toFixed(digits))
+    response.json({ data: {
+      windowStartedAt: start.toISOString(),
+      windowEndedAt: end.toISOString(),
+      collectedAt: new Date().toISOString(),
+      telemetryAvailable: samples > 0,
+      sampleCount: samples,
+      instanceCount: Number(summary.instanceCount),
+      processCpuAveragePercent: round(summary.processCpuAveragePercent),
+      processCpuP95Percent: round(summary.processCpuP95Percent),
+      processRssAverageBytes: round(summary.rssAverageBytes, 0),
+      processRssMaxBytes: summary.rssMaxBytes === null ? null : Number(summary.rssMaxBytes),
+      processHeapAverageBytes: round(summary.heapAverageBytes, 0),
+      processHeapMaxBytes: summary.heapMaxBytes === null ? null : Number(summary.heapMaxBytes),
+      processExternalAverageBytes: round(summary.externalAverageBytes, 0),
+      runtimeAvailableMemoryBytes: summary.runtimeAvailableMemoryBytes === null ? null : Number(summary.runtimeAvailableMemoryBytes),
+      runtimeConstrainedMemoryBytes: summary.runtimeConstrainedMemoryBytes === null ? null : Number(summary.runtimeConstrainedMemoryBytes),
+      eventLoopUtilizationAveragePercent: round(summary.eventLoopUtilizationAveragePercent),
+      eventLoopP95DelaySampleMaxMs: round(summary.eventLoopP95DelaySampleMaxMs),
+      hostCpuUtilizationPercent: null,
+      hostMemoryBytes: null,
+      hostMetricsStatus: 'unavailable_without_host_or_provider_telemetry',
+      eventLoopDelayDescription: 'Maximum of per-sample event-loop P95 delay values; not a merged global P95.',
+    } })
+  } catch {
+    response.status(503).json({ error: { code: 'RUNTIME_METRICS_UNAVAILABLE', message: 'Persisted runtime performance metrics are not available.' } })
+  }
+})
+
+operationsRouter.get('/provider-performance', async (request, response) => {
+  if (!adminDb) return operationsUnavailable(response, String(request.id))
+  const parsed = monitoringRangeQuery.safeParse(request.query)
+  if (!parsed.success) return response.status(400).json({ error: { code: 'INVALID_DATE_RANGE', message: 'Provider metric date range is invalid.' } })
+  const end = parsed.data.end ?? new Date()
+  const start = parsed.data.start ?? new Date(end.getTime() - 24 * 60 * 60_000)
+  if (end.getTime() - start.getTime() > 31 * 24 * 60 * 60_000) {
+    return response.status(400).json({ error: { code: 'INVALID_DATE_RANGE', message: 'Provider metric date range cannot exceed 31 days.' } })
+  }
+  try {
+    const rows = await adminDb.select({
+      provider: sql<string>`(${monitoringEvents.metadata}->>'provider')`,
+      operation: sql<string>`(${monitoringEvents.metadata}->>'operation')`,
+      requestCount: count(),
+      rejectedCount: sql<number>`count(*) filter (where (${monitoringEvents.metadata}->>'outcome') IN ('rejected', 'network_error', 'timeout'))`,
+      acceptedByProviderCount: sql<number>`count(*) filter (where (${monitoringEvents.metadata}->>'outcome') = 'accepted_by_provider')`,
+      averageDurationMs: sql<number>`avg((${monitoringEvents.metadata}->>'durationMs')::double precision)`,
+      p95DurationMs: sql<number | null>`percentile_cont(0.95) within group (order by (${monitoringEvents.metadata}->>'durationMs')::double precision)`,
+      p99DurationMs: sql<number | null>`percentile_cont(0.99) within group (order by (${monitoringEvents.metadata}->>'durationMs')::double precision)`,
+      lastAttemptAt: sql<Date>`max(${monitoringEvents.occurredAt})`,
+    }).from(monitoringEvents).where(and(
+      eq(monitoringEvents.eventType, 'provider.request.completed'),
+      gte(monitoringEvents.occurredAt, start),
+      lte(monitoringEvents.occurredAt, end),
+    )).groupBy(sql`(${monitoringEvents.metadata}->>'provider')`, sql`(${monitoringEvents.metadata}->>'operation')`)
+    const measuredProviders = new Set(rows.map(({ provider }) => provider))
+    const configuredProviders = [
+      { provider: 'daraja', health: 'unknown', reason: 'Only application-issued requests are measured; no non-transaction health probe is configured.' },
+      { provider: 'cloudinary', health: 'unknown', reason: 'Only application-issued upload/delete requests are measured; no non-mutating health probe is configured.' },
+      { provider: 'resend', health: 'unknown', reason: 'Submission acceptance is measured; delivery/bounce status requires provider webhook data.' },
+      { provider: 'render', health: 'unknown', reason: 'No authorized Render metrics API integration is configured.' },
+      { provider: 'cloudflare', health: 'unknown', reason: 'No authorized Cloudflare metrics API integration is configured.' },
+    ]
+    response.json({ data: {
+      windowStartedAt: start.toISOString(),
+      windowEndedAt: end.toISOString(),
+      collectedAt: new Date().toISOString(),
+      metrics: rows.map((row) => ({
+        provider: row.provider,
+        operation: row.operation,
+        requestCount: Number(row.requestCount),
+        rejectedCount: Number(row.rejectedCount),
+        acceptedByProviderCount: Number(row.acceptedByProviderCount),
+        averageDurationMs: Number(Number(row.averageDurationMs).toFixed(2)),
+        p95DurationMs: row.p95DurationMs === null ? null : Number(Number(row.p95DurationMs).toFixed(2)),
+        p99DurationMs: row.p99DurationMs === null ? null : Number(Number(row.p99DurationMs).toFixed(2)),
+        lastAttemptAt: row.lastAttemptAt,
+      })),
+      integrations: configuredProviders.map((integration) => ({
+        ...integration,
+        state: measuredProviders.has(integration.provider) ? 'measured_requests_only' : 'unknown',
+      })),
+    } })
+  } catch {
+    response.status(503).json({ error: { code: 'PROVIDER_METRICS_UNAVAILABLE', message: 'Persisted provider performance metrics are not available.' } })
+  }
 })
 
 async function persistentRequestMetrics(start: Date, end: Date) {

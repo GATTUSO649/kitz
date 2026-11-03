@@ -1,4 +1,5 @@
 import { db } from './database.js'
+import { recordProviderMeasurement } from '../modules/operations/monitoring-recorder.js'
 import { env } from './env.js'
 import { emailDeliveryLogs } from '../database/schema.js'
 
@@ -82,6 +83,7 @@ export async function sendTransactionalEmail(input: SendTransactionalEmailOption
 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 15_000)
+  const startedAt = Date.now()
   try {
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -92,6 +94,7 @@ export async function sendTransactionalEmail(input: SendTransactionalEmailOption
       body: JSON.stringify(payload),
       signal: controller.signal,
     })
+    recordProviderMeasurement({ provider: 'resend', operation: 'email_submit', durationMs: Date.now() - startedAt, outcome: response.ok ? 'accepted_by_provider' : 'rejected', httpStatus: response.status })
     const data = await response.json().catch(() => ({})) as { id?: string; message?: string }
     if (!response.ok) {
       const reason = data.message ?? `Provider rejected the email request (${response.status}).`
@@ -101,6 +104,7 @@ export async function sendTransactionalEmail(input: SendTransactionalEmailOption
     await persistEmailLog(input, 'accepted', data.id)
     return { accepted: true, status: 'accepted', providerMessageId: data.id }
   } catch (error) {
+    recordProviderMeasurement({ provider: 'resend', operation: 'email_submit', durationMs: Date.now() - startedAt, outcome: error instanceof Error && error.name === 'AbortError' ? 'timeout' : 'network_error' })
     const message = error instanceof Error ? error.message : 'Email delivery could not be completed.'
     await persistEmailLog(input, 'failed', undefined, 'network_error', message)
     return { accepted: false, status: 'failed', reason: message }
