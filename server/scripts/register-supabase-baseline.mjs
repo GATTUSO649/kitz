@@ -30,9 +30,9 @@ if (!databaseUrl) {
   }
 
   if (ssl && migration && journal) {
-    const baseline = journal.entries?.[0]
-    if (!baseline || baseline.tag !== '0000_jittery_brother_voodoo' || journal.entries.length !== 1) {
-      console.error('Baseline registration not attempted: generated migration history is not the expected initial baseline.')
+    const baseline = journal.entries?.find((entry) => entry.idx === 0)
+    if (!baseline || baseline.tag !== '0000_jittery_brother_voodoo' || baseline.idx !== 0) {
+      console.error('Baseline registration not attempted: generated migration history is missing the expected initial baseline.')
       process.exitCode = 1
     } else {
       const url = new URL(databaseUrl)

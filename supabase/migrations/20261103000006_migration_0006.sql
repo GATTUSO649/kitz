@@ -1,0 +1,1 @@
+ALTER TABLE "monitoring_detection_history" ADD COLUMN "last_event_id" integer DEFAULT 0 NOT NULL;

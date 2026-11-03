@@ -96,6 +96,10 @@ type MonitoringHealth = { checkedAt: string; telemetryFreshness: string; service
 type DatabasePerformance = { telemetryAvailable: boolean; metrics: { metricType: string; operation: string; sampleCount: number; successCount: number; failureCount: number; slowCount: number; averageDurationMs: number; minDurationMs: number; maxDurationMs: number; p50DurationMs: number | null; p95DurationMs: number | null; p99DurationMs: number | null; histogramEstimate: boolean; instanceCount: number }[] }
 type RuntimePerformance = { telemetryAvailable: boolean; sampleCount: number; instanceCount: number; processCpuAveragePercent: number | null; processCpuP95Percent: number | null; processRssAverageBytes: number | null; processRssMaxBytes: number | null; processHeapAverageBytes: number | null; processHeapMaxBytes: number | null; processExternalAverageBytes: number | null; runtimeAvailableMemoryBytes: number | null; runtimeConstrainedMemoryBytes: number | null; eventLoopUtilizationAveragePercent: number | null; eventLoopP95DelaySampleMaxMs: number | null; hostCpuUtilizationPercent: number | null; hostMemoryBytes: number | null; hostMetricsStatus: string }
 type ProviderPerformance = { metrics: { provider: string; operation: string; requestCount: number; rejectedCount: number; acceptedByProviderCount: number; averageDurationMs: number; p95DurationMs: number | null; p99DurationMs: number | null; lastAttemptAt: string }[]; integrations: { provider: string; state: string; health: string; reason: string }[] }
+type SecurityOverview = { findings: number; severityCounts: Record<'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFORMATIONAL' | 'UNASSESSED', number>; latestScan: { id: string; status: string; completedAt: string | null } | null; activeScanId: string | null; coverage: Record<string, boolean>; score: number | null }
+type SecurityFinding = { id: string; scanner: string; title: string; description: string; severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFORMATIONAL' | null; affectedComponent: string; affectedFile: string; evidence: Record<string, unknown>; remediation: string; lifecycleStatus?: string }
+type SecurityScanner = { scanner: string; status: string; coverage: string; source: string }
+type SecurityScan = { id: string; status: string; scope: string[]; modules: { module: string; status: string; findingCount: number; unsupportedReason?: string }[]; findings: SecurityFinding[]; summary: Record<string, string | number | boolean | null>; startedAt: string; completedAt?: string }
 type ModuleKey =
   | 'overview'
   | 'traffic'
@@ -494,6 +498,34 @@ function OperationsConsole() {
   const [selectedIncidentId, setSelectedIncidentId] = useState<number | null>(null)
   const [sessionExpired, setSessionExpired] = useState(false)
   const [error, setError] = useState('')
+  const [findingSearch, setFindingSearch] = useState('')
+  const [findingSeverity, setFindingSeverity] = useState('ALL')
+  const [securityActionError, setSecurityActionError] = useState('')
+  const [securityActionBusy, setSecurityActionBusy] = useState(false)
+
+  const securityOverviewQuery = useQuery({
+    queryKey: ['operations', 'security-overview'],
+    queryFn: async () => (await operationsApi<SecurityOverview>('/api/v1/operations/security/overview')).data!,
+    refetchInterval: 10_000,
+    retry: false,
+  })
+  const securityFindingsQuery = useQuery({
+    queryKey: ['operations', 'security-findings'],
+    queryFn: async () => (await operationsApi<SecurityFinding[]>('/api/v1/operations/security/findings')).data ?? [],
+    refetchInterval: 15_000,
+    retry: false,
+  })
+  const securityScannersQuery = useQuery({
+    queryKey: ['operations', 'security-scanners'],
+    queryFn: async () => (await operationsApi<SecurityScanner[]>('/api/v1/operations/security/scanners')).data ?? [],
+    retry: false,
+  })
+  const securityScansQuery = useQuery({
+    queryKey: ['operations', 'security-scans'],
+    queryFn: async () => (await operationsApi<SecurityScan[]>('/api/v1/operations/security/scans')).data ?? [],
+    refetchInterval: 5_000,
+    retry: false,
+  })
 
   const overviewQuery = useQuery({
     queryKey: ['operations', 'overview'],
@@ -1036,23 +1068,64 @@ function OperationsConsole() {
         <section className="operations-charts-grid"><OperationsLineChart title="Request security indicators" labels={timelineLabels} series={[{ label: 'Status signals', color: '#ed7b7b', values: securitySeries }]} /></section>
       </>
     ),
-    vulnerabilities: (
-      <>
-        <div className="operations-masthead">
-          <div>
-            <span className="operations-eyebrow">Vulnerability management</span>
-            <h2>Tracked findings and remediation</h2>
-            <p>Findings are displayed only where a verified source is available.</p>
+    vulnerabilities: (() => {
+      const securityOverview = securityOverviewQuery.data
+      const securityFindings = securityFindingsQuery.data ?? []
+      const visibleFindings = securityFindings.filter((finding) => (findingSeverity === 'ALL' || finding.severity === findingSeverity) && (!findingSearch || `${finding.title} ${finding.affectedComponent}`.toLowerCase().includes(findingSearch.toLowerCase())))
+      const startDependencyScan = async () => {
+        setSecurityActionBusy(true)
+        setSecurityActionError('')
+        try {
+          await operationsApi('/api/v1/operations/security/scans', { method: 'POST', body: JSON.stringify({ scope: ['dependency'] }) })
+          await Promise.all([queryClient.invalidateQueries({ queryKey: ['operations', 'security-overview'] }), queryClient.invalidateQueries({ queryKey: ['operations', 'security-scans'] }), queryClient.invalidateQueries({ queryKey: ['operations', 'security-findings'] })])
+        } catch (issue) {
+          setSecurityActionError(issue instanceof OperationsApiError ? issue.message : 'Unable to start dependency scan.')
+        } finally { setSecurityActionBusy(false) }
+      }
+      const activeSecurityScan = securityScansQuery.data?.find((scan) => ['queued', 'running'].includes(scan.status))
+      const cancelSecurityScan = async (id: string) => {
+        setSecurityActionBusy(true)
+        try {
+          await operationsApi(`/api/v1/operations/security/scans/${id}/cancel`, { method: 'POST' })
+          await queryClient.invalidateQueries({ queryKey: ['operations', 'security-scans'] })
+        } catch (issue) {
+          setSecurityActionError(issue instanceof OperationsApiError ? issue.message : 'Unable to cancel security scan.')
+        } finally { setSecurityActionBusy(false) }
+      }
+      return (
+        <>
+          <div className="operations-masthead">
+            <div><span className="operations-eyebrow">Vulnerability management</span><h2>Findings and remediation</h2><p>Dependency telemetry is generated locally; unavailable scanners are never reported as clean.</p></div>
+            <div className="operations-report-actions">
+              {activeSecurityScan && <button type="button" className="operations-report-print" disabled={securityActionBusy} onClick={() => void cancelSecurityScan(activeSecurityScan.id)}>Cancel scan</button>}
+              <button type="button" className="operations-report-download" disabled={securityActionBusy || Boolean(activeSecurityScan)} onClick={() => void startDependencyScan()}>{securityActionBusy ? 'Working…' : 'Run dependency scan'}</button>
+            </div>
           </div>
-        </div>
-        <div className="operations-stat-grid">
-          <article className="operations-stat-card"><span>Findings</span><strong>0</strong><small>No scanner connected</small></article>
-          <article className="operations-stat-card"><span>Risk posture</span><strong>Unknown</strong><small>Requires a trusted source</small></article>
-          <article className="operations-stat-card"><span>Scan coverage</span><strong>None</strong><small>No authorized integration configured</small></article>
-          <article className="operations-stat-card"><span>Remediation</span><strong>Manual</strong><small>Approval required</small></article>
-        </div>
-      </>
-    ),
+          {securityActionError && <p className="operations-error" role="alert">{securityActionError}</p>}
+          <div className="operations-stat-grid">
+            <article className="operations-stat-card"><span>Findings</span><strong>{securityOverview?.findings ?? 'Unavailable'}</strong><small>{securityOverviewQuery.isError ? 'Scanner API unavailable' : 'Current unverified scan observations'}</small></article>
+            <article className="operations-stat-card"><span>Critical + high</span><strong>{securityOverview ? securityOverview.severityCounts.CRITICAL + securityOverview.severityCounts.HIGH : 'Unavailable'}</strong><small>Verified severity only</small></article>
+            <article className="operations-stat-card"><span>Last scan</span><strong>{securityOverview?.latestScan?.status ?? 'None'}</strong><small>{securityOverview?.latestScan?.completedAt ? new Date(securityOverview.latestScan.completedAt).toLocaleString() : 'No completed scan'}</small></article>
+            <article className="operations-stat-card"><span>Dependency coverage</span><strong>{securityOverview?.coverage.dependency ? 'Available' : 'Unknown'}</strong><small>npm audit integration</small></article>
+          </div>
+          <section className="operations-panel-card full-span">
+            <header><span className="operations-eyebrow">Scanner status</span><h3>Assessment coverage</h3></header>
+            {securityScannersQuery.isError ? <div className="operations-empty">Scanner status is unavailable.</div> : <div className="operations-mini-grid">
+              {(securityScannersQuery.data ?? []).map((scanner) => <article className="operations-mini-item" key={scanner.scanner}><span>{scanner.coverage}</span><strong>{scanner.scanner}</strong><small>{scanner.status === 'not_configured' ? 'Not configured' : scanner.status}</small></article>)}
+            </div>}
+          </section>
+          <section className="operations-panel-card full-span">
+            <header><span className="operations-eyebrow">Findings</span><h3>Dependency analysis</h3></header>
+            <div className="operations-security-findings-controls"><label><Search size={13} /> <input value={findingSearch} onChange={(event) => setFindingSearch(event.target.value)} placeholder="Search package or finding" /></label><select value={findingSeverity} onChange={(event) => setFindingSeverity(event.target.value)} aria-label="Finding severity"><option value="ALL">All severities</option>{['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL'].map((severity) => <option key={severity} value={severity}>{label(severity)}</option>)}</select></div>
+            {securityFindingsQuery.isError ? <div className="operations-empty">Findings are unavailable.</div> : visibleFindings.length ? <div className="operations-table-wrap"><table className="operations-table"><thead><tr><th>Severity</th><th>Finding</th><th>Affected package</th><th>Status</th><th>Remediation</th></tr></thead><tbody>{visibleFindings.map((finding) => <tr key={finding.id}><td>{finding.severity ? label(finding.severity) : 'UNASSESSED'}</td><td><strong>{finding.title}</strong><br /><small>{finding.description}</small></td><td>{finding.affectedComponent}</td><td>{finding.lifecycleStatus ?? 'OPEN'}</td><td>{finding.remediation}</td></tr>)}</tbody></table></div> : <div className="operations-empty">{securityFindingsQuery.isPending ? 'Loading findings…' : 'No findings matched this view.'}</div>}
+          </section>
+          <section className="operations-panel-card full-span">
+            <header><span className="operations-eyebrow">Scan history</span><h3>Recent executions</h3></header>
+            {securityScansQuery.data?.length ? <div className="operations-table-wrap"><table className="operations-table"><thead><tr><th>Started</th><th>Status</th><th>Modules</th><th>Findings</th></tr></thead><tbody>{securityScansQuery.data.map((scan) => <tr key={scan.id}><td>{new Date(scan.startedAt).toLocaleString()}</td><td>{label(scan.status)}</td><td>{scan.modules.map((module) => module.module).join(', ')}</td><td>{scan.summary.findings ?? 0}</td></tr>)}</tbody></table></div> : <div className="operations-empty">No scans have been recorded.</div>}
+          </section>
+        </>
+      )
+    })(),
     'identity-access': (
       <>
         <div className="operations-masthead">

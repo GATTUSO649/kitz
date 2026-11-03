@@ -51,10 +51,11 @@ export const operationsUsers = mysqlTable('operations_users', {
   email: varchar('email', { length: 254 }).notNull().unique(),
   passwordHash: varchar('password_hash', { length: 255 }).notNull(),
   fullName: varchar('full_name', { length: 160 }).notNull(),
+  role: varchar('role', { length: 32 }).$type<ItAccessRole>().default('viewer').notNull(),
   disabledAt: timestamp('disabled_at'),
   lastLoginAt: timestamp('last_login_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-})
+}, (table) => [check('operations_users_role_check', sql`${table.role} IN ('super_admin', 'security_analyst', 'it_support', 'database_admin', 'infrastructure_admin', 'viewer')`)])
 
 export const operationsSessions = mysqlTable('operations_sessions', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
@@ -152,7 +153,7 @@ export const monitoringEvents = mysqlTable('monitoring_events', {
   index('monitoring_events_instance_occurred_idx').on(table.instanceId, table.occurredAt),
   check('monitoring_events_category_check', sql`${table.category} IN ('request', 'application', 'security', 'business', 'system')`),
   check('monitoring_events_severity_check', sql`${table.severity} IN ('debug', 'info', 'warning', 'error', 'critical')`),
-])
+]).enableRLS()
 
 export const monitoringDetectionRules = mysqlTable('monitoring_detection_rules', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
@@ -173,7 +174,7 @@ export const monitoringDetectionRules = mysqlTable('monitoring_detection_rules',
   check('monitoring_detection_rules_condition_check', sql`${table.condition} IN ('login_failures', 'status_401', 'status_403', 'status_429', 'api_scanning', 'payment_callback_failures', 'abnormal_volume', 'password_reset_activity', 'database_slow_queries', 'database_connection_failures', 'provider_failures')`),
   check('monitoring_detection_rules_severity_check', sql`${table.severity} IN ('debug', 'info', 'warning', 'error', 'critical')`),
   check('monitoring_detection_rules_threshold_check', sql`${table.threshold} > 0 AND ${table.windowSeconds} > 0 AND ${table.cooldownSeconds} >= 0`),
-])
+]).enableRLS()
 
 export const monitoringAlerts = mysqlTable('monitoring_alerts', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
@@ -198,7 +199,7 @@ export const monitoringAlerts = mysqlTable('monitoring_alerts', {
   check('monitoring_alerts_severity_check', sql`${table.severity} IN ('debug', 'info', 'warning', 'error', 'critical')`),
   check('monitoring_alerts_status_check', sql`${table.status} IN ('new', 'acknowledged', 'investigating', 'resolved', 'closed')`),
   check('monitoring_alerts_occurrence_count_check', sql`${table.occurrenceCount} > 0`),
-])
+]).enableRLS()
 
 export const monitoringDetectionHistory = mysqlTable('monitoring_detection_history', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
@@ -211,7 +212,107 @@ export const monitoringDetectionHistory = mysqlTable('monitoring_detection_histo
 }, (table) => [
   unique('monitoring_detection_history_rule_group_unique').on(table.ruleId, table.groupKey),
   index('monitoring_detection_history_evaluated_idx').on(table.lastEvaluatedAt),
+]).enableRLS()
+
+export const securityScans = mysqlTable('security_scans', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  scanId: varchar('scan_id', { length: 36 }).notNull().unique(),
+  requestedByOperationsUserId: int('requested_by_operations_user_id').references(() => operationsUsers.id, { onDelete: 'set null' }),
+  requestedByAdminUserId: int('requested_by_admin_user_id').references(() => adminUsers.id, { onDelete: 'set null' }),
+  status: varchar('status', { length: 24 }).default('queued').notNull(),
+  scope: varchar('scope', { length: 24 }).default('repository').notNull(),
+  moduleCount: int('module_count').default(0).notNull(),
+  findingCount: int('finding_count').default(0).notNull(),
+  summary: jsonb('summary').$type<Record<string, string | number | boolean | null>>().default({}).notNull(),
+  errorCode: varchar('error_code', { length: 80 }),
+  startedAt: timestamp('started_at'),
+  completedAt: timestamp('completed_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('security_scans_status_created_idx').on(table.status, table.createdAt),
+  check('security_scans_status_check', sql`${table.status} IN ('queued', 'running', 'completed', 'partial', 'failed', 'cancelled')`),
+  check('security_scans_scope_check', sql`${table.scope} IN ('repository', 'dependency', 'configuration', 'api', 'database', 'infrastructure', 'web')`),
 ])
+
+export const securityScanModules = mysqlTable('security_scan_modules', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  scanId: int('scan_id').notNull().references(() => securityScans.id, { onDelete: 'cascade' }),
+  module: varchar('module', { length: 40 }).notNull(),
+  status: varchar('status', { length: 24 }).default('queued').notNull(),
+  findingCount: int('finding_count').default(0).notNull(),
+  unsupportedReason: text('unsupported_reason'),
+  errorCode: varchar('error_code', { length: 80 }),
+  startedAt: timestamp('started_at'),
+  completedAt: timestamp('completed_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  unique('security_scan_modules_scan_module_unique').on(table.scanId, table.module),
+  index('security_scan_modules_status_idx').on(table.status),
+  check('security_scan_modules_status_check', sql`${table.status} IN ('queued', 'running', 'successful', 'partial', 'failed', 'unsupported', 'not_configured', 'cancelled')`),
+])
+
+export const securityFindings = mysqlTable('security_findings', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  findingId: varchar('finding_id', { length: 36 }).notNull().unique(),
+  scanModuleId: int('scan_module_id').notNull().references(() => securityScanModules.id, { onDelete: 'cascade' }),
+  deduplicationKey: varchar('deduplication_key', { length: 180 }).notNull(),
+  source: varchar('source', { length: 40 }).notNull(),
+  title: varchar('title', { length: 240 }).notNull(),
+  description: text('description').notNull(),
+  severity: varchar('severity', { length: 20 }),
+  cve: varchar('cve', { length: 40 }),
+  cwe: varchar('cwe', { length: 40 }),
+  cvssScore: varchar('cvss_score', { length: 8 }),
+  affectedComponent: varchar('affected_component', { length: 240 }),
+  affectedFile: varchar('affected_file', { length: 500 }),
+  affectedEndpoint: varchar('affected_endpoint', { length: 500 }),
+  evidence: jsonb('evidence').$type<Record<string, string | number | boolean | null>>().default({}).notNull(),
+  remediation: text('remediation'),
+  lifecycleStatus: varchar('lifecycle_status', { length: 24 }).default('OPEN').notNull(),
+  verificationStatus: varchar('verification_status', { length: 24 }).default('UNVERIFIED').notNull(),
+  firstObservedAt: timestamp('first_observed_at').defaultNow().notNull(),
+  lastObservedAt: timestamp('last_observed_at').defaultNow().notNull(),
+  resolvedAt: timestamp('resolved_at'),
+}, (table) => [
+  unique('security_findings_source_dedup_unique').on(table.source, table.deduplicationKey),
+  index('security_findings_lifecycle_idx').on(table.lifecycleStatus, table.lastObservedAt),
+  index('security_findings_severity_idx').on(table.severity, table.lastObservedAt),
+  check('security_findings_severity_check', sql`${table.severity} IS NULL OR ${table.severity} IN ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL')`),
+  check('security_findings_lifecycle_check', sql`${table.lifecycleStatus} IN ('OPEN', 'ACKNOWLEDGED', 'IN_PROGRESS', 'RESOLVED', 'REOPENED', 'ACCEPTED_RISK', 'FALSE_POSITIVE')`),
+  check('security_findings_verification_check', sql`${table.verificationStatus} IN ('UNVERIFIED', 'VERIFIED_FIXED', 'VERIFIED_NOT_FIXED')`),
+])
+
+export const securityFindingEvents = mysqlTable('security_finding_events', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  findingId: int('finding_id').notNull().references(() => securityFindings.id, { onDelete: 'cascade' }),
+  actorOperationsUserId: int('actor_operations_user_id').references(() => operationsUsers.id, { onDelete: 'set null' }),
+  fromStatus: varchar('from_status', { length: 24 }),
+  toStatus: varchar('to_status', { length: 24 }).notNull(),
+  note: text('note'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [index('security_finding_events_finding_idx').on(table.findingId, table.createdAt)])
+
+export const securityScannerHealth = mysqlTable('security_scanner_health', {
+  scanner: varchar('scanner', { length: 40 }).primaryKey(),
+  state: varchar('state', { length: 24 }).default('not_configured').notNull(),
+  lastCheckedAt: timestamp('last_checked_at'),
+  lastSuccessfulAt: timestamp('last_successful_at'),
+  lastFailureAt: timestamp('last_failure_at'),
+  failureCount: int('failure_count').default(0).notNull(),
+  errorCode: varchar('error_code', { length: 80 }),
+}, (table) => [check('security_scanner_health_state_check', sql`${table.state} IN ('healthy', 'degraded', 'failed', 'not_configured', 'unsupported')`)])
+
+export const securityScanSchedules = mysqlTable('security_scan_schedules', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  scheduleId: varchar('schedule_id', { length: 36 }).notNull().unique(),
+  enabled: boolean('enabled').default(false).notNull(),
+  scope: varchar('scope', { length: 24 }).default('repository').notNull(),
+  cronExpression: varchar('cron_expression', { length: 120 }).notNull(),
+  nextRunAt: timestamp('next_run_at'),
+  lastRunAt: timestamp('last_run_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
+}, (table) => [index('security_scan_schedules_next_run_idx').on(table.enabled, table.nextRunAt)])
 
 export const monitoringWorkerState = mysqlTable('monitoring_worker_state', {
   workerName: varchar('worker_name', { length: 80 }).primaryKey(),
@@ -221,4 +322,4 @@ export const monitoringWorkerState = mysqlTable('monitoring_worker_state', {
   failureCount: int('failure_count').default(0).notNull(),
   lastErrorCode: varchar('last_error_code', { length: 80 }),
   updatedAt: timestamp('updated_at').defaultNow().notNull().$onUpdateFn(() => new Date()),
-}, (table) => [index('monitoring_worker_state_heartbeat_idx').on(table.lastHeartbeatAt)])
+}, (table) => [index('monitoring_worker_state_heartbeat_idx').on(table.lastHeartbeatAt)]).enableRLS()

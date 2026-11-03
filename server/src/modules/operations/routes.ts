@@ -12,6 +12,7 @@ import { bcryptPasswordSchema, verifyPassword } from '../../config/password-poli
 import { nextSessionExpiry, operationsSessionAbsoluteLifetimeMs, operationsSessionIdleTimeoutMs } from '../../config/session-policy.js'
 import { adminUsers, monitoringAlerts, monitoringDetectionRules, monitoringEvents, monitoringWorkerState, operationsAuditEvents, operationsIncidentEvents, operationsIncidents, operationsSessions, operationsUsers } from '../../database/admin-schema.js'
 import { getTelemetryQueueState } from './telemetry-store.js'
+import { cancelSecurityScan, getSecurityOverview, getSecurityScan, listSecurityFindings, listSecurityScans, startSecurityScan, updateSecurityFinding, type ScannerModule } from '../security/scanner-engine.js'
 import { getRequestMetrics } from '../../middleware/request-metrics.js'
 import { summarizeDatabaseAggregates } from './database-performance.js'
 
@@ -1050,6 +1051,124 @@ operationsRouter.get('/audit', async (request, response) => {
   const hasMore = rows.length > query.data.limit
   const data = rows.slice(0, query.data.limit)
   response.json({ data, pagination: { limit: query.data.limit, nextCursor: hasMore ? data.at(-1)?.id ?? null : null, hasMore } })
+})
+
+const securityScanScopeSchema = z.object({
+  scope: z.array(z.enum(['dependency', 'secrets', 'source', 'api', 'database', 'configuration', 'infrastructure', 'web'])).max(8).optional(),
+  timeoutSeconds: z.number().int().min(30).max(900).optional(),
+}).strict()
+
+const findingLifecycleSchema = z.object({
+  status: z.enum(['OPEN', 'ACKNOWLEDGED', 'IN_PROGRESS', 'RESOLVED', 'REOPENED', 'ACCEPTED_RISK', 'FALSE_POSITIVE']),
+  note: z.string().max(2000).trim().optional(),
+  verificationStatus: z.enum(['UNVERIFIED', 'VERIFIED_FIXED', 'VERIFIED_NOT_FIXED']).optional(),
+}).strict()
+
+async function requireSecurityAction(request: Request, response: Response) {
+  const actor = authenticatedOperationsUser(request)
+  if (!actor || !adminDb) return false
+  const [operator] = await adminDb.select({ role: operationsUsers.role }).from(operationsUsers).where(eq(operationsUsers.id, actor.id)).limit(1)
+  if (!operator || !['super_admin', 'security_analyst'].includes(operator.role)) {
+    response.status(403).json({ error: { code: 'SECURITY_PERMISSION_REQUIRED', message: 'A security administrator role is required.' } })
+    return false
+  }
+  return actor
+}
+
+operationsRouter.get('/security/overview', (_request, response) => {
+  response.json({ data: getSecurityOverview() })
+})
+
+operationsRouter.get('/security/scanners', (_request, response) => {
+  response.json({ data: [
+    { scanner: 'npm-audit', status: 'healthy', coverage: 'dependency', source: 'local fixed-command' },
+    { scanner: 'semgrep', status: 'not_configured', coverage: 'source', source: 'not installed' },
+    { scanner: 'gitleaks', status: 'not_configured', coverage: 'secrets', source: 'not installed' },
+    { scanner: 'database-readonly', status: 'not_configured', coverage: 'database', source: 'credentials not configured for assessment' },
+    { scanner: 'trivy', status: 'not_configured', coverage: 'infrastructure', source: 'not installed' },
+    { scanner: 'zap', status: 'not_configured', coverage: 'web', source: 'not installed' },
+  ] })
+})
+
+operationsRouter.get('/security/scans', (_request, response) => {
+  response.json({ data: listSecurityScans() })
+})
+
+operationsRouter.post('/security/scans', async (request, response) => {
+  const actor = await requireSecurityAction(request, response)
+  if (!actor) return
+  const input = securityScanScopeSchema.safeParse(request.body)
+  if (!input.success) return response.status(400).json({ error: { code: 'INVALID_SECURITY_SCAN', message: 'The security scan scope or timeout is invalid.' } })
+  try {
+    const scan = await startSecurityScan((input.data.scope ?? ['dependency']) as ScannerModule[], process.cwd(), (input.data.timeoutSeconds ?? 120) * 1000)
+    await adminDb!.insert(operationsAuditEvents).values({
+      actorOperationsUserId: actor.id,
+      actorType: 'operations_user',
+      action: 'security.scan.started',
+      targetType: 'security_scan',
+      targetId: scan.id,
+      details: JSON.stringify({ scope: scan.scope }),
+    })
+    response.status(202).json({ data: scan })
+  } catch (error) {
+    const code = error instanceof Error && 'code' in error ? String((error as Error & { code?: string }).code) : 'SECURITY_SCAN_FAILED'
+    response.status(code === 'SECURITY_SCAN_CONFLICT' ? 409 : 500).json({ error: { code, message: 'The security scan could not be started.' } })
+  }
+})
+
+operationsRouter.get('/security/scans/:id', (request, response) => {
+  const scan = getSecurityScan(request.params.id)
+  if (!scan) return response.status(404).json({ error: { code: 'SECURITY_SCAN_NOT_FOUND', message: 'The security scan was not found.' } })
+  response.json({ data: scan })
+})
+
+operationsRouter.post('/security/scans/:id/cancel', async (request, response) => {
+  const actor = await requireSecurityAction(request, response)
+  if (!actor) return
+  const scan = getSecurityScan(request.params.id)
+  if (!scan) return response.status(404).json({ error: { code: 'SECURITY_SCAN_NOT_FOUND', message: 'The security scan was not found.' } })
+  if (!cancelSecurityScan(scan.id)) return response.status(409).json({ error: { code: 'SECURITY_SCAN_NOT_RUNNING', message: 'The security scan is not running.' } })
+  await adminDb!.insert(operationsAuditEvents).values({
+    actorOperationsUserId: actor.id,
+    actorType: 'operations_user',
+    action: 'security.scan.cancelled',
+    targetType: 'security_scan',
+    targetId: scan.id,
+  })
+  response.status(204).end()
+})
+
+operationsRouter.get('/security/findings', (request, response) => {
+  const severity = typeof request.query.severity === 'string' ? request.query.severity.toUpperCase() : null
+  const query = typeof request.query.search === 'string' ? request.query.search.trim().toLowerCase() : ''
+  const findings = listSecurityFindings().filter((finding) => (!severity || finding.severity === severity) && (!query || `${finding.title} ${finding.affectedComponent}`.toLowerCase().includes(query)))
+  response.json({ data: findings })
+})
+
+operationsRouter.patch('/security/findings/:id/status', async (request, response) => {
+  const actor = await requireSecurityAction(request, response)
+  if (!actor) return
+  const input = findingLifecycleSchema.safeParse(request.body)
+  if (!input.success) return response.status(400).json({ error: { code: 'INVALID_FINDING_STATUS', message: 'The finding lifecycle update is invalid.' } })
+  const finding = listSecurityFindings().find((item) => item.id === request.params.id)
+  if (!finding) return response.status(404).json({ error: { code: 'SECURITY_FINDING_NOT_FOUND', message: 'The finding was not found.' } })
+  await adminDb!.insert(operationsAuditEvents).values({
+    actorOperationsUserId: actor.id,
+    actorType: 'operations_user',
+    action: 'security.finding.status_changed',
+    targetType: 'security_finding',
+    targetId: finding.id,
+    details: JSON.stringify({ status: input.data.status, verificationStatus: input.data.verificationStatus ?? 'UNVERIFIED', note: input.data.note ?? null }),
+  })
+  const updated = updateSecurityFinding(finding.id, input.data.status, input.data.verificationStatus ?? 'UNVERIFIED')
+  response.json({ data: updated })
+})
+
+operationsRouter.get('/security/reports', (_request, response) => {
+  response.json({ data: { generatedAt: new Date().toISOString(), overview: getSecurityOverview(), findings: listSecurityFindings(), limitations: [
+    'Unconfigured scanner modules are not counted as successful coverage.',
+    'Production infrastructure and external-provider configuration require provider-side verification.',
+  ] } })
 })
 
 operationsRouter.use((error: unknown, request: Request, response: Response, next: NextFunction) => {

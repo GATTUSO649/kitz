@@ -1,0 +1,1 @@
+ALTER TABLE "monitoring_events" ADD COLUMN "request_id" varchar(120);
