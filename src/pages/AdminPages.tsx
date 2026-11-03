@@ -2200,7 +2200,7 @@ export function AdminConsole() {
 
 export function AdminRoute() {
   const location = useLocation()
-  const isAdministratorPortalPath = /^(?:\/admin(?:\/|$)|\/operations(?:\/|$)|\/(?:it|sales|finance|inventory|marketing|content)-admin(?:\/|$))/.test(location.pathname)
+  const isAdministratorPortalPath = /^\/admin(?:\/|$)/.test(location.pathname)
   const isAdminPortalRoute = isAdministratorPortalPath
   const isAdminAuthRoute = ['/admin/login', '/admin/register', '/admin/onboarding', '/admin/verify'].includes(location.pathname)
   const sessionQuery = useQuery({

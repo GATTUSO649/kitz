@@ -1,6 +1,6 @@
-import { useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useState, type FormEvent } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useQuery} from '@tanstack/react-query'
 import { BarChart3, Boxes, CircleDollarSign, Megaphone, Package, ShoppingBag, Users } from 'lucide-react'
 import '../admin-theme.css'
 
@@ -27,11 +27,47 @@ async function roleApi<T>(path: string): Promise<T> {
   return payload.data as T
 }
 
+export function RolePortalLoginPage() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const prefix = location.pathname.split('/')[1] as keyof typeof roleConfig
+  const config = roleConfig[prefix]
+  const [identity, setIdentity] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  if (!config) return <main className="admin-empty">Unknown administrator portal.</main>
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      const response = await fetch('/api/v1/admin/login', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identity, password, expectedRole: config.role }) })
+      const payload = await response.json() as { data?: { portal: string }; error?: { message?: string } }
+      if (!response.ok) throw new Error(payload.error?.message ?? 'Administrator sign in failed.')
+      navigate(payload.data?.portal ?? `/${prefix}/dashboard`, { replace: true })
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Administrator sign in failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return <main className="admin-login-page"><section className="admin-login-card"><span className="admin-kicker">RESTRICTED {prefix.replace('-admin', '').toUpperCase()} ACCESS</span><h1>{config.title}</h1><p>Sign in with the role number or email assigned to this administrator portal.</p><form onSubmit={(event) => void submit(event)}><label>Role number or email<input value={identity} onChange={(event) => setIdentity(event.target.value)} autoComplete="username" required /></label><label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></label>{error && <p className="admin-error" role="alert">{error}</p>}<button className="button button-green" type="submit" disabled={busy}>{busy ? 'Signing in…' : `Sign in to ${config.title}`}</button></form><Link to="/admin/login">Existing Sales Admin sign in</Link></section></main>
+}
+
 function currency(value: number | string) {
   return new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES', maximumFractionDigits: 0 }).format(Number(value) || 0)
 }
 
 export function RolePortalRoute() {
+  const location = useLocation()
+  if (location.pathname.endsWith('/login')) return <RolePortalLoginPage />
+  return <RolePortalDashboard />
+}
+
+function RolePortalDashboard() {
   const location = useLocation()
   const prefix = location.pathname.split('/')[1] as keyof typeof roleConfig
   const config = roleConfig[prefix]
