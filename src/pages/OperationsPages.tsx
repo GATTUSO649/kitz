@@ -88,7 +88,10 @@ type Incident = {
 
 type IncidentEvent = { id: number; eventType: string; message: string; createdAt: string; actorName: string }
 type OperationsAudit = { id: number; actorType: string; actorName: string | null; action: string; targetType: string; targetId: string; details: string | null; createdAt: string }
-type OperationsUser = { id: number; fullName: string }
+type OperationsUser = { id: number; email?: string; fullName: string; role?: ItAccessRole; disabledAt?: string | null; lastLoginAt?: string | null }
+type ItAccessRole = 'super_admin' | 'security_analyst' | 'it_support' | 'database_admin' | 'infrastructure_admin' | 'viewer'
+type RolePermissionDefinition = { role: ItAccessRole; description: string; permissions: string[] }
+type OperationsPermissions = { roles: RolePermissionDefinition[]; permissions: string[]; users: OperationsUser[] }
 type MonitoringRule = { ruleId: string; name: string; description: string; condition: string; threshold: number; windowSeconds: number; severity: string; cooldownSeconds: number; enabled: boolean; recommendedResponse: string }
 type MonitoringAlert = { id: number; severity: string; description: string; affectedService: string; status: string; firstOccurrence: string; lastOccurrence: string; occurrenceCount: number; assignedOperationsUserId: number | null; resolutionInformation: string | null; ruleId: string; ruleName: string }
 type MonitoringWorker = { workerName: string; lastHeartbeatAt: string | null; lastSuccessAt: string | null; lastFailureAt: string | null; failureCount: number; lastErrorCode: string | null; status: string }
@@ -502,6 +505,14 @@ function OperationsConsole() {
   const [findingSeverity, setFindingSeverity] = useState('ALL')
   const [securityActionError, setSecurityActionError] = useState('')
   const [securityActionBusy, setSecurityActionBusy] = useState(false)
+  const [permissionsError, setPermissionsError] = useState('')
+  const [permissionsBusy, setPermissionsBusy] = useState(false)
+
+  const permissionsQuery = useQuery({
+    queryKey: ['operations', 'permissions'],
+    queryFn: async () => (await operationsApi<OperationsPermissions>('/api/v1/operations/permissions')).data!,
+    retry: false,
+  })
 
   const securityOverviewQuery = useQuery({
     queryKey: ['operations', 'security-overview'],
@@ -1126,23 +1137,47 @@ function OperationsConsole() {
         </>
       )
     })(),
-    'identity-access': (
-      <>
-        <div className="operations-masthead">
-          <div>
-            <span className="operations-eyebrow">Identity and access</span>
-            <h2>Role governance</h2>
-            <p>Access control remains explicit, least-privilege, and audited.</p>
+    'identity-access': (() => {
+      const roleLabel = (role: ItAccessRole) => ({ super_admin: 'Super admin', security_analyst: 'Security analyst', it_support: 'IT support', database_admin: 'Database admin', infrastructure_admin: 'Infrastructure admin', viewer: 'Viewer' })[role]
+      const updateRole = async (userId: number, role: ItAccessRole) => {
+        setPermissionsBusy(true)
+        setPermissionsError('')
+        try {
+          await operationsApi(`/api/v1/operations/permissions/users/${userId}/role`, { method: 'PATCH', body: JSON.stringify({ role }) })
+          await queryClient.invalidateQueries({ queryKey: ['operations', 'permissions'] })
+        } catch (issue) {
+          setPermissionsError(issue instanceof OperationsApiError ? issue.message : 'The role could not be updated.')
+        } finally { setPermissionsBusy(false) }
+      }
+      const permissionsData = permissionsQuery.data
+      return (
+        <>
+          <div className="operations-masthead">
+            <div><span className="operations-eyebrow">Identity and access</span><h2>Permissions and roles</h2><p>Role changes apply to operations sessions and are written to the audit log.</p></div>
+            <div className="operations-report-actions"><button type="button" className="operations-report-print" disabled={permissionsQuery.isFetching} onClick={() => void permissionsQuery.refetch()}><RefreshCw size={13} /> Refresh</button></div>
           </div>
-        </div>
-        <div className="operations-stat-grid">
-          <article className="operations-stat-card"><span>Role model</span><strong>Explicit</strong><small>Grant-based access only</small></article>
-          <article className="operations-stat-card"><span>IT roles</span><strong>6</strong><small>Super admin, analyst, support, DB, infra, viewer</small></article>
-          <article className="operations-stat-card"><span>Session model</span><strong>Protected</strong><small>Admin auth remains mandatory</small></article>
-          <article className="operations-stat-card"><span>Audit status</span><strong>Active</strong><small>Changes are recorded</small></article>
-        </div>
-      </>
-    ),
+          <div className="operations-stat-grid">
+            <article className="operations-stat-card"><span>Role model</span><strong>{permissionsData ? permissionsData.roles.length : 'Unavailable'}</strong><small>Fixed server allowlist</small></article>
+            <article className="operations-stat-card"><span>Active operators</span><strong>{permissionsData ? permissionsData.users.length : 'Unavailable'}</strong><small>Operations identities</small></article>
+            <article className="operations-stat-card"><span>Permissions</span><strong>{permissionsData ? permissionsData.permissions.length : 'Unavailable'}</strong><small>Enforced by the API</small></article>
+            <article className="operations-stat-card"><span>Last super admin</span><strong>Protected</strong><small>Cannot be demoted or removed</small></article>
+          </div>
+          {permissionsError && <p className="operations-error" role="alert">{permissionsError}</p>}
+          {permissionsQuery.isError ? <section className="operations-panel-card full-span"><div className="operations-empty">{permissionsQuery.error instanceof OperationsApiError && permissionsQuery.error.status === 403 ? 'Only an IT super-admin can manage roles.' : 'Role permissions are unavailable.'}</div></section> : permissionsQuery.isPending ? <section className="operations-panel-card full-span"><div className="operations-empty">Loading role governance…</div></section> : permissionsData && (
+            <>
+              <section className="operations-panel-card full-span">
+                <header><span className="operations-eyebrow">Role assignments</span><h3>Operations users</h3></header>
+                <div className="operations-table-wrap"><table className="operations-table"><thead><tr><th>User</th><th>Email</th><th>Role</th><th>Last login</th><th>Action</th></tr></thead><tbody>{permissionsData.users.map((user) => <tr key={user.id}><td><strong>{user.fullName}</strong></td><td>{user.email ?? 'Unavailable'}</td><td><span className="operations-role-badge">{roleLabel(user.role ?? 'viewer')}</span></td><td>{user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : 'Never'}</td><td><select className="operations-role-select" aria-label={`Role for ${user.fullName}`} value={user.role ?? 'viewer'} disabled={permissionsBusy} onChange={(event) => void updateRole(user.id, event.target.value as ItAccessRole)}>{permissionsData.roles.map((role) => <option key={role.role} value={role.role}>{roleLabel(role.role)}</option>)}</select></td></tr>)}</tbody></table></div>
+              </section>
+              <section className="operations-panel-card full-span">
+                <header><span className="operations-eyebrow">Permission matrix</span><h3>Role capabilities</h3></header>
+                <div className="operations-role-grid">{permissionsData.roles.map((role) => <article className="operations-role-card" key={role.role}><div><span>{roleLabel(role.role)}</span><strong>{role.permissions.length} permissions</strong></div><p>{role.description}</p><ul>{role.permissions.map((permission) => <li key={permission}>{permission}</li>)}</ul></article>)}</div>
+              </section>
+            </>
+          )}
+        </>
+      )
+    })(),
     database: (
       <>
         <div className="operations-masthead">

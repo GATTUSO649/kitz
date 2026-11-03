@@ -15,6 +15,8 @@ import { getTelemetryQueueState } from './telemetry-store.js'
 import { cancelSecurityScan, getSecurityOverview, getSecurityScan, listSecurityFindings, listSecurityScans, startSecurityScan, updateSecurityFinding, type ScannerModule } from '../security/scanner-engine.js'
 import { getRequestMetrics } from '../../middleware/request-metrics.js'
 import { summarizeDatabaseAggregates } from './database-performance.js'
+import { hasItPermission, itPermissions } from '../admin/it-access.js'
+import { itAccessRoles, type ItAccessRole } from '../../database/admin-schema.js'
 
 export const operationsRouter = Router()
 const operationsCookieName = 'kc_ops_session'
@@ -309,17 +311,79 @@ export async function probeDatabase(database: { query: (sql: string) => Promise<
   }
 }
 
-operationsRouter.get('/me', (request, response) => {
-  response.json({ data: { user: authenticatedOperationsUser(request) } })
+operationsRouter.get('/me', async (request, response) => {
+  const actor = authenticatedOperationsUser(request)
+  if (!actor || !adminDb) return operationsUnavailable(response)
+  const [user] = await adminDb.select({ id: operationsUsers.id, email: operationsUsers.email, fullName: operationsUsers.fullName, role: operationsUsers.role }).from(operationsUsers).where(eq(operationsUsers.id, actor.id)).limit(1)
+  response.json({ data: { user: user ?? null } })
 })
 
 operationsRouter.get('/operators', async (request, response) => {
   if (!adminDb) return operationsUnavailable(response, String(request.id))
-  const operators = await adminDb.select({ id: operationsUsers.id, fullName: operationsUsers.fullName })
+  const operators = await adminDb.select({ id: operationsUsers.id, email: operationsUsers.email, fullName: operationsUsers.fullName, role: operationsUsers.role, disabledAt: operationsUsers.disabledAt, lastLoginAt: operationsUsers.lastLoginAt })
     .from(operationsUsers)
     .where(isNull(operationsUsers.disabledAt))
     .orderBy(asc(operationsUsers.fullName))
   response.json({ data: operators })
+})
+
+const roleDescriptions: Record<ItAccessRole, string> = {
+  super_admin: 'Full IT operations access and role administration.',
+  security_analyst: 'Security monitoring, incidents, audit review, and scanner operations.',
+  it_support: 'Operations, incidents, and incident workflow access.',
+  database_admin: 'Database operations plus incidents and audit review.',
+  infrastructure_admin: 'Infrastructure operations plus incidents and audit review.',
+  viewer: 'Read-only operations overview.',
+}
+
+operationsRouter.get('/permissions', async (request, response) => {
+  const actor = authenticatedOperationsUser(request)
+  if (!actor || !adminDb) return operationsUnavailable(response)
+  const [user] = await adminDb.select({ role: operationsUsers.role }).from(operationsUsers).where(eq(operationsUsers.id, actor.id)).limit(1)
+  if (!user) return response.status(403).json({ error: { code: 'OPERATIONS_PERMISSION_REQUIRED', message: 'A valid operations role is required.' } })
+  if (user.role !== 'super_admin') return response.status(403).json({ error: { code: 'OPERATIONS_PERMISSION_REQUIRED', message: 'Only an IT super-admin can manage roles.' } })
+  const users = await adminDb.select({ id: operationsUsers.id, email: operationsUsers.email, fullName: operationsUsers.fullName, role: operationsUsers.role, disabledAt: operationsUsers.disabledAt, lastLoginAt: operationsUsers.lastLoginAt })
+    .from(operationsUsers).where(isNull(operationsUsers.disabledAt)).orderBy(asc(operationsUsers.fullName))
+  response.json({ data: {
+    roles: itAccessRoles.map((role) => ({ role, description: roleDescriptions[role], permissions: itPermissions.filter((permission) => hasItPermission(role, permission)) })),
+    permissions: itPermissions,
+    users,
+  } })
+})
+
+const operationsRoleUpdateSchema = z.object({
+  userId: z.number().int().positive(),
+  role: z.enum(itAccessRoles),
+}).strict()
+
+operationsRouter.patch('/permissions/users/:id/role', async (request, response) => {
+  const actor = authenticatedOperationsUser(request)
+  if (!actor || !adminDb) return operationsUnavailable(response)
+  const input = operationsRoleUpdateSchema.safeParse({ ...request.body, userId: Number(request.params.id) })
+  if (!input.success) return response.status(400).json({ error: { code: 'INVALID_OPERATIONS_ROLE', message: 'The user and role are invalid.' } })
+  const result = await adminDb.transaction(async (transaction) => {
+    const [grantor] = await transaction.select({ role: operationsUsers.role }).from(operationsUsers).where(eq(operationsUsers.id, actor.id)).for('update').limit(1)
+    if (grantor?.role !== 'super_admin') return { status: 403 as const, code: 'OPERATIONS_PERMISSION_REQUIRED', message: 'Only an IT super-admin can manage roles.' }
+    const [target] = await transaction.select({ id: operationsUsers.id, fullName: operationsUsers.fullName, role: operationsUsers.role }).from(operationsUsers)
+      .where(and(eq(operationsUsers.id, input.data.userId), isNull(operationsUsers.disabledAt))).for('update').limit(1)
+    if (!target) return { status: 404 as const, code: 'OPERATIONS_USER_NOT_FOUND', message: 'Active operations user not found.' }
+    if (target.role === 'super_admin' && input.data.role !== 'super_admin') {
+      const [{ total }] = await transaction.select({ total: count() }).from(operationsUsers).where(and(eq(operationsUsers.role, 'super_admin'), isNull(operationsUsers.disabledAt)))
+      if (Number(total) <= 1) return { status: 409 as const, code: 'LAST_OPERATIONS_SUPER_ADMIN', message: 'The last operations super-admin cannot be changed.' }
+    }
+    await transaction.update(operationsUsers).set({ role: input.data.role }).where(eq(operationsUsers.id, target.id))
+    await transaction.insert(operationsAuditEvents).values({
+      actorOperationsUserId: actor.id,
+      actorType: 'operations_user',
+      action: 'operations.role_changed',
+      targetType: 'operations_user',
+      targetId: String(target.id),
+      details: JSON.stringify({ fromRole: target.role, toRole: input.data.role }),
+    })
+    return { status: 200 as const, code: 'OPERATIONS_ROLE_UPDATED', data: { userId: target.id, fullName: target.fullName, role: input.data.role } }
+  })
+  if (result.status !== 200) return response.status(result.status).json({ error: { code: result.code, message: result.message } })
+  response.json({ data: result.data })
 })
 
 const monitoringRangeQuery = z.object({
