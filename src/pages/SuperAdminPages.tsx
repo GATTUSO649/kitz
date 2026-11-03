@@ -1,7 +1,9 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ShieldCheck } from 'lucide-react'
 import '../admin-theme.css'
+import '../super-admin-auth.css'
 
 type Administrator = { id: number; email: string; fullName: string; roleNumber: string | null; role: string | null; status: string; emailVerifiedAt: string | null; lastLoginAt: string | null; createdAt: string }
 type Overview = { total: number; active: number; suspended: number; pending: number; pendingInvitations: number; recentActivity: { action: string; createdAt: string }[]; recentLogins: { id: number; identity: string; success: boolean; failureCode: string | null; createdAt: string }[] }
@@ -15,6 +17,20 @@ async function adminApi<T>(path: string, init?: RequestInit): Promise<T> {
 
 const roles = ['it_admin', 'sales_admin', 'finance_admin', 'inventory_admin', 'marketing_admin', 'content_admin'] as const
 const roleLabels: Record<(typeof roles)[number], string> = { it_admin: 'IT', sales_admin: 'Sales and Customers', finance_admin: 'Finance', inventory_admin: 'Inventory and Logistics', marketing_admin: 'Marketing', content_admin: 'Products and Content' }
+
+function SuperAdminAuthLayout({ eyebrow, title, description, variant, children }: { eyebrow: string; title: string; description?: string; variant: 'login' | 'setup' | 'verification'; children: ReactNode }) {
+  return <main className={`sa-auth-shell is-${variant}`}>
+    <aside className="sa-auth-aside">
+      <a className="sa-auth-brand" href="/" aria-label="KitCulture home"><span><ShieldCheck size={18} /></span><strong>KitCulture</strong></a>
+      <div className="sa-auth-aside-copy"><span>ADMINISTRATOR ACCESS</span><h2>One platform.<br />Controlled access.</h2><p>Restricted tools for governing KitCulture administrators and business systems.</p></div>
+      <small className="sa-auth-footer">KITCULTURE · SUPER ADMIN</small>
+    </aside>
+    <section className="sa-auth-stage"><div className="sa-auth-card" key={variant}>
+      <span className="sa-auth-eyebrow">{eyebrow}</span><h1>{title}</h1>{description && <p className="sa-auth-description">{description}</p>}
+      {children}
+    </div></section>
+  </main>
+}
 
 export function SuperAdminSignupPage() {
   const navigate = useNavigate()
@@ -53,7 +69,16 @@ export function SuperAdminSignupPage() {
     }
   }
 
-  return <main className="admin-login-page"><section className="admin-login-card"><span className="admin-kicker">ONE-TIME INITIALIZATION</span><h1>Initialize Super Administrator</h1>{deliveryMessage ? <><p className="admin-success">{deliveryMessage}</p><button className="button button-green" type="button" onClick={() => navigate('/super-admin/login', { replace: true })}>Continue to Super Administrator login</button></> : <form onSubmit={(event) => void submit(event)}><label>Full name<input name="fullName" required minLength={2} maxLength={160} /></label><label>Email<input name="email" type="email" required maxLength={254} /></label><label>Password<input name="password" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label><label>Confirm password<input name="confirmPassword" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label><label>ADMIN_SECRET_KEY<input name="secretKey" type="password" autoComplete="off" required minLength={32} maxLength={512} /></label>{error && <p className="admin-error" role="alert">{error}</p>}<button className="button button-green" type="submit" disabled={busy}>{busy ? 'Initializing…' : 'Initialize Super Administrator'}</button></form>}</section></main>
+  return <SuperAdminAuthLayout variant="setup" eyebrow="ONE-TIME INITIALIZATION" title="Initialize Super Administrator" description="Create the primary administrator account and verify its email address.">
+    {deliveryMessage ? <div className="sa-auth-result is-success"><p>{deliveryMessage}</p><button className="sa-auth-submit" type="button" onClick={() => navigate('/super-admin/login', { replace: true })}>Continue to sign in</button></div> : <form className="sa-auth-form" onSubmit={(event) => void submit(event)}>
+      <label>Full name<input name="fullName" required minLength={2} maxLength={160} autoComplete="name" /></label>
+      <label>Email address<input name="email" type="email" required maxLength={254} autoComplete="email" /></label>
+      <div className="sa-auth-form-row"><label>Password<input name="password" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label><label>Confirm password<input name="confirmPassword" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label></div>
+      <label>Bootstrap secret key<input name="secretKey" type="password" autoComplete="off" required minLength={32} maxLength={512} /></label>
+      {error && <p className="sa-auth-error" role="alert">{error}</p>}
+      <button className="sa-auth-submit" type="submit" disabled={busy}>{busy ? 'Initializing account…' : 'Initialize Super Administrator'}</button>
+    </form>}
+  </SuperAdminAuthLayout>
 }
 
 export function SuperAdminLoginPage() {
@@ -77,7 +102,15 @@ export function SuperAdminLoginPage() {
     }
   }
 
-  return <main className="admin-login-page"><section className="admin-login-card"><span className="admin-kicker">SUPER ADMINISTRATOR</span><h1>Secure sign in</h1><p>Use the email or role number assigned to the Super Administrator account.</p><form onSubmit={(event) => void signIn(event)}><label>Role number or email<input value={identity} onChange={(event) => setIdentity(event.target.value)} autoComplete="username" required /></label><label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></label>{error && <p className="admin-error" role="alert">{error}</p>}<button className="button button-green" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button></form></section></main>
+  return <SuperAdminAuthLayout variant="login" eyebrow="SUPER ADMINISTRATOR" title="Secure sign in" description="Use the email address or role number assigned to your account.">
+    <form className="sa-auth-form" onSubmit={(event) => void signIn(event)}>
+      <label>Email or role number<input value={identity} onChange={(event) => setIdentity(event.target.value)} autoComplete="username" required /></label>
+      <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></label>
+      {error && <p className="sa-auth-error" role="alert">{error}</p>}
+      <button className="sa-auth-submit" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in securely'}</button>
+      <a className="sa-auth-back" href="/">Return to KitCulture</a>
+    </form>
+  </SuperAdminAuthLayout>
 }
 
 export function SuperAdminVerifyPage() {
@@ -98,7 +131,9 @@ export function SuperAdminVerifyPage() {
     return () => { active = false }
   }, [navigate, token])
 
-  return <main className="admin-login-page"><section className="admin-login-card"><span className="admin-kicker">EMAIL VERIFICATION</span><h1>{error || !token ? 'Verification failed' : 'Verifying Super Administrator account…'}</h1>{error && <p className="admin-error" role="alert">{error}</p>}</section></main>
+  return <SuperAdminAuthLayout variant="verification" eyebrow="EMAIL VERIFICATION" title={error || !token ? 'Verification failed' : 'Verifying Super Administrator account…'} description={error ? undefined : 'Confirming your administrator account. This page will continue when verification is complete.'}>
+    {error && <p className="sa-auth-error" role="alert">{error}</p>}
+  </SuperAdminAuthLayout>
 }
 
 export function SuperAdminRoute() {
