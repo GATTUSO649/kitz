@@ -185,10 +185,13 @@ operationsRouter.post('/register', operationsSignupLimiter, async (request, resp
     const [existing] = await transaction.select({ id: operationsUsers.id }).from(operationsUsers)
       .where(eq(operationsUsers.email, input.data.email)).limit(1)
     if (existing) return null
+    const [{ total }] = await transaction.select({ total: count() }).from(operationsUsers).where(eq(operationsUsers.role, 'super_admin'))
+    const role = Number(total) === 0 ? 'super_admin' : 'viewer'
     const [created] = await transaction.insert(operationsUsers).values({
       email: input.data.email,
       fullName: input.data.fullName,
       passwordHash,
+      role,
     }).returning({ id: operationsUsers.id })
     await transaction.insert(operationsSessions).values({
       operationsUserId: created.id,
@@ -203,7 +206,7 @@ operationsRouter.post('/register', operationsSignupLimiter, async (request, resp
       targetType: 'operations_user',
       targetId: String(created.id),
     })
-    return { id: created.id, email: input.data.email, fullName: input.data.fullName }
+    return { id: created.id, email: input.data.email, fullName: input.data.fullName, role }
   })
   if (!user) {
     response.status(409).json({ error: { code: 'OPERATIONS_ACCOUNT_UNAVAILABLE', message: 'Unable to create an IT account with those details.' } })
@@ -217,7 +220,7 @@ operationsRouter.post('/login', operationsLoginLimiter, async (request, response
   if (!adminDb) return operationsUnavailable(response)
   const input = loginSchema.safeParse(request.body)
   if (!input.success) return response.status(400).json({ error: { code: 'INVALID_OPERATIONS_LOGIN', message: 'Enter a valid operations email and password.' } })
-  const [user] = await adminDb.select({ id: operationsUsers.id, email: operationsUsers.email, fullName: operationsUsers.fullName, passwordHash: operationsUsers.passwordHash, disabledAt: operationsUsers.disabledAt })
+  const [user] = await adminDb.select({ id: operationsUsers.id, email: operationsUsers.email, fullName: operationsUsers.fullName, role: operationsUsers.role, passwordHash: operationsUsers.passwordHash, disabledAt: operationsUsers.disabledAt })
     .from(operationsUsers).where(eq(operationsUsers.email, input.data.email)).limit(1)
   const passwordMatches = await verifyPassword(input.data.password, user?.passwordHash)
   if (!user || user.disabledAt || !passwordMatches) {
@@ -239,7 +242,7 @@ operationsRouter.post('/login', operationsLoginLimiter, async (request, response
     })
   })
   setOperationsCookie(response, token)
-  response.json({ data: { user: { id: user.id, email: user.email, fullName: user.fullName } } })
+  response.json({ data: { user: { id: user.id, email: user.email, fullName: user.fullName, role: user.role } } })
 })
 
 operationsRouter.post('/logout', authenticateOperations, async (request, response) => {
@@ -339,9 +342,23 @@ const roleDescriptions: Record<ItAccessRole, string> = {
 operationsRouter.get('/permissions', async (request, response) => {
   const actor = authenticatedOperationsUser(request)
   if (!actor || !adminDb) return operationsUnavailable(response)
-  const [user] = await adminDb.select({ role: operationsUsers.role }).from(operationsUsers).where(eq(operationsUsers.id, actor.id)).limit(1)
-  if (!user) return response.status(403).json({ error: { code: 'OPERATIONS_PERMISSION_REQUIRED', message: 'A valid operations role is required.' } })
-  if (user.role !== 'super_admin') return response.status(403).json({ error: { code: 'OPERATIONS_PERMISSION_REQUIRED', message: 'Only an IT super-admin can manage roles.' } })
+  const result = await adminDb.transaction(async (transaction) => {
+    const [user] = await transaction.select({ id: operationsUsers.id, role: operationsUsers.role }).from(operationsUsers).where(eq(operationsUsers.id, actor.id)).for('update').limit(1)
+    if (!user) return { permitted: false as const, bootstrapped: false as const }
+    if (user.role === 'super_admin') return { permitted: true as const, bootstrapped: false as const }
+    const [{ total }] = await transaction.select({ total: count() }).from(operationsUsers).where(eq(operationsUsers.role, 'super_admin'))
+    if (Number(total) !== 0) return { permitted: false as const, bootstrapped: false as const }
+    await transaction.update(operationsUsers).set({ role: 'super_admin' }).where(eq(operationsUsers.id, user.id))
+    await transaction.insert(operationsAuditEvents).values({
+      actorOperationsUserId: user.id,
+      actorType: 'operations_user',
+      action: 'operations.super_admin_bootstrapped',
+      targetType: 'operations_user',
+      targetId: String(user.id),
+    })
+    return { permitted: true as const, bootstrapped: true as const }
+  })
+  if (!result.permitted) return response.status(403).json({ error: { code: 'OPERATIONS_PERMISSION_REQUIRED', message: 'Only an IT super-admin can manage roles.' } })
   const users = await adminDb.select({ id: operationsUsers.id, email: operationsUsers.email, fullName: operationsUsers.fullName, role: operationsUsers.role, disabledAt: operationsUsers.disabledAt, lastLoginAt: operationsUsers.lastLoginAt })
     .from(operationsUsers).where(isNull(operationsUsers.disabledAt)).orderBy(asc(operationsUsers.fullName))
   response.json({ data: {
@@ -620,7 +637,7 @@ operationsRouter.get('/database-performance', async (request, response) => {
     })
     response.json({ data: { windowStartedAt: start.toISOString(), windowEndedAt: end.toISOString(), collectedAt: new Date().toISOString(), metrics: data, telemetryAvailable: data.length > 0 } })
   } catch {
-    response.status(503).json({ error: { code: 'DATABASE_METRICS_UNAVAILABLE', message: 'Persisted database performance metrics are not available.' } })
+    response.json({ data: { windowStartedAt: start.toISOString(), windowEndedAt: end.toISOString(), collectedAt: new Date().toISOString(), metrics: [], telemetryAvailable: false } })
   }
 })
 
@@ -1131,8 +1148,18 @@ const findingLifecycleSchema = z.object({
 async function requireSecurityAction(request: Request, response: Response) {
   const actor = authenticatedOperationsUser(request)
   if (!actor || !adminDb) return false
-  const [operator] = await adminDb.select({ role: operationsUsers.role }).from(operationsUsers).where(eq(operationsUsers.id, actor.id)).limit(1)
-  if (!operator || !['super_admin', 'security_analyst'].includes(operator.role)) {
+  const result = await adminDb.transaction(async (transaction) => {
+    const [operator] = await transaction.select({ role: operationsUsers.role }).from(operationsUsers).where(eq(operationsUsers.id, actor.id)).for('update').limit(1)
+    if (operator?.role === 'super_admin' || operator?.role === 'security_analyst') return { authorized: true as const, role: operator.role }
+    const [{ total }] = await transaction.select({ total: count() }).from(operationsUsers).where(eq(operationsUsers.role, 'super_admin'))
+    if (operator && Number(total) === 0) {
+      await transaction.update(operationsUsers).set({ role: 'super_admin' }).where(eq(operationsUsers.id, actor.id))
+      await transaction.insert(operationsAuditEvents).values({ actorOperationsUserId: actor.id, actorType: 'operations_user', action: 'operations.super_admin_bootstrapped', targetType: 'operations_user', targetId: String(actor.id) })
+      return { authorized: true as const, role: 'super_admin' as const }
+    }
+    return { authorized: false as const, role: null }
+  })
+  if (!result.authorized) {
     response.status(403).json({ error: { code: 'SECURITY_PERMISSION_REQUIRED', message: 'A security administrator role is required.' } })
     return false
   }
