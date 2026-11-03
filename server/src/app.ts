@@ -75,6 +75,10 @@ app.get('/health', async (request, response) => {
     service: 'kitculture-api',
     databaseConfigured: Boolean(pool),
     adminDatabaseConfigured: Boolean(adminPool),
+    emailDeliveryConfigured: env.EMAIL_PROVIDER === 'smtp'
+      ? Boolean(env.SMTP_HOST && env.SMTP_PORT && env.EMAIL_FROM)
+      : env.EMAIL_PROVIDER === 'resend' ? Boolean(env.RESEND_API_KEY && env.EMAIL_FROM) : false,
+    emailProvider: env.EMAIL_PROVIDER,
     databaseConnected: storeResult.status === 'fulfilled',
     adminDatabaseConnected: adminResult.status === 'fulfilled',
   })

@@ -78,7 +78,13 @@ adminEcosystemRouter.post('/bootstrap', bootstrapLimiter, async (request, respon
     html: customerEmailTemplate({ title: 'Verify Super Administrator account', intro: 'Confirm your email address to activate the KitCulture Super Administrator account.', actionLabel: 'Verify administrator account', actionUrl: verificationUrl, footer: 'This link expires in 60 minutes.' }),
     notificationType: 'email_verification',
   })
-  if (delivery.status !== 'accepted') return response.status(202).json({ data: { pendingVerification: true, deliveryStatus: delivery.status, deliveryErrorCode: delivery.reason }, message: 'Account created but verification email delivery failed. Retry delivery securely.' })
+  if (delivery.status !== 'accepted') return response.status(202).json({ data: { pendingVerification: true, deliveryStatus: delivery.status, deliveryErrorCode: delivery.reason }, message: delivery.reason === 'SMTP_AUTH_FAILED'
+    ? 'Account created, but Brevo rejected the SMTP credentials.'
+    : delivery.reason === 'SMTP_CONNECTION_FAILED'
+      ? 'Account created, but the server could not connect to Brevo SMTP.'
+      : delivery.reason === 'SMTP_RECIPIENT_REJECTED'
+        ? 'Account created, but Brevo rejected the recipient or sender.'
+        : 'Account created, but the verification email could not be delivered.' })
   response.status(201).json({ data: { pendingVerification: true, deliveryStatus: 'accepted' } })
 })
 

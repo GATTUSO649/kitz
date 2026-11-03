@@ -98,8 +98,16 @@ export async function sendTransactionalEmail(input: SendTransactionalEmailOption
       return result.accepted.length ? { accepted: true, status: 'accepted', providerMessageId: result.messageId } : { accepted: false, status: 'failed', reason: 'SMTP_RECIPIENT_REJECTED' }
     } catch (error) {
       recordProviderMeasurement({ provider: 'smtp', operation: 'email_submit', durationMs: Date.now() - startedAt, outcome: 'network_error' })
+      const smtpError = error as { code?: string; responseCode?: number }
+      const reason = smtpError.code === 'EAUTH' || smtpError.responseCode === 535
+        ? 'SMTP_AUTH_FAILED'
+        : smtpError.responseCode === 550 || smtpError.code === 'EENVELOPE'
+          ? 'SMTP_RECIPIENT_REJECTED'
+          : smtpError.code === 'ETIMEDOUT' || smtpError.code === 'ECONNECTION' || smtpError.code === 'ENOTFOUND'
+            ? 'SMTP_CONNECTION_FAILED'
+            : 'SMTP_DELIVERY_FAILED'
       await persistEmailLog(input, 'failed', undefined, 'smtp_error', error instanceof Error ? error.name : 'SMTP delivery failed.')
-      return { accepted: false, status: 'failed', reason: 'SMTP_DELIVERY_FAILED' }
+      return { accepted: false, status: 'failed', reason }
     }
   }
 

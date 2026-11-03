@@ -38,7 +38,14 @@ export function SuperAdminSignupPage() {
         setDeliveryMessage('Super Administrator account created. Check the supplied email address for the verification link.')
         return
       }
-      setError(`Account created, but the verification email was not delivered (${result.deliveryErrorCode ?? result.deliveryStatus ?? 'delivery failed'}). Configure SMTP or the email provider and retry delivery.`)
+      const deliveryError = result.deliveryErrorCode === 'SMTP_AUTH_FAILED'
+        ? 'Brevo rejected the SMTP login or key. Check SMTP_USER and SMTP_PASS on the server.'
+        : result.deliveryErrorCode === 'SMTP_CONNECTION_FAILED'
+          ? 'The server could not connect to Brevo SMTP. Check SMTP_HOST and SMTP_PORT=587.'
+          : result.deliveryErrorCode === 'SMTP_RECIPIENT_REJECTED'
+            ? 'Brevo rejected the sender or recipient. Verify EMAIL_FROM in Brevo and use a valid recipient address.'
+            : 'The verification email was not delivered. Check SMTP configuration and retry delivery.'
+      setError(`Account created. ${deliveryError}`)
     } catch (issue) {
       setError(issue instanceof Error ? issue.message : 'Super Administrator bootstrap failed.')
     } finally {
