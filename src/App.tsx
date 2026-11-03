@@ -237,7 +237,7 @@ function App() {
   const isOperationsPage = pagePath === '/operations'
   const isItAdminPage = /^\/it-admin(?:\/|$)/.test(pagePath)
   const isSuperAdminPage = pagePath.startsWith('/super-admin')
-  const roleAdminPage = /^\/((sales|finance|inventory|marketing|content)-admin)(\/|$)/.test(pagePath)
+  const roleAdminPage = /^\/((finance|inventory|marketing|content)-admin)(\/|$)/.test(pagePath)
   const isAdminPage = pagePath.startsWith('/admin')
   const isHomePage = pagePath === '/'
   const isShopPage = pagePath === '/shop' || pagePath === '/new-arrivals' || pagePath.startsWith('/categories/')
@@ -843,6 +843,7 @@ function App() {
     }
   }
 
+  if (pagePath === '/admin/register') return <Suspense fallback={<DelayedBrandLoader label="Loading Super Administrator setup" />}><SuperAdminRoute /></Suspense>
   if (isSuperAdminPage) return <Suspense fallback={<DelayedBrandLoader label="Loading Super Administrator" />}><SuperAdminRoute /></Suspense>
   if (roleAdminPage) return <Suspense fallback={<DelayedBrandLoader label="Loading administrator portal" />}><RolePortalRoute /></Suspense>
   if (isAdminPage) return <Suspense fallback={<DelayedBrandLoader label="Loading administration" />}><AdminRoute /></Suspense>

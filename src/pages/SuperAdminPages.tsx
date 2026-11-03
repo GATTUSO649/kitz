@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import '../admin-theme.css'
 
@@ -17,9 +17,9 @@ const roles = ['it_admin', 'sales_admin', 'finance_admin', 'inventory_admin', 'm
 const roleLabels: Record<(typeof roles)[number], string> = { it_admin: 'IT', sales_admin: 'Sales and Customers', finance_admin: 'Finance', inventory_admin: 'Inventory and Logistics', marketing_admin: 'Marketing', content_admin: 'Products and Content' }
 
 export function SuperAdminSignupPage() {
+  const navigate = useNavigate()
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [complete, setComplete] = useState(false)
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -32,7 +32,7 @@ export function SuperAdminSignupPage() {
     setBusy(true)
     try {
       await adminApi('/api/v1/admin/bootstrap', { method: 'POST', body: JSON.stringify({ fullName: form.get('fullName'), email: form.get('email'), password: form.get('password'), confirmPassword: form.get('confirmPassword'), secretKey: form.get('secretKey') }) })
-      setComplete(true)
+      navigate('/super-admin/login', { replace: true })
     } catch (issue) {
       setError(issue instanceof Error ? issue.message : 'Super Administrator bootstrap failed.')
     } finally {
@@ -40,7 +40,7 @@ export function SuperAdminSignupPage() {
     }
   }
 
-  return <main className="admin-login-page"><section className="admin-login-card"><span className="admin-kicker">ONE-TIME INITIALIZATION</span><h1>Initialize Super Administrator</h1>{complete ? <><p className="admin-success">Bootstrap request submitted. Verify the email address before signing in.</p><Link className="button button-green" to="/super-admin/login">Continue to Super Administrator sign in</Link></> : <form onSubmit={(event) => void submit(event)}><label>Full name<input name="fullName" required minLength={2} maxLength={160} /></label><label>Email<input name="email" type="email" required maxLength={254} /></label><label>Password<input name="password" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label><label>Confirm password<input name="confirmPassword" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label><label>ADMIN_SECRET_KEY<input name="secretKey" type="password" autoComplete="off" required minLength={32} maxLength={512} /></label>{error && <p className="admin-error" role="alert">{error}</p>}<button className="button button-green" type="submit" disabled={busy}>{busy ? 'Initializing…' : 'Initialize Super Administrator'}</button></form>}</section></main>
+  return <main className="admin-login-page"><section className="admin-login-card"><span className="admin-kicker">ONE-TIME INITIALIZATION</span><h1>Initialize Super Administrator</h1><form onSubmit={(event) => void submit(event)}><label>Full name<input name="fullName" required minLength={2} maxLength={160} /></label><label>Email<input name="email" type="email" required maxLength={254} /></label><label>Password<input name="password" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label><label>Confirm password<input name="confirmPassword" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label><label>ADMIN_SECRET_KEY<input name="secretKey" type="password" autoComplete="off" required minLength={32} maxLength={512} /></label>{error && <p className="admin-error" role="alert">{error}</p>}<button className="button button-green" type="submit" disabled={busy}>{busy ? 'Initializing…' : 'Initialize Super Administrator'}</button></form></section></main>
 }
 
 export function SuperAdminLoginPage() {
@@ -72,7 +72,7 @@ export function SuperAdminRoute() {
   const queryClient = useQueryClient()
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState<'overview' | 'administrators' | 'security'>('overview')
-  const dashboardPage = location.pathname !== '/super-admin/signup' && location.pathname !== '/super-admin/login'
+  const dashboardPage = !['/super-admin/signup', '/super-admin/login', '/admin/register'].includes(location.pathname)
   const overview = useQuery({ queryKey: ['super-admin', 'overview'], queryFn: () => adminApi<Overview>('/api/v1/admin/ecosystem'), enabled: dashboardPage, retry: false, refetchInterval: 30_000 })
   const administrators = useQuery({ queryKey: ['super-admin', 'administrators'], queryFn: () => adminApi<Administrator[]>('/api/v1/admin/ecosystem/administrators'), enabled: dashboardPage, retry: false })
 
@@ -97,7 +97,7 @@ export function SuperAdminRoute() {
   }
 
   if (location.pathname === '/super-admin/login') return <SuperAdminLoginPage />
-  if (!dashboardPage) return <SuperAdminSignupPage />
+  if (location.pathname === '/super-admin/signup' || location.pathname === '/admin/register') return <SuperAdminSignupPage />
   if (overview.isError && overview.error instanceof Error && overview.error.message.includes('sign in')) return <main className="admin-empty"><strong>Super Administrator sign in required</strong><a href="/super-admin/login">Sign in</a></main>
   if (overview.isError) return <main className="admin-empty admin-error"><strong>Super Administrator access unavailable</strong><span>{overview.error.message}</span></main>
 

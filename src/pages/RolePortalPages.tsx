@@ -1,11 +1,10 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery} from '@tanstack/react-query'
-import { BarChart3, Boxes, CircleDollarSign, Megaphone, Package, ShoppingBag, Users } from 'lucide-react'
+import { BarChart3, Boxes, CircleDollarSign, Megaphone, Package, ShoppingBag } from 'lucide-react'
 import '../admin-theme.css'
 
 const roleConfig = {
-  'sales-admin': { role: 'sales_admin', title: 'Sales and Customer Operations', modules: ['Overview', 'Orders', 'Customers', 'Support'], endpoints: { Orders: '/api/v1/admin/orders', Customers: '/api/v1/admin/customers', Support: '/api/v1/admin/support' }, icon: Users },
   'finance-admin': { role: 'finance_admin', title: 'Finance Operations', modules: ['Overview', 'Transactions', 'Payments', 'Expenses'], endpoints: { Transactions: '/api/v1/admin/reports/financial', Payments: '/api/v1/admin/payments', Expenses: '/api/v1/admin/expenses' }, icon: CircleDollarSign },
   'inventory-admin': { role: 'inventory_admin', title: 'Inventory and Logistics', modules: ['Overview', 'Stock', 'Movements', 'Fulfilment'], endpoints: { Stock: '/api/v1/admin/products', Movements: '/api/v1/admin/inventory/movements', Fulfilment: '/api/v1/admin/orders' }, icon: Boxes },
   'marketing-admin': { role: 'marketing_admin', title: 'Marketing Operations', modules: ['Overview', 'Campaigns', 'Promotions', 'Notifications'], endpoints: { Campaigns: '/api/v1/admin/notifications', Promotions: '/api/v1/admin/notifications', Notifications: '/api/v1/admin/notifications' }, icon: Megaphone },
