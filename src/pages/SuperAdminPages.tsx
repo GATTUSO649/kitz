@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import '../admin-theme.css'
 
@@ -40,7 +40,31 @@ export function SuperAdminSignupPage() {
     }
   }
 
-  return <main className="admin-login-page"><section className="admin-login-card"><span className="admin-kicker">ONE-TIME INITIALIZATION</span><h1>Initialize Super Administrator</h1>{complete ? <><p className="admin-success">Bootstrap request submitted. Verify the email address before signing in.</p><Link className="button button-green" to="/admin/login">Continue to administrator sign in</Link></> : <form onSubmit={(event) => void submit(event)}><label>Full name<input name="fullName" required minLength={2} maxLength={160} /></label><label>Email<input name="email" type="email" required maxLength={254} /></label><label>Password<input name="password" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label><label>Confirm password<input name="confirmPassword" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label><label>ADMIN_SECRET_KEY<input name="secretKey" type="password" autoComplete="off" required minLength={32} maxLength={512} /></label>{error && <p className="admin-error" role="alert">{error}</p>}<button className="button button-green" type="submit" disabled={busy}>{busy ? 'Initializing…' : 'Initialize Super Administrator'}</button></form>}</section></main>
+  return <main className="admin-login-page"><section className="admin-login-card"><span className="admin-kicker">ONE-TIME INITIALIZATION</span><h1>Initialize Super Administrator</h1>{complete ? <><p className="admin-success">Bootstrap request submitted. Verify the email address before signing in.</p><Link className="button button-green" to="/super-admin/login">Continue to Super Administrator sign in</Link></> : <form onSubmit={(event) => void submit(event)}><label>Full name<input name="fullName" required minLength={2} maxLength={160} /></label><label>Email<input name="email" type="email" required maxLength={254} /></label><label>Password<input name="password" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label><label>Confirm password<input name="confirmPassword" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label><label>ADMIN_SECRET_KEY<input name="secretKey" type="password" autoComplete="off" required minLength={32} maxLength={512} /></label>{error && <p className="admin-error" role="alert">{error}</p>}<button className="button button-green" type="submit" disabled={busy}>{busy ? 'Initializing…' : 'Initialize Super Administrator'}</button></form>}</section></main>
+}
+
+export function SuperAdminLoginPage() {
+  const navigate = useNavigate()
+  const [identity, setIdentity] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  async function signIn(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setError('')
+    setBusy(true)
+    try {
+      await adminApi<{ portal: string }>('/api/v1/admin/super-admin/login', { method: 'POST', body: JSON.stringify({ identity, password }) })
+      navigate('/super-admin/dashboard', { replace: true })
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Super Administrator sign in failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return <main className="admin-login-page"><section className="admin-login-card"><span className="admin-kicker">SUPER ADMINISTRATOR</span><h1>Secure sign in</h1><p>Use the email or role number assigned to the Super Administrator account.</p><form onSubmit={(event) => void signIn(event)}><label>Role number or email<input value={identity} onChange={(event) => setIdentity(event.target.value)} autoComplete="username" required /></label><label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></label>{error && <p className="admin-error" role="alert">{error}</p>}<button className="button button-green" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button></form></section></main>
 }
 
 export function SuperAdminRoute() {
@@ -48,7 +72,7 @@ export function SuperAdminRoute() {
   const queryClient = useQueryClient()
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState<'overview' | 'administrators' | 'security'>('overview')
-  const dashboardPage = location.pathname !== '/super-admin/signup'
+  const dashboardPage = location.pathname !== '/super-admin/signup' && location.pathname !== '/super-admin/login'
   const overview = useQuery({ queryKey: ['super-admin', 'overview'], queryFn: () => adminApi<Overview>('/api/v1/admin/ecosystem'), enabled: dashboardPage, retry: false, refetchInterval: 30_000 })
   const administrators = useQuery({ queryKey: ['super-admin', 'administrators'], queryFn: () => adminApi<Administrator[]>('/api/v1/admin/ecosystem/administrators'), enabled: dashboardPage, retry: false })
 
@@ -72,8 +96,9 @@ export function SuperAdminRoute() {
     event.currentTarget.reset()
   }
 
+  if (location.pathname === '/super-admin/login') return <SuperAdminLoginPage />
   if (!dashboardPage) return <SuperAdminSignupPage />
-  if (overview.isError && overview.error instanceof Error && overview.error.message.includes('sign in')) return <main className="admin-empty"><strong>Administrator sign in required</strong><a href="/admin/login">Sign in</a></main>
+  if (overview.isError && overview.error instanceof Error && overview.error.message.includes('sign in')) return <main className="admin-empty"><strong>Super Administrator sign in required</strong><a href="/super-admin/login">Sign in</a></main>
   if (overview.isError) return <main className="admin-empty admin-error"><strong>Super Administrator access unavailable</strong><span>{overview.error.message}</span></main>
 
   return <main className="admin-it-page super-admin-page">

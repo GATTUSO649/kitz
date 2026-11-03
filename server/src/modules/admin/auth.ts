@@ -1,7 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { hash } from 'bcryptjs'
 import { and, eq, gt, isNull } from 'drizzle-orm'
-import { Router, type Response } from 'express'
+import { Router, type Request, type Response } from 'express'
 import { z } from 'zod'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { adminDb } from '../../config/database.js'
@@ -153,7 +153,7 @@ adminAuthRouter.post('/verify', async (request, response) => {
   response.json({ data: { verified: true } })
 })
 
-adminAuthRouter.post('/login', async (request, response) => {
+const adminLoginHandler = async (request: Request, response: Response) => {
   if (rejectCrossOrigin(request, response)) return
   const input = adminLoginSchema.safeParse(request.body)
   if (!input.success) {
@@ -216,12 +216,16 @@ adminAuthRouter.post('/login', async (request, response) => {
   await adminDb.insert(adminLoginAttempts).values({ identity: normalizedIdentity, adminUserId: admin.id, success: true })
   await adminDb.update(adminUsers).set({ lastLoginAt: createdAt }).where(eq(adminUsers.id, admin.id))
   if (!admin.role) return response.status(403).json({ error: { code: 'ADMIN_ROLE_UNASSIGNED', message: 'The administrator account has no assigned role.' } })
-  if (input.data.expectedRole && input.data.expectedRole !== admin.role) {
+  const requiredRole = request.path === '/super-admin/login' ? 'super_admin' : input.data.expectedRole
+  if (requiredRole && requiredRole !== admin.role) {
     await adminDb.insert(adminLoginAttempts).values({ identity: normalizedIdentity, adminUserId: admin.id, success: false, failureCode: 'PORTAL_ROLE_MISMATCH' })
     return response.status(403).json({ error: { code: 'PORTAL_ROLE_MISMATCH', message: 'These credentials do not belong to this administrator portal.' } })
   }
   response.json({ data: { user: { id: admin.id, email: admin.email, fullName: admin.fullName, roleNumber: admin.roleNumber, role: admin.role }, portal: administratorPortal(admin.role) } })
-})
+}
+
+adminAuthRouter.post('/login', adminLoginHandler)
+adminAuthRouter.post('/super-admin/login', adminLoginHandler)
 
 adminAuthRouter.get('/me', authenticateAdmin, async (request, response) => {
   const admin = authenticatedAdmin(request)
