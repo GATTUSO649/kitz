@@ -29,6 +29,12 @@ function getFromAddress() {
   return env.EMAIL_FROM || 'KitCulture <noreply@localhost>'
 }
 
+export function transactionalEmailConfigured() {
+  if (env.EMAIL_PROVIDER === 'smtp') return Boolean(env.SMTP_HOST && env.SMTP_PORT && env.EMAIL_FROM)
+  if (env.EMAIL_PROVIDER === 'resend') return Boolean(env.EMAIL_FROM && env.RESEND_API_KEY)
+  return false
+}
+
 export function buildAbsoluteUrl(path: string) {
   const base = env.APP_BASE_URL ?? env.APP_URL ?? 'http://localhost:5173'
   return new URL(path, `${base.replace(/\/$/, '')}/`).toString()

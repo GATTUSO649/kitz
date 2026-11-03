@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import '../admin-theme.css'
@@ -19,11 +19,13 @@ const roleLabels: Record<(typeof roles)[number], string> = { it_admin: 'IT', sal
 export function SuperAdminSignupPage() {
   const navigate = useNavigate()
   const [error, setError] = useState('')
+  const [deliveryMessage, setDeliveryMessage] = useState('')
   const [busy, setBusy] = useState(false)
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
+    setDeliveryMessage('')
     const form = new FormData(event.currentTarget)
     if (String(form.get('password')) !== String(form.get('confirmPassword'))) {
       setError('Passwords do not match.')
@@ -31,8 +33,12 @@ export function SuperAdminSignupPage() {
     }
     setBusy(true)
     try {
-      await adminApi('/api/v1/admin/bootstrap', { method: 'POST', body: JSON.stringify({ fullName: form.get('fullName'), email: form.get('email'), password: form.get('password'), confirmPassword: form.get('confirmPassword'), secretKey: form.get('secretKey') }) })
-      navigate('/super-admin/login', { replace: true })
+      const result = await adminApi<{ pendingVerification?: boolean; deliveryStatus?: string; deliveryErrorCode?: string }>('/api/v1/admin/bootstrap', { method: 'POST', body: JSON.stringify({ fullName: form.get('fullName'), email: form.get('email'), password: form.get('password'), confirmPassword: form.get('confirmPassword'), secretKey: form.get('secretKey') }) })
+      if (result.deliveryStatus === 'accepted') {
+        setDeliveryMessage('Super Administrator account created. Check the supplied email address for the verification link.')
+        return
+      }
+      setError(`Account created, but the verification email was not delivered (${result.deliveryErrorCode ?? result.deliveryStatus ?? 'delivery failed'}). Configure SMTP or the email provider and retry delivery.`)
     } catch (issue) {
       setError(issue instanceof Error ? issue.message : 'Super Administrator bootstrap failed.')
     } finally {
@@ -40,7 +46,7 @@ export function SuperAdminSignupPage() {
     }
   }
 
-  return <main className="admin-login-page"><section className="admin-login-card"><span className="admin-kicker">ONE-TIME INITIALIZATION</span><h1>Initialize Super Administrator</h1><form onSubmit={(event) => void submit(event)}><label>Full name<input name="fullName" required minLength={2} maxLength={160} /></label><label>Email<input name="email" type="email" required maxLength={254} /></label><label>Password<input name="password" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label><label>Confirm password<input name="confirmPassword" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label><label>ADMIN_SECRET_KEY<input name="secretKey" type="password" autoComplete="off" required minLength={32} maxLength={512} /></label>{error && <p className="admin-error" role="alert">{error}</p>}<button className="button button-green" type="submit" disabled={busy}>{busy ? 'Initializing…' : 'Initialize Super Administrator'}</button></form></section></main>
+  return <main className="admin-login-page"><section className="admin-login-card"><span className="admin-kicker">ONE-TIME INITIALIZATION</span><h1>Initialize Super Administrator</h1>{deliveryMessage ? <><p className="admin-success">{deliveryMessage}</p><button className="button button-green" type="button" onClick={() => navigate('/super-admin/login', { replace: true })}>Continue to Super Administrator login</button></> : <form onSubmit={(event) => void submit(event)}><label>Full name<input name="fullName" required minLength={2} maxLength={160} /></label><label>Email<input name="email" type="email" required maxLength={254} /></label><label>Password<input name="password" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label><label>Confirm password<input name="confirmPassword" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label><label>ADMIN_SECRET_KEY<input name="secretKey" type="password" autoComplete="off" required minLength={32} maxLength={512} /></label>{error && <p className="admin-error" role="alert">{error}</p>}<button className="button button-green" type="submit" disabled={busy}>{busy ? 'Initializing…' : 'Initialize Super Administrator'}</button></form>}</section></main>
 }
 
 export function SuperAdminLoginPage() {
@@ -67,12 +73,33 @@ export function SuperAdminLoginPage() {
   return <main className="admin-login-page"><section className="admin-login-card"><span className="admin-kicker">SUPER ADMINISTRATOR</span><h1>Secure sign in</h1><p>Use the email or role number assigned to the Super Administrator account.</p><form onSubmit={(event) => void signIn(event)}><label>Role number or email<input value={identity} onChange={(event) => setIdentity(event.target.value)} autoComplete="username" required /></label><label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></label>{error && <p className="admin-error" role="alert">{error}</p>}<button className="button button-green" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button></form></section></main>
 }
 
+export function SuperAdminVerifyPage() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const token = new URLSearchParams(location.search).get('token')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!token) {
+      setError('The verification link is missing its token.')
+      return
+    }
+    let active = true
+    void adminApi('/api/v1/admin/verify', { method: 'POST', body: JSON.stringify({ token }) })
+      .then(() => { if (active) navigate('/super-admin/login?verified=1', { replace: true }) })
+      .catch((issue: unknown) => { if (active) setError(issue instanceof Error ? issue.message : 'Super Administrator verification failed.') })
+    return () => { active = false }
+  }, [navigate, token])
+
+  return <main className="admin-login-page"><section className="admin-login-card"><span className="admin-kicker">EMAIL VERIFICATION</span><h1>{error || !token ? 'Verification failed' : 'Verifying Super Administrator account…'}</h1>{error && <p className="admin-error" role="alert">{error}</p>}</section></main>
+}
+
 export function SuperAdminRoute() {
   const location = useLocation()
   const queryClient = useQueryClient()
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState<'overview' | 'administrators' | 'security'>('overview')
-  const dashboardPage = !['/super-admin/signup', '/super-admin/login', '/admin/register'].includes(location.pathname)
+  const dashboardPage = !['/super-admin/signup', '/super-admin/login', '/super-admin/verify', '/admin/register'].includes(location.pathname)
   const overview = useQuery({ queryKey: ['super-admin', 'overview'], queryFn: () => adminApi<Overview>('/api/v1/admin/ecosystem'), enabled: dashboardPage, retry: false, refetchInterval: 30_000 })
   const administrators = useQuery({ queryKey: ['super-admin', 'administrators'], queryFn: () => adminApi<Administrator[]>('/api/v1/admin/ecosystem/administrators'), enabled: dashboardPage, retry: false })
 
@@ -97,6 +124,7 @@ export function SuperAdminRoute() {
   }
 
   if (location.pathname === '/super-admin/login') return <SuperAdminLoginPage />
+  if (location.pathname === '/super-admin/verify') return <SuperAdminVerifyPage />
   if (location.pathname === '/super-admin/signup' || location.pathname === '/admin/register') return <SuperAdminSignupPage />
   if (overview.isError && overview.error instanceof Error && overview.error.message.includes('sign in')) return <main className="admin-empty"><strong>Super Administrator sign in required</strong><a href="/super-admin/login">Sign in</a></main>
   if (overview.isError) return <main className="admin-empty admin-error"><strong>Super Administrator access unavailable</strong><span>{overview.error.message}</span></main>

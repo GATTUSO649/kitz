@@ -42,12 +42,19 @@ adminEcosystemRouter.post('/bootstrap', bootstrapLimiter, async (request, respon
   const passwordHash = await hash(input.data.password, 12)
   const verificationToken = randomBytes(32).toString('base64url')
   const result = await adminDb.transaction(async (transaction) => {
+    const [existing] = await transaction.select({ id: adminUsers.id, role: adminUsers.role, status: adminUsers.status }).from(adminUsers).where(eq(adminUsers.email, input.data.email)).limit(1)
+    if (existing?.role === 'super_admin' && existing.status === 'pending') {
+      await transaction.update(adminUsers).set({ passwordHash, fullName: input.data.fullName }).where(eq(adminUsers.id, existing.id))
+      await transaction.insert(adminVerificationTokens).values({ adminUserId: existing.id, tokenHash: tokenHash(verificationToken), expiresAt: new Date(Date.now() + 60 * 60_000) })
+      await transaction.insert(adminAuditLogs).values({ adminUserId: existing.id, action: 'super_admin.verification_resent', targetType: 'admin_user', targetId: String(existing.id) })
+      return { status: 201 as const, adminId: existing.id }
+    }
+    if (existing) return { status: 409 as const, code: 'ADMIN_EMAIL_EXISTS', message: 'An administrator with that email already exists.' }
+
     const [{ total }] = await transaction.select({ total: count() }).from(adminUsers).where(eq(adminUsers.role, 'super_admin'))
     if (Number(total) > 0) return { status: 409 as const, code: 'SUPER_ADMIN_EXISTS', message: 'Super Administrator bootstrap is disabled.' }
     const [lock] = await transaction.select({ id: adminSetupLocks.id }).from(adminSetupLocks).where(eq(adminSetupLocks.purpose, 'super_admin_bootstrap')).for('update').limit(1)
     if (lock) return { status: 409 as const, code: 'BOOTSTRAP_CONSUMED', message: 'Super Administrator bootstrap is already complete.' }
-    const existing = await transaction.select({ id: adminUsers.id }).from(adminUsers).where(eq(adminUsers.email, input.data.email)).limit(1)
-    if (existing.length) return { status: 409 as const, code: 'ADMIN_EMAIL_EXISTS', message: 'An administrator with that email already exists.' }
     const [created] = await transaction.insert(adminUsers).values({
       email: input.data.email,
       fullName: input.data.fullName,
@@ -63,7 +70,7 @@ adminEcosystemRouter.post('/bootstrap', bootstrapLimiter, async (request, respon
   })
   if (result.status !== 201) return response.status(result.status).json({ error: { code: result.code, message: result.message } })
 
-  const verificationUrl = buildAbsoluteUrl(`/admin/verify?token=${encodeURIComponent(verificationToken)}`)
+  const verificationUrl = buildAbsoluteUrl(`/super-admin/verify?token=${encodeURIComponent(verificationToken)}`)
   const delivery = await sendTransactionalEmail({
     to: input.data.email,
     subject: 'Verify your KitCulture Super Administrator account',

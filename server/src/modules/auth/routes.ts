@@ -5,7 +5,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { db } from '../../config/database.js'
-import { buildAbsoluteUrl, customerEmailTemplate, sendTransactionalEmail } from '../../config/email.js'
+import { buildAbsoluteUrl, customerEmailTemplate, sendTransactionalEmail, transactionalEmailConfigured } from '../../config/email.js'
 import { bcryptPasswordSchema, verifyPassword } from '../../config/password-policy.js'
 import { customerSessionAbsoluteLifetimeMs, customerSessionIdleTimeoutMs, nextSessionExpiry } from '../../config/session-policy.js'
 import { authenticate, authenticatedUser } from '../../middleware/authenticate.js'
@@ -149,7 +149,7 @@ authRouter.post('/register', async (request, response) => {
     return { id: created.id, email: input.data.email, fullName: input.data.fullName }
   })
 
-  if (env.EMAIL_PROVIDER !== 'disabled' && env.EMAIL_FROM && env.RESEND_API_KEY) {
+  if (transactionalEmailConfigured()) {
     try {
       await issueVerificationEmail(result.id, result.email)
     } catch {
