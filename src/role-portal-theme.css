@@ -45,6 +45,30 @@
 .role-portal-button:hover{background:#2b70ab}.role-portal-button:disabled{opacity:.55;cursor:wait}
 .role-portal-login-link{color:#8bbdff;font-size:11px;text-align:center;text-decoration:none}
 .role-portal-login :is(a,button,input):focus-visible{outline:2px solid #80baff;outline-offset:2px}
+.finance-portal-main>header{margin-bottom:20px}
+.finance-header-copy{margin:8px 0 0;color:#afc3d9;font-size:12px;line-height:1.55}
+.finance-kpi-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:9px;margin-bottom:12px}
+.finance-kpi-grid article,.finance-report-grid article{display:grid;min-width:0;gap:8px;border:1px solid var(--role-line);border-radius:7px;background:rgba(15,34,58,.86);padding:12px;box-shadow:0 10px 24px rgba(4,13,25,.13)}
+.finance-kpi-grid article span,.finance-report-grid article span{overflow:hidden;color:#9fb6cf;font-size:9px;font-weight:700;letter-spacing:.05em;text-overflow:ellipsis;text-transform:uppercase;white-space:nowrap}
+.finance-kpi-grid article strong{overflow:hidden;color:#f2f7ff;font-size:17px;font-variant-numeric:tabular-nums;text-overflow:ellipsis;white-space:nowrap}
+.finance-panel-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(300px,.65fr);gap:12px}
+.finance-panel{min-width:0;margin:0 0 12px;border:1px solid var(--role-line);border-radius:7px;background:rgba(15,34,58,.8);padding:15px;box-shadow:0 12px 30px rgba(7,15,29,.16)}
+.finance-panel>header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;color:var(--role-blue)}
+.finance-panel>header h2{margin:4px 0 0;color:var(--role-text);font-size:15px}
+.finance-panel-copy{margin:0 0 14px;color:#afc3d9;font-size:11px;line-height:1.55}
+.finance-trend{display:grid;gap:7px}
+.finance-trend svg{display:block;width:100%;height:180px;overflow:visible;border-bottom:1px solid rgba(142,177,229,.13);background:repeating-linear-gradient(to bottom,transparent 0,transparent 44px,rgba(142,177,229,.1) 45px)}
+.finance-trend polyline{fill:none;stroke:#63d6bf;stroke-width:1.8;vector-effect:non-scaling-stroke;filter:drop-shadow(0 0 5px rgba(99,214,191,.25))}
+.finance-trend>div{display:flex;justify-content:space-between;color:#91a9c2;font-size:9px}
+.finance-bars{display:grid;gap:13px;padding:8px 0}
+.finance-bars>div{display:grid;grid-template-columns:minmax(70px,1fr) minmax(70px,2fr) 28px;align-items:center;gap:9px;color:#b4c9de;font-size:10px}
+.finance-bars i{display:block;height:8px;overflow:hidden;border-radius:999px;background:rgba(137,169,215,.12)}
+.finance-bars b{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#4b9de4,#63d6bf)}
+.finance-bars strong{color:#edf6ff;text-align:right;font-variant-numeric:tabular-nums}
+.finance-report-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.finance-report-grid article strong{overflow:hidden;color:#f2f7ff;font-size:16px;font-variant-numeric:tabular-nums;text-overflow:ellipsis;white-space:nowrap}
+.finance-unavailable{display:grid;min-height:260px;place-items:center;align-content:center;justify-items:center;text-align:center}
+.finance-unavailable>svg{margin-bottom:5px;color:#f7c96b}.finance-unavailable h2{margin:8px 0;color:#edf6ff;font-size:17px}.finance-unavailable p{max-width:500px;margin:0;color:#afc3d9;font-size:11px;line-height:1.6}
 @media(max-width:900px){.role-portal-shell{grid-template-columns:1fr}.role-portal-sidebar{position:relative;height:auto;min-height:0;gap:11px;border-right:0;border-bottom:1px solid var(--role-line);padding:12px 15px}.role-portal-sidebar nav{display:flex;gap:5px;overflow-x:auto;padding-bottom:2px}.role-portal-sidebar nav button{min-width:max-content;min-height:34px}.role-portal-signout{width:max-content;margin-top:0}}
-@media(max-width:680px){.role-portal-main{padding:20px 14px 30px}.role-portal-main>header{align-items:flex-start;flex-direction:column;margin-bottom:18px}.role-portal-main>header h1{font-size:23px}.role-portal-main>.admin-it-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.role-portal-main .admin-it-panel{padding:13px}.role-portal-login{padding:16px}.role-portal-login-card{padding:24px 20px}}
+@media(max-width:680px){.role-portal-main{padding:20px 14px 30px}.role-portal-main>header{align-items:flex-start;flex-direction:column;margin-bottom:18px}.role-portal-main>header h1{font-size:23px}.role-portal-main>.admin-it-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.role-portal-main .admin-it-panel{padding:13px}.role-portal-login{padding:16px}.role-portal-login-card{padding:24px 20px}.finance-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.finance-panel-grid{grid-template-columns:1fr}.finance-report-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.finance-panel{padding:13px}}
 @media(max-width:420px){.role-portal-main>.admin-it-stat-grid{grid-template-columns:1fr}.role-portal-main .admin-it-endpoint-bar-row{grid-template-columns:minmax(70px,1fr) minmax(60px,2fr) 28px}}
