@@ -34,6 +34,7 @@ export function AdminActivationPage() {
   const activationParams = new URLSearchParams(location.search)
   const token = activationParams.get('token') ?? ''
   const [roleNumber, setRoleNumber] = useState(activationParams.get('roleNumber') ?? '')
+  const [email, setEmail] = useState(activationParams.get('email') ?? '')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [activated, setActivated] = useState(Boolean(activationParams.get('roleNumber')))
@@ -45,7 +46,11 @@ export function AdminActivationPage() {
   async function activate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setBusy(true); setError('')
-    try { await request('/api/v1/admin/activate', { token, roleNumber }); setActivated(true) } catch (issue) { setError(issue instanceof Error ? issue.message : 'Activation failed.') } finally { setBusy(false) }
+    try {
+      const result = await request<{ email: string }>('/api/v1/admin/activate', { token, roleNumber })
+      setEmail(result.email)
+      setActivated(true)
+    } catch (issue) { setError(issue instanceof Error ? issue.message : 'Activation failed.') } finally { setBusy(false) }
   }
 
   async function changePassword(event: FormEvent<HTMLFormElement>) {
@@ -53,7 +58,7 @@ export function AdminActivationPage() {
     if (password !== confirmPassword) { setError('Passwords do not match.'); return }
     setBusy(true); setError('')
     try {
-      const result = await request<{ deliveryStatus: string; recipientEmail: string; deliveryErrorCode?: string }>('/api/v1/admin/activate/password', { token, roleNumber, password, confirmPassword })
+      const result = await request<{ deliveryStatus: string; recipientEmail: string; deliveryErrorCode?: string }>('/api/v1/admin/activate/password', { token, roleNumber, email, password, confirmPassword })
       setVerification(result)
       setSent(true)
     } catch (issue) { setError(issue instanceof Error ? issue.message : 'Password setup failed.') } finally { setBusy(false) }
@@ -62,7 +67,7 @@ export function AdminActivationPage() {
   async function resendVerification() {
     setBusy(true); setError('')
     try {
-      const result = await request<{ deliveryStatus: string; recipientEmail: string; deliveryErrorCode?: string }>('/api/v1/admin/activate/verification/resend', { token, roleNumber })
+      const result = await request<{ deliveryStatus: string; recipientEmail: string; deliveryErrorCode?: string }>('/api/v1/admin/activate/verification/resend', { token, roleNumber, email })
       setVerification(result)
     } catch (issue) { setError(issue instanceof Error ? issue.message : 'Verification email could not be resent.') } finally { setBusy(false) }
   }
@@ -75,14 +80,15 @@ export function AdminActivationPage() {
       {verification?.deliveryStatus === 'accepted'
         ? <p role="status">The email provider accepted the verification message. Check the address below, including its spam folder.</p>
         : <p className="activation-error" role="alert">The verification email was not accepted for delivery. Check the status below and try again after the delivery issue is resolved.</p>}
-      <p>Verification address: <strong>{verification?.recipientEmail ?? 'Unavailable'}</strong></p>
+      <p>Verification address: <strong>{verification?.recipientEmail || email || 'Unavailable'}</strong></p>
       <p>Delivery status: <strong>{verification?.deliveryStatus ?? 'unknown'}</strong>{verification?.deliveryErrorCode ? ` (${verification.deliveryErrorCode})` : ''}</p>
       {error && <p className="activation-error" role="alert">{error}</p>}
       <button className="activation-button" type="button" onClick={() => void resendVerification()} disabled={busy}>{busy ? 'Sending verification...' : 'Resend verification email'}</button>
       <Link className="activation-button" to="/admin/access">Return to portal access</Link>
     </> : !token ? <p className="activation-error">This activation page requires the secure invitation link from your email.</p> : activated ? <form onSubmit={(event) => void changePassword(event)}>
-      <p>Your assigned role number was accepted. Choose a new password before administrator sign-in is enabled.</p>
+      <p>Your assigned role number was accepted. Confirm the email address that should receive the verification link, then choose a new password.</p>
       <label>Role number<input value={roleNumber} onChange={(event) => setRoleNumber(event.target.value)} autoComplete="username" required /></label>
+      <label>Verification email<input value={email} onChange={(event) => setEmail(event.target.value)} type="email" autoComplete="email" maxLength={254} required /></label>
       <label>New password<input value={password} onChange={(event) => setPassword(event.target.value)} type="password" minLength={14} maxLength={128} autoComplete="new-password" required /></label>
       <label>Confirm new password<input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} type="password" minLength={14} maxLength={128} autoComplete="new-password" required /></label>
       {error && <p className="activation-error" role="alert">{error}</p>}

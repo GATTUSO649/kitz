@@ -103,9 +103,14 @@ const activationSchema = z.object({
 }).strict()
 
 const activationPasswordSchema = activationSchema.extend({
+  email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
   password: bcryptPasswordSchema(14),
   confirmPassword: z.string(),
 }).strict().refine((value) => value.password === value.confirmPassword, { path: ['confirmPassword'], message: 'Passwords do not match.' })
+
+const activationVerificationSchema = activationSchema.extend({
+  email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
+}).strict()
 
 async function findPendingInvitation(token: string, roleNumber: string) {
   if (!adminDb) return null
@@ -142,8 +147,7 @@ adminEcosystemRouter.post('/activate', async (request, response) => {
   if (!input.success || !adminDb) return response.status(400).json({ error: { code: 'INVALID_ACTIVATION', message: 'The activation link or role number is invalid.' } })
   const invitation = await findPendingInvitation(input.data.token, input.data.roleNumber)
   if (!invitation) return response.status(400).json({ error: { code: 'INVALID_ACTIVATION', message: 'The activation link is invalid, expired, or does not match the role number.' } })
-  await adminDb.update(adminInvitations).set({ passwordHash: await hash(input.data.roleNumber, 12) }).where(eq(adminInvitations.id, invitation.id))
-  response.json({ data: { activated: true, roleNumber: invitation.roleNumber } })
+  response.json({ data: { activated: true, roleNumber: invitation.roleNumber, email: invitation.email } })
 })
 
 adminEcosystemRouter.post('/activate/password', async (request, response) => {
@@ -151,22 +155,27 @@ adminEcosystemRouter.post('/activate/password', async (request, response) => {
   if (!input.success || !adminDb) return response.status(400).json({ error: { code: 'INVALID_PASSWORD_CHANGE', message: 'Enter a valid role number and password.' } })
   const invitation = await findPendingInvitation(input.data.token, input.data.roleNumber)
   if (!invitation) return response.status(400).json({ error: { code: 'INVALID_ACTIVATION', message: 'The activation link or assigned role number is invalid.' } })
+  const [existingAdmin] = await adminDb.select({ id: adminUsers.id }).from(adminUsers).where(eq(adminUsers.email, input.data.email)).limit(1)
+  if (existingAdmin && existingAdmin.id !== invitation.adminUserId) return response.status(409).json({ error: { code: 'ADMIN_EMAIL_EXISTS', message: 'That email address is already assigned to another administrator.' } })
   const passwordHash = await hash(input.data.password, 12)
   await adminDb.transaction(async (transaction) => {
-    await transaction.update(adminInvitations).set({ passwordHash }).where(eq(adminInvitations.id, invitation.id))
+    await transaction.update(adminInvitations).set({ email: input.data.email, passwordHash }).where(eq(adminInvitations.id, invitation.id))
     await transaction.insert(adminAuditLogs).values({ adminUserId: invitation.adminUserId, action: 'administrator.password_initialized', targetType: 'admin_user', targetId: String(invitation.adminUserId) })
   })
-  const delivery = await sendInvitationVerification(invitation, input.data.token)
+  const delivery = await sendInvitationVerification({ ...invitation, email: input.data.email }, input.data.token)
   response.status(202).json({ data: { pendingVerification: true, ...delivery } })
 })
 
 adminEcosystemRouter.post('/activate/verification/resend', async (request, response) => {
-  const input = activationSchema.safeParse(request.body)
+  const input = activationVerificationSchema.safeParse(request.body)
   if (!input.success || !adminDb) return response.status(400).json({ error: { code: 'INVALID_ACTIVATION', message: 'The activation link or role number is invalid.' } })
   const invitation = await findPendingInvitation(input.data.token, input.data.roleNumber)
   if (!invitation) return response.status(400).json({ error: { code: 'INVALID_ACTIVATION', message: 'The activation link or assigned role number is invalid.' } })
   if (!invitation.passwordHash) return response.status(409).json({ error: { code: 'PASSWORD_NOT_SET', message: 'Set your new password before requesting a verification email.' } })
-  const delivery = await sendInvitationVerification(invitation, input.data.token)
+  const [existingAdmin] = await adminDb.select({ id: adminUsers.id }).from(adminUsers).where(eq(adminUsers.email, input.data.email)).limit(1)
+  if (existingAdmin && existingAdmin.id !== invitation.adminUserId) return response.status(409).json({ error: { code: 'ADMIN_EMAIL_EXISTS', message: 'That email address is already assigned to another administrator.' } })
+  await adminDb.update(adminInvitations).set({ email: input.data.email }).where(eq(adminInvitations.id, invitation.id))
+  const delivery = await sendInvitationVerification({ ...invitation, email: input.data.email }, input.data.token)
   response.status(202).json({ data: { pendingVerification: true, ...delivery } })
 })
 
@@ -197,17 +206,21 @@ adminEcosystemRouter.post('/verify-invitation', async (request, response) => {
   const input = z.object({ token: z.string().min(32).max(128) }).strict().safeParse(request.body)
   if (!input.success || !adminDb) return response.status(400).json({ error: { code: 'INVALID_TOKEN', message: 'Verification token is invalid.' } })
   const verification = await adminDb.transaction(async (transaction) => {
-    const [invitation] = await transaction.select({ id: adminInvitations.id, adminUserId: adminInvitations.adminUserId, passwordHash: adminInvitations.passwordHash, expiresAt: adminInvitations.expiresAt, consumedAt: adminInvitations.consumedAt })
+    const [invitation] = await transaction.select({ id: adminInvitations.id, adminUserId: adminInvitations.adminUserId, email: adminInvitations.email, passwordHash: adminInvitations.passwordHash, expiresAt: adminInvitations.expiresAt, consumedAt: adminInvitations.consumedAt })
       .from(adminInvitations).where(eq(adminInvitations.tokenHash, tokenHash(input.data.token))).for('update').limit(1)
     if (!invitation || invitation.consumedAt || !invitation.passwordHash || invitation.expiresAt.getTime() <= Date.now()) return false
+    const [admin] = await transaction.select({ role: adminUsers.role }).from(adminUsers).where(eq(adminUsers.id, invitation.adminUserId)).limit(1)
+    if (!admin?.role) return false
+    const [emailOwner] = await transaction.select({ id: adminUsers.id }).from(adminUsers).where(eq(adminUsers.email, invitation.email)).limit(1)
+    if (emailOwner && emailOwner.id !== invitation.adminUserId) return false
     const consumed = await transaction.update(adminInvitations).set({ consumedAt: new Date() }).where(and(eq(adminInvitations.id, invitation.id), isNull(adminInvitations.consumedAt))).returning({ id: adminInvitations.id })
     if (consumed.length !== 1) return false
-    await transaction.update(adminUsers).set({ passwordHash: invitation.passwordHash, status: 'active', emailVerifiedAt: new Date(), passwordUpdatedAt: new Date() }).where(eq(adminUsers.id, invitation.adminUserId))
+    await transaction.update(adminUsers).set({ email: invitation.email, passwordHash: invitation.passwordHash, status: 'active', emailVerifiedAt: new Date(), passwordUpdatedAt: new Date() }).where(eq(adminUsers.id, invitation.adminUserId))
     await transaction.insert(adminAuditLogs).values({ adminUserId: invitation.adminUserId, action: 'administrator.email_verified', targetType: 'admin_user', targetId: String(invitation.adminUserId) })
-    return true
+    return admin.role === 'it_admin' ? '/operations' : admin.role === 'sales_admin' ? '/admin/login' : `${administratorPortal(admin.role).replace(/\/dashboard$/, '')}/login`
   })
   if (!verification) return response.status(400).json({ error: { code: 'INVALID_TOKEN', message: 'Invitation is invalid, expired, or already used.' } })
-  response.json({ data: { verified: true } })
+  response.json({ data: { verified: true, loginPath: verification } })
 })
 
 adminEcosystemRouter.use((request, response, next) => {

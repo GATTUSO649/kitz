@@ -44,10 +44,10 @@ export function RolePortalLoginPage() {
     setError('')
     try {
       const response = await fetch('/api/v1/admin/login', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identity, password, expectedRole: config.role }) })
-      const payload = await response.json() as { data?: { portal: string; activationRequired?: boolean; activationToken?: string; roleNumber?: string }; error?: { message?: string } }
+      const payload = await response.json() as { data?: { portal: string; activationRequired?: boolean; activationToken?: string; roleNumber?: string; email?: string }; error?: { message?: string } }
       if (!response.ok) throw new Error(payload.error?.message ?? 'Administrator sign in failed.')
       if (payload.data?.activationRequired && payload.data.activationToken) {
-        navigate(`/admin/activate?token=${encodeURIComponent(payload.data.activationToken)}&roleNumber=${encodeURIComponent(payload.data.roleNumber ?? identity)}`, { replace: true })
+        navigate(`/admin/activate?token=${encodeURIComponent(payload.data.activationToken)}&roleNumber=${encodeURIComponent(payload.data.roleNumber ?? identity)}&email=${encodeURIComponent(payload.data.email ?? '')}`, { replace: true })
         return
       }
       navigate(payload.data?.portal ?? `/${prefix}/dashboard`, { replace: true })

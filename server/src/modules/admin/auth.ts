@@ -193,14 +193,14 @@ const adminLoginHandler = async (request: Request, response: Response) => {
     response.status(403).json({ error: { code: 'PORTAL_ROLE_MISMATCH', message: 'These credentials do not belong to this administrator portal.' } })
     return
   }
-  if (admin.status === 'pending' && admin.roleNumber && normalizedIdentity === admin.roleNumber && input.data.password === admin.roleNumber) {
+  if (admin.status === 'pending' && admin.roleNumber && (normalizedIdentity === admin.roleNumber || normalizedIdentity === admin.email) && input.data.password === admin.roleNumber) {
     const [invitation] = await adminDb.select({ id: adminInvitations.id, expiresAt: adminInvitations.expiresAt, consumedAt: adminInvitations.consumedAt })
       .from(adminInvitations).where(and(eq(adminInvitations.adminUserId, admin.id), isNull(adminInvitations.consumedAt))).limit(1)
     if (invitation && invitation.expiresAt.getTime() > Date.now()) {
       const activationToken = randomBytes(32).toString('base64url')
       await adminDb.update(adminInvitations).set({ tokenHash: hashToken(activationToken), expiresAt: new Date(Date.now() + 72 * 60 * 60_000) }).where(eq(adminInvitations.id, invitation.id))
       await adminDb.insert(adminAuditLogs).values({ adminUserId: admin.id, action: 'administrator.role_number_activation_started', targetType: 'admin_user', targetId: String(admin.id) })
-      response.json({ data: { activationRequired: true, activationToken, roleNumber: admin.roleNumber, portal: administratorPortal(admin.role!) } })
+      response.json({ data: { activationRequired: true, activationToken, roleNumber: admin.roleNumber, email: admin.email, portal: administratorPortal(admin.role!) } })
       return
     }
   }
