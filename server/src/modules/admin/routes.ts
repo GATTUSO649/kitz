@@ -17,6 +17,7 @@ import { hasItPermission, itPermissions, type ItPermission } from './it-access.j
 import { getRequestMetrics } from '../../middleware/request-metrics.js'
 import { loadAdministratorPermissions, isAdministratorRole } from './permissions.js'
 import { administratorPermissionsForRoute, hasAnyPermission, hasDedicatedAdministratorGuard, projectDashboardForRole } from './permission-routes.js'
+import { adminWorkflowsRouter } from './workflows.js'
 
 export const adminRouter = Router()
 adminRouter.use((request, response, next) => {
@@ -59,6 +60,8 @@ adminRouter.use(async (request, response, next) => {
     next(error)
   }
 })
+
+adminRouter.use(adminWorkflowsRouter)
 
 adminRouter.get('/me', (request, response) => {
   const actor = authenticatedAdmin(request)

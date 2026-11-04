@@ -10,8 +10,8 @@ const { normalizeCaPem } = await import('../../config/postgres-ssl.mjs')
 const { isAllowedClientOrigin, productionDatabaseTlsConfigurationErrors, productionDarajaConfigurationErrors, resolveDarajaEnvironment, resolveDarajaTransactionType } = await import('../../config/env.js')
 const { bcryptPasswordSchema, verifyPassword } = await import('../../config/password-policy.js')
 const { adminIdleTimeoutMs, adminLoginSchema, invalidAdminCredentialsMessage, matchesAdminSignupSecret } = await import('../admin/auth.js')
-const { classifyOperationsDatabaseFailure, matchesOperationsSignupSecret, probeDatabase } = await import('../operations/routes.js')
-const { adminSessionAbsoluteLifetimeMs, customerSessionAbsoluteLifetimeMs, customerSessionIdleTimeoutMs, nextSessionExpiry, shouldRefreshSession } = await import('../../config/session-policy.js')
+const { classifyOperationsDatabaseFailure, probeDatabase } = await import('../operations/routes.js')
+const { adminSessionAbsoluteLifetimeMs, customerSessionAbsoluteLifetimeMs, customerSessionIdleTimeoutMs, nextSessionExpiry, operationsSessionIdleTimeoutMs, shouldRefreshSession } = await import('../../config/session-policy.js')
 const { attemptPasswordResetDelivery, loginSchema, registerSchema } = await import('./routes.js')
 const { createOrderSchema, createTemporaryOrderNumber, exceedsProductQuantityLimit, ordersRouter } = await import('../orders/routes.js')
 const { combinedRating, quickProductRatingSchema } = await import('../catalogue/routes.js')
@@ -78,14 +78,15 @@ test('development accepts the configured Vite fallback port 5175', () => {
   assert.equal(isAllowedClientOrigin('http://localhost:5176'), false)
 })
 
-test('database sessions use bounded customer and administrator idle policies', () => {
+test('database sessions use bounded customer, administrator, and operations idle policies', () => {
   assert.equal(customerSessionIdleTimeoutMs, 60 * 60_000)
-  assert.equal(adminIdleTimeoutMs, 15 * 60_000)
+  assert.equal(adminIdleTimeoutMs, 20 * 60_000)
+  assert.equal(operationsSessionIdleTimeoutMs, 20 * 60_000)
   assert.equal(customerSessionAbsoluteLifetimeMs, 30 * 24 * 60 * 60_000)
   assert.equal(adminSessionAbsoluteLifetimeMs, 8 * 60 * 60_000)
   const createdAt = new Date('2026-10-30T00:00:00.000Z')
   const now = new Date(createdAt.getTime() + 7 * 60 * 60_000)
-  assert.equal(nextSessionExpiry(createdAt, now, adminIdleTimeoutMs, adminSessionAbsoluteLifetimeMs)?.toISOString(), '2026-10-30T07:15:00.000Z')
+  assert.equal(nextSessionExpiry(createdAt, now, adminIdleTimeoutMs, adminSessionAbsoluteLifetimeMs)?.toISOString(), '2026-10-30T07:20:00.000Z')
   assert.equal(nextSessionExpiry(createdAt, new Date(createdAt.getTime() + adminSessionAbsoluteLifetimeMs), adminIdleTimeoutMs, adminSessionAbsoluteLifetimeMs), null)
   assert.equal(shouldRefreshSession(new Date(now.getTime() + adminIdleTimeoutMs / 4), now, adminIdleTimeoutMs), true)
   assert.equal(shouldRefreshSession(new Date(now.getTime() + adminIdleTimeoutMs), now, adminIdleTimeoutMs), false)
@@ -708,8 +709,8 @@ test('development defaults to Sandbox PayBill and production requires explicit t
   assert.equal(resolveDarajaTransactionType('production', 'CustomerPayBillOnline'), 'CustomerPayBillOnline')
 })
 
-test('administrator sessions use a 15-minute idle timeout', () => {
-  assert.equal(adminIdleTimeoutMs, 15 * 60_000)
+test('administrator sessions use a 20-minute idle timeout', () => {
+  assert.equal(adminIdleTimeoutMs, 20 * 60_000)
 })
 
 test('administrator signup requires an exact configured setup secret', () => {
@@ -717,13 +718,6 @@ test('administrator signup requires an exact configured setup secret', () => {
   assert.equal(matchesAdminSignupSecret(configuredSecret, configuredSecret), true)
   assert.equal(matchesAdminSignupSecret(`${configuredSecret}x`, configuredSecret), false)
   assert.equal(matchesAdminSignupSecret(configuredSecret, undefined), false)
-})
-
-test('IT operator signup requires an exact configured setup secret', () => {
-  const configuredSecret = 'render-generated-operations-setup-secret-0123456789'
-  assert.equal(matchesOperationsSignupSecret(configuredSecret, configuredSecret), true)
-  assert.equal(matchesOperationsSignupSecret(`${configuredSecret}x`, configuredSecret), false)
-  assert.equal(matchesOperationsSignupSecret(configuredSecret, undefined), false)
 })
 
 test('administrator login uses email and password without the signup secret', () => {

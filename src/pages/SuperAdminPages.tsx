@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ShieldCheck } from 'lucide-react'
 import '../admin-theme.css'
@@ -10,6 +10,7 @@ type Overview = { total: number; active: number; suspended: number; pending: num
 
 async function adminApi<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { ...init, credentials: 'include', headers: { ...(init?.body ? { 'Content-Type': 'application/json' } : {}), ...init?.headers } })
+  if (response.status === 401 && !/\/(?:bootstrap|verify|login)$/.test(path)) window.dispatchEvent(new Event('kitculture:admin-session-expired'))
   const payload = await response.json().catch(() => ({})) as { data?: T; error?: { message?: string } }
   if (!response.ok) throw new Error(payload.error?.message ?? 'Administrator request failed.')
   return payload.data as T
@@ -138,12 +139,15 @@ export function SuperAdminVerifyPage() {
 
 export function SuperAdminRoute() {
   const location = useLocation()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState<'overview' | 'administrators' | 'security'>('overview')
-  const dashboardPage = !['/super-admin/signup', '/super-admin/login', '/super-admin/verify', '/admin/register'].includes(location.pathname)
-  const overview = useQuery({ queryKey: ['super-admin', 'overview'], queryFn: () => adminApi<Overview>('/api/v1/admin/ecosystem'), enabled: dashboardPage, retry: false, refetchInterval: 30_000 })
-  const administrators = useQuery({ queryKey: ['super-admin', 'administrators'], queryFn: () => adminApi<Administrator[]>('/api/v1/admin/ecosystem/administrators'), enabled: dashboardPage, retry: false })
+  const dashboardPage = !['/super-admin/signup', '/super-admin/login', '/super-admin/verify'].includes(location.pathname)
+  const session = useQuery({ queryKey: ['super-admin', 'session'], queryFn: () => adminApi<{ user: { role: string | null } }>('/api/v1/admin/me'), enabled: dashboardPage, staleTime: 0, refetchOnMount: 'always', retry: false })
+  const authorized = session.data?.user.role === 'super_admin'
+  const overview = useQuery({ queryKey: ['super-admin', 'overview'], queryFn: () => adminApi<Overview>('/api/v1/admin/ecosystem'), enabled: dashboardPage && authorized, retry: false, refetchInterval: 30_000 })
+  const administrators = useQuery({ queryKey: ['super-admin', 'administrators'], queryFn: () => adminApi<Administrator[]>('/api/v1/admin/ecosystem/administrators'), enabled: dashboardPage && authorized, retry: false })
 
   const invite = useMutation({ mutationFn: (input: { fullName: string; email: string; role: string }) => adminApi<{ id: number; roleNumber: string; deliveryStatus: string }>('/api/v1/admin/ecosystem/administrators/invite', { method: 'POST', body: JSON.stringify(input) }), onSuccess: async () => { await Promise.all([queryClient.invalidateQueries({ queryKey: ['super-admin', 'administrators'] }), queryClient.invalidateQueries({ queryKey: ['super-admin', 'overview'] })]) }, onError: (issue) => setError(issue instanceof Error ? issue.message : 'Invitation could not be created.') })
   const updateRole = async (id: number, role: string) => {
@@ -165,16 +169,61 @@ export function SuperAdminRoute() {
     event.currentTarget.reset()
   }
 
+  useEffect(() => {
+    if (!dashboardPage || session.isPending || session.isFetching || session.isError || !authorized) return
+    const clearAndRedirect = () => {
+      queryClient.removeQueries({ queryKey: ['super-admin'] })
+      navigate('/super-admin/login', { replace: true })
+    }
+    const expireSession = () => clearAndRedirect()
+    const idleTimeoutMs = 20 * 60_000
+    const keepAliveThrottleMs = 30_000
+    let idleTimer = 0
+    let lastKeepAlive = Date.now()
+    let signingOut = false
+    const logout = () => {
+      if (signingOut) return
+      signingOut = true
+      void adminApi('/api/v1/admin/logout', { method: 'POST' }).catch(() => undefined).finally(clearAndRedirect)
+    }
+    const recordActivity = () => {
+      if (signingOut) return
+      window.clearTimeout(idleTimer)
+      idleTimer = window.setTimeout(logout, idleTimeoutMs)
+      const now = Date.now()
+      if (now - lastKeepAlive < keepAliveThrottleMs) return
+      lastKeepAlive = now
+      void adminApi('/api/v1/admin/session/activity', { method: 'POST' }).catch(() => undefined)
+    }
+    const activityEvents: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'wheel', 'touchstart']
+    activityEvents.forEach((name) => window.addEventListener(name, recordActivity, { passive: true }))
+    window.addEventListener('kitculture:admin-session-expired', expireSession)
+    recordActivity()
+    return () => {
+      window.clearTimeout(idleTimer)
+      activityEvents.forEach((name) => window.removeEventListener(name, recordActivity))
+      window.removeEventListener('kitculture:admin-session-expired', expireSession)
+    }
+  }, [authorized, dashboardPage, navigate, queryClient, session.isError, session.isFetching, session.isPending])
+
+  async function signOut() {
+    try { await adminApi('/api/v1/admin/logout', { method: 'POST' }) } catch { /* The local session is discarded either way. */ }
+    queryClient.removeQueries({ queryKey: ['super-admin'] })
+    navigate('/super-admin/login', { replace: true })
+  }
+
   if (location.pathname === '/super-admin/login') return <SuperAdminLoginPage />
   if (location.pathname === '/super-admin/verify') return <SuperAdminVerifyPage />
-  if (location.pathname === '/super-admin/signup' || location.pathname === '/admin/register') return <SuperAdminSignupPage />
-  if (overview.isError && overview.error instanceof Error && overview.error.message.includes('sign in')) return <main className="admin-empty"><strong>Super Administrator sign in required</strong><a href="/super-admin/login">Sign in</a></main>
+  if (location.pathname === '/super-admin/signup') return <SuperAdminSignupPage />
+  if (session.isPending || session.isFetching) return <main className="role-portal-auth-check" role="status">Verifying administrator access...</main>
+  if (session.isError || !authorized) return <Navigate to="/super-admin/login" replace />
   if (overview.isError) return <main className="admin-empty admin-error"><strong>Super Administrator access unavailable</strong><span>{overview.error.message}</span></main>
 
   return <main className="admin-it-page super-admin-page">
     <aside className="super-admin-sidebar">
       <span className="admin-kicker">KITCULTURE</span><strong>Super Admin</strong>
       <nav><button type="button" className={activeTab === 'overview' ? 'active' : ''} onClick={() => setActiveTab('overview')}>Executive overview</button><button type="button" className={activeTab === 'administrators' ? 'active' : ''} onClick={() => setActiveTab('administrators')}>Administrators</button><button type="button" className={activeTab === 'security' ? 'active' : ''} onClick={() => setActiveTab('security')}>Security and sessions</button></nav>
+      <button className="admin-it-button" type="button" onClick={() => void signOut()}>Sign out</button>
     </aside>
     <section className="super-admin-main">
       <header><div><span className="admin-kicker">RESTRICTED ECOSYSTEM</span><h1>Super Administrator</h1></div></header>

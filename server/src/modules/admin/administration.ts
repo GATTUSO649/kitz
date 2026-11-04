@@ -106,5 +106,13 @@ export function administratorPortal(role: AdministratorRole) {
 }
 
 export function requiredAdministratorRole(requestPath: string, expectedRole?: AdministratorRole) {
-  return requestPath === '/super-admin/login' ? 'super_admin' : expectedRole
+  const loginRoles: Record<string, AdministratorRole> = {
+    '/login': 'sales_admin',
+    '/super-admin/login': 'super_admin',
+    '/finance-admin/login': 'finance_admin',
+    '/inventory-admin/login': 'inventory_admin',
+    '/marketing-admin/login': 'marketing_admin',
+    '/content-admin/login': 'content_admin',
+  }
+  return loginRoles[requestPath] ?? expectedRole
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate } from 'react-router-dom'
 import {
   Activity, ArrowRight, BadgeCheck, Bell, Boxes, BriefcaseBusiness, ChartNoAxesCombined,
   ChevronLeft, ChevronRight, CircleAlert, CircleDollarSign, Clock3, FileText, LayoutDashboard,
@@ -98,6 +98,7 @@ const navGroups = [
 
 async function adminApi<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { ...init, credentials: 'include', headers: { ...(init?.body ? { 'Content-Type': 'application/json' } : {}), ...init?.headers } })
+  if (response.status === 401 && !/\/(?:bootstrap|verify|login)$/.test(path)) window.dispatchEvent(new Event('kitculture:admin-session-expired'))
   const payload = await response.json().catch(() => ({})) as { data?: T; error?: { message?: string } }
   if (!response.ok) throw new Error(payload.error?.message ?? 'Administrator request failed.')
   return payload.data as T
@@ -200,13 +201,15 @@ export function SuperAdminConsole() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('current')
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedAdminIds, setSelectedAdminIds] = useState<number[]>([])
   const [page, setPage] = useState(1)
   const [reportPeriod, setReportPeriod] = useState('last30days')
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const pageSize = 8
 
-  const adminProfile = useQuery({ queryKey: ['super-admin', 'profile'], queryFn: async () => { const result = await adminApi<{ user: Omit<AdminProfile, 'role' | 'portal'> & { role?: string | null }; portal: string | null }>('/api/v1/admin/me'); return { ...result.user, role: result.user.role ?? null, portal: result.portal } }, retry: false })
+  const adminProfile = useQuery({ queryKey: ['super-admin', 'profile'], queryFn: async () => { const result = await adminApi<{ user: Omit<AdminProfile, 'role' | 'portal'> & { role?: string | null }; portal: string | null }>('/api/v1/admin/me'); return { ...result.user, role: result.user.role ?? null, portal: result.portal } }, staleTime: 0, refetchOnMount: 'always', retry: false })
   const isSuperAdmin = adminProfile.data?.role === 'super_admin'
   const overview = useQuery({ queryKey: ['super-admin', 'overview'], queryFn: () => adminApi<Overview>('/api/v1/admin/ecosystem'), enabled: isSuperAdmin, retry: false, refetchInterval: 30_000 })
   const administrators = useQuery({ queryKey: ['super-admin', 'administrators'], queryFn: () => adminApi<Administrator[]>('/api/v1/admin/ecosystem/administrators'), enabled: isSuperAdmin, retry: false })
@@ -232,13 +235,52 @@ export function SuperAdminConsole() {
     navigate(adminProfile.data.portal ?? '/admin/login', { replace: true })
   }, [adminProfile.data, adminProfile.error, adminProfile.isError, navigate])
 
+  useEffect(() => {
+    if (!isSuperAdmin || adminProfile.isPending || adminProfile.isFetching) return
+    let idleTimer = 0
+    let lastKeepAlive = Date.now()
+    let signingOut = false
+    const leaveForLogin = () => {
+      queryClient.removeQueries({ queryKey: ['super-admin'] })
+      navigate('/super-admin/login', { replace: true })
+    }
+    const expireSession = () => {
+      if (signingOut) return
+      signingOut = true
+      void adminApi('/api/v1/admin/logout', { method: 'POST', body: '{}' }).catch(() => undefined).finally(leaveForLogin)
+    }
+    const recordActivity = () => {
+      if (signingOut) return
+      window.clearTimeout(idleTimer)
+      idleTimer = window.setTimeout(expireSession, 20 * 60_000)
+      const now = Date.now()
+      if (now - lastKeepAlive < 30_000) return
+      lastKeepAlive = now
+      void adminApi('/api/v1/admin/session/activity', { method: 'POST' }).catch(() => undefined)
+    }
+    const activityEvents: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'wheel', 'touchstart']
+    activityEvents.forEach((name) => window.addEventListener(name, recordActivity, { passive: true }))
+    window.addEventListener('kitculture:admin-session-expired', leaveForLogin)
+    recordActivity()
+    return () => {
+      window.clearTimeout(idleTimer)
+      activityEvents.forEach((name) => window.removeEventListener(name, recordActivity))
+      window.removeEventListener('kitculture:admin-session-expired', leaveForLogin)
+    }
+  }, [adminProfile.isFetching, adminProfile.isPending, isSuperAdmin, navigate, queryClient])
+
   const filtered = useMemo(() => (administrators.data ?? []).filter((admin) => {
     const query = search.trim().toLowerCase()
     const matchesText = !query || [admin.fullName, admin.email, admin.roleNumber ?? '', roleLabel(admin.role)].some((value) => value.toLowerCase().includes(query))
-    return matchesText && (statusFilter === 'all' || admin.status === statusFilter)
+    const matchesStatus = statusFilter === 'current' ? admin.status !== 'disabled'
+      : statusFilter === 'archived' ? admin.status === 'disabled'
+        : statusFilter === 'all' || admin.status === statusFilter
+    return matchesText && matchesStatus
   }), [administrators.data, search, statusFilter])
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
   const visibleAdmins = filtered.slice((page - 1) * pageSize, page * pageSize)
+  const selectableVisibleIds = visibleAdmins.filter((admin) => admin.status !== 'disabled' && admin.id !== adminProfile.data?.id).map((admin) => admin.id)
+  const allVisibleSelected = selectableVisibleIds.length > 0 && selectableVisibleIds.every((id) => selectedAdminIds.includes(id))
 
   const refresh = () => { setError(''); return queryClient.invalidateQueries({ queryKey: ['super-admin'] }) }
   const signOut = async () => {
@@ -258,16 +300,22 @@ export function SuperAdminConsole() {
       await Promise.all([queryClient.invalidateQueries({ queryKey: ['super-admin', 'administrators'] }), queryClient.invalidateQueries({ queryKey: ['super-admin', 'overview'] })])
     } catch (issue) { reportFailure(issue, 'Account status could not be changed.') }
   }
-  const removeAdministrator = async (admin: Administrator) => {
-    if (!window.confirm(`Remove administrator access for ${admin.fullName} (${admin.email})? This disables sign-in and revokes their sessions. The account will remain in the directory as disabled to preserve audit history.`)) return
+  const archiveAdministrators = async (ids: number[]) => {
+    const targets = (administrators.data ?? []).filter((admin) => ids.includes(admin.id) && admin.id !== adminProfile.data?.id && admin.status !== 'disabled')
+    if (!targets.length) return
+    const names = targets.map((admin) => admin.fullName).join(', ')
+    if (!window.confirm(`Archive ${targets.length === 1 ? 'this administrator' : `${targets.length} administrators`}: ${names}? They will lose access and all sessions will be revoked.`)) return
     try {
       setError('')
-      await adminApi(`/api/v1/admin/ecosystem/administrators/${admin.id}`, { method: 'DELETE' })
-      setNotice(`Administrator access removed for ${admin.fullName}. Their account is now disabled and remains in the directory for audit history.`)
+      const result = await adminApi<{ archived: number }>('/api/v1/admin/ecosystem/administrators/archive', { method: 'POST', body: JSON.stringify({ ids: targets.map((admin) => admin.id) }) })
+      setNotice(`${result.archived} administrator${result.archived === 1 ? '' : 's'} archived. Access was removed and sessions were revoked.`)
+      setSelectedAdminIds([])
+      setSelectionMode(false)
       setSelectedId(null)
       await Promise.all([queryClient.invalidateQueries({ queryKey: ['super-admin', 'administrators'] }), queryClient.invalidateQueries({ queryKey: ['super-admin', 'overview'] })])
-    } catch (issue) { reportFailure(issue, 'Administrator could not be removed.') }
+    } catch (issue) { reportFailure(issue, 'Administrator accounts could not be archived.') }
   }
+  const removeAdministrator = (admin: Administrator) => archiveAdministrators([admin.id])
   const changeRole = async (id: number, role: string) => {
     try {
       setError('')
@@ -331,6 +379,9 @@ export function SuperAdminConsole() {
   const downloadBusinessReport = () => exportCsv('kitculture-business-report.csv', [['Period', businessOverview.data?.period], ['From', businessOverview.data?.from], ['To', businessOverview.data?.to], ['Orders', businessOverview.data?.totalOrders], ['Paid revenue (KES)', businessOverview.data?.paidRevenue], ['Paid orders', businessOverview.data?.paidOrderCount], ['Average order value (KES)', businessOverview.data?.averageOrderValue], ['Pending orders', businessOverview.data?.pendingOrders], ['Customers', businessOverview.data?.totalCustomers], ['New customers', businessOverview.data?.newCustomers], ['Returning customers', businessOverview.data?.returningCustomers], ['Products', businessOverview.data?.totalProducts], ['Inventory units', businessOverview.data?.inventoryUnits], ['Low-stock variants', businessOverview.data?.lowStockVariants], ['Out-of-stock variants', businessOverview.data?.outOfStockVariants]])
   const downloadFinancialReport = () => exportCsv('kitculture-financial-summary.csv', [['Metric', 'Amount (KES)'], ['Gross sales', financialReport.data?.grossSales], ['Discounts', financialReport.data?.discounts], ['Collected payments', financialReport.data?.collectedPayments], ['Cost of goods sold', financialReport.data?.costOfGoodsSold], ['Operating expenses', financialReport.data?.operatingExpenses], ['Profit available', financialReport.data?.profitAvailable]])
 
+  if (adminProfile.isPending || adminProfile.isFetching) return <main className="sa-gate" role="status"><div><Shield size={25} /><span className="sa-eyebrow">CHECKING ACCESS</span><h1>Verifying administrator session</h1></div></main>
+  if (Boolean(adminProfile.isError)) return <Navigate to="/super-admin/login" replace />
+  if (!isSuperAdmin) return <Navigate to={adminProfile.data?.portal ?? '/super-admin/login'} replace />
   if (overview.isError && !overview.data) {
     const signInRequired = overview.error instanceof Error && overview.error.message.toLowerCase().includes('sign in')
     return <main className="sa-gate"><div><ShieldAlert size={25} /><span className="sa-eyebrow">{signInRequired ? 'RESTRICTED AREA' : 'CONSOLE UNAVAILABLE'}</span><h1>{signInRequired ? 'Super Admin sign-in required' : 'Could not load Super Admin'}</h1><p>{signInRequired ? 'Your administrator session is missing or has expired.' : overview.error instanceof Error ? overview.error.message : 'The service could not be reached.'}</p>{signInRequired ? <a href="/super-admin/login">Go to secure sign in <ArrowRight size={15} /></a> : <button className="sa-button sa-button-primary" type="button" onClick={() => void refresh()}><RefreshCw size={14} /> Try again</button>}</div></main>
@@ -379,8 +430,19 @@ export function SuperAdminConsole() {
 
         {section === 'administrators' && <>
           <section className="sa-panel sa-invite-panel" id="invite-admin"><div className="sa-panel-heading"><div><span className="sa-eyebrow">CREATE ACCOUNT</span><h2>Invite an administrator</h2></div><span className="sa-inline-note"><Mail size={14} /> Invitation link by email</span></div><form className="sa-invite-form" onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget); invitation.mutate({ fullName: String(data.get('fullName')).trim(), email: String(data.get('email')).trim(), role: String(data.get('role')) }); event.currentTarget.reset() }}><label>Full name<input name="fullName" required minLength={2} maxLength={160} placeholder="Administrator name" /></label><label>Email address<input name="email" type="email" required maxLength={254} placeholder="name@company.com" /></label><label>Portal role<select name="role" defaultValue="sales_admin">{roleChoices.map(([role, label]) => <option key={role} value={role}>{label}</option>)}</select></label><button className="sa-button sa-button-primary" type="submit" disabled={invitation.isPending}>{invitation.isPending ? <><RefreshCw size={14} className="sa-spin" /> Sending</> : <><UserPlus size={15} /> Create invitation</>}</button></form></section>
-          <section className="sa-panel"><div className="sa-panel-heading sa-directory-heading"><div><span className="sa-eyebrow">IDENTITY DIRECTORY</span><h2>Administrator accounts <small>{administrators.data?.length ?? 0}</small></h2></div><div className="sa-table-tools"><label className="sa-search"><Search size={15} /><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Search name, email or ID" aria-label="Search administrators" /></label><label className="sa-filter"><span>Status</span><select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPage(1) }}><option value="all">All accounts</option><option value="active">Active</option><option value="pending">Pending</option><option value="suspended">Suspended</option><option value="disabled">Disabled</option></select></label></div></div>
-            {administrators.isPending ? <LoadingRows /> : administrators.isError ? <Empty title="Directory unavailable" detail={administrators.error.message} /> : filtered.length === 0 ? <Empty title="No administrators match" detail="Try another search or status filter." /> : <><div className="sa-table-wrap"><table className="sa-table"><thead><tr><th>Administrator</th><th>Role number</th><th>Portal</th><th>Status</th><th>Email</th><th>Last sign-in</th><th>Actions</th></tr></thead><tbody>{visibleAdmins.map((admin) => <tr key={admin.id}><td><button className="sa-person-cell" type="button" onClick={() => setSelectedId(selectedId === admin.id ? null : admin.id)}><span>{admin.fullName.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()}</span><strong>{admin.fullName}<small>{admin.email}</small></strong></button></td><td className="sa-mono">{admin.roleNumber ?? '—'}</td><td>{roleLabel(admin.role)}</td><td><Status value={admin.status} /></td><td><span className={`sa-verified${admin.emailVerifiedAt ? ' is-verified' : ''}`}>{admin.emailVerifiedAt ? <><BadgeCheck size={13} /> Verified</> : <><Clock3 size={13} /> Unverified</>}</span></td><td>{formatDate(admin.lastLoginAt)}</td><td><div className="sa-row-actions"><select aria-label={`Change role for ${admin.fullName}`} value={admin.role ?? ''} disabled={admin.role === 'super_admin'} onChange={(event) => void changeRole(admin.id, event.target.value)}><option value="" disabled>Role</option>{admin.role === 'super_admin' && <option value="super_admin">Super Administrator</option>}{roleChoices.map(([role, label]) => <option key={role} value={role}>{label}</option>)}</select>{admin.status === 'pending' && <button className="sa-mini-button" type="button" onClick={() => void resendInvitation(admin)}>Resend invite</button>}{admin.role !== 'super_admin' && (admin.status === 'suspended' || admin.status === 'disabled' ? <button className="sa-mini-button is-positive" type="button" onClick={() => void confirmStatus(admin, 'activate')}>Activate</button> : <><button className="sa-mini-button is-danger" type="button" onClick={() => void confirmStatus(admin, 'suspend')}>Suspend</button><button className="sa-mini-button is-danger" type="button" onClick={() => void confirmStatus(admin, 'disable')}>Disable</button></>)}<button className="sa-mini-button" type="button" disabled={admin.role === 'super_admin'} onClick={() => void resetPassword(admin)}>Reset password</button></div></td></tr>)}</tbody></table></div><div className="sa-pagination"><span>Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, filtered.length)} of {filtered.length}</span><div><button type="button" aria-label="Previous page" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={15} /></button><strong>{page} / {pageCount}</strong><button type="button" aria-label="Next page" disabled={page >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}><ChevronRight size={15} /></button></div></div></>}
+          <section className="sa-panel">
+            <div className="sa-panel-heading sa-directory-heading">
+              <div><span className="sa-eyebrow">IDENTITY DIRECTORY</span><h2>Administrator accounts <small>{administrators.data?.length ?? 0}</small></h2></div>
+              <div className="sa-table-tools">
+                <label className="sa-search"><Search size={15} /><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Search name, email or ID" aria-label="Search administrators" /></label>
+                <label className="sa-filter"><span>View</span><select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPage(1); setSelectedAdminIds([]) }}><option value="current">Current accounts</option><option value="archived">Archive</option><option value="all">All accounts</option><option value="active">Active</option><option value="pending">Pending</option><option value="suspended">Suspended</option></select></label>
+                <button className="sa-button sa-button-secondary" type="button" onClick={() => { setSelectionMode((enabled) => !enabled); setSelectedAdminIds([]) }}>{selectionMode ? 'Cancel selection' : 'Select accounts'}</button>
+                {selectionMode && <button className="sa-button sa-button-primary" type="button" disabled={!selectedAdminIds.length} onClick={() => void archiveAdministrators(selectedAdminIds)}>Archive selected ({selectedAdminIds.length})</button>}
+              </div>
+            </div>
+            {administrators.isPending ? <LoadingRows /> : administrators.isError ? <Empty title="Directory unavailable" detail={administrators.error.message} /> : filtered.length === 0 ? <Empty title={statusFilter === 'archived' ? 'Archive is empty' : 'No administrators match'} detail="Try another search or directory view." /> : <>
+              <div className="sa-table-wrap"><table className="sa-table"><thead><tr>{selectionMode && <th><input type="checkbox" aria-label="Select all eligible visible administrators" checked={allVisibleSelected} onChange={(event) => setSelectedAdminIds(event.target.checked ? [...new Set([...selectedAdminIds, ...selectableVisibleIds])] : selectedAdminIds.filter((id) => !selectableVisibleIds.includes(id)))} /></th>}<th>Administrator</th><th>Role number</th><th>Portal</th><th>Status</th><th>Email</th><th>Last sign-in</th><th>Actions</th></tr></thead><tbody>{visibleAdmins.map((admin) => <tr key={admin.id}>{selectionMode && <td><input type="checkbox" aria-label={`Select ${admin.fullName}`} checked={selectedAdminIds.includes(admin.id)} disabled={admin.status === 'disabled' || admin.id === adminProfile.data?.id} onChange={(event) => setSelectedAdminIds((ids) => event.target.checked ? [...ids, admin.id] : ids.filter((id) => id !== admin.id))} /></td>}<td><button className="sa-person-cell" type="button" onClick={() => setSelectedId(selectedId === admin.id ? null : admin.id)}><span>{admin.fullName.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()}</span><strong>{admin.fullName}<small>{admin.email}</small></strong></button></td><td className="sa-mono">{admin.roleNumber ?? '—'}</td><td>{roleLabel(admin.role)}</td><td><Status value={admin.status} /></td><td><span className={`sa-verified${admin.emailVerifiedAt ? ' is-verified' : ''}`}>{admin.emailVerifiedAt ? <><BadgeCheck size={13} /> Verified</> : <><Clock3 size={13} /> Unverified</>}</span></td><td>{formatDate(admin.lastLoginAt)}</td><td><div className="sa-row-actions"><select aria-label={`Change role for ${admin.fullName}`} value={admin.role ?? ''} disabled={admin.role === 'super_admin'} onChange={(event) => void changeRole(admin.id, event.target.value)}><option value="" disabled>Role</option>{admin.role === 'super_admin' && <option value="super_admin">Super Administrator</option>}{roleChoices.map(([role, label]) => <option key={role} value={role}>{label}</option>)}</select>{admin.status === 'pending' && <button className="sa-mini-button" type="button" onClick={() => void resendInvitation(admin)}>Resend invite</button>}{admin.status === 'disabled' && admin.id !== adminProfile.data?.id && <button className="sa-mini-button is-positive" type="button" onClick={() => void confirmStatus(admin, 'activate')}>Restore</button>}{admin.status !== 'disabled' && admin.id !== adminProfile.data?.id && <button className="sa-mini-button is-danger" type="button" onClick={() => void removeAdministrator(admin)}>Archive</button>}{admin.status !== 'disabled' && admin.role !== 'super_admin' && <button className="sa-mini-button is-danger" type="button" onClick={() => void confirmStatus(admin, 'suspend')}>Suspend</button>}<button className="sa-mini-button" type="button" disabled={admin.role === 'super_admin'} onClick={() => void resetPassword(admin)}>Reset password</button></div></td></tr>)}</tbody></table></div><div className="sa-pagination"><span>Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, filtered.length)} of {filtered.length}</span><div><button type="button" aria-label="Previous page" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={15} /></button><strong>{page} / {pageCount}</strong><button type="button" aria-label="Next page" disabled={page >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}><ChevronRight size={15} /></button></div></div>
+            </>}
           </section>
           {selected && <><section className="sa-panel"><div className="sa-panel-heading"><div><span className="sa-eyebrow">ACCOUNT PROFILE</span><h2>{selected.fullName}</h2></div><button className="sa-text-button" type="button" onClick={() => setSelectedId(null)}>Close profile</button></div><div className="sa-profile-grid"><span>Email<strong>{selected.email}</strong></span><span>Role number<strong>{selected.roleNumber ?? 'Not assigned'}</strong></span><span>Portal role<strong>{roleLabel(selected.role)}</strong></span><span>Account status<strong><Status value={selected.status} /></strong></span><span>Email verification<strong>{selected.emailVerifiedAt ? `Verified ${formatDate(selected.emailVerifiedAt)}` : 'Not verified'}</strong></span><span>Account created<strong>{formatDate(selected.createdAt)}</strong></span></div><div className="sa-profile-actions"><button className="sa-button sa-button-secondary" type="button" disabled={selected.role === 'super_admin'} onClick={() => void revokeSessions(selected)}><LockKeyhole size={14} /> Revoke sessions</button><button className="sa-button sa-button-secondary" type="button" disabled={selected.role === 'super_admin'} onClick={() => void resetPassword(selected)}>Reset credentials</button></div><h3 className="sa-subheading">Account activity</h3>{selectedActivity.isPending ? <LoadingRows /> : selectedActivity.data?.length ? <ol className="sa-timeline">{selectedActivity.data.slice(0, 8).map((event) => <li key={event.id}><span className="sa-timeline-mark"><Activity size={14} /></span><div><strong>{event.action.replaceAll('.', ' ')}</strong><small>{event.targetType} · {event.targetId}</small></div><time>{formatDate(event.createdAt)}</time></li>)}</ol> : <Empty title="No account activity" detail="No administrator actions are recorded for this account." />}</section><section className="sa-panel"><div className="sa-panel-heading"><div><span className="sa-eyebrow">INDIVIDUAL ACCESS</span><h2>Permission overrides</h2></div></div><p className="sa-panel-copy">Allow or deny individual permissions, or return to the role default. Every change is audited.</p><AdministratorPermissionOverrides adminId={selected.id} role={selected.role} /></section></>}
         </>}

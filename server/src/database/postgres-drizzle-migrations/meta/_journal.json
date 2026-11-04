@@ -71,6 +71,13 @@
       "when": 1793684779990,
       "tag": "0009_mysterious_phil_sheldon",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793831090832,
+      "tag": "0010_sloppy_hannibal_king",
+      "breakpoints": true
     }
   ]
 }

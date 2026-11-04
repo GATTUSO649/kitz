@@ -24,6 +24,7 @@ export const users = mysqlTable('users', {
   fullName: varchar('full_name', { length: 160 }).notNull(),
   phone: varchar('phone', { length: 20 }),
   emailVerifiedAt: timestamp('email_verified_at'),
+  marketingConsentAt: timestamp('marketing_consent_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
 })
@@ -338,6 +339,139 @@ export const payments = mysqlTable('payments', {
   check('payments_provider_check', sql`${table.provider} IN ('mpesa', 'manual', 'simulated')`),
   check('payments_status_check', sql`${table.status} IN ('initiated', 'pending', 'succeeded', 'failed', 'cancelled', 'expired', 'requires_review', 'refunded')`),
 ])
+
+export const paymentRefunds = mysqlTable('payment_refunds', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  paymentId: int('payment_id').notNull().references(() => payments.id),
+  orderId: int('order_id').notNull().references(() => orders.id),
+  amount: decimal('amount', { precision: 12, scale: 2 }).notNull(),
+  reason: varchar('reason', { length: 500 }).notNull(),
+  status: enumText<'requested' | 'approved' | 'rejected' | 'paid'>('status', 20).default('requested').notNull(),
+  providerReference: varchar('provider_reference', { length: 120 }),
+  resolutionNote: varchar('resolution_note', { length: 500 }),
+  createdByAdminId: int('created_by_admin_id').notNull(),
+  resolvedByAdminId: int('resolved_by_admin_id'),
+  resolvedAt: timestamp('resolved_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('payment_refunds_payment_created_idx').on(table.paymentId, table.createdAt),
+  index('payment_refunds_status_created_idx').on(table.status, table.createdAt),
+  check('payment_refunds_amount_check', sql`${table.amount} > 0`),
+  check('payment_refunds_status_check', sql`${table.status} IN ('requested', 'approved', 'rejected', 'paid')`),
+])
+
+export const paymentReconciliations = mysqlTable('payment_reconciliations', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  settlementDate: varchar('settlement_date', { length: 10 }).notNull().unique(),
+  internalAmount: decimal('internal_amount', { precision: 14, scale: 2 }).notNull(),
+  providerAmount: decimal('provider_amount', { precision: 14, scale: 2 }).notNull(),
+  note: varchar('note', { length: 500 }),
+  reconciledByAdminId: int('reconciled_by_admin_id').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
+}, (table) => [index('payment_reconciliations_date_idx').on(table.settlementDate)])
+
+export const inventorySuppliers = mysqlTable('inventory_suppliers', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  name: varchar('name', { length: 160 }).notNull().unique(),
+  contactName: varchar('contact_name', { length: 160 }),
+  email: varchar('email', { length: 254 }),
+  phone: varchar('phone', { length: 32 }),
+  notes: varchar('notes', { length: 1000 }),
+  active: boolean('active').default(true).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
+})
+
+export const inventoryPurchaseOrders = mysqlTable('inventory_purchase_orders', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  supplierId: int('supplier_id').notNull().references(() => inventorySuppliers.id),
+  status: enumText<'draft' | 'approved' | 'ordered' | 'received' | 'cancelled'>('status', 20).default('draft').notNull(),
+  note: varchar('note', { length: 1000 }),
+  expectedAt: timestamp('expected_at'),
+  createdByAdminId: int('created_by_admin_id').notNull(),
+  approvedByAdminId: int('approved_by_admin_id'),
+  approvedAt: timestamp('approved_at'),
+  receivedAt: timestamp('received_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
+}, (table) => [
+  index('inventory_purchase_orders_status_created_idx').on(table.status, table.createdAt),
+  check('inventory_purchase_orders_status_check', sql`${table.status} IN ('draft', 'approved', 'ordered', 'received', 'cancelled')`),
+])
+
+export const inventoryPurchaseOrderLines = mysqlTable('inventory_purchase_order_lines', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  purchaseOrderId: int('purchase_order_id').notNull().references(() => inventoryPurchaseOrders.id, { onDelete: 'cascade' }),
+  variantId: int('variant_id').notNull().references(() => productVariants.id),
+  quantityOrdered: int('quantity_ordered').notNull(),
+  quantityReceived: int('quantity_received').default(0).notNull(),
+  unitCost: decimal('unit_cost', { precision: 12, scale: 2 }).notNull(),
+}, (table) => [
+  index('inventory_purchase_order_lines_order_idx').on(table.purchaseOrderId),
+  check('inventory_purchase_order_lines_quantity_check', sql`${table.quantityOrdered} > 0 AND ${table.quantityReceived} >= 0 AND ${table.quantityReceived} <= ${table.quantityOrdered}`),
+  check('inventory_purchase_order_lines_cost_check', sql`${table.unitCost} >= 0`),
+])
+
+export const inventoryReturns = mysqlTable('inventory_returns', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  orderId: int('order_id').notNull().references(() => orders.id),
+  orderItemId: int('order_item_id').notNull().references(() => orderItems.id),
+  variantId: int('variant_id').references(() => productVariants.id),
+  quantity: int('quantity').notNull(),
+  reason: varchar('reason', { length: 500 }).notNull(),
+  status: enumText<'requested' | 'approved' | 'rejected' | 'received'>('status', 20).default('requested').notNull(),
+  resolutionNote: varchar('resolution_note', { length: 500 }),
+  createdByAdminId: int('created_by_admin_id').notNull(),
+  resolvedByAdminId: int('resolved_by_admin_id'),
+  receivedAt: timestamp('received_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('inventory_returns_status_created_idx').on(table.status, table.createdAt),
+  check('inventory_returns_quantity_check', sql`${table.quantity} > 0`),
+  check('inventory_returns_status_check', sql`${table.status} IN ('requested', 'approved', 'rejected', 'received')`),
+])
+
+export const marketingCoupons = mysqlTable('marketing_coupons', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  code: varchar('code', { length: 40 }).notNull().unique(),
+  discountType: enumText<'percent' | 'fixed'>('discount_type', 12).notNull(),
+  value: decimal('value', { precision: 10, scale: 2 }).notNull(),
+  minimumSubtotal: decimal('minimum_subtotal', { precision: 12, scale: 2 }).default('0.00').notNull(),
+  maxRedemptions: int('max_redemptions'),
+  redemptionCount: int('redemption_count').default(0).notNull(),
+  startsAt: timestamp('starts_at'),
+  endsAt: timestamp('ends_at'),
+  active: boolean('active').default(true).notNull(),
+  createdByAdminId: int('created_by_admin_id').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('marketing_coupons_active_ends_idx').on(table.active, table.endsAt),
+  check('marketing_coupons_type_check', sql`${table.discountType} IN ('percent', 'fixed')`),
+  check('marketing_coupons_value_check', sql`${table.value} > 0 AND (${table.discountType} <> 'percent' OR ${table.value} <= 100)`),
+  check('marketing_coupons_redemption_check', sql`${table.redemptionCount} >= 0 AND (${table.maxRedemptions} IS NULL OR ${table.maxRedemptions} > 0)`),
+])
+
+export const marketingCouponRedemptions = mysqlTable('marketing_coupon_redemptions', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  couponId: int('coupon_id').notNull().references(() => marketingCoupons.id),
+  orderId: int('order_id').notNull().unique().references(() => orders.id),
+  userId: int('user_id').references(() => users.id, { onDelete: 'set null' }),
+  discountAmount: decimal('discount_amount', { precision: 12, scale: 2 }).notNull(),
+  redeemedAt: timestamp('redeemed_at').defaultNow().notNull(),
+}, (table) => [index('marketing_coupon_redemptions_coupon_idx').on(table.couponId, table.redeemedAt)])
+
+export const marketingEmailCampaigns = mysqlTable('marketing_email_campaigns', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  subject: varchar('subject', { length: 160 }).notNull(),
+  body: text('body').notNull(),
+  status: enumText<'sent' | 'partial' | 'failed'>('status', 12).notNull(),
+  recipientCount: int('recipient_count').default(0).notNull(),
+  acceptedCount: int('accepted_count').default(0).notNull(),
+  failedCount: int('failed_count').default(0).notNull(),
+  createdByAdminId: int('created_by_admin_id').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [index('marketing_email_campaigns_created_idx').on(table.createdAt)])
 
 export const deliveryZones = mysqlTable('delivery_zones', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),

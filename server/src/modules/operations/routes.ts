@@ -1,14 +1,12 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import { hash } from 'bcryptjs'
+import { createHash, randomBytes } from 'node:crypto'
 import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lt, lte, sql } from 'drizzle-orm'
 import { Router, type NextFunction, type Request, type Response } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
-import { env } from '../../config/env.js'
 import { adminDb, adminPool, pool } from '../../config/database.js'
 import { inspectDatabaseError } from '../../config/database-diagnostics.js'
-import { isAllowedClientOrigin } from '../../config/env.js'
-import { bcryptPasswordSchema, verifyPassword } from '../../config/password-policy.js'
+import { env, isAllowedClientOrigin } from '../../config/env.js'
+import { verifyPassword } from '../../config/password-policy.js'
 import { nextSessionExpiry, operationsSessionAbsoluteLifetimeMs, operationsSessionIdleTimeoutMs } from '../../config/session-policy.js'
 import { adminUsers, monitoringAlerts, monitoringDetectionRules, monitoringEvents, monitoringWorkerState, operationsAuditEvents, operationsIncidentEvents, operationsIncidents, operationsSessions, operationsUsers } from '../../database/admin-schema.js'
 import { getTelemetryQueueState } from './telemetry-store.js'
@@ -22,20 +20,12 @@ import { itAccessRoles, type ItAccessRole } from '../../database/admin-schema.js
 export const operationsRouter = Router()
 const operationsCookieName = 'kc_ops_session'
 const operationsLoginLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 8, standardHeaders: 'draft-8', legacyHeaders: false })
-const operationsSignupLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false })
 
 type OperationsUser = { id: number; email: string; fullName: string }
 type OperationsRequest = Request & { operationsUser?: OperationsUser }
 
 function hashOperationsToken(token: string) {
   return createHash('sha256').update(token).digest('hex')
-}
-
-export function matchesOperationsSignupSecret(candidate: string, configuredSecret = env.OPERATIONS_SIGNUP_SECRET) {
-  if (!configuredSecret) return false
-  const candidateDigest = createHash('sha256').update(candidate).digest()
-  const configuredDigest = createHash('sha256').update(configuredSecret).digest()
-  return timingSafeEqual(candidateDigest, configuredDigest)
 }
 
 function operationsCookieToken(request: Request) {
@@ -145,77 +135,8 @@ operationsRouter.use((request, response, next) => {
 })
 
 const loginSchema = z.object({ email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()), password: z.string().min(1).max(128) }).strict()
-const operationsRegisterSchema = z.object({
-  email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
-  password: bcryptPasswordSchema(14),
-  fullName: z.string().trim().min(2).max(160),
-  secretKey: z.string().min(1).max(512),
-}).strict()
-
-operationsRouter.get('/registration-status', async (request, response) => {
-  if (!env.OPERATIONS_SIGNUP_SECRET) {
-    response.json({ data: { available: false } })
-    return
-  }
-  if (!adminDb) return operationsUnavailable(response, String(request.id))
-  await adminDb.select({ id: operationsUsers.id }).from(operationsUsers).limit(1)
-  response.json({ data: { available: true } })
-})
-
-operationsRouter.post('/register', operationsSignupLimiter, async (request, response) => {
-  if (!env.OPERATIONS_SIGNUP_SECRET) {
-    response.status(404).json({ error: { code: 'NOT_FOUND', message: 'IT operator signup is not available.' } })
-    return
-  }
-  const input = operationsRegisterSchema.safeParse(request.body)
-  if (!input.success) {
-    response.status(400).json({ error: { code: 'INVALID_OPERATIONS_REGISTRATION', message: 'Check the account details and use a password of at least 14 characters.' } })
-    return
-  }
-  if (!matchesOperationsSignupSecret(input.data.secretKey)) {
-    response.status(403).json({ error: { code: 'INVALID_OPERATIONS_SIGNUP_KEY', message: 'The IT signup key is invalid.' } })
-    return
-  }
-  if (!adminDb) return operationsUnavailable(response, String(request.id))
-
-  const passwordHash = await hash(input.data.password, 12)
-  const token = randomBytes(32).toString('base64url')
-  const createdAt = new Date()
-  const expiresAt = nextSessionExpiry(createdAt, createdAt, operationsSessionIdleTimeoutMs, operationsSessionAbsoluteLifetimeMs)!
-  const user = await adminDb.transaction(async (transaction) => {
-    const [existing] = await transaction.select({ id: operationsUsers.id }).from(operationsUsers)
-      .where(eq(operationsUsers.email, input.data.email)).limit(1)
-    if (existing) return null
-    const [{ total }] = await transaction.select({ total: count() }).from(operationsUsers).where(eq(operationsUsers.role, 'super_admin'))
-    const role = Number(total) === 0 ? 'super_admin' : 'viewer'
-    const [created] = await transaction.insert(operationsUsers).values({
-      email: input.data.email,
-      fullName: input.data.fullName,
-      passwordHash,
-      role,
-    }).returning({ id: operationsUsers.id })
-    await transaction.insert(operationsSessions).values({
-      operationsUserId: created.id,
-      tokenHash: hashOperationsToken(token),
-      createdAt,
-      expiresAt,
-    })
-    await transaction.insert(operationsAuditEvents).values({
-      actorOperationsUserId: created.id,
-      actorType: 'operations_user',
-      action: 'operations.signup',
-      targetType: 'operations_user',
-      targetId: String(created.id),
-    })
-    return { id: created.id, email: input.data.email, fullName: input.data.fullName, role }
-  })
-  if (!user) {
-    response.status(409).json({ error: { code: 'OPERATIONS_ACCOUNT_UNAVAILABLE', message: 'Unable to create an IT account with those details.' } })
-    return
-  }
-  setOperationsCookie(response, token)
-  response.status(201).json({ data: { user } })
-})
+operationsRouter.get('/registration-status', (_request, response) => response.json({ data: { available: false } }))
+operationsRouter.post('/register', (_request, response) => response.status(404).json({ error: { code: 'NOT_FOUND', message: 'Operations registration is not available.' } }))
 
 operationsRouter.post('/login', operationsLoginLimiter, async (request, response) => {
   if (!adminDb) return operationsUnavailable(response)

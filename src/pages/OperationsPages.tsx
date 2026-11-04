@@ -418,7 +418,6 @@ function OperationsBars({ title, items }: { title: string; items: { label: strin
 function OperationsLogin({ onAuthenticated }: { onAuthenticated: () => Promise<void> }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [isSigningUp, setIsSigningUp] = useState(false)
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -427,21 +426,9 @@ function OperationsLogin({ onAuthenticated }: { onAuthenticated: () => Promise<v
     const form = new FormData(event.currentTarget)
 
     try {
-      await operationsApi(isSigningUp ? '/api/v1/operations/register' : '/api/v1/operations/login', {
+      await operationsApi('/api/v1/operations/login', {
         method: 'POST',
-        body: JSON.stringify(
-          isSigningUp
-            ? {
-                fullName: String(form.get('fullName')),
-                email: String(form.get('email')),
-                password: String(form.get('password')),
-                secretKey: String(form.get('secretKey')),
-              }
-            : {
-                email: String(form.get('email')),
-                password: String(form.get('password')),
-              },
-        ),
+        body: JSON.stringify({ email: String(form.get('email')), password: String(form.get('password')) }),
       })
       await onAuthenticated()
     } catch (issue) {
@@ -455,40 +442,24 @@ function OperationsLogin({ onAuthenticated }: { onAuthenticated: () => Promise<v
     <main className="operations-login-page">
       <form className="operations-login-form" onSubmit={(event) => void submit(event)}>
         <span className="operations-eyebrow">Separate operations identity</span>
-        <h1>{isSigningUp ? 'Create IT operator account' : 'IT operations sign in'}</h1>
+        <h1>IT operations sign in</h1>
         <p>This account is separate from the storefront and admin session controls.</p>
 
-        {isSigningUp && <label>Full name<input name="fullName" autoComplete="name" minLength={2} maxLength={160} required /></label>}
         <label>Operations email<input name="email" type="email" autoComplete="username" maxLength={254} required /></label>
         <label>
           Password
           <input
             name="password"
             type="password"
-            autoComplete={isSigningUp ? 'new-password' : 'current-password'}
-            minLength={isSigningUp ? 14 : undefined}
+            autoComplete="current-password"
             maxLength={128}
             required
           />
         </label>
-        {isSigningUp && <label>IT secret key<input name="secretKey" type="password" autoComplete="off" maxLength={512} required /></label>}
 
         {error && <p className="operations-error" role="alert">{error}</p>}
 
-        <button type="submit" disabled={busy}>{busy ? 'Please wait…' : isSigningUp ? 'Create IT account' : 'Sign in to operations'}</button>
-
-        <button
-          className="operations-signup-toggle"
-          type="button"
-          onClick={() => {
-            setIsSigningUp((value) => !value)
-            setError('')
-          }}
-        >
-          {isSigningUp ? 'Already have an account? Sign in' : 'Create IT operator account'}
-        </button>
-
-        <a className="operations-admin-signup" href="/admin/register">Need a store administrator account? Create one</a>
+        <button type="submit" disabled={busy}>{busy ? 'Please wait…' : 'Sign in to operations'}</button>
         <a href="/">Return to storefront</a>
       </form>
     </main>
@@ -626,7 +597,7 @@ function OperationsConsole() {
   useEffect(() => {
     if (sessionExpired) return
 
-    const idleTimeoutMs = 15 * 60_000
+    const idleTimeoutMs = 20 * 60_000
     const keepAliveThrottleMs = 30_000
     let idleTimer = 0
     let lastKeepAlive = 0

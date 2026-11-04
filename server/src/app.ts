@@ -123,7 +123,7 @@ app.use('/api/v1', publicApiCache)
 app.use('/api/v1/auth', authLimiter, authRouter)
 app.use('/api/v1/account', accountRouter)
 app.use('/api/v1/admin', (request, response, next) => {
-  if (request.method === 'POST' && /^\/api\/v1\/admin\/(?:register|verify|login|super-admin\/login)\/?(?:\?|$)/.test(request.originalUrl)) {
+  if (request.method === 'POST' && /^\/api\/v1\/admin\/(?:verify|login|(?:super-admin|finance-admin|inventory-admin|marketing-admin|content-admin)\/login)\/?(?:\?|$)/.test(request.originalUrl)) {
     authLimiter(request, response, next)
     return
   }

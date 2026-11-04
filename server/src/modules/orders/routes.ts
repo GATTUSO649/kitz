@@ -5,7 +5,7 @@ import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
 import { db } from '../../config/database.js'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
-import { applicationSettings, auditLogs, deliveryZones, inventoryMovements, notificationCampaigns, notificationRecipients, orderItems, orders, payments, productVariants, products, supportMessages, supportRequests } from '../../database/schema.js'
+import { applicationSettings, auditLogs, deliveryZones, inventoryMovements, marketingCouponRedemptions, marketingCoupons, notificationCampaigns, notificationRecipients, orderItems, orders, payments, productVariants, products, supportMessages, supportRequests } from '../../database/schema.js'
 import { authenticate, authenticatedUser } from '../../middleware/authenticate.js'
 import { isAdminOnline, publishChatMessage } from '../../realtime/chat-events.js'
 import { callbackFailureStatus, canVerifySuccessfulStkPayment, DarajaRequestError, darajaCallbackRoute, initiateStkPush, isDarajaConfigured, isFinalDarajaPaymentStatus, isValidCallbackToken, normalizeKenyanPhone, parseDarajaTimestamp, parseStkCallback, queryStkPush, resolveDarajaShortcodes } from './daraja.js'
@@ -43,6 +43,7 @@ const orderRequestBaseSchema = z.object({
     customization: z.string().trim().max(180).optional(),
   })).min(1).max(30),
   deliveryZoneId: z.number().int().positive(),
+    couponCode: z.string().trim().min(3).max(40).optional(),
   address: addressSchema,
 })
 
@@ -80,6 +81,10 @@ class OrderRequestError extends Error {
 
 function toCents(amount: string) {
   return Math.round(Number(amount) * 100)
+}
+
+function fromCents(amount: number) {
+  return (amount / 100).toFixed(2)
 }
 
 function hasDuplicateKeyError(error: unknown, seen = new Set<unknown>()): boolean {
@@ -188,8 +193,20 @@ ordersRouter.post('/orders/guest', rejectCrossOrigin, guestCheckoutLimiter, asyn
         itemSnapshots.push({ ...requested, ...row, priceCents })
       }
       if (exceedsProductQuantityLimit(itemSnapshots)) throw new OrderRequestError(400, 'PRODUCT_QUANTITY_LIMIT', 'You can order up to five kits per product across all sizes.')
+      let couponId: number | null = null
+      let discountCents = 0
+      if (input.data.couponCode) {
+        const [coupon] = await transaction.select({ id: marketingCoupons.id, discountType: marketingCoupons.discountType, value: marketingCoupons.value, minimumSubtotal: marketingCoupons.minimumSubtotal, maxRedemptions: marketingCoupons.maxRedemptions, redemptionCount: marketingCoupons.redemptionCount, startsAt: marketingCoupons.startsAt, endsAt: marketingCoupons.endsAt, active: marketingCoupons.active })
+          .from(marketingCoupons).where(eq(marketingCoupons.code, input.data.couponCode.toUpperCase())).for('update').limit(1)
+        const now = new Date()
+        if (!coupon || !coupon.active || (coupon.startsAt && coupon.startsAt > now) || (coupon.endsAt && coupon.endsAt < now)) throw new OrderRequestError(400, 'COUPON_UNAVAILABLE', 'This coupon is not active or has expired.')
+        if (coupon.maxRedemptions !== null && coupon.redemptionCount >= coupon.maxRedemptions) throw new OrderRequestError(409, 'COUPON_EXHAUSTED', 'This coupon has reached its redemption limit.')
+        if (subtotalCents < toCents(coupon.minimumSubtotal)) throw new OrderRequestError(400, 'COUPON_MINIMUM_NOT_MET', 'The order subtotal does not meet this coupon’s minimum.')
+        couponId = coupon.id
+        discountCents = Math.min(subtotalCents, coupon.discountType === 'percent' ? Math.round(subtotalCents * Number(coupon.value) / 100) : toCents(coupon.value))
+      }
       const deliveryFeeCents = toCents(zone.fee)
-      const totalCents = subtotalCents + deliveryFeeCents
+      const totalCents = subtotalCents - discountCents + deliveryFeeCents
       if (!Number.isSafeInteger(totalCents) || totalCents < 100 || totalCents > 999_999_999_999 || totalCents % 100 !== 0) {
         throw new OrderRequestError(400, 'MPESA_AMOUNT_INVALID', 'The total must be a whole number of Kenyan shillings for M-Pesa.')
       }
@@ -203,10 +220,14 @@ ordersRouter.post('/orders/guest', rejectCrossOrigin, guestCheckoutLimiter, asyn
         currency: 'KES',
         subtotal: (subtotalCents / 100).toFixed(2),
         deliveryFee: (deliveryFeeCents / 100).toFixed(2),
-        discount: '0.00',
+        discount: fromCents(discountCents),
         total: (totalCents / 100).toFixed(2),
         deliveryAddressSnapshot: JSON.stringify({ ...input.data.address, email: input.data.email, deliveryZone: zone.name }),
       }).returning({ id: orders.id })
+      if (couponId) {
+        await transaction.update(marketingCoupons).set({ redemptionCount: sql`${marketingCoupons.redemptionCount} + 1` }).where(eq(marketingCoupons.id, couponId))
+        await transaction.insert(marketingCouponRedemptions).values({ couponId, orderId, userId: null, discountAmount: fromCents(discountCents) })
+      }
       for (const item of itemSnapshots) {
         const updated = await transaction.update(productVariants).set({ stock: sql`${productVariants.stock} - ${item.quantity}` })
           .where(and(eq(productVariants.id, item.variantId), gte(productVariants.stock, item.quantity)))
@@ -218,7 +239,7 @@ ordersRouter.post('/orders/guest', rejectCrossOrigin, guestCheckoutLimiter, asyn
           sizeSnapshot: item.size, customizationSnapshot: null, quantity: item.quantity, unitPrice: (item.priceCents / 100).toFixed(2),
         })
       }
-      return { orderNumber, status: 'pending_payment' as const, paymentMethod: 'mpesa' as const, total: (totalCents / 100).toFixed(2) }
+      return { orderNumber, status: 'pending_payment' as const, paymentMethod: 'mpesa' as const, subtotal: fromCents(subtotalCents), discount: fromCents(discountCents), total: fromCents(totalCents) }
     })
     response.status(201).json({ data: order })
   } catch (error) {
@@ -248,7 +269,7 @@ ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, re
     response.status(400).json({ error: { code: 'IDEMPOTENCY_KEY_REQUIRED', message: 'Refresh checkout and try again.' } })
     return
   }
-  const [existingOrder] = await db.select({ orderNumber: orders.orderNumber, status: orders.status, paymentMethod: orders.paymentMethod, subtotal: orders.subtotal, deliveryFee: orders.deliveryFee, total: orders.total })
+  const [existingOrder] = await db.select({ orderNumber: orders.orderNumber, status: orders.status, paymentMethod: orders.paymentMethod, subtotal: orders.subtotal, deliveryFee: orders.deliveryFee, discount: orders.discount, total: orders.total })
     .from(orders).where(and(eq(orders.userId, auth.userId), eq(orders.idempotencyKey, idempotencyKey.data))).limit(1)
   if (existingOrder) {
     response.status(200).json({ data: { ...existingOrder, replayed: true } })
@@ -294,8 +315,20 @@ ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, re
         throw new OrderRequestError(400, 'PRODUCT_QUANTITY_LIMIT', 'You can order up to five kits per product across all sizes.')
       }
 
+      let couponId: number | null = null
+      let discountCents = 0
+      if (input.data.couponCode) {
+        const [coupon] = await transaction.select({ id: marketingCoupons.id, discountType: marketingCoupons.discountType, value: marketingCoupons.value, minimumSubtotal: marketingCoupons.minimumSubtotal, maxRedemptions: marketingCoupons.maxRedemptions, redemptionCount: marketingCoupons.redemptionCount, startsAt: marketingCoupons.startsAt, endsAt: marketingCoupons.endsAt, active: marketingCoupons.active })
+          .from(marketingCoupons).where(eq(marketingCoupons.code, input.data.couponCode.toUpperCase())).for('update').limit(1)
+        const now = new Date()
+        if (!coupon || !coupon.active || (coupon.startsAt && coupon.startsAt > now) || (coupon.endsAt && coupon.endsAt < now)) throw new OrderRequestError(400, 'COUPON_UNAVAILABLE', 'This coupon is not active or has expired.')
+        if (coupon.maxRedemptions !== null && coupon.redemptionCount >= coupon.maxRedemptions) throw new OrderRequestError(409, 'COUPON_EXHAUSTED', 'This coupon has reached its redemption limit.')
+        if (subtotalCents < toCents(coupon.minimumSubtotal)) throw new OrderRequestError(400, 'COUPON_MINIMUM_NOT_MET', 'The order subtotal does not meet this coupon’s minimum.')
+        couponId = coupon.id
+        discountCents = Math.min(subtotalCents, coupon.discountType === 'percent' ? Math.round(subtotalCents * Number(coupon.value) / 100) : toCents(coupon.value))
+      }
       const deliveryFeeCents = toCents(zone.fee)
-      const totalCents = subtotalCents + deliveryFeeCents
+      const totalCents = subtotalCents - discountCents + deliveryFeeCents
       if (!Number.isSafeInteger(totalCents) || totalCents > 999_999_999_999) {
         throw new OrderRequestError(400, 'ORDER_TOTAL_TOO_LARGE', 'This order total exceeds the supported amount.')
       }
@@ -313,10 +346,15 @@ ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, re
         currency: 'KES',
         subtotal: (subtotalCents / 100).toFixed(2),
         deliveryFee: (deliveryFeeCents / 100).toFixed(2),
-        discount: '0.00',
+        discount: fromCents(discountCents),
         total: (totalCents / 100).toFixed(2),
         deliveryAddressSnapshot: addressSnapshot,
       }).returning({ id: orders.id })
+
+      if (couponId) {
+        await transaction.update(marketingCoupons).set({ redemptionCount: sql`${marketingCoupons.redemptionCount} + 1` }).where(eq(marketingCoupons.id, couponId))
+        await transaction.insert(marketingCouponRedemptions).values({ couponId, orderId, userId: auth.userId, discountAmount: fromCents(discountCents) })
+      }
 
       for (const item of itemSnapshots) {
         const updated = await transaction.update(productVariants)
@@ -389,7 +427,7 @@ ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, re
         longitude: String(address.longitude),
         deliveredAt: isAdminOnline() ? new Date() : null,
       })
-      return { orderNumber, conversationId, status: 'pending_payment' as const, paymentMethod: input.data.paymentMethod, subtotal: (subtotalCents / 100).toFixed(2), deliveryFee: (deliveryFeeCents / 100).toFixed(2), total: (totalCents / 100).toFixed(2) }
+      return { orderNumber, conversationId, status: 'pending_payment' as const, paymentMethod: input.data.paymentMethod, subtotal: fromCents(subtotalCents), deliveryFee: fromCents(deliveryFeeCents), discount: fromCents(discountCents), total: fromCents(totalCents) }
     })
     publishChatMessage({ conversationId: order.conversationId, customerId: auth.userId, senderType: 'customer' })
     response.status(201).json({ data: order })
@@ -399,7 +437,7 @@ ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, re
       return
     }
     if (hasDuplicateKeyError(error)) {
-      const [replayedOrder] = await db.select({ orderNumber: orders.orderNumber, status: orders.status, paymentMethod: orders.paymentMethod, subtotal: orders.subtotal, deliveryFee: orders.deliveryFee, total: orders.total })
+        const [replayedOrder] = await db.select({ orderNumber: orders.orderNumber, status: orders.status, paymentMethod: orders.paymentMethod, subtotal: orders.subtotal, deliveryFee: orders.deliveryFee, discount: orders.discount, total: orders.total })
         .from(orders).where(and(eq(orders.userId, auth.userId), eq(orders.idempotencyKey, idempotencyKey.data))).limit(1)
       if (replayedOrder) {
         response.status(200).json({ data: { ...replayedOrder, replayed: true } })

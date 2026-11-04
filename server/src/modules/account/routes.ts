@@ -161,6 +161,27 @@ accountRouter.patch('/profile', async (request, response) => {
   response.json({ data: { updated: true } })
 })
 
+accountRouter.get('/marketing-preferences', async (request, response) => {
+  const auth = currentAccount(request)
+  if (!db) return unavailable(response)
+  if (!auth) return response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Sign in to continue.' } })
+  const [user] = await db.select({ marketingConsentAt: users.marketingConsentAt }).from(users).where(eq(users.id, auth.userId)).limit(1)
+  if (!user) return response.status(404).json({ error: { code: 'ACCOUNT_NOT_FOUND', message: 'Account not found.' } })
+  response.json({ data: { consented: user.marketingConsentAt !== null, updatedAt: user.marketingConsentAt } })
+})
+
+accountRouter.patch('/marketing-preferences', async (request, response) => {
+  if (rejectCrossOrigin(request, response)) return
+  const auth = currentAccount(request)
+  const input = z.object({ consented: z.boolean() }).strict().safeParse(request.body)
+  if (!input.success) return response.status(400).json({ error: { code: 'INVALID_MARKETING_PREFERENCE', message: 'Choose whether to receive marketing emails.' } })
+  if (!db) return unavailable(response)
+  if (!auth) return response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Sign in to continue.' } })
+  const marketingConsentAt = input.data.consented ? new Date() : null
+  await db.update(users).set({ marketingConsentAt }).where(eq(users.id, auth.userId))
+  response.json({ data: { consented: input.data.consented, updatedAt: marketingConsentAt } })
+})
+
 accountRouter.get('/addresses', async (request, response) => {
   const auth = currentAccount(request)
   if (!db) return unavailable(response)

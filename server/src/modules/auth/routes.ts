@@ -20,6 +20,7 @@ export const registerSchema = z.object({
   password: bcryptPasswordSchema(14),
   fullName: z.string().trim().min(2).max(160),
   phone: z.string().trim().max(20).optional(),
+  marketingConsent: z.boolean().default(false),
 })
 export const loginSchema = z.object({
   email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
@@ -145,6 +146,7 @@ authRouter.post('/register', async (request, response) => {
       passwordHash,
       fullName: input.data.fullName,
       phone: input.data.phone || null,
+      marketingConsentAt: input.data.marketingConsent ? new Date() : null,
     }).returning({ id: users.id })
     return { id: created.id, email: input.data.email, fullName: input.data.fullName }
   })

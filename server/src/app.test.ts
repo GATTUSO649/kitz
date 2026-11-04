@@ -175,6 +175,19 @@ test('admin session endpoint rejects requests without an administrator cookie', 
   assert.equal(payload.error.code, 'UNAUTHENTICATED')
 })
 
+test('ordinary administrator registration is disabled in favor of Super Admin invitations', async () => {
+  const statusResponse = await fetch(`${baseUrl}/api/v1/admin/registration-status`)
+  assert.deepEqual(await statusResponse.json(), { data: { available: false } })
+
+  const registrationResponse = await fetch(`${baseUrl}/api/v1/admin/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fullName: 'New Admin', email: 'new@example.com', password: 'a-long-password-here', secretKey: 'not-accepted' }),
+  })
+  assert.equal(registrationResponse.status, 404)
+  assert.equal((await registrationResponse.json() as { error: { code: string } }).error.code, 'NOT_FOUND')
+})
+
 test('Super Admin alert and permission APIs reject callers without an admin session', async () => {
   const requests = [
     fetch(`${baseUrl}/api/v1/admin/ecosystem/alerts`),
@@ -210,7 +223,7 @@ test('Operations API rejects requests without an Operations session before query
   }
 })
 
-test('IT operator self-signup stays unavailable without a server-side signup secret', async () => {
+test('IT operator self-signup is disabled in favor of managed provisioning', async () => {
   const statusResponse = await fetch(`${baseUrl}/api/v1/operations/registration-status`)
   assert.equal(statusResponse.status, 200)
   assert.equal((await statusResponse.json() as { data: { available: boolean } }).data.available, false)

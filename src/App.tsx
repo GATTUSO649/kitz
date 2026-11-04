@@ -108,7 +108,7 @@ const homepageTrendingClubBadges: Record<string, number> = {
   roma: 100,
 }
 const homepageTrendingClubOrder = new Map(Object.keys(homepageTrendingClubBadges).map((slug, index) => [slug, index]))
-const registrationSchema = z.object({ fullName: z.string().trim().min(2, 'Enter your name.'), email: z.string().trim().email('Enter a valid email address.'), password: z.string().min(14, 'Use at least 14 characters.').refine((value) => new TextEncoder().encode(value).length <= 72, 'Use a password no longer than 72 UTF-8 bytes.'), passwordConfirmation: z.string().min(1, 'Confirm your password.') }).refine((values) => values.password === values.passwordConfirmation, { message: 'Passwords do not match.', path: ['passwordConfirmation'] })
+const registrationSchema = z.object({ fullName: z.string().trim().min(2, 'Enter your name.'), email: z.string().trim().email('Enter a valid email address.'), password: z.string().min(14, 'Use at least 14 characters.').refine((value) => new TextEncoder().encode(value).length <= 72, 'Use a password no longer than 72 UTF-8 bytes.'), passwordConfirmation: z.string().min(1, 'Confirm your password.'), marketingConsent: z.preprocess((value) => value === 'on', z.boolean()) }).refine((values) => values.password === values.passwordConfirmation, { message: 'Passwords do not match.', path: ['passwordConfirmation'] })
 const signInSchema = z.object({ email: z.string().trim().email('Enter a valid email address.'), password: z.string().min(1, 'Enter your password.') })
 
 async function loadHomepageProducts(path: string, signal?: AbortSignal) {
@@ -615,14 +615,14 @@ function App() {
         if (control instanceof HTMLElement) control.focus()
       }
     }
-    let payload: { email: string; password: string; fullName?: string }
+    let payload: { email: string; password: string; fullName?: string; marketingConsent?: boolean }
     if (activeAuthMode === 'register') {
       const parsed = registrationSchema.safeParse(raw)
       if (!parsed.success) {
         showValidationErrors(parsed.error.issues)
         return
       }
-      payload = { email: parsed.data.email, password: parsed.data.password, fullName: parsed.data.fullName }
+      payload = { email: parsed.data.email, password: parsed.data.password, fullName: parsed.data.fullName, marketingConsent: parsed.data.marketingConsent }
     } else {
       const parsed = signInSchema.safeParse(raw)
       if (!parsed.success) {
@@ -846,7 +846,6 @@ function App() {
     }
   }
 
-  if (pagePath === '/admin/register') return <Suspense fallback={<DelayedBrandLoader label="Loading Super Administrator setup" />}><SuperAdminRoute /></Suspense>
   if (pagePath === '/admin/access') return <Suspense fallback={<DelayedBrandLoader label="Loading administrator portals" />}><AdminAccessPage /></Suspense>
   if (pagePath === '/admin/activate') return <Suspense fallback={<DelayedBrandLoader label="Loading administrator activation" />}><AdminActivationPage /></Suspense>
   if (isSuperAdminPage) {

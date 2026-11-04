@@ -493,6 +493,11 @@ export function CustomerPortalPage({ path, user, onProfileUpdate }: { path: stri
     queryFn: () => readAccountData<Profile>('/api/v1/account/profile'),
     enabled: path === '/account/profile',
   })
+  const marketingPreferenceQuery = useQuery({
+    queryKey: ['account-marketing-preferences', user.id],
+    queryFn: () => readAccountData<{ consented: boolean }>('/api/v1/account/marketing-preferences'),
+    enabled: path === '/account/settings',
+  })
   const addressQuery = useQuery({
     queryKey: ['account-addresses', user.id],
     queryFn: () => readAccountData<Address[]>('/api/v1/account/addresses'),
@@ -596,6 +601,23 @@ export function CustomerPortalPage({ path, user, onProfileUpdate }: { path: stri
       await queryClient.invalidateQueries({ queryKey: ['account-profile', user.id] })
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Profile could not be updated.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function updateMarketingPreference(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    setBusy(true); setError(''); setMessage('')
+    try {
+      const response = await fetch('/api/v1/account/marketing-preferences', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ consented: form.get('consented') === 'on' }) })
+      const result = await response.json() as { data?: { consented: boolean }; error?: { message?: string } }
+      if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Email preferences could not be saved.')
+      setMessage(result.data.consented ? 'Marketing email preference saved.' : 'Marketing emails are turned off.')
+      await queryClient.invalidateQueries({ queryKey: ['account-marketing-preferences', user.id] })
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Email preferences could not be saved.')
     } finally {
       setBusy(false)
     }
@@ -877,6 +899,6 @@ export function CustomerPortalPage({ path, user, onProfileUpdate }: { path: stri
                   : <div className="catalogue-state"><strong>No support requests yet.</strong><span>Use the form above whenever you need help.</span></div>}
           </section>
         </>}
-        {path === '/account/settings' && <section className="portal-panel portal-settings-links"><Link to="/account/profile"><UserRound size={18} /><span><strong>Personal information</strong><small>Manage your name and phone number.</small></span><ArrowRight size={15} /></Link><Link to="/account/security"><LockKeyhole size={18} /><span><strong>Password & security</strong><small>Update your password and secure your account.</small></span><ArrowRight size={15} /></Link><Link to="/account/addresses"><MapPin size={18} /><span><strong>Delivery addresses</strong><small>Manage saved delivery locations.</small></span><ArrowRight size={15} /></Link></section>}
+        {path === '/account/settings' && <><section className="portal-panel portal-settings-links"><Link to="/account/profile"><UserRound size={18} /><span><strong>Personal information</strong><small>Manage your name and phone number.</small></span><ArrowRight size={15} /></Link><Link to="/account/security"><LockKeyhole size={18} /><span><strong>Password & security</strong><small>Update your password and secure your account.</small></span><ArrowRight size={15} /></Link><Link to="/account/addresses"><MapPin size={18} /><span><strong>Delivery addresses</strong><small>Manage saved delivery locations.</small></span><ArrowRight size={15} /></Link></section><section className="portal-panel"><div className="portal-section-heading"><div><span className="admin-kicker">EMAIL PREFERENCES</span><h2>KitCulture offers</h2></div></div>{marketingPreferenceQuery.isPending ? <div className="catalogue-state">Loading preferences...</div> : marketingPreferenceQuery.isError ? <div className="catalogue-state error-state">Email preferences are unavailable.</div> : <form className="portal-form" onSubmit={(event) => void updateMarketingPreference(event)}><label className="portal-checkbox"><input type="checkbox" name="consented" defaultChecked={marketingPreferenceQuery.data?.consented ?? false} key={String(marketingPreferenceQuery.dataUpdatedAt)} /> Send me occasional KitCulture offers and product updates.</label><small>Only verified, opted-in addresses receive marketing email. You can turn this off at any time.</small><button className="button button-green" type="submit" disabled={busy}>{busy ? 'Saving...' : 'Save email preferences'} <ArrowRight size={15} /></button></form>}</section></>}
   </div>
 }

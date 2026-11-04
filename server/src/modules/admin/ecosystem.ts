@@ -369,6 +369,38 @@ adminEcosystemRouter.post('/ecosystem/administrators/:id/status', async (request
 })
 
 adminEcosystemRouter.delete('/ecosystem/administrators/:id', async (request, response) => {
+  const archiveAdministratorsSchema = z.object({ ids: z.array(z.number().int().positive()).min(1).max(100).refine((ids) => new Set(ids).size === ids.length) }).strict()
+
+  adminEcosystemRouter.post('/ecosystem/administrators/archive', async (request, response) => {
+    const authorization = await requireSuperAdmin('administrators.manage', request, response)
+    if (!authorization || !adminDb) return
+    const input = archiveAdministratorsSchema.safeParse(request.body)
+    if (!input.success) return response.status(400).json({ error: { code: 'INVALID_ARCHIVE_SELECTION', message: 'Select between 1 and 100 unique administrator accounts.' } })
+    if (input.data.ids.includes(authorization.actor.id)) return response.status(409).json({ error: { code: 'SELF_ARCHIVE_FORBIDDEN', message: 'You cannot archive your own Super Administrator account.' } })
+
+    const result = await adminDb.transaction(async (transaction) => {
+      const targets = await transaction.select({ id: adminUsers.id, role: adminUsers.role, status: adminUsers.status })
+        .from(adminUsers).where(inArray(adminUsers.id, input.data.ids)).for('update')
+      if (targets.length !== input.data.ids.length) return { status: 404 as const }
+      const toArchive = targets.filter((target) => target.status !== 'disabled')
+      if (!toArchive.length) return { status: 200 as const, archived: 0 }
+      const activeSuperAdminCount = Number((await transaction.select({ total: count() }).from(adminUsers)
+        .where(and(eq(adminUsers.role, 'super_admin'), eq(adminUsers.status, 'active'))))[0]?.total ?? 0)
+      const activeSuperAdminsToArchive = toArchive.filter((target) => target.role === 'super_admin' && target.status === 'active').length
+      if (activeSuperAdminCount - activeSuperAdminsToArchive < 1) return { status: 409 as const }
+
+      const archivedIds = toArchive.map(({ id }) => id)
+      await transaction.update(adminUsers).set({ status: 'disabled', suspendedAt: new Date(), suspendedReason: 'Archived by Super Administrator' })
+        .where(inArray(adminUsers.id, archivedIds))
+      await transaction.delete(adminSessions).where(inArray(adminSessions.adminUserId, archivedIds))
+      await transaction.insert(adminAuditLogs).values(toArchive.map(({ id }) => ({ adminUserId: authorization.actor.id, action: 'administrator.archived', targetType: 'admin_user', targetId: String(id) })))
+      return { status: 200 as const, archived: archivedIds.length }
+    })
+    if (result.status === 404) return response.status(404).json({ error: { code: 'ADMIN_NOT_FOUND', message: 'One or more selected administrator accounts were not found.' } })
+    if (result.status === 409) return response.status(409).json({ error: { code: 'LAST_SUPER_ADMIN', message: 'At least one active Super Administrator must remain.' } })
+    response.json({ data: { archived: result.archived } })
+  })
+
   const authorization = await requireSuperAdmin('administrators.manage', request, response)
   if (!authorization || !adminDb) return
   const adminId = Number(request.params.id)

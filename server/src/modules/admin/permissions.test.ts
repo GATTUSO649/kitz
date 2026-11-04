@@ -88,6 +88,8 @@ test('Sales dashboard projection does not expose finance or inventory aggregates
 
 test('portal login requirement comes from the requested server route', () => {
   assert.equal(requiredAdministratorRole('/super-admin/login'), 'super_admin')
-  assert.equal(requiredAdministratorRole('/login', 'finance_admin'), 'finance_admin')
-  assert.equal(requiredAdministratorRole('/login'), undefined)
+  assert.equal(requiredAdministratorRole('/login', 'super_admin'), 'sales_admin')
+  assert.equal(requiredAdministratorRole('/finance-admin/login'), 'finance_admin')
+  assert.equal(requiredAdministratorRole('/content-admin/login'), 'content_admin')
+  assert.equal(requiredAdministratorRole('/login'), 'sales_admin')
 })

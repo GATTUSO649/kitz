@@ -4,7 +4,7 @@ import { env } from './env.js'
 import { emailDeliveryLogs } from '../database/schema.js'
 import nodemailer from 'nodemailer'
 
-export type EmailNotificationType = 'email_verification' | 'password_reset' | 'order_created' | 'order_paid' | 'order_update' | 'security_notice'
+export type EmailNotificationType = 'email_verification' | 'password_reset' | 'order_created' | 'order_paid' | 'order_update' | 'security_notice' | 'marketing_campaign'
 
 type EmailLogStatus = 'queued' | 'accepted' | 'delivered' | 'rejected' | 'failed'
 

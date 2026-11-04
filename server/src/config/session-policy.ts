@@ -1,8 +1,8 @@
 export const customerSessionIdleTimeoutMs = 60 * 60_000
 export const customerSessionAbsoluteLifetimeMs = 30 * 24 * 60 * 60_000
-export const adminSessionIdleTimeoutMs = 15 * 60_000
+export const adminSessionIdleTimeoutMs = 20 * 60_000
 export const adminSessionAbsoluteLifetimeMs = 8 * 60 * 60_000
-export const operationsSessionIdleTimeoutMs = 15 * 60_000
+export const operationsSessionIdleTimeoutMs = 20 * 60_000
 export const operationsSessionAbsoluteLifetimeMs = 8 * 60 * 60_000
 
 export function nextSessionExpiry(createdAt: Date, now: Date, idleTimeoutMs: number, absoluteLifetimeMs: number): Date | null {

@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type MouseEvent, type ReactNode } from 'react'
-import { Link, Navigate, useLocation, useNavigate, type NavigateFunction } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { userFacingErrorMessage } from '../components/notification-api'
 import { AdminApiError, formatAdminOrderNumber, isAdminSessionExpired } from './admin-tools'
 import { Activity, AlertTriangle, ArrowRight, ArrowUpDown, BarChart3, Bell, Check, CircleHelp, Copy, Database, Filter, Image as ImageIcon, LayoutDashboard, LogOut, MapPin, Menu, MessageCircle, Package, Search, Send, Shield, Star, Trash2, Trophy, Upload, Users, X } from 'lucide-react'
 import { GoogleMapView } from '../components/GoogleMapView'
+import '../role-portal-theme.css'
 import { matchesNationalTeam, NATIONAL_TEAM_NAMES } from '../nationalTeams'
 
 type AdminRecord = Record<string, unknown>
@@ -242,35 +243,8 @@ function AdminDashboardCharts({ data, showFinance }: { data: AdminRecord; showFi
   </section>
 }
 
-const adminAuthTransitionDurationMs = 620
-
-function transitionAdminAuth(event: MouseEvent<HTMLAnchorElement>, navigate: NavigateFunction, destination: string) {
-  event.preventDefault()
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    navigate(destination)
-    return
-  }
-  const root = document.documentElement
-  if (root.dataset.adminAuthTransition) return
-  root.dataset.adminAuthTransition = 'cover'
-  window.setTimeout(() => {
-    navigate(destination)
-    window.requestAnimationFrame(() => {
-      root.dataset.adminAuthTransition = 'reveal'
-      window.setTimeout(() => delete root.dataset.adminAuthTransition, adminAuthTransitionDurationMs)
-    })
-  }, adminAuthTransitionDurationMs)
-}
-
 function AdminAuthLayout({ children }: { children: ReactNode }) {
-  return <main className="admin-login-page"><section className="admin-auth-content"><div className="admin-auth-split">
-    <aside className="admin-auth-side">
-      <Link to="/" className="admin-auth-brand"><img src="/culture-mark.webp" alt="" /><span>KitCulture</span></Link>
-      <div className="admin-auth-side-copy"><span>RESTRICTED ADMIN ACCESS</span><h2>Matchday starts<br /><em>behind the scenes.</em></h2><p>Keep the catalogue, orders, and supporter experience in sync.</p></div>
-      <span className="admin-auth-side-footer">KITCULTURE OPERATIONS</span>
-    </aside>
-    <div className="admin-auth-fields">{children}</div>
-  </div><span className="auth-legal">© 2026 KitCulture · Restricted administrator access.</span></section></main>
+  return <main className="role-portal-login">{children}</main>
 }
 
 export function AdminLoginPage() {
@@ -299,77 +273,15 @@ export function AdminLoginPage() {
       setBusy(false)
     }
   }
-  return <AdminAuthLayout><form className="admin-login-card" onSubmit={(event) => void submit(event)}>
-    <Link to="/" className="admin-back">← KitCulture storefront</Link><span className="admin-kicker">RESTRICTED ADMIN ACCESS</span><h1>Administrator sign in</h1>
+  return <AdminAuthLayout><form className="role-portal-login-card" onSubmit={(event) => void submit(event)}>
+    <Link to="/" className="role-portal-login-brand"><img src="/culture-mark.webp" alt="" /><span>KitCulture</span></Link><span className="admin-kicker">RESTRICTED ADMIN ACCESS</span><h1>Administrator sign in</h1>
     <p>Sign in with your email address or assigned role number and password.</p>
     {new URLSearchParams(location.search).get('verified') === '1' && <p className="admin-success" role="status">Administrator email verified. You can sign in now.</p>}
-    {['expired', 'idle'].includes(new URLSearchParams(location.search).get('reason') ?? '') && <p className="admin-success" role="status">Your session has expired. Please sign in again to continue.</p>}
     <label>Email or role number<input name="identity" type="text" autoComplete="username" required maxLength={254} /></label>
     <label>Password<input name="password" type="password" autoComplete="current-password" required /></label>
     {error && <p className="admin-error" role="alert">{error}</p>}
-    <button className="button button-green" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'} <ArrowRight size={16} /></button>
-    <p className="auth-switch">Need an administrator account? <Link to="/admin/register" onClick={(event) => transitionAdminAuth(event, navigate, '/admin/register')}>Create one</Link></p>
+    <button className="role-portal-button" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
   </form></AdminAuthLayout>
-}
-
-export function AdminRegisterPage() {
-  const navigate = useNavigate()
-  const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [verificationUrl, setVerificationUrl] = useState('')
-  const setupQuery = useQuery({
-    queryKey: ['admin-registration-status'],
-    queryFn: () => api<{ available: boolean }>('/api/v1/admin/registration-status'),
-    retry: false,
-  })
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setError('')
-    const form = new FormData(event.currentTarget)
-    const password = String(form.get('password') ?? '')
-    if (password !== String(form.get('passwordConfirmation') ?? '')) {
-      setError('Passwords do not match.')
-      return
-    }
-    setBusy(true)
-    try {
-      const result = await api<{ verificationUrl: string }>('/api/v1/admin/register', {
-        method: 'POST',
-        body: JSON.stringify({
-          email: String(form.get('email')),
-          fullName: String(form.get('fullName')),
-          password,
-          secretKey: String(form.get('secretKey')),
-        }),
-      })
-      setVerificationUrl(result.verificationUrl)
-    } catch (issue) {
-      setError(issue instanceof Error ? issue.message : 'Administrator account creation failed.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return <AdminAuthLayout><section className="admin-login-card">
-    <Link to="/admin/login" className="admin-back" onClick={(event) => transitionAdminAuth(event, navigate, '/admin/login')}>← Administrator sign in</Link><span className="admin-kicker">RESTRICTED ADMIN SETUP</span><h1>Create administrator account</h1>
-    {verificationUrl
-      ? <><p>Account created. Use the one-time verification link below to activate the administrator account. It expires in 30 minutes.</p><Link className="button button-green" to={verificationUrl}>Verify administrator email <ArrowRight size={16} /></Link></>
-      : setupQuery.isPending
-        ? <p>Checking administrator setup…</p>
-        : !setupQuery.isError && !setupQuery.data?.available
-            ? <><p>Administrator signup is unavailable. The site owner must configure the signup key before accounts can be created.</p><Link className="button button-green" to="/admin/login" onClick={(event) => transitionAdminAuth(event, navigate, '/admin/login')}>Go to administrator sign in <ArrowRight size={16} /></Link></>
-            : <>{setupQuery.isError && <p className="admin-error" role="alert">{setupQuery.error.message}</p>}<form onSubmit={(event) => void submit(event)}>
-              <p>Enter the setup key configured by the site owner. Every administrator account must be verified before sign-in.</p>
-              <label>Full name<input name="fullName" autoComplete="name" required minLength={2} maxLength={160} /></label>
-              <label>Email<input name="email" type="email" autoComplete="email" required maxLength={254} /></label>
-              <label>Password<input name="password" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label>
-              <label>Confirm password<input name="passwordConfirmation" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label>
-              <label>Administrator setup key<input name="secretKey" type="password" autoComplete="off" required maxLength={512} /></label>
-              {error && <p className="admin-error" role="alert">{error}</p>}
-              <button className="button button-green" type="submit" disabled={busy}>{busy ? 'Creating account…' : 'Create administrator account'} <ArrowRight size={16} /></button>
-            </form></>}
-  </section></AdminAuthLayout>
 }
 
 export function AdminOnboardingPage() {
@@ -410,8 +322,8 @@ export function AdminOnboardingPage() {
     }
   }
 
-  return <AdminAuthLayout><section className="admin-login-card">
-    <Link to="/admin/login" className="admin-back">← Administrator sign in</Link><span className="admin-kicker">SECURE ACTIVATION</span><h1>Complete administrator onboarding</h1>
+  return <AdminAuthLayout><section className="role-portal-login-card">
+    <Link to="/admin/login" className="role-portal-login-link">← Administrator sign in</Link><span className="admin-kicker">SECURE ACTIVATION</span><h1>Complete administrator onboarding</h1>
     {sent ? <><p>Check the invited email address to verify and activate this account.</p><button className="button button-green" type="button" onClick={() => navigate('/admin/login')}>Continue to sign in</button></>
       : !token ? <p className="admin-error" role="alert">The onboarding link is missing its invitation token.</p>
         : <form onSubmit={(event) => void submit(event)}><p>Use the email address and role number included in your invitation.</p><label>Email address<input name="email" type="email" autoComplete="email" required maxLength={254} /></label><label>Assigned role number<input name="roleNumber" defaultValue={roleFromUrl} required pattern="[A-Z]+-[0-9]+" maxLength={40} /></label><label>Password<input name="password" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label><label>Confirm password<input name="passwordConfirmation" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label>{error && <p className="admin-error" role="alert">{error}</p>}<button className="button button-green" type="submit" disabled={busy}>{busy ? 'Preparing activation…' : 'Continue to email verification'} <ArrowRight size={16} /></button></form>}
@@ -439,8 +351,8 @@ export function AdminVerifyPage() {
     return () => { active = false }
   }, [token, invitation, navigate])
 
-  return <AdminAuthLayout><section className="admin-login-card">
-    <Link to="/admin/login" className="admin-back">← Administrator sign in</Link><span className="admin-kicker">EMAIL VERIFICATION</span><h1>{error || !token ? 'Administrator verification could not be completed.' : 'Verifying administrator account…'}</h1>
+  return <AdminAuthLayout><section className="role-portal-login-card">
+    <Link to="/admin/login" className="role-portal-login-link">← Administrator sign in</Link><span className="admin-kicker">EMAIL VERIFICATION</span><h1>{error || !token ? 'Administrator verification could not be completed.' : 'Verifying administrator account…'}</h1>
     {!token ? <p className="admin-error" role="alert">The verification link is missing its token.</p> : error ? <p className="admin-error" role="alert">{error}</p> : <p>Please wait while we verify this one-time link. You’ll be redirected to sign in when it succeeds.</p>}
   </section></AdminAuthLayout>
 }
@@ -1743,6 +1655,68 @@ function itDuration(seconds: number) {
   return `${hours}h ${minutes}m`
 }
 
+function ItAuditPanel() {
+  const auditQuery = useInfiniteQuery({
+    queryKey: ['admin', 'it-audit'],
+    initialPageParam: undefined as number | undefined,
+    queryFn: async ({ pageParam }) => {
+      const query = new URLSearchParams({ limit: '25' })
+      if (pageParam) query.set('cursor', String(pageParam))
+      return apiPage<ItAuditEntry[]>(`/api/v1/admin/it/audit?${query}`)
+    },
+    getNextPageParam: (page) => page.pagination?.hasMore ? page.pagination.nextCursor ?? undefined : undefined,
+    retry: false,
+  })
+  const rows = auditQuery.data?.pages.flatMap((page) => page.data) ?? []
+  return <section className="admin-it-panel"><header><Shield size={18} /><div><span className="admin-kicker">APPEND-ONLY OPERATIONS HISTORY</span><h3>IT audit events</h3></div></header>{auditQuery.isPending ? <div className="admin-empty">Loading audit events...</div> : auditQuery.isError ? <div className="admin-empty admin-error">{auditQuery.error.message}</div> : <div className="admin-it-table-wrap"><table className="admin-it-table"><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Details</th></tr></thead><tbody>{rows.map((entry) => <tr key={entry.id}><td>{new Date(entry.createdAt).toLocaleString()}</td><td>{entry.actorName ?? itLabel(entry.actorType)}</td><td>{itLabel(entry.action)}</td><td>{entry.targetType} · {entry.targetId}</td><td>{entry.details ?? '—'}</td></tr>)}{!rows.length && <tr><td colSpan={5}>No IT audit events are recorded yet.</td></tr>}</tbody></table></div>}{auditQuery.hasNextPage && <button className="admin-it-button" type="button" onClick={() => void auditQuery.fetchNextPage()} disabled={auditQuery.isFetchingNextPage}>{auditQuery.isFetchingNextPage ? 'Loading...' : 'Load more'}</button>}</section>
+}
+
+function ItLineChart({ title, points, color, suffix }: { title: string; points: ItChartPoint[]; color: string; suffix?: string }) {
+  const maximum = Math.max(1, ...points.map((point) => point.value))
+  const coordinates = points.map((point, index) => ({
+    x: points.length < 2 ? 370 : 32 + (index * 676) / (points.length - 1),
+    y: 154 - (point.value / maximum) * 126,
+  }))
+  const path = coordinates.map(({ x, y }, index) => `${index ? 'L' : 'M'} ${x} ${y}`).join(' ')
+
+  return <article className="admin-it-chart-card">
+    <header><div><span className="admin-kicker">LAST 60 MINUTES · 5-MINUTE BUCKETS</span><h3>{title}</h3></div><strong>{points.at(-1)?.value ?? '—'}{points.length ? suffix : ''}</strong></header>
+    {points.length ? <>
+      <svg className="admin-it-line-chart" viewBox="0 0 740 190" role="img" aria-label={`${title} over the last 60 minutes`}>
+        {[28, 70, 112, 154].map((y) => <line key={y} x1="32" x2="708" y1={y} y2={y} className="admin-it-chart-gridline" />)}
+        <path d={path} fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+        {coordinates.map(({ x, y }, index) => <circle key={`${points[index].label}-${index}`} cx={x} cy={y} r="3" fill={color}><title>{points[index].label}: {points[index].value}{suffix}</title></circle>)}
+      </svg>
+      <div className="admin-it-chart-labels"><span>{points[0].label}</span><span>{points[Math.floor((points.length - 1) / 2)].label}</span><span>{points.at(-1)?.label}</span></div>
+    </> : <div className="admin-it-chart-empty">No request samples in this window.</div>}
+  </article>
+}
+
+function ItResponseDonut({ distribution }: { distribution: ItOverviewData['requests']['responseDistribution'] }) {
+  const total = distribution.success + distribution.redirect + distribution.clientError + distribution.serverError
+  const sections = [
+    { label: '2xx', value: distribution.success, color: '#62c89a' },
+    { label: '3xx', value: distribution.redirect, color: '#70b5f5' },
+    { label: '4xx', value: distribution.clientError, color: '#f1bf63' },
+    { label: '5xx', value: distribution.serverError, color: '#ef7777' },
+  ]
+  let accumulated = 0
+  const stops = sections.map((section) => {
+    const start = total ? (accumulated / total) * 100 : 0
+    accumulated += section.value
+    const end = total ? (accumulated / total) * 100 : 0
+    return `${section.color} ${start}% ${end}%`
+  })
+
+  return <article className="admin-it-chart-card admin-it-donut-card">
+    <header><div><span className="admin-kicker">LAST 60 MINUTES</span><h3>HTTP response mix</h3></div><strong>{total || '—'}<small> responses</small></strong></header>
+    <div className="admin-it-donut-layout">
+      <div className={`admin-it-donut${total ? '' : ' is-empty'}`} style={{ background: total ? `conic-gradient(${stops.join(', ')})` : undefined }} role="img" aria-label={total ? `Response codes across ${total} application requests` : 'No response codes recorded'}><span>{total || '—'}</span></div>
+      <ul className="admin-it-chart-legend">{sections.map((section) => <li key={section.label}><i style={{ backgroundColor: section.color }} /><span>{section.label}</span><strong>{total ? section.value : '—'}</strong></li>)}</ul>
+    </div>
+  </article>
+}
+
 function itBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes < 0) return 'Unavailable'
   return bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(0)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`
@@ -1786,12 +1760,7 @@ function ItIncidentPanel() {
     try {
       const created = await api<{ id: number }>('/api/v1/admin/it/incidents', {
         method: 'POST',
-        body: JSON.stringify({
-          severity: form.get('severity'),
-          affectedComponent: form.get('affectedComponent'),
-          title: form.get('title'),
-          description: form.get('description'),
-        }),
+        body: JSON.stringify({ severity: form.get('severity'), affectedComponent: form.get('affectedComponent'), title: form.get('title'), description: form.get('description') }),
       })
       event.currentTarget.reset()
       setSelectedId(created.id)
@@ -1852,68 +1821,6 @@ function ItIncidentPanel() {
   </div>
 }
 
-function ItAuditPanel() {
-  const auditQuery = useInfiniteQuery({
-    queryKey: ['admin', 'it-audit'],
-    initialPageParam: undefined as number | undefined,
-    queryFn: async ({ pageParam }) => {
-      const query = new URLSearchParams({ limit: '25' })
-      if (pageParam) query.set('cursor', String(pageParam))
-      return apiPage<ItAuditEntry[]>(`/api/v1/admin/it/audit?${query}`)
-    },
-    getNextPageParam: (page) => page.pagination?.hasMore ? page.pagination.nextCursor ?? undefined : undefined,
-    retry: false,
-  })
-  const rows = auditQuery.data?.pages.flatMap((page) => page.data) ?? []
-  return <section className="admin-it-panel"><header><Shield size={18} /><div><span className="admin-kicker">APPEND-ONLY OPERATIONS HISTORY</span><h3>IT audit events</h3></div></header>{auditQuery.isPending ? <div className="admin-empty">Loading audit events…</div> : auditQuery.isError ? <div className="admin-empty admin-error">{auditQuery.error.message}</div> : <div className="admin-it-table-wrap"><table className="admin-it-table"><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Details</th></tr></thead><tbody>{rows.map((entry) => <tr key={entry.id}><td>{new Date(entry.createdAt).toLocaleString()}</td><td>{entry.actorName ?? itLabel(entry.actorType)}</td><td>{itLabel(entry.action)}</td><td>{entry.targetType} · {entry.targetId}</td><td>{entry.details ?? '—'}</td></tr>)}{!rows.length && <tr><td colSpan={5}>No IT audit events are recorded yet.</td></tr>}</tbody></table></div>}{auditQuery.hasNextPage && <button className="admin-it-button" type="button" onClick={() => void auditQuery.fetchNextPage()} disabled={auditQuery.isFetchingNextPage}>{auditQuery.isFetchingNextPage ? 'Loading…' : 'Load more'}</button>}</section>
-}
-
-function ItLineChart({ title, points, color, suffix }: { title: string; points: ItChartPoint[]; color: string; suffix?: string }) {
-  const maximum = Math.max(1, ...points.map((point) => point.value))
-  const coordinates = points.map((point, index) => ({
-    x: points.length < 2 ? 370 : 32 + (index * 676) / (points.length - 1),
-    y: 154 - (point.value / maximum) * 126,
-  }))
-  const path = coordinates.map(({ x, y }, index) => `${index ? 'L' : 'M'} ${x} ${y}`).join(' ')
-
-  return <article className="admin-it-chart-card">
-    <header><div><span className="admin-kicker">LAST 60 MINUTES · 5-MINUTE BUCKETS</span><h3>{title}</h3></div><strong>{points.at(-1)?.value ?? '—'}{points.length ? suffix : ''}</strong></header>
-    {points.length ? <>
-      <svg className="admin-it-line-chart" viewBox="0 0 740 190" role="img" aria-label={`${title} over the last 60 minutes`}>
-        {[28, 70, 112, 154].map((y) => <line key={y} x1="32" x2="708" y1={y} y2={y} className="admin-it-chart-gridline" />)}
-        <path d={path} fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-        {coordinates.map(({ x, y }, index) => <circle key={`${points[index].label}-${index}`} cx={x} cy={y} r="3" fill={color}><title>{points[index].label}: {points[index].value}{suffix}</title></circle>)}
-      </svg>
-      <div className="admin-it-chart-labels"><span>{points[0].label}</span><span>{points[Math.floor((points.length - 1) / 2)].label}</span><span>{points.at(-1)?.label}</span></div>
-    </> : <div className="admin-it-chart-empty">No request samples in this window.</div>}
-  </article>
-}
-
-function ItResponseDonut({ distribution }: { distribution: ItOverviewData['requests']['responseDistribution'] }) {
-  const total = distribution.success + distribution.redirect + distribution.clientError + distribution.serverError
-  const sections = [
-    { label: '2xx', value: distribution.success, color: '#62c89a' },
-    { label: '3xx', value: distribution.redirect, color: '#70b5f5' },
-    { label: '4xx', value: distribution.clientError, color: '#f1bf63' },
-    { label: '5xx', value: distribution.serverError, color: '#ef7777' },
-  ]
-  let accumulated = 0
-  const stops = sections.map((section) => {
-    const start = total ? (accumulated / total) * 100 : 0
-    accumulated += section.value
-    const end = total ? (accumulated / total) * 100 : 0
-    return `${section.color} ${start}% ${end}%`
-  })
-
-  return <article className="admin-it-chart-card admin-it-donut-card">
-    <header><div><span className="admin-kicker">LAST 60 MINUTES</span><h3>HTTP response mix</h3></div><strong>{total || '—'}<small> responses</small></strong></header>
-    <div className="admin-it-donut-layout">
-      <div className={`admin-it-donut${total ? '' : ' is-empty'}`} style={{ background: total ? `conic-gradient(${stops.join(', ')})` : undefined }} role="img" aria-label={total ? `Response codes across ${total} application requests` : 'No response codes recorded'}><span>{total || '—'}</span></div>
-      <ul className="admin-it-chart-legend">{sections.map((section) => <li key={section.label}><i style={{ backgroundColor: section.color }} /><span>{section.label}</span><strong>{total ? section.value : '—'}</strong></li>)}</ul>
-    </div>
-  </article>
-}
-
 function ItMethodBars({ methods }: { methods: ItOverviewData['requests']['methods'] }) {
   const maximum = Math.max(1, ...methods.map((method) => method.requests))
   return <article className="admin-it-chart-card admin-it-method-chart">
@@ -1921,7 +1828,6 @@ function ItMethodBars({ methods }: { methods: ItOverviewData['requests']['method
     {methods.length ? <div className="admin-it-endpoint-bars">{methods.map((method) => <div key={method.method} className="admin-it-endpoint-bar-row"><span>{method.method}</span><div><i style={{ width: `${Math.max(3, (method.requests / maximum) * 100)}%` }} /></div><strong>{method.requests}</strong></div>)}</div> : <div className="admin-it-chart-empty">No request samples in this window.</div>}
   </article>
 }
-
 function ItOperationsPanel() {
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<'overview' | 'incidents' | 'audit'>('overview')
@@ -2048,6 +1954,7 @@ function ItOperationsPanel() {
 export function AdminConsole({ role }: { role: string | null }) {
   const location = useLocation()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [menuOpen, setMenuOpen] = useState(false)
   const [actionError, setActionError] = useState('')
   const [createdImageProductId, setCreatedImageProductId] = useState<number | undefined>()
@@ -2056,6 +1963,11 @@ export function AdminConsole({ role }: { role: string | null }) {
   const [customFrom, setCustomFrom] = useState(() => new Date().toISOString().slice(0, 10))
   const [customTo, setCustomTo] = useState(() => new Date().toISOString().slice(0, 10))
   const current = sections.find(([, , path]) => path === location.pathname) ?? sections[0]
+  const visibleSections = role === 'content_admin'
+    ? sections.filter(([id]) => ['products', 'football', 'homepage', 'categories'].includes(id))
+    : role === 'finance_admin'
+      ? sections.filter(([id]) => ['dashboard', 'payments', 'reports', 'expenses', 'audit'].includes(id))
+      : sections
   const endpoint = current[0] === 'dashboard' ? 'dashboard'
     : current[0] === 'football' ? 'catalogue-options'
     : current[0] === 'inventory' ? 'inventory/movements'
@@ -2085,23 +1997,34 @@ export function AdminConsole({ role }: { role: string | null }) {
   }, [sectionQuery.error, navigate])
 
   useEffect(() => {
-    const expireSession = () => navigate('/admin/login?reason=expired', { replace: true })
+    const expireSession = () => {
+      queryClient.removeQueries({ queryKey: ['admin'] })
+      queryClient.removeQueries({ queryKey: ['admin-session'] })
+      navigate('/admin/login', { replace: true })
+    }
     window.addEventListener(adminSessionExpiredEvent, expireSession)
     return () => window.removeEventListener(adminSessionExpiredEvent, expireSession)
-  }, [navigate])
+  }, [navigate, queryClient])
 
   useEffect(() => {
-    const idleTimeoutMs = 15 * 60_000
+    const idleTimeoutMs = 20 * 60_000
     const keepAliveThrottleMs = 30_000
     let idleTimer = 0
     let lastKeepAlive = Date.now()
     let signingOut = false
-    const leaveAdmin = (reason: 'idle' | 'expired' = 'idle') => {
+    const clearAdminQueries = () => {
+      void queryClient.removeQueries({ queryKey: ['admin'] })
+      void queryClient.removeQueries({ queryKey: ['admin-session'] })
+    }
+    const leaveAdmin = () => {
       if (signingOut) return
       signingOut = true
       void api('/api/v1/admin/logout', { method: 'POST' })
         .catch(() => undefined)
-        .finally(() => navigate(`/admin/login?reason=${reason}`, { replace: true }))
+        .finally(() => {
+          clearAdminQueries()
+          navigate('/admin/login', { replace: true })
+        })
     }
     const resetIdleTimer = () => {
       if (signingOut) return
@@ -2111,7 +2034,7 @@ export function AdminConsole({ role }: { role: string | null }) {
       if (now - lastKeepAlive < keepAliveThrottleMs) return
       lastKeepAlive = now
       void api('/api/v1/admin/session/activity', { method: 'POST' }).catch((issue: unknown) => {
-        if (isAdminSessionExpired(issue)) leaveAdmin('expired')
+        if (isAdminSessionExpired(issue)) leaveAdmin()
       })
     }
     const events: Array<keyof WindowEventMap> = ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart']
@@ -2121,10 +2044,14 @@ export function AdminConsole({ role }: { role: string | null }) {
       window.clearTimeout(idleTimer)
       events.forEach((eventName) => window.removeEventListener(eventName, resetIdleTimer))
     }
-  }, [navigate])
+  }, [navigate, queryClient])
 
   async function logout() {
-    try { await api('/api/v1/admin/logout', { method: 'POST' }) } finally { navigate('/admin/login', { replace: true }) }
+    try { await api('/api/v1/admin/logout', { method: 'POST' }) } finally {
+      queryClient.removeQueries({ queryKey: ['admin'] })
+      queryClient.removeQueries({ queryKey: ['admin-session'] })
+      navigate('/admin/login', { replace: true })
+    }
   }
   async function patchOrder(order: AdminRecord, status: string) {
     setActionError('')
@@ -2158,7 +2085,7 @@ export function AdminConsole({ role }: { role: string | null }) {
   ] : []
 
   return <div className="admin-app">
-    <aside className={menuOpen ? 'admin-sidebar is-open' : 'admin-sidebar'}><Link to="/" className="admin-brand"><img src="/culture-mark.webp" alt="" /> KitCulture <span>ADMIN</span></Link><nav aria-label="Admin modules">{sections.map(([id, title, path, Icon]) => <Link key={id} to={path} onClick={() => setMenuOpen(false)} className={current[0] === id ? 'active' : ''}><Icon size={17} />{title}</Link>)}</nav><button className="admin-logout" type="button" onClick={() => void logout()}><LogOut size={17} /> Sign out</button></aside>
+    <aside className={menuOpen ? 'admin-sidebar is-open' : 'admin-sidebar'}><Link to="/" className="admin-brand"><img src="/culture-mark.webp" alt="" /> KitCulture <span>ADMIN</span></Link><nav aria-label="Admin modules">{visibleSections.map(([id, title, path, Icon]) => <Link key={id} to={path} onClick={() => setMenuOpen(false)} className={current[0] === id ? 'active' : ''}><Icon size={17} />{title}</Link>)}</nav><button className="admin-logout" type="button" onClick={() => void logout()}><LogOut size={17} /> Sign out</button></aside>
     {menuOpen && <button className="admin-nav-scrim" aria-label="Close admin menu" onClick={() => setMenuOpen(false)} />}
     <main className={current[0] === 'products' ? 'admin-main admin-products-page' : current[0] === 'football' ? 'admin-main admin-football-page' : current[0] === 'homepage' ? 'admin-main admin-homepage-page' : current[0] === 'settings' ? 'admin-main admin-settings-page' : 'admin-main'}><header className="admin-topbar"><button type="button" className="admin-menu-toggle" aria-label={menuOpen ? 'Close menu' : 'Open menu'} onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X /> : <Menu />}</button><div><span className="admin-kicker">KITCULTURE OPERATIONS</span><h1>{current[1]}</h1></div><Link to="/" className="admin-store-link">View storefront ↗</Link></header>
       {current[0] === 'dashboard' && <div className="admin-report-toolbar"><label>Reporting period<select value={reportPeriod} onChange={(event) => setReportPeriod(event.target.value as typeof reportPeriod)}><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="last7days">Last 7 days</option><option value="last30days">Last 30 days</option><option value="thisMonth">This month</option><option value="lastMonth">Last month</option><option value="thisYear">This year</option><option value="custom">Custom range</option></select></label>{reportPeriod === 'custom' && <><label>From<input type="date" value={customFrom} max={customTo} onChange={(event) => setCustomFrom(event.target.value)} /></label><label>To<input type="date" value={customTo} min={customFrom} onChange={(event) => setCustomTo(event.target.value)} /></label></>}</div>}
@@ -2214,15 +2141,17 @@ export function AdminRoute() {
     queryKey: ['admin-session'],
     queryFn: () => api<{ user: { id: number; role?: string | null } }>('/api/v1/admin/me'),
     enabled: isAdminPortalRoute && !isAdminAuthRoute,
+    staleTime: 0,
+    refetchOnMount: 'always',
     retry: false,
   })
 
   if (location.pathname === '/admin/login') return <AdminLoginPage />
-  if (location.pathname === '/admin/register') return <AdminRegisterPage />
+  if (location.pathname === '/admin/register') return <Navigate to="/admin/login" replace />
   if (location.pathname === '/admin/onboarding') return <AdminOnboardingPage />
   if (location.pathname === '/admin/verify') return <AdminVerifyPage />
   if (isAdminPortalRoute) {
-    if (sessionQuery.isPending) return <main className="auth-checking" role="status">Checking administrator session…</main>
+    if (sessionQuery.isPending || sessionQuery.isFetching) return <main className="auth-checking" role="status">Checking administrator session…</main>
     if (sessionQuery.isError) {
       if (isAdminSessionExpired(sessionQuery.error)) return <Navigate to="/admin/login?reason=expired" replace />
       return <main className="auth-checking"><p role="alert">Administrator service unavailable: {sessionQuery.error.message}</p><button type="button" onClick={() => void sessionQuery.refetch()}>Retry</button></main>
