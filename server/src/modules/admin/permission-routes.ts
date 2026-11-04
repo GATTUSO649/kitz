@@ -23,9 +23,9 @@ const rules: PermissionRule[] = [
   { path: /^\/guest-orders(?:\/|$)/, read: ['sales.view'], write: ['sales.manage_orders'] },
   { path: /^\/(?:customers|support)(?:\/|$)/, read: ['sales.manage_customers'], write: ['sales.manage_customers'] },
   { path: /^\/delivery\/zones(?:\/|$)/, read: ['sales.manage_orders', 'inventory.manage_fulfilment'], write: ['sales.manage_orders', 'inventory.manage_fulfilment'] },
-  { path: /^\/notifications(?:\/|$)/, read: ['sales.manage_customers', 'marketing.manage_campaigns'], write: ['sales.manage_customers', 'marketing.manage_campaigns'] },
+  { path: /^\/notifications(?:\/|$)/, read: ['sales.manage_customers', 'marketing.notifications.manage', 'marketing.campaigns.view', 'marketing.manage_campaigns'], write: ['sales.manage_customers', 'marketing.notifications.manage', 'marketing.campaigns.publish', 'marketing.manage_campaigns'] },
   { path: /^\/settings\/?$/, read: ['application.manage_settings'], write: ['application.manage_settings'] },
-  { path: /^\/audit\/?$/, read: ['audit.view', 'inventory.audit.view'] },
+  { path: /^\/audit\/?$/, read: ['audit.view', 'inventory.audit.view', 'marketing.audit.view'] },
 ]
 
 export function administratorPermissionsForRoute(method: string, path: string): readonly AdministratorPermission[] | null {

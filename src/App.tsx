@@ -26,6 +26,8 @@ import { WhatsAppProductLink } from './components/WhatsAppProductLink'
 import { useStoreWhatsAppNumber } from './components/whatsapp-product'
 
 const AdminRoute = lazy(() => import('./pages/AdminPages').then((module) => ({ default: module.AdminRoute })))
+const AdminAccessPage = lazy(() => import('./pages/AdminAccessPage').then((module) => ({ default: module.AdminAccessPage })))
+const AdminActivationPage = lazy(() => import('./pages/AdminAccessPage').then((module) => ({ default: module.AdminActivationPage })))
 const OperationsRoute = lazy(() => import('./pages/OperationsPages').then((module) => ({ default: module.OperationsRoute })))
 const SuperAdminRoute = lazy(() => import('./pages/SuperAdminPages').then((module) => ({ default: module.SuperAdminRoute })))
 const SuperAdminConsole = lazy(() => import('./pages/SuperAdminConsole').then((module) => ({ default: module.SuperAdminConsole })))
@@ -845,6 +847,8 @@ function App() {
   }
 
   if (pagePath === '/admin/register') return <Suspense fallback={<DelayedBrandLoader label="Loading Super Administrator setup" />}><SuperAdminRoute /></Suspense>
+  if (pagePath === '/admin/access') return <Suspense fallback={<DelayedBrandLoader label="Loading administrator portals" />}><AdminAccessPage /></Suspense>
+  if (pagePath === '/admin/activate') return <Suspense fallback={<DelayedBrandLoader label="Loading administrator activation" />}><AdminActivationPage /></Suspense>
   if (isSuperAdminPage) {
     const isSuperAdminAuthRoute = ['/super-admin/signup', '/super-admin/login', '/super-admin/verify'].includes(pagePath)
     return <Suspense fallback={<DelayedBrandLoader label="Loading Super Administrator" />}>{isSuperAdminAuthRoute ? <SuperAdminRoute /> : <SuperAdminConsole />}</Suspense>

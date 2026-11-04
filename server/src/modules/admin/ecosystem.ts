@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import { hash } from 'bcryptjs'
+import bcrypt, { hash } from 'bcryptjs'
 import { and, asc, count, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { Router, type NextFunction, type Request, type Response } from 'express'
 import { rateLimit } from 'express-rate-limit'
@@ -96,6 +96,61 @@ const onboardingSchema = z.object({
   password: bcryptPasswordSchema(14),
   confirmPassword: z.string(),
 }).strict().refine((value) => value.password === value.confirmPassword, { path: ['confirmPassword'], message: 'Passwords do not match.' })
+
+const activationSchema = z.object({
+  token: z.string().min(32).max(128),
+  roleNumber: z.string().trim().min(4).max(40).transform((value) => value.toUpperCase()),
+}).strict()
+
+const activationPasswordSchema = activationSchema.extend({
+  password: bcryptPasswordSchema(14),
+  confirmPassword: z.string(),
+}).strict().refine((value) => value.password === value.confirmPassword, { path: ['confirmPassword'], message: 'Passwords do not match.' })
+
+async function findPendingInvitation(token: string, roleNumber: string) {
+  if (!adminDb) return null
+  const [invitation] = await adminDb.select({
+    id: adminInvitations.id, adminUserId: adminInvitations.adminUserId, email: adminInvitations.email,
+    tokenHash: adminInvitations.tokenHash, passwordHash: adminInvitations.passwordHash,
+    expiresAt: adminInvitations.expiresAt, consumedAt: adminInvitations.consumedAt,
+    roleNumber: adminUsers.roleNumber, status: adminUsers.status,
+  }).from(adminInvitations).innerJoin(adminUsers, eq(adminUsers.id, adminInvitations.adminUserId))
+    .where(and(eq(adminInvitations.tokenHash, tokenHash(token)), eq(adminUsers.roleNumber, roleNumber))).limit(1)
+  if (!invitation || invitation.consumedAt || invitation.status !== 'pending' || invitation.expiresAt.getTime() <= Date.now()) return null
+  return invitation
+}
+
+adminEcosystemRouter.post('/activate', async (request, response) => {
+  const input = activationSchema.safeParse(request.body)
+  if (!input.success || !adminDb) return response.status(400).json({ error: { code: 'INVALID_ACTIVATION', message: 'The activation link or role number is invalid.' } })
+  const invitation = await findPendingInvitation(input.data.token, input.data.roleNumber)
+  if (!invitation) return response.status(400).json({ error: { code: 'INVALID_ACTIVATION', message: 'The activation link is invalid, expired, or does not match the role number.' } })
+  await adminDb.update(adminInvitations).set({ passwordHash: await hash(input.data.roleNumber, 12) }).where(eq(adminInvitations.id, invitation.id))
+  response.json({ data: { activated: true, roleNumber: invitation.roleNumber } })
+})
+
+adminEcosystemRouter.post('/activate/password', async (request, response) => {
+  const input = activationPasswordSchema.safeParse(request.body)
+  if (!input.success || !adminDb) return response.status(400).json({ error: { code: 'INVALID_PASSWORD_CHANGE', message: 'Enter a valid role number and password.' } })
+  const invitation = await findPendingInvitation(input.data.token, input.data.roleNumber)
+  if (!invitation || !invitation.passwordHash || !(await bcrypt.compare(input.data.roleNumber, invitation.passwordHash))) {
+    return response.status(400).json({ error: { code: 'ACTIVATION_REQUIRED', message: 'Activate with the assigned role number before changing the password.' } })
+  }
+  const passwordHash = await hash(input.data.password, 12)
+  await adminDb.transaction(async (transaction) => {
+    await transaction.update(adminInvitations).set({ passwordHash }).where(eq(adminInvitations.id, invitation.id))
+    await transaction.insert(adminAuditLogs).values({ adminUserId: invitation.adminUserId, action: 'administrator.password_initialized', targetType: 'admin_user', targetId: String(invitation.adminUserId) })
+  })
+  const verificationUrl = buildAbsoluteUrl(`/admin/verify?token=${encodeURIComponent(input.data.token)}&invitation=1`)
+  const delivery = await sendTransactionalEmail({
+    to: invitation.email,
+    subject: 'Verify your KitCulture administrator account',
+    text: `Verify your administrator account using this link: ${verificationUrl}`,
+    html: customerEmailTemplate({ title: 'Verify administrator account', intro: 'Your password has been set. Verify your email address to activate administrator sign-in.', actionLabel: 'Verify administrator account', actionUrl: verificationUrl, footer: 'This link expires in 60 minutes.' }),
+    notificationType: 'email_verification',
+  })
+  response.status(202).json({ data: { pendingVerification: true, deliveryStatus: delivery.status, deliveryErrorCode: delivery.reason } })
+})
 
 adminEcosystemRouter.post('/onboarding', async (request, response) => {
   const input = onboardingSchema.safeParse(request.body)
@@ -230,7 +285,7 @@ adminEcosystemRouter.post('/ecosystem/administrators/invite', async (request, re
     return { id: dummy.id, roleNumber }
   })
   if (!created) return response.status(409).json({ error: { code: 'ADMIN_EMAIL_EXISTS', message: 'An administrator with that email already exists.' } })
-  const url = buildAbsoluteUrl(`/admin/onboarding?token=${encodeURIComponent(rawToken)}&role=${encodeURIComponent(created.roleNumber ?? '')}`)
+  const url = buildAbsoluteUrl(`/admin/activate?token=${encodeURIComponent(rawToken)}`)
   const delivery = await sendTransactionalEmail({ to: email, subject: 'Your KitCulture administrator invitation', text: `Open this secure onboarding link: ${url}`, html: customerEmailTemplate({ title: 'Administrator invitation', intro: `Your role number is ${created.roleNumber}. Complete secure onboarding before activation.`, actionLabel: 'Complete administrator onboarding', actionUrl: url, footer: 'This invitation expires in 72 hours.' }), notificationType: 'email_verification' })
   await adminDb.update(adminInvitations).set({ deliveredAt: delivery.status === 'accepted' ? new Date() : null, deliveryStatus: delivery.status === 'accepted' ? 'accepted' : delivery.status }).where(eq(adminInvitations.adminUserId, created.id))
   response.status(201).json({ data: { id: created.id, roleNumber: created.roleNumber, deliveryStatus: delivery.status === 'accepted' ? 'accepted' : delivery.status } })
@@ -381,7 +436,7 @@ adminEcosystemRouter.post('/ecosystem/administrators/:id/invitation/resend', asy
   const rawToken = randomBytes(32).toString('base64url')
   const expiresAt = new Date(Date.now() + 72 * 60 * 60_000)
   await adminDb.update(adminInvitations).set({ tokenHash: tokenHash(rawToken), expiresAt, deliveryStatus: 'queued' }).where(eq(adminInvitations.id, invitation.id))
-  const url = buildAbsoluteUrl(`/admin/onboarding?token=${encodeURIComponent(rawToken)}&role=${encodeURIComponent(invitation.roleNumber ?? '')}`)
+  const url = buildAbsoluteUrl(`/admin/activate?token=${encodeURIComponent(rawToken)}`)
   const delivery = await sendTransactionalEmail({ to: invitation.email, subject: 'KitCulture administrator invitation reminder', text: `Complete your administrator onboarding: ${url}`, html: customerEmailTemplate({ title: 'Administrator invitation reminder', intro: 'Your administrator invitation is still pending.', actionLabel: 'Complete administrator onboarding', actionUrl: url, footer: 'This renewed invitation expires in 72 hours.' }), notificationType: 'email_verification' })
   await adminDb.update(adminInvitations).set({ deliveredAt: delivery.status === 'accepted' ? new Date() : null, deliveryStatus: delivery.status === 'accepted' ? 'accepted' : delivery.status }).where(eq(adminInvitations.id, invitation.id))
   response.json({ data: { deliveryStatus: delivery.status === 'accepted' ? 'accepted' : delivery.status } })

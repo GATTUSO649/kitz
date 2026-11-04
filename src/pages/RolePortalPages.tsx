@@ -8,7 +8,7 @@ import '../role-portal-theme.css'
 const roleConfig = {
   'finance-admin': { role: 'finance_admin', title: 'Finance Operations', modules: ['Dashboard', 'Payments', 'M-Pesa', 'Reconciliation', 'Refunds', 'Revenue', 'Outstanding Payments', 'Expenses', 'Financial Reports', 'Analytics', 'Audit Logs', 'Notifications', 'Settings'], endpoints: { Payments: '/api/v1/admin/payments', Expenses: '/api/v1/admin/expenses', 'Financial Reports': '/api/v1/admin/reports/financial', 'Audit Logs': '/api/v1/admin/audit', Notifications: '/api/v1/admin/notifications' }, icon: CircleDollarSign },
   'inventory-admin': { role: 'inventory_admin', title: 'Inventory and Logistics', modules: ['Dashboard', 'Stock Management', 'Stock Movements', 'Low Stock', 'Out of Stock', 'Suppliers', 'Purchase Orders', 'Goods Receiving', 'Fulfillment', 'Returns', 'Analytics', 'Reports', 'Audit Logs', 'Notifications', 'Settings'], endpoints: { 'Stock Management': '/api/v1/admin/products', 'Stock Movements': '/api/v1/admin/inventory/movements', Fulfillment: '/api/v1/admin/orders', 'Audit Logs': '/api/v1/admin/audit' }, icon: Boxes },
-  'marketing-admin': { role: 'marketing_admin', title: 'Marketing Operations', modules: ['Overview', 'Campaigns', 'Promotions', 'Notifications'], endpoints: { Campaigns: '/api/v1/admin/notifications', Promotions: '/api/v1/admin/notifications', Notifications: '/api/v1/admin/notifications' }, icon: Megaphone },
+  'marketing-admin': { role: 'marketing_admin', title: 'Marketing Operations', modules: ['Dashboard', 'Campaigns', 'Promotions', 'Coupons', 'Audiences', 'Email Marketing', 'Notifications', 'Content Promotion', 'Analytics', 'Reports', 'Audit Logs', 'Settings'], endpoints: { Campaigns: '/api/v1/admin/notifications', Notifications: '/api/v1/admin/notifications', 'Audit Logs': '/api/v1/admin/audit' }, icon: Megaphone },
   'content-admin': { role: 'content_admin', title: 'Products and Content', modules: ['Overview', 'Products', 'Categories', 'Homepage'], endpoints: { Products: '/api/v1/admin/products', Categories: '/api/v1/admin/categories', Homepage: '/api/v1/admin/homepage' }, icon: Package },
 } as const
 
@@ -180,6 +180,54 @@ function InventoryWorkspace({ prefix }: { prefix: keyof typeof roleConfig }) {
   return <main className="admin-it-page super-admin-page role-portal-shell inventory-portal-shell"><aside className="super-admin-sidebar role-portal-sidebar"><Link to="/" className="admin-brand"><img src="/culture-mark.webp" alt="" /> KitCulture</Link><strong>{config.title}</strong><nav>{config.modules.map((module) => <button type="button" key={module} className={activeModule === module ? 'active' : ''} onClick={() => { setActiveModule(module); setError(''); setNotice('') }}>{module}</button>)}</nav><button type="button" className="admin-it-button role-portal-signout" onClick={() => void signOutRolePortal(navigate, prefix)}>Sign out</button></aside><section className="super-admin-main role-portal-main inventory-portal-main"><header><div><span className="admin-kicker">INVENTORY CONTROL CENTRE</span><h1>{activeModule}</h1><p className="inventory-header-copy">Stock visibility, movement accountability, and fulfillment readiness for KitCulture.</p></div><Boxes size={24} /></header>{notice && <p className="inventory-notice" role="status">{notice}</p>}{error && <p className="inventory-error" role="alert">{error}</p>}{portal.isError || products.isError ? <div className="admin-empty admin-error">Inventory data is unavailable: {(portal.error ?? products.error)?.message}</div> : panel}{activeModule === 'Stock Management' && <section className="inventory-panel"><header><div><span className="admin-kicker">CONTROLLED MUTATION</span><h2>Adjust stock</h2></div><Boxes size={19} /></header><form className="inventory-adjust-form" onSubmit={(event) => void adjustStock(event)}><label>Variant<select value={selectedVariant} onChange={(event) => setSelectedVariant(event.target.value)} required><option value="">Select product variant</option>{stockRows.map((row) => <option key={row.id} value={row.id}>{row.product} · {row.size} · current {row.stock}</option>)}</select></label><label>Quantity change<input name="delta" type="number" min="-100000" max="100000" step="1" required placeholder="Positive to receive, negative to remove" /></label><label>Reason<input name="note" required maxLength={500} placeholder="Count correction, damaged, returned, received..." /></label><button className="role-portal-button" type="submit" disabled={!selectedVariant}>Record adjustment</button></form></section>}</section></main>
 }
 
+type MarketingCampaign = { id: number; type: string; title: string; body: string; href: string | null; audienceType: string; createdAt: string; recipientCount: number; unreadCount: number | null }
+
+function MarketingTable({ rows }: { rows: Record<string, unknown>[] }) {
+  if (!rows.length) return <div className="admin-empty">No marketing records are available.</div>
+  const columns = Object.keys(rows[0]).slice(0, 7)
+  return <div className="admin-it-table-wrap"><table className="admin-it-table"><thead><tr>{columns.map((column) => <th key={column}>{column.replace(/([A-Z])/g, ' $1')}</th>)}</tr></thead><tbody>{rows.slice(0, 50).map((row, index) => <tr key={String(row.id ?? index)}>{columns.map((column) => <td key={column}>{row[column] === null || row[column] === undefined ? '—' : typeof row[column] === 'object' ? JSON.stringify(row[column]) : String(row[column])}</td>)}</tr>)}</tbody></table></div>
+}
+
+function MarketingUnavailable({ title, detail }: { title: string; detail: string }) {
+  return <section className="marketing-panel marketing-unavailable"><AlertTriangle size={22} /><span className="admin-kicker">CONTROL NOT CONNECTED</span><h2>{title}</h2><p>{detail}</p></section>
+}
+
+function MarketingWorkspace({ prefix }: { prefix: keyof typeof roleConfig }) {
+  const navigate = useNavigate()
+  const [activeModule, setActiveModule] = useState('Dashboard')
+  const [notice, setNotice] = useState('')
+  const [error, setError] = useState('')
+  const config = roleConfig[prefix]
+  const portal = useQuery({ queryKey: ['marketing-portal'], queryFn: () => roleApi<PortalData>('/api/v1/admin/portal/marketing_admin'), retry: false })
+  const campaigns = useQuery({ queryKey: ['marketing-campaigns'], queryFn: () => roleApi<MarketingCampaign[]>('/api/v1/admin/notifications'), enabled: ['Dashboard', 'Campaigns', 'Notifications'].includes(activeModule), retry: false })
+  const audit = useQuery({ queryKey: ['marketing-audit'], queryFn: () => roleApi<Record<string, unknown>[]>('/api/v1/admin/audit'), enabled: activeModule === 'Audit Logs', retry: false })
+  const campaignRows = (campaigns.data ?? []).filter((campaign) => campaign.type === 'announcement')
+  const totalRecipients = campaignRows.reduce((total, campaign) => total + Number(campaign.recipientCount || 0), 0)
+  const totalUnread = campaignRows.reduce((total, campaign) => total + Number(campaign.unreadCount || 0), 0)
+
+  async function createCampaign(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    setError('')
+    setNotice('')
+    try {
+      const result = await roleApi<{ recipientCount: number }>('/api/v1/admin/notifications', { method: 'POST', body: JSON.stringify({ title: form.get('title'), body: form.get('body'), href: form.get('href') || undefined, audience: 'all' }) })
+      event.currentTarget.reset()
+      setNotice(`Notification campaign sent to ${result.recipientCount} customers.`)
+      await Promise.all([campaigns.refetch(), portal.refetch()])
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Campaign could not be sent.')
+    }
+  }
+
+  const panel = activeModule === 'Dashboard' ? <>
+    <div className="marketing-kpi-grid">{[['Campaigns', campaignRows.length], ['Recipients reached', totalRecipients], ['Unread responses', totalUnread], ['Active promotions', 'Unavailable'], ['Email delivery', 'Unavailable'], ['Attributed revenue', 'Unavailable']].map(([label, value]) => <article key={String(label)}><span>{label}</span><strong>{String(value)}</strong></article>)}</div>
+    <div className="marketing-panel-grid"><section className="marketing-panel"><header><div><span className="admin-kicker">CAMPAIGN ACTIVITY</span><h2>Recent campaign reach</h2></div><Megaphone size={19} /></header><div className="marketing-bars">{campaignRows.slice(0, 6).map((campaign) => <div key={campaign.id}><span>{campaign.title}</span><i><b style={{ width: `${Math.max(4, Number(campaign.recipientCount) / Math.max(1, totalRecipients) * 100)}%` }} /></i><strong>{campaign.recipientCount}</strong></div>)}</div>{!campaignRows.length && <div className="admin-empty">No notification campaigns have been sent.</div>}</section><section className="marketing-panel"><header><div><span className="admin-kicker">ANALYTICS COVERAGE</span><h2>What is measurable</h2></div><BarChart3 size={19} /></header><div className="marketing-coverage"><p>Customer delivery and unread counts are available.</p><p>Open, click, conversion, and revenue attribution tracking is unavailable.</p></div></section></div>
+    <section className="marketing-panel"><header><div><span className="admin-kicker">RECENT CAMPAIGNS</span><h2>Campaign history</h2></div><ShoppingBag size={19} /></header><MarketingTable rows={campaignRows as unknown as Record<string, unknown>[]} /></section>
+  </> : activeModule === 'Campaigns' || activeModule === 'Notifications' ? <><section className="marketing-panel"><header><div><span className="admin-kicker">CUSTOMER NOTIFICATION CAMPAIGN</span><h2>{activeModule === 'Campaigns' ? 'Create campaign' : 'Compose notification'}</h2></div><Megaphone size={19} /></header><p className="marketing-panel-copy">This uses the existing in-app customer notification service and sends immediately to all customers. Scheduling, consent suppression, and email delivery are not represented by the current backend.</p><form className="marketing-campaign-form" onSubmit={(event) => void createCampaign(event)}><label>Campaign title<input name="title" required minLength={2} maxLength={160} /></label><label>Message<textarea name="body" required minLength={2} maxLength={2000} rows={4} /></label><label>In-app destination (optional)<input name="href" maxLength={320} placeholder="/account/marketplace" /></label>{error && <p className="marketing-error" role="alert">{error}</p>}{notice && <p className="marketing-notice" role="status">{notice}</p>}<button className="role-portal-button" type="submit">Send campaign</button></form></section><section className="marketing-panel"><header><div><span className="admin-kicker">DELIVERY HISTORY</span><h2>Sent campaigns</h2></div><FileText size={19} /></header><MarketingTable rows={campaignRows as unknown as Record<string, unknown>[]} /></section></> : activeModule === 'Audit Logs' ? <section className="marketing-panel"><header><div><span className="admin-kicker">MARKETING ACCOUNTABILITY</span><h2>Audit logs</h2></div><FileText size={19} /></header><MarketingTable rows={audit.data ?? []} /></section> : <MarketingUnavailable title={`${activeModule} is not connected`} detail="This workflow requires an additive marketing schema, consent-aware backend contract, and audited server operation before it can be enabled." />
+  return <main className="admin-it-page super-admin-page role-portal-shell marketing-portal-shell"><aside className="super-admin-sidebar role-portal-sidebar"><Link to="/" className="admin-brand"><img src="/culture-mark.webp" alt="" /> KitCulture</Link><strong>{config.title}</strong><nav>{config.modules.map((module) => <button type="button" key={module} className={activeModule === module ? 'active' : ''} onClick={() => { setActiveModule(module); setError(''); setNotice('') }}>{module}</button>)}</nav><button type="button" className="admin-it-button role-portal-signout" onClick={() => void signOutRolePortal(navigate, prefix)}>Sign out</button></aside><section className="super-admin-main role-portal-main marketing-portal-main"><header><div><span className="admin-kicker">MARKETING MANAGEMENT CENTRE</span><h1>{activeModule}</h1><p className="marketing-header-copy">Campaign communication and measurable customer engagement for KitCulture.</p></div><Megaphone size={24} /></header>{portal.isError ? <div className="admin-empty admin-error">Marketing data is unavailable: {portal.error.message}</div> : panel}</section></main>
+}
+
 export function RolePortalRoute() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -230,6 +278,7 @@ function RolePortalDashboard() {
   if (!config) return <main className="admin-empty">Unknown administrator portal.</main>
   if (prefix === 'finance-admin') return <FinanceWorkspace prefix={prefix} />
   if (prefix === 'inventory-admin') return <InventoryWorkspace prefix={prefix} />
+  if (prefix === 'marketing-admin') return <MarketingWorkspace prefix={prefix} />
   const Icon = config.icon
   const metrics = Object.entries(portal.data?.metrics ?? {})
   const maximum = Math.max(1, ...((portal.data?.series ?? []).map((point) => point.value)))

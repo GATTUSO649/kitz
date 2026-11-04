@@ -49,6 +49,13 @@ test('Inventory Admin permissions cover stock, movement, and fulfillment boundar
   assert.equal(hasAnyPermission(defaultAdministratorPermissions.finance_admin, administratorPermissionsForRoute('POST', '/products/15/variants/22/stock') ?? []), false)
 })
 
+test('Marketing Admin permissions cover campaign notification boundaries', () => {
+  const marketing = defaultAdministratorPermissions.marketing_admin
+  assert.equal(hasAnyPermission(marketing, administratorPermissionsForRoute('GET', '/notifications') ?? []), true)
+  assert.equal(hasAnyPermission(marketing, administratorPermissionsForRoute('POST', '/notifications') ?? []), true)
+  assert.equal(hasAnyPermission(defaultAdministratorPermissions.finance_admin, administratorPermissionsForRoute('POST', '/notifications') ?? []), false)
+})
+
 test('unclassified business routes are not assigned an accidental permission', () => {
   assert.equal(administratorPermissionsForRoute('POST', '/unreviewed-route'), null)
 })
