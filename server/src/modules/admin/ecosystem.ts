@@ -17,6 +17,7 @@ import { loadAdministratorPermissions, permissionDescriptions, validatePermissio
 
 export const adminEcosystemRouter = Router()
 const bootstrapLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 5, standardHeaders: true, legacyHeaders: false })
+const verificationEmailLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 3, standardHeaders: true, legacyHeaders: false, message: { error: { code: 'VERIFICATION_EMAIL_RATE_LIMITED', message: 'Too many verification emails were requested. Please wait 15 minutes before trying again.' } } })
 const tokenHash = (token: string) => createHash('sha256').update(token).digest('hex')
 const secretMatches = (candidate: string, configured?: string) => {
   if (!configured) return false
@@ -150,7 +151,7 @@ adminEcosystemRouter.post('/activate', async (request, response) => {
   response.json({ data: { activated: true, roleNumber: invitation.roleNumber, email: invitation.email } })
 })
 
-adminEcosystemRouter.post('/activate/password', async (request, response) => {
+adminEcosystemRouter.post('/activate/password', verificationEmailLimiter, async (request, response) => {
   const input = activationPasswordSchema.safeParse(request.body)
   if (!input.success || !adminDb) return response.status(400).json({ error: { code: 'INVALID_PASSWORD_CHANGE', message: 'Enter a valid role number and password.' } })
   const invitation = await findPendingInvitation(input.data.token, input.data.roleNumber)
@@ -166,7 +167,7 @@ adminEcosystemRouter.post('/activate/password', async (request, response) => {
   response.status(202).json({ data: { pendingVerification: true, ...delivery } })
 })
 
-adminEcosystemRouter.post('/activate/verification/resend', async (request, response) => {
+adminEcosystemRouter.post('/activate/verification/resend', verificationEmailLimiter, async (request, response) => {
   const input = activationVerificationSchema.safeParse(request.body)
   if (!input.success || !adminDb) return response.status(400).json({ error: { code: 'INVALID_ACTIVATION', message: 'The activation link or role number is invalid.' } })
   const invitation = await findPendingInvitation(input.data.token, input.data.roleNumber)
@@ -179,7 +180,7 @@ adminEcosystemRouter.post('/activate/verification/resend', async (request, respo
   response.status(202).json({ data: { pendingVerification: true, ...delivery } })
 })
 
-adminEcosystemRouter.post('/onboarding', async (request, response) => {
+adminEcosystemRouter.post('/onboarding', verificationEmailLimiter, async (request, response) => {
   const input = onboardingSchema.safeParse(request.body)
   if (!input.success) return response.status(400).json({ error: { code: 'INVALID_ONBOARDING', message: 'Invitation details are invalid.' } })
   if (!adminDb) return response.status(503).json({ error: { code: 'ADMIN_DATABASE_UNAVAILABLE', message: 'Administrator database is unavailable.' } })
@@ -333,11 +334,14 @@ adminEcosystemRouter.patch('/ecosystem/administrators/:id/role', async (request,
   if (input.data.role === 'super_admin') return response.status(403).json({ error: { code: 'SUPER_ADMIN_ASSIGNMENT_PROTECTED', message: 'Super Administrator assignment requires the dedicated workflow.' } })
   const [target] = await adminDb.select({ role: adminUsers.role }).from(adminUsers).where(eq(adminUsers.id, adminId)).limit(1)
   if (!target) return response.status(404).json({ error: { code: 'ADMIN_NOT_FOUND', message: 'Administrator was not found.' } })
+  if (target.role === input.data.role) return response.json({ data: { updated: false } })
   await adminDb.transaction(async (transaction) => {
     await transaction.update(adminUsers).set({ role: input.data.role }).where(eq(adminUsers.id, adminId))
+    await transaction.delete(adminUserPermissions).where(eq(adminUserPermissions.adminUserId, adminId))
+    await transaction.delete(adminSessions).where(eq(adminSessions.adminUserId, adminId))
     await transaction.insert(adminAuditLogs).values({ adminUserId: authorization.actor.id, action: 'administrator.role_changed', targetType: 'admin_user', targetId: String(adminId) })
   })
-  response.json({ data: { updated: true } })
+  response.json({ data: { updated: true, sessionsRevoked: true, permissionOverridesCleared: true } })
 })
 
 const statusSchema = z.object({ action: z.enum(['activate', 'suspend', 'disable']), reason: z.string().trim().max(500).optional() }).strict()

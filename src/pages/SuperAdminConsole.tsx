@@ -249,8 +249,11 @@ export function SuperAdminConsole() {
     try {
       setError('')
       await adminApi(`/api/v1/admin/ecosystem/administrators/${id}/role`, { method: 'PATCH', body: JSON.stringify({ role }) })
-      setNotice('Administrator role updated.')
-      await queryClient.invalidateQueries({ queryKey: ['super-admin', 'administrators'] })
+      setNotice('Administrator role updated. Previous individual permission overrides were cleared, and existing sessions were revoked. The administrator must sign in again.')
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['super-admin', 'administrators'] }),
+        queryClient.invalidateQueries({ queryKey: ['super-admin', 'administrator-permissions', id] }),
+      ])
     } catch (issue) { reportFailure(issue, 'Role could not be changed.') }
   }
   const revokeSessions = async (admin: Administrator) => {
