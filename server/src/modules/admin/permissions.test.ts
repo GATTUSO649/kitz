@@ -36,6 +36,7 @@ test('route permission matrix preserves Sales ownership and protects Finance bou
   assert.equal(hasAnyPermission(sales, administratorPermissionsForRoute('PATCH', '/orders/42/status') ?? []), true)
   assert.equal(hasAnyPermission(sales, administratorPermissionsForRoute('GET', '/payments') ?? []), false)
   assert.equal(hasAnyPermission(finance, administratorPermissionsForRoute('GET', '/payments') ?? []), true)
+  assert.equal(hasAnyPermission(finance, administratorPermissionsForRoute('GET', '/dashboard') ?? []), true)
   assert.equal(hasAnyPermission(finance, administratorPermissionsForRoute('PATCH', '/orders/42/status') ?? []), false)
   assert.equal(hasAnyPermission(finance, administratorPermissionsForRoute('POST', '/expenses') ?? []), true)
 })

@@ -1,5 +1,6 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import {
   Activity, ArrowRight, BadgeCheck, Bell, Boxes, BriefcaseBusiness, ChartNoAxesCombined,
   ChevronLeft, ChevronRight, CircleAlert, CircleDollarSign, Clock3, FileText, LayoutDashboard,
@@ -15,7 +16,7 @@ type Overview = { total: number; active: number; suspended: number; pending: num
 type RoleRecord = { role: string; portal: string }
 type PortalSnapshot = { role: string; portal: string; metrics: Record<string, number | string>; series: { label: string; value: number }[] }
 type AuditRecord = AuditEvent & { actorName: string | null; actorEmail: string | null }
-type AdminProfile = { id: number; fullName: string; email: string }
+type AdminProfile = { id: number; fullName: string; email: string; role: string | null; portal: string | null }
 type DashboardReport = { period: string; from: string; to: string; totalOrders: number; paidRevenue: string; paidOrderCount: number; averageOrderValue: string; paidPayments: number; pendingOrders: number; totalCustomers: number; newCustomers: number; returningCustomers: number; totalProducts: number; inventoryUnits: number; lowStockVariants: number; outOfStockVariants: number; revenueTrend: { date: string; revenue: string }[] }
 type FinancialReport = { grossSales: string; discounts: string; collectedPayments: string; costOfGoodsSold: string | null; operatingExpenses: string; profitAvailable: boolean }
 type NotificationCampaign = { id: number; type: string; title: string; body: string; href: string | null; audienceType: string; audienceUserId: number | null; createdAt: string; recipientCount: number; unreadCount: number | null }
@@ -183,6 +184,7 @@ function AdministratorPermissionOverrides({ adminId, role }: { adminId: number; 
 
 export function SuperAdminConsole() {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [section, setSection] = useState<Section>('overview')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -193,21 +195,31 @@ export function SuperAdminConsole() {
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const pageSize = 8
 
-  const overview = useQuery({ queryKey: ['super-admin', 'overview'], queryFn: () => adminApi<Overview>('/api/v1/admin/ecosystem'), retry: false, refetchInterval: 30_000 })
-  const administrators = useQuery({ queryKey: ['super-admin', 'administrators'], queryFn: () => adminApi<Administrator[]>('/api/v1/admin/ecosystem/administrators'), retry: false })
-  const roles = useQuery({ queryKey: ['super-admin', 'roles'], queryFn: () => adminApi<RoleRecord[]>('/api/v1/admin/ecosystem/roles'), retry: false })
-  const systems = useQueries({ queries: portalRoles.map((role) => ({ queryKey: ['super-admin', 'system', role], queryFn: () => adminApi<PortalSnapshot>(`/api/v1/admin/portal/${role}`), enabled: section === 'systems', retry: false, refetchInterval: 60_000 })) })
-  const businessOverview = useQuery({ queryKey: ['super-admin', 'business-overview', reportPeriod], queryFn: () => adminApi<DashboardReport>(`/api/v1/admin/dashboard?period=${reportPeriod}`), enabled: ['overview', 'systems', 'reports'].includes(section), retry: false, refetchInterval: 60_000 })
-  const financialReport = useQuery({ queryKey: ['super-admin', 'financial-report'], queryFn: () => adminApi<FinancialReport>('/api/v1/admin/reports/financial'), enabled: section === 'reports', retry: false })
-  const auditLog = useQuery({ queryKey: ['super-admin', 'audit-log'], queryFn: () => adminApi<AuditRecord[]>('/api/v1/admin/audit'), enabled: section === 'audit' || section === 'reports' || section === 'security' || section === 'roles', retry: false })
-  const adminProfile = useQuery({ queryKey: ['super-admin', 'profile'], queryFn: () => adminApi<AdminProfile>('/api/v1/admin/me'), retry: false })
-  const campaigns = useQuery({ queryKey: ['super-admin', 'customer-announcements'], queryFn: () => adminApi<NotificationCampaign[]>('/api/v1/admin/notifications'), enabled: section === 'notifications', retry: false })
-  const internalAlerts = useQuery({ queryKey: ['super-admin', 'internal-alerts'], queryFn: () => adminApi<InternalAlert[]>('/api/v1/admin/ecosystem/alerts'), enabled: section === 'notifications', retry: false })
-  const settings = useQuery({ queryKey: ['super-admin', 'application-settings'], queryFn: () => adminApi<BusinessSettings>('/api/v1/admin/settings'), enabled: section === 'settings', retry: false })
+  const adminProfile = useQuery({ queryKey: ['super-admin', 'profile'], queryFn: async () => { const result = await adminApi<{ user: Omit<AdminProfile, 'role' | 'portal'> & { role?: string | null }; portal: string | null }>('/api/v1/admin/me'); return { ...result.user, role: result.user.role ?? null, portal: result.portal } }, retry: false })
+  const isSuperAdmin = adminProfile.data?.role === 'super_admin'
+  const overview = useQuery({ queryKey: ['super-admin', 'overview'], queryFn: () => adminApi<Overview>('/api/v1/admin/ecosystem'), enabled: isSuperAdmin, retry: false, refetchInterval: 30_000 })
+  const administrators = useQuery({ queryKey: ['super-admin', 'administrators'], queryFn: () => adminApi<Administrator[]>('/api/v1/admin/ecosystem/administrators'), enabled: isSuperAdmin, retry: false })
+  const roles = useQuery({ queryKey: ['super-admin', 'roles'], queryFn: () => adminApi<RoleRecord[]>('/api/v1/admin/ecosystem/roles'), enabled: isSuperAdmin, retry: false })
+  const systems = useQueries({ queries: portalRoles.map((role) => ({ queryKey: ['super-admin', 'system', role], queryFn: () => adminApi<PortalSnapshot>(`/api/v1/admin/portal/${role}`), enabled: isSuperAdmin && section === 'systems', retry: false, refetchInterval: 60_000 })) })
+  const businessOverview = useQuery({ queryKey: ['super-admin', 'business-overview', reportPeriod], queryFn: () => adminApi<DashboardReport>(`/api/v1/admin/dashboard?period=${reportPeriod}`), enabled: isSuperAdmin && ['overview', 'systems', 'reports'].includes(section), retry: false, refetchInterval: 60_000 })
+  const financialReport = useQuery({ queryKey: ['super-admin', 'financial-report'], queryFn: () => adminApi<FinancialReport>('/api/v1/admin/reports/financial'), enabled: isSuperAdmin && section === 'reports', retry: false })
+  const auditLog = useQuery({ queryKey: ['super-admin', 'audit-log'], queryFn: () => adminApi<AuditRecord[]>('/api/v1/admin/audit'), enabled: isSuperAdmin && (section === 'audit' || section === 'reports' || section === 'security' || section === 'roles'), retry: false })
+  const campaigns = useQuery({ queryKey: ['super-admin', 'customer-announcements'], queryFn: () => adminApi<NotificationCampaign[]>('/api/v1/admin/notifications'), enabled: isSuperAdmin && section === 'notifications', retry: false })
+  const internalAlerts = useQuery({ queryKey: ['super-admin', 'internal-alerts'], queryFn: () => adminApi<InternalAlert[]>('/api/v1/admin/ecosystem/alerts'), enabled: isSuperAdmin && section === 'notifications', retry: false })
+  const settings = useQuery({ queryKey: ['super-admin', 'application-settings'], queryFn: () => adminApi<BusinessSettings>('/api/v1/admin/settings'), enabled: isSuperAdmin && section === 'settings', retry: false })
   const selected = administrators.data?.find((admin) => admin.id === selectedId) ?? null
   const securityEvents = (auditLog.data ?? []).filter((event) => /security|session|permission|login|password|access/i.test(event.action))
   const permissionHistory = (auditLog.data ?? []).filter((event) => /permission|role_permission/i.test(event.action))
-  const selectedActivity = useQuery({ queryKey: ['super-admin', 'activity', selectedId], queryFn: () => adminApi<AuditEvent[]>(`/api/v1/admin/ecosystem/administrators/${selectedId}/activity`), enabled: selectedId !== null && section === 'administrators', retry: false })
+  const selectedActivity = useQuery({ queryKey: ['super-admin', 'activity', selectedId], queryFn: () => adminApi<AuditEvent[]>(`/api/v1/admin/ecosystem/administrators/${selectedId}/activity`), enabled: isSuperAdmin && selectedId !== null && section === 'administrators', retry: false })
+
+  useEffect(() => {
+    if (adminProfile.isError && adminProfile.error.message.toLowerCase().includes('sign in')) {
+      navigate('/super-admin/login', { replace: true })
+      return
+    }
+    if (!adminProfile.data || adminProfile.data.role === 'super_admin') return
+    navigate(adminProfile.data.portal ?? '/admin/login', { replace: true })
+  }, [adminProfile.data, adminProfile.error, adminProfile.isError, navigate])
 
   const filtered = useMemo(() => (administrators.data ?? []).filter((admin) => {
     const query = search.trim().toLowerCase()

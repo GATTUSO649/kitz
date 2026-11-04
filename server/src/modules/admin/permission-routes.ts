@@ -7,7 +7,7 @@ type PermissionRule = {
 }
 
 const rules: PermissionRule[] = [
-  { path: /^\/dashboard\/?$/, read: ['analytics.system', 'sales.view'] },
+  { path: /^\/dashboard\/?$/, read: ['analytics.system', 'sales.view', 'finance.view'] },
   { path: /^\/(?:payments)(?:\/|$)/, read: ['finance.view_transactions'] },
   { path: /^\/reports\/financial\/?$/, read: ['finance.view'] },
   { path: /^\/expenses(?:\/|$)/, read: ['finance.view'], write: ['finance.manage_expenses'] },
