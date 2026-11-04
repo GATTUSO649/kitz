@@ -206,6 +206,11 @@ export const settingsSchema = z.object({
   mpesaTillNumber: z.string().trim().regex(/^\d{5,20}$/).or(z.literal('')).optional(),
   mpesaMobileNumber: z.string().trim().regex(/^(?:\+?254|0)[17]\d{8}$/).or(z.literal('')).optional(),
 }).refine((value) => Object.keys(value).length > 0)
+const financeSettingsSchema = z.object({
+  mpesaTillName: z.string().trim().max(120).optional(),
+  mpesaTillNumber: z.string().trim().regex(/^\d{5,20}$/).or(z.literal('')).optional(),
+  mpesaMobileNumber: z.string().trim().regex(/^(?:\+?254|0)[17]\d{8}$/).or(z.literal('')).optional(),
+}).refine((value) => Object.keys(value).length > 0)
 const homepageSlideFieldsSchema = z.object({
   imageUrl: z.string().url().max(2048).refine((value) => value.toLowerCase().startsWith('https://'), 'Slide images must use HTTPS.'),
   displayDurationSeconds: z.number().int().min(2).max(30).default(5),
@@ -1274,6 +1279,29 @@ adminRouter.get('/reports/financial', async (request, response) => {
     operatingExpenses: expensesTotal.amount ?? '0.00',
     profitAvailable: costs.cost !== null,
   } })
+})
+
+adminRouter.get('/finance/settings', async (_request, response) => {
+  if (!db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Finance settings are unavailable.' } })
+  const rows = await db.select({ key: applicationSettings.key, value: applicationSettings.value }).from(applicationSettings)
+    .where(inArray(applicationSettings.key, ['mpesaTillName', 'mpesaTillNumber', 'mpesaMobileNumber']))
+  response.json({ data: Object.fromEntries(rows.map(({ key, value }) => [key, value])) })
+})
+
+adminRouter.patch('/finance/settings', async (request, response) => {
+  const input = financeSettingsSchema.safeParse(request.body)
+  if (!input.success) return response.status(400).json({ error: { code: 'INVALID_FINANCE_SETTINGS', message: 'Check the M-Pesa display name, Till number, and mobile number.' } })
+  if (!db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Finance settings are unavailable.' } })
+  const actor = authenticatedAdmin(request)
+  if (!actor) return response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Administrator sign in is required.' } })
+  await db.transaction(async (transaction) => {
+    for (const [key, value] of Object.entries(input.data)) {
+      await transaction.insert(applicationSettings).values({ key, value, updatedBy: null })
+        .onConflictDoUpdate({ target: applicationSettings.key, set: { value, updatedBy: null } })
+    }
+  })
+  await recordAdminAudit(actor.id, 'finance.settings.updated', 'finance_settings', 'mpesa')
+  response.json({ data: input.data })
 })
 
 adminRouter.get('/settings', async (_request, response) => {

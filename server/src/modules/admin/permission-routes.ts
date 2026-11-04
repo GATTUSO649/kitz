@@ -10,6 +10,7 @@ const rules: PermissionRule[] = [
   { path: /^\/dashboard\/?$/, read: ['analytics.system', 'sales.view', 'finance.view'] },
   { path: /^\/(?:payments)(?:\/|$)/, read: ['finance.view_transactions'] },
   { path: /^\/reports\/financial\/?$/, read: ['finance.view'] },
+  { path: /^\/finance\/settings\/?$/, read: ['finance.view'], write: ['finance.manage_settings'] },
   { path: /^\/expenses(?:\/|$)/, read: ['finance.view'], write: ['finance.manage_expenses'] },
   { path: /^\/inventory(?:\/|$)/, read: ['inventory.stock.movements.view', 'inventory.manage_stock'], write: ['inventory.stock.adjust', 'inventory.manage_stock'] },
   { path: /^\/products\/[^/]+\/variants\/[^/]+\/stock\/?$/, read: ['inventory.stock.view', 'inventory.manage_stock'], write: ['inventory.stock.adjust', 'inventory.manage_stock'] },

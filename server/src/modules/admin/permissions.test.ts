@@ -32,6 +32,9 @@ test('permission selections reject unknown and duplicate permission names', () =
 test('route permission matrix preserves Sales ownership and protects Finance boundaries', () => {
   const sales = defaultAdministratorPermissions.sales_admin
   const finance = defaultAdministratorPermissions.finance_admin
+  assert.equal(finance.has('finance.manage_settings'), true)
+  assert.equal(hasAnyPermission(finance, administratorPermissionsForRoute('GET', '/finance/settings') ?? []), true)
+  assert.equal(hasAnyPermission(finance, administratorPermissionsForRoute('PATCH', '/finance/settings') ?? []), true)
   assert.equal(hasAnyPermission(sales, administratorPermissionsForRoute('PATCH', '/products/15') ?? []), true)
   assert.equal(hasAnyPermission(sales, administratorPermissionsForRoute('PATCH', '/orders/42/status') ?? []), true)
   assert.equal(hasAnyPermission(sales, administratorPermissionsForRoute('GET', '/payments') ?? []), false)

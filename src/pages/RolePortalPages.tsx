@@ -84,7 +84,41 @@ type FinanceDashboard = {
 type FinanceReport = { grossSales: string; discounts: string; collectedPayments: string; operatingExpenses: string; costOfGoodsSold: string | null; profitAvailable: boolean }
 
 function FinanceUnavailable({ title, detail }: { title: string; detail: string }) {
+  if (title === 'Settings is not connected') return <FinanceSettingsPanel />
   return <section className="finance-panel finance-unavailable"><AlertTriangle size={22} /><span className="admin-kicker">CONTROL NOT CONNECTED</span><h2>{title}</h2><p>{detail}</p></section>
+}
+
+function FinanceSettingsPanel() {
+  const settings = useQuery({ queryKey: ['finance-settings'], queryFn: () => roleApi<{ mpesaTillName?: string; mpesaTillNumber?: string; mpesaMobileNumber?: string }>('/api/v1/admin/finance/settings'), retry: false })
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [saved, setSaved] = useState(false)
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    setBusy(true)
+    setError('')
+    setSaved(false)
+    try {
+      await roleApi('/api/v1/admin/finance/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          mpesaTillName: String(form.get('mpesaTillName') ?? '').trim(),
+          mpesaTillNumber: String(form.get('mpesaTillNumber') ?? '').trim(),
+          mpesaMobileNumber: String(form.get('mpesaMobileNumber') ?? '').trim(),
+        }),
+      })
+      await settings.refetch()
+      setSaved(true)
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Finance settings could not be saved.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return <section className="finance-panel"><header><div><span className="admin-kicker">CHECKOUT PAYMENT DETAILS</span><h2>M-Pesa settings</h2></div><Receipt size={19} /></header><p className="finance-panel-copy">These merchant details appear to customers at checkout. Do not enter Daraja passwords, passkeys, or API credentials here.</p>{settings.isPending ? <div className="admin-empty">Loading finance settings...</div> : settings.isError ? <div className="admin-empty admin-error">Finance settings are unavailable: {settings.error.message}</div> : <form className="finance-settings-form" onSubmit={(event) => void save(event)} key={settings.dataUpdatedAt}><label>Till display name<input name="mpesaTillName" required minLength={2} maxLength={120} defaultValue={settings.data?.mpesaTillName ?? ''} /></label><label>M-Pesa Till or PayBill number<input name="mpesaTillNumber" inputMode="numeric" pattern="[0-9]{5,20}" maxLength={20} defaultValue={settings.data?.mpesaTillNumber ?? ''} placeholder="Optional" /></label><label>Manual payment mobile number<input name="mpesaMobileNumber" type="tel" pattern="(?:\+?254|0)[17][0-9]{8}" maxLength={13} defaultValue={settings.data?.mpesaMobileNumber ?? ''} placeholder="Optional, e.g. 0712345678" /></label>{error && <p className="activation-error" role="alert">{error}</p>}{saved && <p className="activation-success" role="status">Finance settings saved and the change was audit logged.</p>}<button className="role-portal-button" type="submit" disabled={busy}>{busy ? 'Saving settings...' : 'Save Finance settings'}</button></form>}</section>
 }
 
 function FinanceTable({ rows }: { rows: Record<string, unknown>[] }) {
@@ -246,7 +280,6 @@ export function RolePortalRoute() {
   useEffect(() => {
     if (session.isPending || (!session.isError && session.data?.user.role === roleConfig[prefix].role)) return
     if (session.isError) {
-      void navigate(`/${prefix}/login`, { replace: true })
       return
     }
     void signOutRolePortal(navigate, prefix)

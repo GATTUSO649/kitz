@@ -24,6 +24,7 @@ export const permissionDescriptions: Record<AdministratorPermission, string> = {
   'finance.view_transactions': 'View payment and transaction records.',
   'finance.manage_refunds': 'Authorize and process refunds.',
   'finance.manage_expenses': 'Create and manage business expenses.',
+  'finance.manage_settings': 'Manage the finance-owned M-Pesa display and receiving details.',
   'inventory.dashboard.view': 'View inventory KPIs and stock summaries.',
   'inventory.stock.view': 'View product variants and current stock.',
   'inventory.stock.adjust': 'Increase or decrease stock with an audited reason.',
