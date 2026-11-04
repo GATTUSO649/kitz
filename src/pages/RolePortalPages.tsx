@@ -1,13 +1,13 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery} from '@tanstack/react-query'
-import { AlertTriangle, BarChart3, Boxes, CircleDollarSign, FileText, Megaphone, Package, Receipt, ShoppingBag } from 'lucide-react'
+import { AlertTriangle, BarChart3, Boxes, CircleDollarSign, FileText, Megaphone, Package, Receipt, Search, ShoppingBag } from 'lucide-react'
 import '../admin-theme.css'
 import '../role-portal-theme.css'
 
 const roleConfig = {
   'finance-admin': { role: 'finance_admin', title: 'Finance Operations', modules: ['Dashboard', 'Payments', 'M-Pesa', 'Reconciliation', 'Refunds', 'Revenue', 'Outstanding Payments', 'Expenses', 'Financial Reports', 'Analytics', 'Audit Logs', 'Notifications', 'Settings'], endpoints: { Payments: '/api/v1/admin/payments', Expenses: '/api/v1/admin/expenses', 'Financial Reports': '/api/v1/admin/reports/financial', 'Audit Logs': '/api/v1/admin/audit', Notifications: '/api/v1/admin/notifications' }, icon: CircleDollarSign },
-  'inventory-admin': { role: 'inventory_admin', title: 'Inventory and Logistics', modules: ['Overview', 'Stock', 'Movements', 'Fulfilment'], endpoints: { Stock: '/api/v1/admin/products', Movements: '/api/v1/admin/inventory/movements', Fulfilment: '/api/v1/admin/orders' }, icon: Boxes },
+  'inventory-admin': { role: 'inventory_admin', title: 'Inventory and Logistics', modules: ['Dashboard', 'Stock Management', 'Stock Movements', 'Low Stock', 'Out of Stock', 'Suppliers', 'Purchase Orders', 'Goods Receiving', 'Fulfillment', 'Returns', 'Analytics', 'Reports', 'Audit Logs', 'Notifications', 'Settings'], endpoints: { 'Stock Management': '/api/v1/admin/products', 'Stock Movements': '/api/v1/admin/inventory/movements', Fulfillment: '/api/v1/admin/orders', 'Audit Logs': '/api/v1/admin/audit' }, icon: Boxes },
   'marketing-admin': { role: 'marketing_admin', title: 'Marketing Operations', modules: ['Overview', 'Campaigns', 'Promotions', 'Notifications'], endpoints: { Campaigns: '/api/v1/admin/notifications', Promotions: '/api/v1/admin/notifications', Notifications: '/api/v1/admin/notifications' }, icon: Megaphone },
   'content-admin': { role: 'content_admin', title: 'Products and Content', modules: ['Overview', 'Products', 'Categories', 'Homepage'], endpoints: { Products: '/api/v1/admin/products', Categories: '/api/v1/admin/categories', Homepage: '/api/v1/admin/homepage' }, icon: Package },
 } as const
@@ -20,8 +20,8 @@ type PortalData = {
   records: Record<string, unknown>[]
 }
 
-async function roleApi<T>(path: string): Promise<T> {
-  const response = await fetch(path, { credentials: 'include' })
+async function roleApi<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, { ...init, credentials: 'include', headers: { ...(init?.body ? { 'Content-Type': 'application/json' } : {}), ...init?.headers } })
   const payload = await response.json().catch(() => ({})) as { data?: T; error?: { message?: string } }
   if (!response.ok) throw new Error(payload.error?.message ?? 'The administrator portal is unavailable.')
   return payload.data as T
@@ -122,6 +122,64 @@ function FinanceWorkspace({ prefix }: { prefix: keyof typeof roleConfig }) {
   return <main className="admin-it-page super-admin-page role-portal-shell finance-portal-shell"><aside className="super-admin-sidebar role-portal-sidebar"><Link to="/" className="admin-brand"><img src="/culture-mark.webp" alt="" /> KitCulture</Link><strong>{config.title}</strong><nav>{config.modules.map((module) => <button type="button" key={module} className={activeModule === module ? 'active' : ''} onClick={() => setActiveModule(module)}>{module}</button>)}</nav><button type="button" className="admin-it-button role-portal-signout" onClick={() => void signOutRolePortal(navigate, prefix)}>Sign out</button></aside><section className="super-admin-main role-portal-main finance-portal-main"><header><div><span className="admin-kicker">FINANCIAL MANAGEMENT AND CONTROL</span><h1>{activeModule}</h1><p className="finance-header-copy">Revenue, payments, accountability, and financial control for KitCulture.</p></div><CircleDollarSign size={24} /></header>{portal.isError || dashboard.isError ? <div className="admin-empty admin-error">Finance data is unavailable: {(portal.error ?? dashboard.error)?.message}</div> : panel}</section></main>
 }
 
+type InventoryVariant = { id: number; size: string; sku: string; stock: number }
+type InventoryProduct = { id: number; name: string; variants?: InventoryVariant[] }
+
+function InventoryTable({ rows }: { rows: Record<string, unknown>[] }) {
+  if (!rows.length) return <div className="admin-empty">No inventory records are available.</div>
+  const columns = Object.keys(rows[0]).slice(0, 7)
+  return <div className="admin-it-table-wrap"><table className="admin-it-table"><thead><tr>{columns.map((column) => <th key={column}>{column.replace(/([A-Z])/g, ' $1')}</th>)}</tr></thead><tbody>{rows.slice(0, 50).map((row, index) => <tr key={String(row.id ?? row.sku ?? index)}>{columns.map((column) => <td key={column}>{row[column] === null || row[column] === undefined ? '—' : typeof row[column] === 'object' ? JSON.stringify(row[column]) : String(row[column])}</td>)}</tr>)}</tbody></table></div>
+}
+
+function InventoryUnavailable({ title, detail }: { title: string; detail: string }) {
+  return <section className="inventory-panel inventory-unavailable"><AlertTriangle size={22} /><span className="admin-kicker">CONTROL NOT CONNECTED</span><h2>{title}</h2><p>{detail}</p></section>
+}
+
+function InventoryWorkspace({ prefix }: { prefix: keyof typeof roleConfig }) {
+  const navigate = useNavigate()
+  const [activeModule, setActiveModule] = useState('Dashboard')
+  const [search, setSearch] = useState('')
+  const [selectedVariant, setSelectedVariant] = useState('')
+  const [notice, setNotice] = useState('')
+  const [error, setError] = useState('')
+  const config = roleConfig[prefix]
+  const portal = useQuery({ queryKey: ['inventory-portal'], queryFn: () => roleApi<PortalData>('/api/v1/admin/portal/inventory_admin'), retry: false })
+  const products = useQuery({ queryKey: ['inventory-products'], queryFn: () => roleApi<InventoryProduct[]>('/api/v1/admin/products'), retry: false })
+  const movements = useQuery({ queryKey: ['inventory-movements'], queryFn: () => roleApi<Record<string, unknown>[]>('/api/v1/admin/inventory/movements'), enabled: activeModule === 'Stock Movements' || activeModule === 'Dashboard' || activeModule === 'Analytics', retry: false })
+  const orders = useQuery({ queryKey: ['inventory-orders'], queryFn: () => roleApi<Record<string, unknown>[]>('/api/v1/admin/orders'), enabled: activeModule === 'Fulfillment' || activeModule === 'Dashboard', retry: false })
+  const audit = useQuery({ queryKey: ['inventory-audit'], queryFn: () => roleApi<Record<string, unknown>[]>('/api/v1/admin/audit'), enabled: activeModule === 'Audit Logs', retry: false })
+  const allProducts = products.data ?? []
+  const stockRows = allProducts.flatMap((product) => (product.variants ?? []).map((variant) => ({ id: variant.id, productId: product.id, product: product.name, size: variant.size, sku: variant.sku, stock: variant.stock, status: variant.stock === 0 ? 'out of stock' : variant.stock <= 5 ? 'low stock' : 'in stock' })))
+  const visibleRows = stockRows.filter((row) => `${row.product} ${row.size} ${row.sku} ${row.status}`.toLowerCase().includes(search.trim().toLowerCase()))
+  const lowStock = stockRows.filter((row) => row.stock > 0 && row.stock <= 5)
+  const outOfStock = stockRows.filter((row) => row.stock === 0)
+  const units = stockRows.reduce((total, row) => total + row.stock, 0)
+  const selected = stockRows.find((row) => String(row.id) === selectedVariant)
+
+  async function adjustStock(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selected) return
+    const form = new FormData(event.currentTarget)
+    setError('')
+    setNotice('')
+    try {
+      await roleApi(`/api/v1/admin/products/${selected.productId}/variants/${selected.id}/stock`, { method: 'POST', body: JSON.stringify({ delta: Number(form.get('delta')), note: String(form.get('note') ?? '').trim() }) })
+      setNotice(`Stock updated for ${selected.product} ${selected.size}.`)
+      event.currentTarget.reset()
+      await Promise.all([products.refetch(), movements.refetch(), portal.refetch()])
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Stock adjustment failed.')
+    }
+  }
+
+  const panel = activeModule === 'Dashboard' ? <>
+    <div className="inventory-kpi-grid">{[['Products tracked', allProducts.length], ['Units in stock', units], ['Low-stock variants', lowStock.length], ['Out-of-stock variants', outOfStock.length], ['Movements recorded', portal.data?.metrics.movements ?? 0], ['Awaiting fulfillment', orders.data?.filter((order) => ['paid', 'processing'].includes(String(order.status))).length ?? 'Unavailable']].map(([label, value]) => <article key={String(label)}><span>{label}</span><strong>{String(value)}</strong></article>)}</div>
+    <div className="inventory-panel-grid"><section className="inventory-panel"><header><div><span className="admin-kicker">STOCK AVAILABILITY</span><h2>Inventory status</h2></div><Boxes size={19} /></header><div className="inventory-bars">{[['In stock', stockRows.filter((row) => row.stock > 5).length], ['Low stock', lowStock.length], ['Out of stock', outOfStock.length]].map(([label, value]) => <div key={String(label)}><span>{label}</span><i><b style={{ width: `${Math.max(4, Number(value) / Math.max(1, stockRows.length) * 100)}%` }} /></i><strong>{String(value)}</strong></div>)}</div></section><section className="inventory-panel"><header><div><span className="admin-kicker">INVENTORY ALERTS</span><h2>Attention required</h2></div><AlertTriangle size={19} /></header><div className="inventory-alert-list"><p>{lowStock.length} variants need replenishment.</p><p>{outOfStock.length} variants are unavailable.</p><p>{stockRows.length ? 'Inventory valuation is unavailable because reliable cost data is not configured.' : 'No stock data is available.'}</p></div></section></div>
+    <section className="inventory-panel"><header><div><span className="admin-kicker">RECENT MOVEMENTS</span><h2>Stock activity</h2></div><Receipt size={19} /></header><InventoryTable rows={(movements.data ?? []).slice(0, 10)} /></section>
+  </> : activeModule === 'Stock Management' || activeModule === 'Low Stock' || activeModule === 'Out of Stock' ? <section className="inventory-panel"><header><div><span className="admin-kicker">PRODUCT-LINKED STOCK</span><h2>{activeModule}</h2></div><Search size={19} /></header><label className="inventory-search"><Search size={15} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search product, SKU, size or status" /></label>{activeModule === 'Low Stock' ? <InventoryTable rows={visibleRows.filter((row) => row.stock > 0 && row.stock <= 5)} /> : activeModule === 'Out of Stock' ? <InventoryTable rows={visibleRows.filter((row) => row.stock === 0)} /> : <InventoryTable rows={visibleRows} />}</section> : activeModule === 'Stock Movements' ? <section className="inventory-panel"><header><div><span className="admin-kicker">AUDITABLE STOCK HISTORY</span><h2>Stock movements</h2></div><Receipt size={19} /></header><InventoryTable rows={movements.data ?? []} /></section> : activeModule === 'Fulfillment' ? <section className="inventory-panel"><header><div><span className="admin-kicker">SALES ORDER VISIBILITY</span><h2>Fulfillment queue</h2></div><ShoppingBag size={19} /></header><p className="inventory-panel-copy">Customer orders remain owned by Sales. Inventory can view fulfillment workload without changing payment status.</p><InventoryTable rows={orders.data ?? []} /></section> : activeModule === 'Analytics' ? <section className="inventory-panel"><header><div><span className="admin-kicker">INVENTORY ANALYTICS</span><h2>Availability and movement summary</h2></div><BarChart3 size={19} /></header><div className="inventory-report-grid">{[['Total units', units], ['Tracked variants', stockRows.length], ['Low stock', lowStock.length], ['Out of stock', outOfStock.length], ['Movement records', movements.data?.length ?? 0], ['Cost valuation', 'Unavailable']].map(([label, value]) => <article key={String(label)}><span>{label}</span><strong>{String(value)}</strong></article>)}</div><InventoryTable rows={(movements.data ?? []).slice(0, 10)} /></section> : activeModule === 'Audit Logs' ? <section className="inventory-panel"><header><div><span className="admin-kicker">INVENTORY ACCOUNTABILITY</span><h2>Audit logs</h2></div><FileText size={19} /></header><InventoryTable rows={audit.data ?? []} /></section> : activeModule === 'Dashboard' ? null : <InventoryUnavailable title={`${activeModule} is not connected`} detail="This workflow requires an additive inventory schema, audited server endpoint, and approved status transitions before it can be enabled." />
+  return <main className="admin-it-page super-admin-page role-portal-shell inventory-portal-shell"><aside className="super-admin-sidebar role-portal-sidebar"><Link to="/" className="admin-brand"><img src="/culture-mark.webp" alt="" /> KitCulture</Link><strong>{config.title}</strong><nav>{config.modules.map((module) => <button type="button" key={module} className={activeModule === module ? 'active' : ''} onClick={() => { setActiveModule(module); setError(''); setNotice('') }}>{module}</button>)}</nav><button type="button" className="admin-it-button role-portal-signout" onClick={() => void signOutRolePortal(navigate, prefix)}>Sign out</button></aside><section className="super-admin-main role-portal-main inventory-portal-main"><header><div><span className="admin-kicker">INVENTORY CONTROL CENTRE</span><h1>{activeModule}</h1><p className="inventory-header-copy">Stock visibility, movement accountability, and fulfillment readiness for KitCulture.</p></div><Boxes size={24} /></header>{notice && <p className="inventory-notice" role="status">{notice}</p>}{error && <p className="inventory-error" role="alert">{error}</p>}{portal.isError || products.isError ? <div className="admin-empty admin-error">Inventory data is unavailable: {(portal.error ?? products.error)?.message}</div> : panel}{activeModule === 'Stock Management' && <section className="inventory-panel"><header><div><span className="admin-kicker">CONTROLLED MUTATION</span><h2>Adjust stock</h2></div><Boxes size={19} /></header><form className="inventory-adjust-form" onSubmit={(event) => void adjustStock(event)}><label>Variant<select value={selectedVariant} onChange={(event) => setSelectedVariant(event.target.value)} required><option value="">Select product variant</option>{stockRows.map((row) => <option key={row.id} value={row.id}>{row.product} · {row.size} · current {row.stock}</option>)}</select></label><label>Quantity change<input name="delta" type="number" min="-100000" max="100000" step="1" required placeholder="Positive to receive, negative to remove" /></label><label>Reason<input name="note" required maxLength={500} placeholder="Count correction, damaged, returned, received..." /></label><button className="role-portal-button" type="submit" disabled={!selectedVariant}>Record adjustment</button></form></section>}</section></main>
+}
+
 export function RolePortalRoute() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -171,6 +229,7 @@ function RolePortalDashboard() {
 
   if (!config) return <main className="admin-empty">Unknown administrator portal.</main>
   if (prefix === 'finance-admin') return <FinanceWorkspace prefix={prefix} />
+  if (prefix === 'inventory-admin') return <InventoryWorkspace prefix={prefix} />
   const Icon = config.icon
   const metrics = Object.entries(portal.data?.metrics ?? {})
   const maximum = Math.max(1, ...((portal.data?.series ?? []).map((point) => point.value)))

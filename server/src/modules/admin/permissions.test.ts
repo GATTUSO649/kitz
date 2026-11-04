@@ -40,6 +40,15 @@ test('route permission matrix preserves Sales ownership and protects Finance bou
   assert.equal(hasAnyPermission(finance, administratorPermissionsForRoute('POST', '/expenses') ?? []), true)
 })
 
+test('Inventory Admin permissions cover stock, movement, and fulfillment boundaries', () => {
+  const inventory = defaultAdministratorPermissions.inventory_admin
+  assert.equal(hasAnyPermission(inventory, administratorPermissionsForRoute('GET', '/products') ?? []), true)
+  assert.equal(hasAnyPermission(inventory, administratorPermissionsForRoute('POST', '/products/15/variants/22/stock') ?? []), true)
+  assert.equal(hasAnyPermission(inventory, administratorPermissionsForRoute('GET', '/inventory/movements') ?? []), true)
+  assert.equal(hasAnyPermission(inventory, administratorPermissionsForRoute('GET', '/orders') ?? []), true)
+  assert.equal(hasAnyPermission(defaultAdministratorPermissions.finance_admin, administratorPermissionsForRoute('POST', '/products/15/variants/22/stock') ?? []), false)
+})
+
 test('unclassified business routes are not assigned an accidental permission', () => {
   assert.equal(administratorPermissionsForRoute('POST', '/unreviewed-route'), null)
 })
