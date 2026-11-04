@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery} from '@tanstack/react-query'
 import { BarChart3, Boxes, CircleDollarSign, Megaphone, Package, ShoppingBag } from 'lucide-react'
 import '../admin-theme.css'
+import '../role-portal-theme.css'
 
 const roleConfig = {
   'finance-admin': { role: 'finance_admin', title: 'Finance Operations', modules: ['Overview', 'Transactions', 'Payments', 'Expenses'], endpoints: { Transactions: '/api/v1/admin/reports/financial', Payments: '/api/v1/admin/payments', Expenses: '/api/v1/admin/expenses' }, icon: CircleDollarSign },
@@ -53,7 +54,7 @@ export function RolePortalLoginPage() {
     }
   }
 
-  return <main className="admin-login-page"><section className="admin-login-card"><span className="admin-kicker">RESTRICTED {prefix.replace('-admin', '').toUpperCase()} ACCESS</span><h1>{config.title}</h1><p>Sign in with the role number or email assigned to this administrator portal.</p><form onSubmit={(event) => void submit(event)}><label>Role number or email<input value={identity} onChange={(event) => setIdentity(event.target.value)} autoComplete="username" required /></label><label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></label>{error && <p className="admin-error" role="alert">{error}</p>}<button className="button button-green" type="submit" disabled={busy}>{busy ? 'Signing in…' : `Sign in to ${config.title}`}</button></form><Link to="/admin/login">Existing Sales Admin sign in</Link></section></main>
+  return <main className="role-portal-login"><section className="role-portal-login-card"><Link to="/" className="role-portal-login-brand"><img src="/culture-mark.webp" alt="" /><span>KitCulture</span></Link><span className="admin-kicker">RESTRICTED {prefix.replace('-admin', '').toUpperCase()} ACCESS</span><h1>{config.title}</h1><p>Sign in with the role number or email assigned to this administrator portal.</p><form onSubmit={(event) => void submit(event)}><label>Role number or email<input value={identity} onChange={(event) => setIdentity(event.target.value)} autoComplete="username" required /></label><label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></label>{error && <p className="admin-error" role="alert">{error}</p>}<button className="role-portal-button" type="submit" disabled={busy}>{busy ? 'Signing in…' : `Sign in to ${config.title}`}</button></form><Link className="role-portal-login-link" to="/admin/login">Existing Sales Admin sign in</Link></section></main>
 }
 
 function currency(value: number | string) {
@@ -90,14 +91,14 @@ function RolePortalDashboard() {
   const metrics = Object.entries(portal.data?.metrics ?? {})
   const maximum = Math.max(1, ...((portal.data?.series ?? []).map((point) => point.value)))
 
-  return <main className="admin-it-page super-admin-page">
-    <aside className="super-admin-sidebar">
+  return <main className="admin-it-page super-admin-page role-portal-shell">
+    <aside className="super-admin-sidebar role-portal-sidebar">
       <Link to="/" className="admin-brand"><img src="/culture-mark.webp" alt="" /> KitCulture</Link>
       <strong>{config.title}</strong>
       <nav>{config.modules.map((module) => <button type="button" key={module} className={activeModule === module ? 'active' : ''} onClick={() => setActiveModule(module)}>{module}</button>)}</nav>
-      <Link to="/admin/login" className="admin-it-button">Sign out</Link>
+      <Link to="/admin/login" className="admin-it-button role-portal-signout">Sign out</Link>
     </aside>
-    <section className="super-admin-main">
+    <section className="super-admin-main role-portal-main">
       <header><div><span className="admin-kicker">ROLE-RESTRICTED PORTAL</span><h1>{config.title}</h1></div><Icon size={24} /></header>
       {portal.isPending && <div className="admin-empty">Loading live portal data…</div>}
       {portal.isError && <div className="admin-empty admin-error">{portal.error.message}</div>}
