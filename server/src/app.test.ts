@@ -175,6 +175,19 @@ test('admin session endpoint rejects requests without an administrator cookie', 
   assert.equal(payload.error.code, 'UNAUTHENTICATED')
 })
 
+test('Super Admin alert and permission APIs reject callers without an admin session', async () => {
+  const requests = [
+    fetch(`${baseUrl}/api/v1/admin/ecosystem/alerts`),
+    fetch(`${baseUrl}/api/v1/admin/ecosystem/roles/sales_admin/permissions`),
+    fetch(`${baseUrl}/api/v1/admin/ecosystem/administrators/1/permissions`),
+  ]
+  const responses = await Promise.all(requests)
+  for (const response of responses) {
+    assert.equal(response.status, 401)
+    assert.equal((await response.json() as { error: { code: string } }).error.code, 'UNAUTHENTICATED')
+  }
+})
+
 test('operations endpoints reject store-administrator sessions', async () => {
   for (const path of ['/me', '/operators', '/overview', '/telemetry', '/health', '/workers', '/detections', '/events', '/metrics', '/database-performance', '/database-performance/events', '/runtime-performance', '/provider-performance', '/alerts', '/incidents', '/audit']) {
     const response = await fetch(`${baseUrl}/api/v1/operations${path}`, { headers: { cookie: 'kc_admin_session=not-an-operations-session' } })

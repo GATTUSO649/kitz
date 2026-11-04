@@ -11,14 +11,18 @@ export const administratorPermissions = [
   'sessions.revoke',
   'audit.view',
   'analytics.system',
+  'application.manage_settings',
   'it.view_operations',
   'it.manage_monitoring',
   'sales.view',
   'sales.manage_orders',
   'sales.manage_customers',
+  'sales.manage_products',
+  'sales.manage_catalogue',
   'finance.view',
   'finance.view_transactions',
   'finance.manage_refunds',
+  'finance.manage_expenses',
   'inventory.manage_stock',
   'inventory.manage_suppliers',
   'inventory.manage_fulfilment',
@@ -31,18 +35,18 @@ export const administratorPermissions = [
 
 export type AdministratorPermission = typeof administratorPermissions[number]
 
-const rolePermissions: Record<AdministratorRole, ReadonlySet<AdministratorPermission>> = {
+export const defaultAdministratorPermissions: Record<AdministratorRole, ReadonlySet<AdministratorPermission>> = {
   super_admin: new Set(administratorPermissions),
   it_admin: new Set(['administrators.view', 'audit.view', 'it.view_operations', 'it.manage_monitoring']),
-  sales_admin: new Set(['sales.view', 'sales.manage_orders', 'sales.manage_customers']),
-  finance_admin: new Set(['finance.view', 'finance.view_transactions', 'finance.manage_refunds']),
-  inventory_admin: new Set(['inventory.manage_stock', 'inventory.manage_suppliers', 'inventory.manage_fulfilment']),
-  marketing_admin: new Set(['marketing.manage_campaigns', 'marketing.manage_promotions']),
-  content_admin: new Set(['content.manage_products', 'content.manage_categories', 'content.manage_content']),
+  sales_admin: new Set(['sales.view', 'sales.manage_orders', 'sales.manage_customers', 'sales.manage_products', 'sales.manage_catalogue', 'application.manage_settings', 'audit.view']),
+  finance_admin: new Set(['finance.view', 'finance.view_transactions', 'finance.manage_refunds', 'finance.manage_expenses', 'audit.view']),
+  inventory_admin: new Set(['inventory.manage_stock', 'inventory.manage_suppliers', 'inventory.manage_fulfilment', 'audit.view']),
+  marketing_admin: new Set(['marketing.manage_campaigns', 'marketing.manage_promotions', 'audit.view']),
+  content_admin: new Set(['content.manage_products', 'content.manage_categories', 'content.manage_content', 'audit.view']),
 }
 
 export function hasAdministratorPermission(role: AdministratorRole | null | undefined, permission: AdministratorPermission) {
-  return Boolean(role && rolePermissions[role]?.has(permission))
+  return Boolean(role && defaultAdministratorPermissions[role]?.has(permission))
 }
 
 export function rolePrefix(role: AdministratorRole) {
@@ -59,4 +63,8 @@ export function administratorPortal(role: AdministratorRole) {
     marketing_admin: '/marketing-admin/dashboard',
     content_admin: '/content-admin/dashboard',
   })[role]
+}
+
+export function requiredAdministratorRole(requestPath: string, expectedRole?: AdministratorRole) {
+  return requestPath === '/super-admin/login' ? 'super_admin' : expectedRole
 }

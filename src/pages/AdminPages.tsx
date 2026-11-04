@@ -216,7 +216,7 @@ function DataTable({ rows, empty }: { rows: AdminRecord[]; empty: string }) {
   </section>
 }
 
-function AdminDashboardCharts({ data }: { data: AdminRecord }) {
+function AdminDashboardCharts({ data, showFinance }: { data: AdminRecord; showFinance: boolean }) {
   const revenueTrend = Array.isArray(data.revenueTrend) ? data.revenueTrend as { date: string; revenue: string }[] : []
   const salesByCategory = Array.isArray(data.salesByCategory) ? data.salesByCategory as { category: string; units: string }[] : []
   const salesByLocation = Array.isArray(data.salesByLocation) ? data.salesByLocation as { location: string; orders: number }[] : []
@@ -233,7 +233,7 @@ function AdminDashboardCharts({ data }: { data: AdminRecord }) {
   return <section className="admin-analytics">
     <div className="admin-analytics-heading"><div><span className="admin-kicker">BUSINESS INTELLIGENCE</span><h2>Performance at a glance</h2><p>{String(data.from)} to {String(data.to)}</p></div><BarChart3 size={20} /></div>
     <div className="admin-chart-grid">
-      <article className="admin-chart-card"><div><h3>Paid revenue by day</h3><p>Successful payment records · KES</p></div>{chartEntries(revenueTrend.map(({ date, revenue }) => ({ label: date, value: revenue })), (value) => value.toLocaleString('en-KE'))}</article>
+      {showFinance && <article className="admin-chart-card"><div><h3>Paid revenue by day</h3><p>Successful payment records · KES</p></div>{chartEntries(revenueTrend.map(({ date, revenue }) => ({ label: date, value: revenue })), (value) => value.toLocaleString('en-KE'))}</article>}
       <article className="admin-chart-card"><div><h3>Sales by category</h3><p>Units in paid and fulfilled orders</p></div>{chartEntries(salesByCategory.map(({ category, units }) => ({ label: category, value: units })), quantity)}</article>
       <article className="admin-chart-card"><div><h3>Sales by location</h3><p>Paid and fulfilled orders by county</p></div>{chartEntries(salesByLocation.map(({ location, orders }) => ({ label: location, value: orders })), quantity)}</article>
       <article className="admin-chart-card"><div><h3>Top-selling products</h3><p>Units in paid and fulfilled orders</p></div>{chartEntries(bestSellers.map(({ name, units }) => ({ label: name, value: units })), quantity)}</article>
@@ -2045,7 +2045,7 @@ function ItOperationsPanel() {
   </div>
 }
 
-export function AdminConsole() {
+export function AdminConsole({ role }: { role: string | null }) {
   const location = useLocation()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -2137,7 +2137,7 @@ export function AdminConsole() {
   }
   const data = sectionQuery.data
   const records = Array.isArray(data) ? data : data && typeof data === 'object' ? Object.entries(data).filter(([, value]) => Array.isArray(value)).flatMap(([, value]) => value as AdminRecord[]) : []
-  const dashboardMetrics: [string, string][] = !Array.isArray(data) && data && current[0] === 'dashboard' ? [
+  const dashboardMetrics: [string, string][] = !Array.isArray(data) && data && current[0] === 'dashboard' ? role === 'super_admin' ? [
     ['Revenue (paid)', `KES ${Number(data.paidRevenue ?? 0).toLocaleString('en-KE')}`],
     ['Paid orders', String(data.paidOrderCount ?? 0)],
     ['Average order value', `KES ${Number(data.averageOrderValue ?? 0).toLocaleString('en-KE')}`],
@@ -2148,6 +2148,13 @@ export function AdminConsole() {
     ['Pending orders', String(data.pendingOrders ?? 0)],
     ['Low-stock variants', String(data.lowStockVariants ?? 0)],
     ['Out-of-stock variants', String(data.outOfStockVariants ?? 0)],
+  ] : [
+    ['Orders', String(data.totalOrders ?? 0)],
+    ['Pending orders', String(data.pendingOrders ?? 0)],
+    ['New customers', String(data.newCustomers ?? 0)],
+    ['Returning customers', String(data.returningCustomers ?? 0)],
+    ['Customers', String(data.totalCustomers ?? 0)],
+    ['Products', String(data.totalProducts ?? 0)],
   ] : []
 
   return <div className="admin-app">
@@ -2157,7 +2164,7 @@ export function AdminConsole() {
       {current[0] === 'dashboard' && <div className="admin-report-toolbar"><label>Reporting period<select value={reportPeriod} onChange={(event) => setReportPeriod(event.target.value as typeof reportPeriod)}><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="last7days">Last 7 days</option><option value="last30days">Last 30 days</option><option value="thisMonth">This month</option><option value="lastMonth">Last month</option><option value="thisYear">This year</option><option value="custom">Custom range</option></select></label>{reportPeriod === 'custom' && <><label>From<input type="date" value={customFrom} max={customTo} onChange={(event) => setCustomFrom(event.target.value)} /></label><label>To<input type="date" value={customTo} min={customFrom} onChange={(event) => setCustomTo(event.target.value)} /></label></>}</div>}
       {current[0] === 'it' ? <ItOperationsPanel /> : sectionQuery.isPending ? <div className="admin-empty">Loading live database records…</div> : sectionQuery.isError ? <div className="admin-empty admin-error"><strong>Admin data unavailable</strong><span>{sectionQuery.error.message}. Confirm the database is configured and your account has the administrator role.</span></div> : <>
         {current[0] === 'dashboard' && <div className="admin-metrics">{dashboardMetrics.map(([key, value]) => <article key={key}><span>{key}</span><strong>{value}</strong></article>)}</div>}
-        {current[0] === 'dashboard' && data && !Array.isArray(data) && <AdminDashboardCharts data={data} />}
+        {current[0] === 'dashboard' && data && !Array.isArray(data) && <AdminDashboardCharts data={data} showFinance={role !== 'sales_admin'} />}
         {current[0] === 'notifications' || current[0] === 'guest-orders' ? null : current[0] === 'football'
           ? <FootballCatalogueManager onDone={async () => { await sectionQuery.refetch() }} />
           : current[0] === 'inventory'
@@ -2205,7 +2212,7 @@ export function AdminRoute() {
   const isAdminAuthRoute = ['/admin/login', '/admin/register', '/admin/onboarding', '/admin/verify'].includes(location.pathname)
   const sessionQuery = useQuery({
     queryKey: ['admin-session'],
-    queryFn: () => api<{ user: { id: number } }>('/api/v1/admin/me'),
+    queryFn: () => api<{ user: { id: number; role?: string | null } }>('/api/v1/admin/me'),
     enabled: isAdminPortalRoute && !isAdminAuthRoute,
     retry: false,
   })
@@ -2220,7 +2227,7 @@ export function AdminRoute() {
       if (isAdminSessionExpired(sessionQuery.error)) return <Navigate to="/admin/login?reason=expired" replace />
       return <main className="auth-checking"><p role="alert">Administrator service unavailable: {sessionQuery.error.message}</p><button type="button" onClick={() => void sessionQuery.refetch()}>Retry</button></main>
     }
-    return <AdminConsole />
+    return <AdminConsole role={sessionQuery.data?.user.role ?? null} />
   }
   return <Navigate to="/admin/login" replace />
 }

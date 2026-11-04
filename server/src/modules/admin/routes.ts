@@ -15,6 +15,8 @@ import { deleteProductImage, ImageStorageError, uploadHomepageSlideImage, upload
 import { buildAdminDashboardReport, reportPeriods, resolveOptionalDateRange, resolveReportingRange } from './reporting.js'
 import { hasItPermission, itPermissions, type ItPermission } from './it-access.js'
 import { getRequestMetrics } from '../../middleware/request-metrics.js'
+import { loadAdministratorPermissions, isAdministratorRole } from './permissions.js'
+import { administratorPermissionsForRoute, hasAnyPermission, hasDedicatedAdministratorGuard, projectDashboardForRole } from './permission-routes.js'
 
 export const adminRouter = Router()
 adminRouter.use((request, response, next) => {
@@ -26,20 +28,36 @@ adminRouter.use((request, response, next) => {
 })
 adminRouter.use(authenticateAdmin)
 
-const administratorRouteRoles: ReadonlyArray<[RegExp, ReadonlySet<string>]> = [
-  [/^\/(?:payments|reports|expenses)(?:\/|$)/, new Set(['super_admin', 'finance_admin'])],
-  [/^\/inventory(?:\/|$)/, new Set(['super_admin', 'inventory_admin'])],
-  [/^\/(?:products|images|categories|football|catalogue-options|homepage)(?:\/|$)/, new Set(['super_admin', 'content_admin'])],
-  [/^\/(?:orders|customers|support|guest-orders)(?:\/|$)/, new Set(['super_admin', 'sales_admin'])],
-]
-adminRouter.use((request, response, next) => {
+adminRouter.use(async (request, response, next) => {
   const actor = authenticatedAdmin(request)
-  const restriction = administratorRouteRoles.find(([pattern]) => pattern.test(request.path))
-  if (restriction && (!actor?.role || !restriction[1].has(actor.role))) {
+  const required = administratorPermissionsForRoute(request.method, request.path)
+  if (!required) {
+    if (hasDedicatedAdministratorGuard(request.path)) {
+      next()
+      return
+    }
+    response.status(403).json({ error: { code: 'ADMIN_PERMISSION_POLICY_MISSING', message: 'This administrator route has no configured permission policy.' } })
+    return
+  }
+  const role = actor?.role
+  if (!actor || !role || !isAdministratorRole(role)) {
     response.status(403).json({ error: { code: 'ADMIN_ROLE_FORBIDDEN', message: 'This administrator role cannot access the requested resource.' } })
     return
   }
-  next()
+  try {
+    const granted = await loadAdministratorPermissions(actor.id, role)
+    if (!granted) {
+      response.status(503).json({ error: { code: 'ADMIN_AUTHORIZATION_UNAVAILABLE', message: 'Administrator permissions could not be verified.' } })
+      return
+    }
+    if (!hasAnyPermission(granted, required)) {
+      response.status(403).json({ error: { code: 'ADMIN_PERMISSION_REQUIRED', message: 'This administrator does not have permission to access the requested resource.' } })
+      return
+    }
+    next()
+  } catch (error) {
+    next(error)
+  }
 })
 
 adminRouter.get('/me', (request, response) => {
@@ -71,7 +89,8 @@ adminRouter.get('/dashboard', async (request, response) => {
   if (!range) return response.status(400).json({ error: { code: 'INVALID_REPORT_RANGE', message: 'Custom reports must be valid and no longer than 366 days.' } })
   const data = await buildAdminDashboardReport(db, range)
   if (!data) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Dashboard services are not configured.' } })
-  response.json({ data })
+  const actor = authenticatedAdmin(request)
+  response.json({ data: projectDashboardForRole(actor?.role ?? null, data as unknown as Record<string, unknown>) })
 })
 
 const variantInput = z.object({
@@ -1280,10 +1299,14 @@ adminRouter.patch('/settings', async (request, response) => {
 
 adminRouter.get('/audit', async (_request, response) => {
   if (!adminDb) return response.status(503).json({ error: { code: 'ADMIN_DATABASE_UNAVAILABLE', message: 'Administrator audit services are unavailable.' } })
+  const actor = authenticatedAdmin(_request)
+  if (!actor) return response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Administrator sign in is required.' } })
   const rows = await adminDb.select({
     id: adminAuditLogs.id, action: adminAuditLogs.action, targetType: adminAuditLogs.targetType, targetId: adminAuditLogs.targetId,
     createdAt: adminAuditLogs.createdAt, actorName: adminUsers.fullName, actorEmail: adminUsers.email,
-  }).from(adminAuditLogs).innerJoin(adminUsers, eq(adminAuditLogs.adminUserId, adminUsers.id)).orderBy(desc(adminAuditLogs.createdAt)).limit(500)
+  }).from(adminAuditLogs).innerJoin(adminUsers, eq(adminAuditLogs.adminUserId, adminUsers.id))
+    .where(actor.role === 'super_admin' ? undefined : eq(adminAuditLogs.adminUserId, actor.id))
+    .orderBy(desc(adminAuditLogs.createdAt)).limit(500)
   response.json({ data: rows })
 })
 

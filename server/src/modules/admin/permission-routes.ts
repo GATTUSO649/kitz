@@ -1,0 +1,58 @@
+import { defaultAdministratorPermissions, type AdministratorPermission } from './administration.js'
+
+type PermissionRule = {
+  path: RegExp
+  read: readonly AdministratorPermission[]
+  write?: readonly AdministratorPermission[]
+}
+
+const rules: PermissionRule[] = [
+  { path: /^\/dashboard\/?$/, read: ['analytics.system', 'sales.view'] },
+  { path: /^\/(?:payments)(?:\/|$)/, read: ['finance.view_transactions'] },
+  { path: /^\/reports\/financial\/?$/, read: ['finance.view'] },
+  { path: /^\/expenses(?:\/|$)/, read: ['finance.view'], write: ['finance.manage_expenses'] },
+  { path: /^\/inventory(?:\/|$)/, read: ['inventory.manage_stock'], write: ['inventory.manage_stock'] },
+  { path: /^\/products\/[^/]+\/variants\/[^/]+\/stock\/?$/, read: ['inventory.manage_stock'], write: ['inventory.manage_stock'] },
+  { path: /^\/(?:leagues|jersey-categories)(?:\/|$)/, read: ['sales.manage_catalogue', 'content.manage_categories'], write: ['sales.manage_catalogue', 'content.manage_categories'] },
+  { path: /^\/products(?:\/|$)/, read: ['sales.manage_products', 'content.manage_products'], write: ['sales.manage_products', 'content.manage_products'] },
+  { path: /^\/categories(?:\/|$)/, read: ['sales.manage_catalogue', 'content.manage_categories'], write: ['sales.manage_catalogue', 'content.manage_categories'] },
+  { path: /^\/(?:football|catalogue-options)(?:\/|$)/, read: ['sales.manage_catalogue', 'content.manage_categories'], write: ['sales.manage_catalogue', 'content.manage_categories'] },
+  { path: /^\/homepage(?:\/|$)/, read: ['sales.manage_catalogue', 'content.manage_content'], write: ['sales.manage_catalogue', 'content.manage_content'] },
+  { path: /^\/orders\/[^/]+\/status\/?$/, read: ['sales.view', 'inventory.manage_fulfilment'], write: ['sales.manage_orders', 'inventory.manage_fulfilment'] },
+  { path: /^\/orders(?:\/|$)/, read: ['sales.view', 'inventory.manage_fulfilment'], write: ['sales.manage_orders', 'inventory.manage_fulfilment'] },
+  { path: /^\/guest-orders(?:\/|$)/, read: ['sales.view'], write: ['sales.manage_orders'] },
+  { path: /^\/(?:customers|support)(?:\/|$)/, read: ['sales.manage_customers'], write: ['sales.manage_customers'] },
+  { path: /^\/delivery\/zones(?:\/|$)/, read: ['sales.manage_orders', 'inventory.manage_fulfilment'], write: ['sales.manage_orders', 'inventory.manage_fulfilment'] },
+  { path: /^\/notifications(?:\/|$)/, read: ['sales.manage_customers', 'marketing.manage_campaigns'], write: ['sales.manage_customers', 'marketing.manage_campaigns'] },
+  { path: /^\/settings\/?$/, read: ['application.manage_settings'], write: ['application.manage_settings'] },
+  { path: /^\/audit\/?$/, read: ['audit.view'] },
+]
+
+export function administratorPermissionsForRoute(method: string, path: string): readonly AdministratorPermission[] | null {
+  const rule = rules.find((candidate) => candidate.path.test(path))
+  if (!rule) return null
+  return method === 'GET' || method === 'HEAD' ? rule.read : rule.write ?? rule.read
+}
+
+export function hasAnyPermission(granted: ReadonlySet<AdministratorPermission>, required: readonly AdministratorPermission[]) {
+  return required.some((permission) => granted.has(permission))
+}
+
+export function hasDedicatedAdministratorGuard(path: string) {
+  return path === '/me' || path.startsWith('/it/') || /^\/portal\/(?:super_admin|it_admin|sales_admin|finance_admin|inventory_admin|marketing_admin|content_admin)$/.test(path)
+}
+
+const salesDashboardFields = [
+  'period', 'from', 'to', 'totalOrders', 'pendingOrders', 'totalCustomers', 'newCustomers', 'returningCustomers',
+  'totalProducts', 'recentOrders', 'bestSellers', 'worstSellers', 'salesByCategory', 'salesByLocation',
+] as const
+
+export function projectDashboardForRole(role: string | null, data: Record<string, unknown>, granted?: ReadonlySet<AdministratorPermission>) {
+  if (role === 'super_admin') return data
+  const permissions = granted ?? (role && role in defaultAdministratorPermissions ? defaultAdministratorPermissions[role as keyof typeof defaultAdministratorPermissions] : new Set<AdministratorPermission>())
+  const fields = new Set<string>(['period', 'from', 'to'])
+  if (permissions.has('sales.view')) for (const field of salesDashboardFields) fields.add(field)
+  if (permissions.has('finance.view')) for (const field of ['paidRevenue', 'paidOrderCount', 'averageOrderValue', 'paidPayments', 'revenueTrend']) fields.add(field)
+  if (permissions.has('inventory.manage_stock')) for (const field of ['inventoryUnits', 'lowStockVariants', 'outOfStockVariants']) fields.add(field)
+  return Object.fromEntries([...fields].filter((field) => field in data).map((field) => [field, data[field]]))
+}

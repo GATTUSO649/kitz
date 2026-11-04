@@ -8,7 +8,7 @@ import { adminDb } from '../../config/database.js'
 import { bcryptPasswordSchema, verifyPassword } from '../../config/password-policy.js'
 import { adminSessionAbsoluteLifetimeMs, adminSessionIdleTimeoutMs, nextSessionExpiry } from '../../config/session-policy.js'
 import { adminAuditLogs, adminLoginAttempts, adminSessions, adminUsers, adminVerificationTokens } from '../../database/admin-schema.js'
-import { administratorPortal } from './administration.js'
+import { administratorPortal, requiredAdministratorRole } from './administration.js'
 import { allocateAdministratorRoleNumber } from './role-number.js'
 import { authenticatedAdmin } from '../../middleware/authenticate.js'
 import { authenticateAdmin } from '../../middleware/authenticate.js'
@@ -192,8 +192,15 @@ const adminLoginHandler = async (request: Request, response: Response) => {
     response.status(403).json({ error: { code: 'EMAIL_NOT_VERIFIED', message: 'Verify and activate the administrator account before signing in.' } })
     return
   }
-  if (!admin.emailVerifiedAt) {
-    response.status(403).json({ error: { code: 'EMAIL_NOT_VERIFIED', message: 'Verify the administrator email before signing in.' } })
+  if (!admin.role) {
+    await adminDb.insert(adminLoginAttempts).values({ identity: normalizedIdentity, adminUserId: admin.id, success: false, failureCode: 'ADMIN_ROLE_UNASSIGNED' })
+    response.status(403).json({ error: { code: 'ADMIN_ROLE_UNASSIGNED', message: 'The administrator account has no assigned role.' } })
+    return
+  }
+  const requiredRole = requiredAdministratorRole(request.path, input.data.expectedRole)
+  if (requiredRole && requiredRole !== admin.role) {
+    await adminDb.insert(adminLoginAttempts).values({ identity: normalizedIdentity, adminUserId: admin.id, success: false, failureCode: 'PORTAL_ROLE_MISMATCH' })
+    response.status(403).json({ error: { code: 'PORTAL_ROLE_MISMATCH', message: 'These credentials do not belong to this administrator portal.' } })
     return
   }
 
@@ -215,12 +222,6 @@ const adminLoginHandler = async (request: Request, response: Response) => {
   })
   await adminDb.insert(adminLoginAttempts).values({ identity: normalizedIdentity, adminUserId: admin.id, success: true })
   await adminDb.update(adminUsers).set({ lastLoginAt: createdAt }).where(eq(adminUsers.id, admin.id))
-  if (!admin.role) return response.status(403).json({ error: { code: 'ADMIN_ROLE_UNASSIGNED', message: 'The administrator account has no assigned role.' } })
-  const requiredRole = request.path === '/super-admin/login' ? 'super_admin' : input.data.expectedRole
-  if (requiredRole && requiredRole !== admin.role) {
-    await adminDb.insert(adminLoginAttempts).values({ identity: normalizedIdentity, adminUserId: admin.id, success: false, failureCode: 'PORTAL_ROLE_MISMATCH' })
-    return response.status(403).json({ error: { code: 'PORTAL_ROLE_MISMATCH', message: 'These credentials do not belong to this administrator portal.' } })
-  }
   response.json({ data: { user: { id: admin.id, email: admin.email, fullName: admin.fullName, roleNumber: admin.roleNumber, role: admin.role }, portal: administratorPortal(admin.role) } })
 }
 

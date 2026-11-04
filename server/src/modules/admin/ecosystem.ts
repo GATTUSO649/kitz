@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { hash } from 'bcryptjs'
-import { and, asc, count, desc, eq, isNull } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { Router, type NextFunction, type Request, type Response } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
@@ -8,11 +8,12 @@ import { adminDb, db } from '../../config/database.js'
 import { env } from '../../config/env.js'
 import { bcryptPasswordSchema } from '../../config/password-policy.js'
 import { buildAbsoluteUrl, customerEmailTemplate, sendTransactionalEmail } from '../../config/email.js'
-import { adminAuditLogs, adminInvitations, adminLoginAttempts, adminSessions, adminSetupLocks, adminUsers, adminVerificationTokens, administratorRoles } from '../../database/admin-schema.js'
+import { adminAuditLogs, adminInvitations, adminLoginAttempts, adminRolePermissions, adminSessions, adminSetupLocks, adminUserPermissions, adminUsers, adminVerificationTokens, administratorRoles, monitoringAlerts, monitoringDetectionRules, monitoringEvents } from '../../database/admin-schema.js'
 import { categories, expenses, homepageSlides, inventoryMovements, notificationCampaigns, orders, payments, productVariants, products, supportRequests, users } from '../../database/schema.js'
 import { authenticateAdmin, authenticatedAdmin } from '../../middleware/authenticate.js'
 import { allocateAdministratorRoleNumber } from './role-number.js'
-import { administratorPortal, administratorRoles as roles, hasAdministratorPermission, type AdministratorPermission } from './administration.js'
+import { administratorPermissions as permissionKeys, administratorPortal, administratorRoles as roles, defaultAdministratorPermissions, hasAdministratorPermission, type AdministratorPermission } from './administration.js'
+import { loadAdministratorPermissions, permissionDescriptions, validatePermissionSelection } from './permissions.js'
 
 export const adminEcosystemRouter = Router()
 const bootstrapLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 5, standardHeaders: true, legacyHeaders: false })
@@ -168,6 +169,28 @@ adminEcosystemRouter.get('/ecosystem', async (request, response) => {
   const recentActivity = await adminDb.select({ id: adminAuditLogs.id, action: adminAuditLogs.action, targetType: adminAuditLogs.targetType, targetId: adminAuditLogs.targetId, createdAt: adminAuditLogs.createdAt }).from(adminAuditLogs).orderBy(desc(adminAuditLogs.createdAt)).limit(25)
   const recentLogins = await adminDb.select({ id: adminLoginAttempts.id, identity: adminLoginAttempts.identity, success: adminLoginAttempts.success, failureCode: adminLoginAttempts.failureCode, createdAt: adminLoginAttempts.createdAt }).from(adminLoginAttempts).orderBy(desc(adminLoginAttempts.createdAt)).limit(25)
   response.json({ data: { total: total[0]?.total ?? 0, active: active[0]?.total ?? 0, suspended: suspended[0]?.total ?? 0, pending: pending[0]?.total ?? 0, pendingInvitations: invitations[0]?.total ?? 0, recentActivity, recentLogins } })
+})
+
+adminEcosystemRouter.get('/ecosystem/alerts', async (request, response) => {
+  if (!await requireSuperAdmin('analytics.system', request, response)) return
+  if (!adminDb) return
+  const [failedLogins, invitationDelivery, monitoring, systemEvents] = await Promise.all([
+    adminDb.select({ id: adminLoginAttempts.id, identity: adminLoginAttempts.identity, failureCode: adminLoginAttempts.failureCode, createdAt: adminLoginAttempts.createdAt })
+      .from(adminLoginAttempts).where(eq(adminLoginAttempts.success, false)).orderBy(desc(adminLoginAttempts.createdAt)).limit(50),
+    adminDb.select({ id: adminInvitations.id, email: adminInvitations.email, role: adminInvitations.role, deliveryStatus: adminInvitations.deliveryStatus, deliveryErrorCode: adminInvitations.deliveryErrorCode, createdAt: adminInvitations.createdAt })
+      .from(adminInvitations).where(inArray(adminInvitations.deliveryStatus, ['failed', 'skipped', 'queued'])).orderBy(desc(adminInvitations.createdAt)).limit(50),
+    adminDb.select({ id: monitoringAlerts.id, severity: monitoringAlerts.severity, description: monitoringAlerts.description, affectedService: monitoringAlerts.affectedService, status: monitoringAlerts.status, firstOccurrence: monitoringAlerts.firstOccurrence, lastOccurrence: monitoringAlerts.lastOccurrence, occurrenceCount: monitoringAlerts.occurrenceCount, ruleName: monitoringDetectionRules.name })
+      .from(monitoringAlerts).innerJoin(monitoringDetectionRules, eq(monitoringAlerts.detectionRuleId, monitoringDetectionRules.id)).orderBy(desc(monitoringAlerts.lastOccurrence)).limit(100),
+    adminDb.select({ id: monitoringEvents.id, eventType: monitoringEvents.eventType, category: monitoringEvents.category, severity: monitoringEvents.severity, sourceService: monitoringEvents.sourceService, relatedResourceId: monitoringEvents.relatedResourceId, occurredAt: monitoringEvents.occurredAt })
+      .from(monitoringEvents).where(inArray(monitoringEvents.category, ['security', 'system'])).orderBy(desc(monitoringEvents.occurredAt)).limit(100),
+  ])
+  const data = [
+    ...failedLogins.map((event) => ({ id: `login-${event.id}`, category: 'authentication', severity: 'warning', title: 'Administrator sign-in failed', detail: `${event.identity} · ${event.failureCode ?? 'Unknown failure'}`, status: 'recorded', createdAt: event.createdAt })),
+    ...invitationDelivery.map((event) => ({ id: `invitation-${event.id}`, category: 'email_delivery', severity: event.deliveryStatus === 'failed' ? 'error' : 'warning', title: `Administrator invitation ${event.deliveryStatus}`, detail: `${event.email} · ${event.role} · ${event.deliveryErrorCode ?? 'Delivery status pending'}`, status: event.deliveryStatus, createdAt: event.createdAt })),
+    ...monitoring.map((event) => ({ id: `monitoring-${event.id}`, category: 'monitoring', severity: event.severity, title: event.ruleName, detail: `${event.affectedService} · ${event.description} · ${event.occurrenceCount} occurrence(s)`, status: event.status, createdAt: event.lastOccurrence })),
+    ...systemEvents.map((event) => ({ id: `event-${event.id}`, category: event.category, severity: event.severity, title: event.eventType, detail: `${event.sourceService}${event.relatedResourceId ? ` · ${event.relatedResourceId}` : ''}`, status: 'recorded', createdAt: event.occurredAt })),
+  ].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()).slice(0, 100)
+  response.json({ data })
 })
 
 adminEcosystemRouter.get('/ecosystem/administrators', async (request, response) => {
@@ -366,6 +389,85 @@ adminEcosystemRouter.post('/ecosystem/administrators/:id/invitation/resend', asy
 
 adminEcosystemRouter.get('/ecosystem/roles', (_request, response) => {
   response.json({ data: roles.map((role) => ({ role, portal: administratorPortal(role) })) })
+})
+
+adminEcosystemRouter.get('/ecosystem/roles/:role/permissions', async (request, response) => {
+  const authorization = await requireSuperAdmin('permissions.manage', request, response)
+  if (!authorization || !adminDb) return
+  const role = request.params.role
+  if (!roles.includes(role as (typeof roles)[number])) return response.status(400).json({ error: { code: 'INVALID_ADMIN_ROLE', message: 'Administrator role is invalid.' } })
+  const stored = await adminDb.select({ permission: adminRolePermissions.permission }).from(adminRolePermissions).where(eq(adminRolePermissions.role, role))
+  const configured = stored.length > 0
+  const activePermissions = new Set(configured ? stored.map(({ permission }) => permission) : defaultAdministratorPermissions[role as (typeof roles)[number]])
+  response.json({ data: { role, configured, permissions: permissionKeys.map((permission) => ({ permission, description: permissionDescriptions[permission], enabled: activePermissions.has(permission) })) } })
+})
+
+adminEcosystemRouter.put('/ecosystem/roles/:role/permissions', async (request, response) => {
+  const authorization = await requireSuperAdmin('permissions.manage', request, response)
+  if (!authorization || !adminDb) return
+  const role = request.params.role
+  if (!roles.includes(role as (typeof roles)[number])) return response.status(400).json({ error: { code: 'INVALID_ADMIN_ROLE', message: 'Administrator role is invalid.' } })
+  if (role === 'super_admin') return response.status(403).json({ error: { code: 'SUPER_ADMIN_PERMISSIONS_IMMUTABLE', message: 'Super Administrator permissions cannot be changed.' } })
+  const input = z.object({ permissions: z.array(z.string().trim().min(1).max(120)).min(1).max(permissionKeys.length) }).strict().safeParse(request.body)
+  if (!input.success || !validatePermissionSelection(input.data?.permissions ?? [])) return response.status(400).json({ error: { code: 'INVALID_PERMISSION_ASSIGNMENT', message: 'Choose one or more valid, unique permissions.' } })
+  await adminDb.transaction(async (transaction) => {
+    const previousRows = await transaction.select({ permission: adminRolePermissions.permission }).from(adminRolePermissions).where(eq(adminRolePermissions.role, role))
+    const previous = new Set(previousRows.length ? previousRows.map(({ permission }) => permission) : defaultAdministratorPermissions[role as (typeof roles)[number]])
+    const next = new Set(input.data.permissions)
+    await transaction.delete(adminRolePermissions).where(eq(adminRolePermissions.role, role))
+    await transaction.insert(adminRolePermissions).values(input.data.permissions.map((permission) => ({ role, permission })))
+    const changed = permissionKeys.filter((permission) => previous.has(permission) !== next.has(permission))
+    if (changed.length) await transaction.insert(adminAuditLogs).values(changed.map((permission) => ({
+      adminUserId: authorization.actor.id,
+      action: `administrator.role_permission.${next.has(permission) ? 'granted' : 'revoked'}`,
+      targetType: 'administrator_role_permission',
+      targetId: `${role}:${permission}`,
+    })))
+  })
+  response.json({ data: { role, permissions: input.data.permissions, updated: true } })
+})
+
+adminEcosystemRouter.get('/ecosystem/administrators/:id/permissions', async (request, response) => {
+  const authorization = await requireSuperAdmin('permissions.manage', request, response)
+  if (!authorization || !adminDb) return
+  const adminId = Number(request.params.id)
+  if (!Number.isInteger(adminId) || adminId < 1) return response.status(400).json({ error: { code: 'INVALID_ADMIN_ID', message: 'Administrator ID is invalid.' } })
+  const [target] = await adminDb.select({ role: adminUsers.role }).from(adminUsers).where(eq(adminUsers.id, adminId)).limit(1)
+  if (!target?.role || !roles.includes(target.role)) return response.status(404).json({ error: { code: 'ADMIN_NOT_FOUND', message: 'Administrator was not found.' } })
+  const [roleRows, overrides, effective] = await Promise.all([
+    adminDb.select({ permission: adminRolePermissions.permission }).from(adminRolePermissions).where(eq(adminRolePermissions.role, target.role)),
+    adminDb.select({ permission: adminUserPermissions.permission, granted: adminUserPermissions.granted }).from(adminUserPermissions).where(and(eq(adminUserPermissions.adminUserId, adminId), isNull(adminUserPermissions.revokedAt))),
+    loadAdministratorPermissions(adminId, target.role),
+  ])
+  const roleSet = new Set(roleRows.length ? roleRows.map(({ permission }) => permission) : defaultAdministratorPermissions[target.role])
+  const overrideMap = new Map(overrides.map(({ permission, granted }) => [permission, granted]))
+  response.json({ data: { adminId, role: target.role, permissions: permissionKeys.map((permission) => ({ permission, description: permissionDescriptions[permission], roleGranted: roleSet.has(permission), override: overrideMap.get(permission) ?? null, enabled: effective?.has(permission) ?? false })) } })
+})
+
+adminEcosystemRouter.patch('/ecosystem/administrators/:id/permissions/:permission', async (request, response) => {
+  const authorization = await requireSuperAdmin('permissions.manage', request, response)
+  if (!authorization || !adminDb) return
+  const adminId = Number(request.params.id)
+  const permission = request.params.permission
+  if (!Number.isInteger(adminId) || adminId < 1) return response.status(400).json({ error: { code: 'INVALID_ADMIN_ID', message: 'Administrator ID is invalid.' } })
+  if (!permissionKeys.includes(permission as AdministratorPermission)) return response.status(400).json({ error: { code: 'INVALID_PERMISSION', message: 'Permission is invalid.' } })
+  const input = z.object({ granted: z.boolean().nullable() }).strict().safeParse(request.body)
+  if (!input.success) return response.status(400).json({ error: { code: 'INVALID_PERMISSION_OVERRIDE', message: 'Permission override is invalid.' } })
+  const [target] = await adminDb.select({ role: adminUsers.role }).from(adminUsers).where(eq(adminUsers.id, adminId)).limit(1)
+  if (!target) return response.status(404).json({ error: { code: 'ADMIN_NOT_FOUND', message: 'Administrator was not found.' } })
+  if (target.role === 'super_admin') return response.status(403).json({ error: { code: 'SUPER_ADMIN_PERMISSIONS_IMMUTABLE', message: 'Super Administrator permissions cannot be overridden.' } })
+  const now = new Date()
+  await adminDb.transaction(async (transaction) => {
+    if (input.data.granted === null) {
+      await transaction.delete(adminUserPermissions).where(and(eq(adminUserPermissions.adminUserId, adminId), eq(adminUserPermissions.permission, permission)))
+    } else {
+      await transaction.insert(adminUserPermissions).values({ adminUserId: adminId, permission, granted: input.data.granted, grantedByAdminUserId: authorization.actor.id, createdAt: now, revokedAt: null })
+        .onConflictDoUpdate({ target: [adminUserPermissions.adminUserId, adminUserPermissions.permission], set: { granted: input.data.granted, grantedByAdminUserId: authorization.actor.id, createdAt: now, revokedAt: null } })
+    }
+    await transaction.insert(adminAuditLogs).values({ adminUserId: authorization.actor.id, action: input.data.granted === null ? 'administrator.permission_override.cleared' : `administrator.permission_override.${input.data.granted ? 'granted' : 'denied'}`, targetType: 'administrator_permission', targetId: `${adminId}:${permission}` })
+  })
+  const effective = await loadAdministratorPermissions(adminId, target.role as (typeof roles)[number])
+  response.json({ data: { adminId, permission, override: input.data.granted, enabled: effective?.has(permission as AdministratorPermission) ?? false } })
 })
 
 adminEcosystemRouter.use((error: unknown, request: Request, response: Response, next: NextFunction) => {
