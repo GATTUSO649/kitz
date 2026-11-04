@@ -7,7 +7,7 @@ import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { adminDb } from '../../config/database.js'
 import { bcryptPasswordSchema, verifyPassword } from '../../config/password-policy.js'
 import { adminSessionAbsoluteLifetimeMs, adminSessionIdleTimeoutMs, nextSessionExpiry } from '../../config/session-policy.js'
-import { adminAuditLogs, adminLoginAttempts, adminSessions, adminUsers, adminVerificationTokens } from '../../database/admin-schema.js'
+import { adminAuditLogs, adminInvitations, adminLoginAttempts, adminSessions, adminUsers, adminVerificationTokens } from '../../database/admin-schema.js'
 import { administratorPortal, requiredAdministratorRole } from './administration.js'
 import { allocateAdministratorRoleNumber } from './role-number.js'
 import { authenticatedAdmin } from '../../middleware/authenticate.js'
@@ -176,8 +176,8 @@ const adminLoginHandler = async (request: Request, response: Response) => {
     role: adminUsers.role,
     status: adminUsers.status,
   }).from(adminUsers).where(normalizedIdentity.includes('@') ? eq(adminUsers.email, normalizedIdentity) : eq(adminUsers.roleNumber, normalizedIdentity)).limit(1)
-  const passwordMatches = await verifyPassword(input.data.password, admin?.passwordHash)
-  if (!admin || !passwordMatches) {
+  if (!admin) {
+    await verifyPassword(input.data.password, undefined)
     await adminDb.insert(adminLoginAttempts).values({ identity: normalizedIdentity, success: false, failureCode: 'INVALID_CREDENTIALS' })
     response.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: invalidAdminCredentialsMessage } })
     return
@@ -185,6 +185,29 @@ const adminLoginHandler = async (request: Request, response: Response) => {
   if (admin.status === 'suspended' || admin.status === 'disabled') {
     await adminDb.insert(adminLoginAttempts).values({ identity: normalizedIdentity, adminUserId: admin.id, success: false, failureCode: 'ACCOUNT_SUSPENDED' })
     response.status(403).json({ error: { code: 'ADMIN_ACCOUNT_SUSPENDED', message: 'This administrator account is suspended or disabled.' } })
+    return
+  }
+  const requiredRole = requiredAdministratorRole(request.path, input.data.expectedRole)
+  if (requiredRole && requiredRole !== admin.role) {
+    await adminDb.insert(adminLoginAttempts).values({ identity: normalizedIdentity, adminUserId: admin.id, success: false, failureCode: 'PORTAL_ROLE_MISMATCH' })
+    response.status(403).json({ error: { code: 'PORTAL_ROLE_MISMATCH', message: 'These credentials do not belong to this administrator portal.' } })
+    return
+  }
+  if (admin.status === 'pending' && admin.roleNumber && normalizedIdentity === admin.roleNumber && input.data.password === admin.roleNumber) {
+    const [invitation] = await adminDb.select({ id: adminInvitations.id, expiresAt: adminInvitations.expiresAt, consumedAt: adminInvitations.consumedAt })
+      .from(adminInvitations).where(and(eq(adminInvitations.adminUserId, admin.id), isNull(adminInvitations.consumedAt))).limit(1)
+    if (invitation && invitation.expiresAt.getTime() > Date.now()) {
+      const activationToken = randomBytes(32).toString('base64url')
+      await adminDb.update(adminInvitations).set({ tokenHash: hashToken(activationToken), expiresAt: new Date(Date.now() + 72 * 60 * 60_000) }).where(eq(adminInvitations.id, invitation.id))
+      await adminDb.insert(adminAuditLogs).values({ adminUserId: admin.id, action: 'administrator.role_number_activation_started', targetType: 'admin_user', targetId: String(admin.id) })
+      response.json({ data: { activationRequired: true, activationToken, roleNumber: admin.roleNumber, portal: administratorPortal(admin.role!) } })
+      return
+    }
+  }
+  const passwordMatches = await verifyPassword(input.data.password, admin.passwordHash)
+  if (!passwordMatches) {
+    await adminDb.insert(adminLoginAttempts).values({ identity: normalizedIdentity, adminUserId: admin.id, success: false, failureCode: 'INVALID_CREDENTIALS' })
+    response.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: invalidAdminCredentialsMessage } })
     return
   }
   if (admin.status !== 'active' || !admin.emailVerifiedAt) {
@@ -197,13 +220,6 @@ const adminLoginHandler = async (request: Request, response: Response) => {
     response.status(403).json({ error: { code: 'ADMIN_ROLE_UNASSIGNED', message: 'The administrator account has no assigned role.' } })
     return
   }
-  const requiredRole = requiredAdministratorRole(request.path, input.data.expectedRole)
-  if (requiredRole && requiredRole !== admin.role) {
-    await adminDb.insert(adminLoginAttempts).values({ identity: normalizedIdentity, adminUserId: admin.id, success: false, failureCode: 'PORTAL_ROLE_MISMATCH' })
-    response.status(403).json({ error: { code: 'PORTAL_ROLE_MISMATCH', message: 'These credentials do not belong to this administrator portal.' } })
-    return
-  }
-
   const token = randomBytes(32).toString('base64url')
   const createdAt = new Date()
   const expiresAt = nextSessionExpiry(createdAt, createdAt, adminIdleTimeoutMs, adminSessionAbsoluteLifetimeMs)!

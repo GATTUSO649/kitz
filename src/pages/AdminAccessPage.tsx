@@ -31,11 +31,12 @@ export function AdminAccessPage() {
 
 export function AdminActivationPage() {
   const location = useLocation()
-  const token = new URLSearchParams(location.search).get('token') ?? ''
-  const [roleNumber, setRoleNumber] = useState('')
+  const activationParams = new URLSearchParams(location.search)
+  const token = activationParams.get('token') ?? ''
+  const [roleNumber, setRoleNumber] = useState(activationParams.get('roleNumber') ?? '')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [activated, setActivated] = useState(false)
+  const [activated, setActivated] = useState(Boolean(activationParams.get('roleNumber')))
   const [sent, setSent] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')

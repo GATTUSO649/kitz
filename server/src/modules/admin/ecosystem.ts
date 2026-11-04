@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import bcrypt, { hash } from 'bcryptjs'
+import { hash } from 'bcryptjs'
 import { and, asc, count, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { Router, type NextFunction, type Request, type Response } from 'express'
 import { rateLimit } from 'express-rate-limit'
@@ -133,9 +133,7 @@ adminEcosystemRouter.post('/activate/password', async (request, response) => {
   const input = activationPasswordSchema.safeParse(request.body)
   if (!input.success || !adminDb) return response.status(400).json({ error: { code: 'INVALID_PASSWORD_CHANGE', message: 'Enter a valid role number and password.' } })
   const invitation = await findPendingInvitation(input.data.token, input.data.roleNumber)
-  if (!invitation || !invitation.passwordHash || !(await bcrypt.compare(input.data.roleNumber, invitation.passwordHash))) {
-    return response.status(400).json({ error: { code: 'ACTIVATION_REQUIRED', message: 'Activate with the assigned role number before changing the password.' } })
-  }
+  if (!invitation) return response.status(400).json({ error: { code: 'INVALID_ACTIVATION', message: 'The activation link or assigned role number is invalid.' } })
   const passwordHash = await hash(input.data.password, 12)
   await adminDb.transaction(async (transaction) => {
     await transaction.update(adminInvitations).set({ passwordHash }).where(eq(adminInvitations.id, invitation.id))
@@ -331,6 +329,26 @@ adminEcosystemRouter.post('/ecosystem/administrators/:id/status', async (request
     await transaction.insert(adminAuditLogs).values({ adminUserId: authorization.actor.id, action: `administrator.${input.data.action}ed`, targetType: 'admin_user', targetId: String(adminId) })
   })
   response.json({ data: { updated: true } })
+})
+
+adminEcosystemRouter.delete('/ecosystem/administrators/:id', async (request, response) => {
+  const authorization = await requireSuperAdmin('administrators.manage', request, response)
+  if (!authorization || !adminDb) return
+  const adminId = Number(request.params.id)
+  if (!Number.isInteger(adminId) || adminId < 1) return response.status(400).json({ error: { code: 'INVALID_ADMIN_ID', message: 'Administrator ID is invalid.' } })
+  if (adminId === authorization.actor.id) return response.status(409).json({ error: { code: 'SELF_DELETE_FORBIDDEN', message: 'You cannot remove your own Super Administrator account.' } })
+  const [target] = await adminDb.select({ role: adminUsers.role, status: adminUsers.status }).from(adminUsers).where(eq(adminUsers.id, adminId)).limit(1)
+  if (!target) return response.status(404).json({ error: { code: 'ADMIN_NOT_FOUND', message: 'Administrator was not found.' } })
+  if (target.role === 'super_admin' && target.status === 'active') {
+    const [{ total }] = await adminDb.select({ total: count() }).from(adminUsers).where(and(eq(adminUsers.role, 'super_admin'), eq(adminUsers.status, 'active')))
+    if (Number(total) <= 1) return response.status(409).json({ error: { code: 'LAST_SUPER_ADMIN', message: 'The last active Super Administrator cannot be removed.' } })
+  }
+  await adminDb.transaction(async (transaction) => {
+    await transaction.update(adminUsers).set({ status: 'disabled', suspendedAt: new Date(), suspendedReason: 'Removed by Super Administrator' }).where(eq(adminUsers.id, adminId))
+    await transaction.delete(adminSessions).where(eq(adminSessions.adminUserId, adminId))
+    await transaction.insert(adminAuditLogs).values({ adminUserId: authorization.actor.id, action: 'administrator.removed', targetType: 'admin_user', targetId: String(adminId) })
+  })
+  response.json({ data: { removed: true } })
 })
 
 adminEcosystemRouter.get('/portal/:role', authenticateAdmin, async (request, response) => {
