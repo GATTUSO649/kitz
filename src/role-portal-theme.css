@@ -45,6 +45,7 @@
 .role-portal-button:hover{background:#2b70ab}.role-portal-button:disabled{opacity:.55;cursor:wait}
 .role-portal-login-link{color:#8bbdff;font-size:11px;text-align:center;text-decoration:none}
 .role-portal-login :is(a,button,input):focus-visible{outline:2px solid #80baff;outline-offset:2px}
+.role-portal-auth-check{display:grid;min-height:100vh;place-items:center;background:linear-gradient(180deg,#071a33,#081827);color:#afc3d9;font-family:var(--body,sans-serif);font-size:12px}
 .finance-portal-main>header{margin-bottom:20px}
 .finance-header-copy{margin:8px 0 0;color:#afc3d9;font-size:12px;line-height:1.55}
 .finance-kpi-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:9px;margin-bottom:12px}

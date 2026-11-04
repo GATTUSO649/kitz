@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery} from '@tanstack/react-query'
 import { AlertTriangle, BarChart3, Boxes, CircleDollarSign, FileText, Megaphone, Package, Receipt, ShoppingBag } from 'lucide-react'
@@ -57,6 +57,14 @@ export function RolePortalLoginPage() {
   return <main className="role-portal-login"><section className="role-portal-login-card"><Link to="/" className="role-portal-login-brand"><img src="/culture-mark.webp" alt="" /><span>KitCulture</span></Link><span className="admin-kicker">RESTRICTED {prefix.replace('-admin', '').toUpperCase()} ACCESS</span><h1>{config.title}</h1><p>Sign in with the role number or email assigned to this administrator portal.</p><form onSubmit={(event) => void submit(event)}><label>Role number or email<input value={identity} onChange={(event) => setIdentity(event.target.value)} autoComplete="username" required /></label><label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></label>{error && <p className="admin-error" role="alert">{error}</p>}<button className="role-portal-button" type="submit" disabled={busy}>{busy ? 'Signing in…' : `Sign in to ${config.title}`}</button></form><Link className="role-portal-login-link" to="/admin/login">Existing Sales Admin sign in</Link></section></main>
 }
 
+async function signOutRolePortal(navigate: (path: string, options?: { replace?: boolean }) => void, prefix: keyof typeof roleConfig) {
+  try {
+    await fetch('/api/v1/admin/logout', { method: 'POST', credentials: 'include' })
+  } finally {
+    navigate(`/${prefix}/login`, { replace: true })
+  }
+}
+
 function currency(value: number | string) {
   return new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES', maximumFractionDigits: 0 }).format(Number(value) || 0)
 }
@@ -89,6 +97,7 @@ function FinanceTrend({ points }: { points: { date: string; revenue: string }[] 
 }
 
 function FinanceWorkspace({ prefix }: { prefix: keyof typeof roleConfig }) {
+  const navigate = useNavigate()
   const [activeModule, setActiveModule] = useState('Dashboard')
   const portal = useQuery({ queryKey: ['finance-portal'], queryFn: () => roleApi<PortalData>('/api/v1/admin/portal/finance_admin'), retry: false })
   const dashboard = useQuery({ queryKey: ['finance-dashboard'], queryFn: () => roleApi<FinanceDashboard>('/api/v1/admin/dashboard?period=last30days'), retry: false })
@@ -110,17 +119,39 @@ function FinanceWorkspace({ prefix }: { prefix: keyof typeof roleConfig }) {
     <div className="finance-panel-grid"><section className="finance-panel"><header><div><span className="admin-kicker">REVENUE TREND · LAST 30 DAYS</span><h2>Settled revenue</h2></div><BarChart3 size={19} /></header><FinanceTrend points={data?.revenueTrend ?? []} /></section><section className="finance-panel"><header><div><span className="admin-kicker">PAYMENT STATUS</span><h2>Transaction distribution</h2></div><Receipt size={19} /></header><div className="finance-bars">{(portal.data?.series ?? []).map((point) => <div key={point.label}><span>{point.label}</span><i><b style={{ width: `${Math.max(4, point.value / Math.max(1, ...(portal.data?.series ?? []).map((item) => item.value)) * 100)}%` }} /></i><strong>{point.value}</strong></div>)}</div></section></div>
     <section className="finance-panel"><header><div><span className="admin-kicker">RECENT FINANCIAL ACTIVITY</span><h2>Latest transactions</h2></div><ShoppingBag size={19} /></header><FinanceTable rows={portal.data?.records ?? []} /></section>
   </> : activeModule === 'Payments' || activeModule === 'M-Pesa' ? <section className="finance-panel"><header><div><span className="admin-kicker">{activeModule === 'M-Pesa' ? 'SAFARICOM DARaja' : 'PAYMENT MANAGEMENT'}</span><h2>{activeModule}</h2></div><Receipt size={19} /></header><p className="finance-panel-copy">Trusted backend payment records only. Customer screenshots and submitted transaction codes are not used as confirmation.</p><FinanceTable rows={payments.data ?? portal.data?.records ?? []} /></section> : activeModule === 'Expenses' ? <section className="finance-panel"><header><div><span className="admin-kicker">OPERATING COSTS</span><h2>Expense management</h2></div><Receipt size={19} /></header><FinanceTable rows={expenses.data ?? []} /></section> : activeModule === 'Revenue' ? <section className="finance-panel"><header><div><span className="admin-kicker">REVENUE MANAGEMENT</span><h2>Revenue and margin view</h2></div><BarChart3 size={19} /></header><div className="finance-report-grid">{Object.entries(reportData ?? {}).filter(([key]) => key !== 'profitAvailable').map(([key, value]) => <article key={key}><span>{key.replace(/([A-Z])/g, ' $1')}</span><strong>{key === 'costOfGoodsSold' && value === null ? 'Unavailable' : currency(String(value))}</strong></article>)}</div><p className="finance-panel-copy">Profit is shown only when product cost data is available.</p></section> : activeModule === 'Financial Reports' ? <section className="finance-panel"><header><div><span className="admin-kicker">REPORTING CENTRE</span><h2>Financial reports</h2></div><FileText size={19} /></header><div className="finance-report-grid">{Object.entries(reportData ?? {}).map(([key, value]) => <article key={key}><span>{key.replace(/([A-Z])/g, ' $1')}</span><strong>{typeof value === 'boolean' ? value ? 'Available' : 'Unavailable' : currency(String(value))}</strong></article>)}</div><p className="finance-panel-copy">CSV, Excel, and PDF exports require a reviewed export endpoint and are not enabled yet.</p></section> : activeModule === 'Audit Logs' ? <section className="finance-panel"><header><div><span className="admin-kicker">FINANCIAL ACCOUNTABILITY</span><h2>Audit activity</h2></div><FileText size={19} /></header><FinanceTable rows={audit.data ?? []} /></section> : activeModule === 'Notifications' ? <section className="finance-panel"><header><div><span className="admin-kicker">FINANCE NOTIFICATIONS</span><h2>Notification history</h2></div><Receipt size={19} /></header><FinanceTable rows={notifications.data ?? []} /></section> : <FinanceUnavailable title={`${activeModule} is not connected`} detail="This control requires an additive finance workflow, database contract, and audited server mutation before it can be enabled." />
-  return <main className="admin-it-page super-admin-page role-portal-shell finance-portal-shell"><aside className="super-admin-sidebar role-portal-sidebar"><Link to="/" className="admin-brand"><img src="/culture-mark.webp" alt="" /> KitCulture</Link><strong>{config.title}</strong><nav>{config.modules.map((module) => <button type="button" key={module} className={activeModule === module ? 'active' : ''} onClick={() => setActiveModule(module)}>{module}</button>)}</nav><Link to="/admin/login" className="admin-it-button role-portal-signout">Sign out</Link></aside><section className="super-admin-main role-portal-main finance-portal-main"><header><div><span className="admin-kicker">FINANCIAL MANAGEMENT AND CONTROL</span><h1>{activeModule}</h1><p className="finance-header-copy">Revenue, payments, accountability, and financial control for KitCulture.</p></div><CircleDollarSign size={24} /></header>{portal.isError || dashboard.isError ? <div className="admin-empty admin-error">Finance data is unavailable: {(portal.error ?? dashboard.error)?.message}</div> : panel}</section></main>
+  return <main className="admin-it-page super-admin-page role-portal-shell finance-portal-shell"><aside className="super-admin-sidebar role-portal-sidebar"><Link to="/" className="admin-brand"><img src="/culture-mark.webp" alt="" /> KitCulture</Link><strong>{config.title}</strong><nav>{config.modules.map((module) => <button type="button" key={module} className={activeModule === module ? 'active' : ''} onClick={() => setActiveModule(module)}>{module}</button>)}</nav><button type="button" className="admin-it-button role-portal-signout" onClick={() => void signOutRolePortal(navigate, prefix)}>Sign out</button></aside><section className="super-admin-main role-portal-main finance-portal-main"><header><div><span className="admin-kicker">FINANCIAL MANAGEMENT AND CONTROL</span><h1>{activeModule}</h1><p className="finance-header-copy">Revenue, payments, accountability, and financial control for KitCulture.</p></div><CircleDollarSign size={24} /></header>{portal.isError || dashboard.isError ? <div className="admin-empty admin-error">Finance data is unavailable: {(portal.error ?? dashboard.error)?.message}</div> : panel}</section></main>
 }
 
 export function RolePortalRoute() {
   const location = useLocation()
+  const navigate = useNavigate()
+  const prefix = location.pathname.split('/')[1] as keyof typeof roleConfig
+  const isLoginRoute = location.pathname.endsWith('/login')
+  const session = useQuery({
+    queryKey: ['role-portal-session', prefix],
+    queryFn: () => roleApi<{ user: { role: string | null } }>('/api/v1/admin/me'),
+    enabled: Boolean(roleConfig[prefix]) && !isLoginRoute,
+    retry: false,
+  })
+  useEffect(() => {
+    if (session.isPending || (!session.isError && session.data?.user.role === roleConfig[prefix].role)) return
+    if (session.isError) {
+      void navigate(`/${prefix}/login`, { replace: true })
+      return
+    }
+    void signOutRolePortal(navigate, prefix)
+  }, [navigate, prefix, session.data?.user.role, session.isError, session.isPending])
   if (location.pathname.endsWith('/login')) return <RolePortalLoginPage />
+  if (session.isPending) return <main className="role-portal-auth-check" role="status">Verifying administrator access...</main>
+  if (session.isError || session.data?.user.role !== roleConfig[prefix].role) {
+    return <main className="role-portal-auth-check" role="status">Redirecting to administrator sign in...</main>
+  }
   return <RolePortalDashboard />
 }
 
 function RolePortalDashboard() {
   const location = useLocation()
+  const navigate = useNavigate()
   const prefix = location.pathname.split('/')[1] as keyof typeof roleConfig
   const config = roleConfig[prefix]
   const [activeModule, setActiveModule] = useState<string>(config?.modules[0] ?? 'Overview')
@@ -149,7 +180,7 @@ function RolePortalDashboard() {
       <Link to="/" className="admin-brand"><img src="/culture-mark.webp" alt="" /> KitCulture</Link>
       <strong>{config.title}</strong>
       <nav>{config.modules.map((module) => <button type="button" key={module} className={activeModule === module ? 'active' : ''} onClick={() => setActiveModule(module)}>{module}</button>)}</nav>
-      <Link to="/admin/login" className="admin-it-button role-portal-signout">Sign out</Link>
+      <button type="button" className="admin-it-button role-portal-signout" onClick={() => void signOutRolePortal(navigate, prefix)}>Sign out</button>
     </aside>
     <section className="super-admin-main role-portal-main">
       <header><div><span className="admin-kicker">ROLE-RESTRICTED PORTAL</span><h1>{config.title}</h1></div><Icon size={24} /></header>
