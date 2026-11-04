@@ -97,7 +97,7 @@ export function administratorPortal(role: AdministratorRole) {
   return ({
     super_admin: '/super-admin/dashboard',
     it_admin: '/it-admin/dashboard',
-    sales_admin: '/admin/dashboard',
+    sales_admin: '/sales-admin/dashboard',
     finance_admin: '/finance-admin/dashboard',
     inventory_admin: '/inventory-admin/dashboard',
     marketing_admin: '/marketing-admin/dashboard',

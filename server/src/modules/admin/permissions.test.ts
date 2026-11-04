@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { administratorPermissions, defaultAdministratorPermissions, requiredAdministratorRole } from './administration.js'
+import { administratorPermissions, administratorPortal, defaultAdministratorPermissions, requiredAdministratorRole } from './administration.js'
 import { administratorPermissionsForRoute, hasAnyPermission, hasDedicatedAdministratorGuard, projectDashboardForRole } from './permission-routes.js'
 import { resolveAdministratorPermissions, validatePermissionSelection } from './permissions.js'
 
@@ -86,7 +86,8 @@ test('Sales dashboard projection does not expose finance or inventory aggregates
   assert.deepEqual(data, { totalOrders: 12, totalCustomers: 25, recentOrders: [{ orderNumber: 'KC-1' }] })
 })
 
-test('portal login requirement comes from the requested server route', () => {
+test('administrator portal destination and login role come from server policy', () => {
+  assert.equal(administratorPortal('sales_admin'), '/sales-admin/dashboard')
   assert.equal(requiredAdministratorRole('/super-admin/login'), 'super_admin')
   assert.equal(requiredAdministratorRole('/login', 'super_admin'), 'sales_admin')
   assert.equal(requiredAdministratorRole('/finance-admin/login'), 'finance_admin')

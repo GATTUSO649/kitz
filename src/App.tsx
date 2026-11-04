@@ -241,7 +241,7 @@ function App() {
   const isItAdminPage = /^\/it-admin(?:\/|$)/.test(pagePath)
   const isSuperAdminPage = pagePath.startsWith('/super-admin')
   const roleAdminPage = /^\/((finance|inventory|marketing|content)-admin)(\/|$)/.test(pagePath)
-  const isAdminPage = pagePath.startsWith('/admin')
+  const isAdminPage = /^\/(?:admin|sales-admin)(?:\/|$)/.test(pagePath)
   const isHomePage = pagePath === '/'
   const isShopPage = pagePath === '/shop' || pagePath === '/new-arrivals' || pagePath.startsWith('/categories/')
   const isMarketplacePage = pagePath === '/marketplace' || /^\/marketplace\/teams\/[^/]+\/[^/]+$/.test(pagePath)

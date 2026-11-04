@@ -12,6 +12,16 @@ const roleConfig = {
   'content-admin': { role: 'content_admin', title: 'Products and Content', modules: ['Overview', 'Products', 'Categories', 'Homepage'], endpoints: { Products: '/api/v1/admin/products', Categories: '/api/v1/admin/categories', Homepage: '/api/v1/admin/homepage' }, icon: Package },
 } as const
 
+const portalByRole: Record<string, string> = {
+  super_admin: '/super-admin/dashboard',
+  it_admin: '/it-admin/dashboard',
+  sales_admin: '/sales-admin/dashboard',
+  finance_admin: '/finance-admin/dashboard',
+  inventory_admin: '/inventory-admin/dashboard',
+  marketing_admin: '/marketing-admin/dashboard',
+  content_admin: '/content-admin/dashboard',
+}
+
 type PortalData = {
   role: string
   portal: string
@@ -283,15 +293,24 @@ export function RolePortalRoute() {
   })
   useEffect(() => {
     if (session.isPending || session.isFetching || isLoginRoute) return
-    const clearAndLeave = () => {
+    const clearPortalData = () => {
       queryClient.removeQueries({ predicate: ({ queryKey }) => {
         const key = String(queryKey[0] ?? '')
         return key === 'role-portal-session' || key === 'administrator-portal' || /^(finance|inventory|marketing)-/.test(key)
       } })
+    }
+    const clearAndLeave = () => {
+      clearPortalData()
       void signOutRolePortal(navigate, prefix)
     }
-    if (session.isError || session.data?.user.role !== roleConfig[prefix].role) {
+    const sessionRole = session.data?.user.role
+    if (session.isError) {
       clearAndLeave()
+      return
+    }
+    if (sessionRole !== roleConfig[prefix].role && sessionRole !== 'super_admin') {
+      clearPortalData()
+      navigate(portalByRole[sessionRole ?? ''] ?? '/admin/access', { replace: true })
       return
     }
     const idleTimeoutMs = 20 * 60_000
@@ -325,7 +344,7 @@ export function RolePortalRoute() {
   }, [isLoginRoute, navigate, prefix, queryClient, session.data?.user.role, session.isError, session.isFetching, session.isPending])
   if (location.pathname.endsWith('/login')) return <RolePortalLoginPage />
   if (session.isPending || session.isFetching) return <main className="role-portal-auth-check" role="status">Verifying administrator access...</main>
-  if (session.isError || session.data?.user.role !== roleConfig[prefix].role) {
+  if (session.isError || (session.data?.user.role !== roleConfig[prefix].role && session.data?.user.role !== 'super_admin')) {
     return <main className="role-portal-auth-check" role="status">Redirecting to administrator sign in...</main>
   }
   return <RolePortalDashboard />

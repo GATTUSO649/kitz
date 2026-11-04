@@ -66,24 +66,24 @@ function availableProductSeasons(leagues: CatalogueLeague[]) {
 }
 
 const sections = [
-  ['dashboard', 'Overview', '/admin', LayoutDashboard],
-  ['it', 'IT operations', '/admin/it', Shield],
-  ['products', 'Products', '/admin/products', Package],
-  ['football', 'Leagues & teams', '/admin/football', Trophy],
-  ['homepage', 'Homepage', '/admin/homepage', ImageIcon],
-  ['categories', 'Kit collections', '/admin/categories', Package],
-  ['orders', 'Orders', '/admin/orders', Package],
-  ['guest-orders', 'Guest management', '/admin/guest-orders', Users],
-  ['notifications', 'Notifications', '/admin/notifications', Bell],
-  ['customers', 'Customers', '/admin/customers', Users],
-  ['support', 'Customer chats', '/admin/support', MessageCircle],
-  ['inventory', 'Inventory', '/admin/inventory', Package],
-  ['delivery', 'Delivery zones', '/admin/delivery', Package],
-  ['payments', 'Payments', '/admin/payments', Package],
-  ['reports', 'Financial reports', '/admin/reports', Package],
-  ['expenses', 'Expenses', '/admin/expenses', Package],
-  ['settings', 'Business settings', '/admin/settings', Package],
-  ['audit', 'Audit log', '/admin/audit', Package],
+  ['dashboard', 'Overview', '/sales-admin/dashboard', LayoutDashboard],
+  ['it', 'IT operations', '/sales-admin/it', Shield],
+  ['products', 'Products', '/sales-admin/products', Package],
+  ['football', 'Leagues & teams', '/sales-admin/football', Trophy],
+  ['homepage', 'Homepage', '/sales-admin/homepage', ImageIcon],
+  ['categories', 'Kit collections', '/sales-admin/categories', Package],
+  ['orders', 'Orders', '/sales-admin/orders', Package],
+  ['guest-orders', 'Guest management', '/sales-admin/guest-orders', Users],
+  ['notifications', 'Notifications', '/sales-admin/notifications', Bell],
+  ['customers', 'Customers', '/sales-admin/customers', Users],
+  ['support', 'Customer chats', '/sales-admin/support', MessageCircle],
+  ['inventory', 'Inventory', '/sales-admin/inventory', Package],
+  ['delivery', 'Delivery zones', '/sales-admin/delivery', Package],
+  ['payments', 'Payments', '/sales-admin/payments', Package],
+  ['reports', 'Financial reports', '/sales-admin/reports', Package],
+  ['expenses', 'Expenses', '/sales-admin/expenses', Package],
+  ['settings', 'Business settings', '/sales-admin/settings', Package],
+  ['audit', 'Audit log', '/sales-admin/audit', Package],
 ] as const
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -323,8 +323,8 @@ export function AdminOnboardingPage() {
   }
 
   return <AdminAuthLayout><section className="role-portal-login-card">
-    <Link to="/admin/login" className="role-portal-login-link">← Administrator sign in</Link><span className="admin-kicker">SECURE ACTIVATION</span><h1>Complete administrator onboarding</h1>
-    {sent ? <><p>Check the invited email address to verify and activate this account.</p><button className="button button-green" type="button" onClick={() => navigate('/admin/login')}>Continue to sign in</button></>
+    <Link to="/sales-admin/login" className="role-portal-login-link">← Administrator sign in</Link><span className="admin-kicker">SECURE ACTIVATION</span><h1>Complete administrator onboarding</h1>
+    {sent ? <><p>Check the invited email address to verify and activate this account.</p><button className="button button-green" type="button" onClick={() => navigate('/sales-admin/login')}>Continue to sign in</button></>
       : !token ? <p className="admin-error" role="alert">The onboarding link is missing its invitation token.</p>
         : <form onSubmit={(event) => void submit(event)}><p>Use the email address and role number included in your invitation.</p><label>Email address<input name="email" type="email" autoComplete="email" required maxLength={254} /></label><label>Assigned role number<input name="roleNumber" defaultValue={roleFromUrl} required pattern="[A-Z]+-[0-9]+" maxLength={40} /></label><label>Password<input name="password" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label><label>Confirm password<input name="passwordConfirmation" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label>{error && <p className="admin-error" role="alert">{error}</p>}<button className="button button-green" type="submit" disabled={busy}>{busy ? 'Preparing activation…' : 'Continue to email verification'} <ArrowRight size={16} /></button></form>}
   </section></AdminAuthLayout>
@@ -342,7 +342,7 @@ export function AdminVerifyPage() {
     let active = true
     const request = invitation
       ? api<{ loginPath: string }>('/api/v1/admin/verify-invitation', { method: 'POST', body: JSON.stringify({ token }) })
-      : verifyAdminToken(token).then(() => ({ loginPath: '/admin/login' }))
+      : verifyAdminToken(token).then(() => ({ loginPath: '/sales-admin/login' }))
     void request.then(({ loginPath }) => {
       if (active) navigate(`${loginPath}?verified=1`, { replace: true })
     }).catch((issue: unknown) => {
@@ -352,7 +352,7 @@ export function AdminVerifyPage() {
   }, [token, invitation, navigate])
 
   return <AdminAuthLayout><section className="role-portal-login-card">
-    <Link to="/admin/login" className="role-portal-login-link">← Administrator sign in</Link><span className="admin-kicker">EMAIL VERIFICATION</span><h1>{error || !token ? 'Administrator verification could not be completed.' : 'Verifying administrator account…'}</h1>
+    <Link to="/sales-admin/login" className="role-portal-login-link">← Administrator sign in</Link><span className="admin-kicker">EMAIL VERIFICATION</span><h1>{error || !token ? 'Administrator verification could not be completed.' : 'Verifying administrator account…'}</h1>
     {!token ? <p className="admin-error" role="alert">The verification link is missing its token.</p> : error ? <p className="admin-error" role="alert">{error}</p> : <p>Please wait while we verify this one-time link. You’ll be redirected to sign in when it succeeds.</p>}
   </section></AdminAuthLayout>
 }
@@ -2134,9 +2134,11 @@ export function AdminConsole({ role }: { role: string | null }) {
 
 export function AdminRoute() {
   const location = useLocation()
-  const isAdministratorPortalPath = /^\/admin(?:\/|$)/.test(location.pathname)
+  const legacyRolePortal = location.pathname.match(/^\/admin\/(super|it|finance|inventory|marketing|content)-admin(?:\/(.*))?$/)
+  const isLegacyAdminPath = /^\/admin(?:\/|$)/.test(location.pathname)
+  const isAdministratorPortalPath = /^\/sales-admin(?:\/|$)/.test(location.pathname)
   const isAdminPortalRoute = isAdministratorPortalPath
-  const isAdminAuthRoute = ['/admin/login', '/admin/register', '/admin/onboarding', '/admin/verify'].includes(location.pathname)
+  const isAdminAuthRoute = ['/sales-admin/login', '/sales-admin/register', '/sales-admin/onboarding', '/sales-admin/verify'].includes(location.pathname)
   const sessionQuery = useQuery({
     queryKey: ['admin-session'],
     queryFn: () => api<{ user: { id: number; role?: string | null } }>('/api/v1/admin/me'),
@@ -2146,17 +2148,30 @@ export function AdminRoute() {
     retry: false,
   })
 
-  if (location.pathname === '/admin/login') return <AdminLoginPage />
-  if (location.pathname === '/admin/register') return <Navigate to="/admin/login" replace />
-  if (location.pathname === '/admin/onboarding') return <AdminOnboardingPage />
-  if (location.pathname === '/admin/verify') return <AdminVerifyPage />
+  if (legacyRolePortal) return <Navigate to={`/${legacyRolePortal[1]}-admin/${legacyRolePortal[2] || 'dashboard'}${location.search}${location.hash}`} replace />
+  if (isLegacyAdminPath) return <Navigate to={`/sales-admin${location.pathname.slice('/admin'.length) || '/dashboard'}${location.search}${location.hash}`} replace />
+  if (location.pathname === '/sales-admin/login') return <AdminLoginPage />
+  if (location.pathname === '/sales-admin/register') return <Navigate to="/sales-admin/login" replace />
+  if (location.pathname === '/sales-admin/onboarding') return <AdminOnboardingPage />
+  if (location.pathname === '/sales-admin/verify') return <AdminVerifyPage />
   if (isAdminPortalRoute) {
     if (sessionQuery.isPending || sessionQuery.isFetching) return <main className="auth-checking" role="status">Checking administrator session…</main>
     if (sessionQuery.isError) {
-      if (isAdminSessionExpired(sessionQuery.error)) return <Navigate to="/admin/login?reason=expired" replace />
+      if (isAdminSessionExpired(sessionQuery.error)) return <Navigate to="/sales-admin/login?reason=expired" replace />
       return <main className="auth-checking"><p role="alert">Administrator service unavailable: {sessionQuery.error.message}</p><button type="button" onClick={() => void sessionQuery.refetch()}>Retry</button></main>
     }
-    return <AdminConsole role={sessionQuery.data?.user.role ?? null} />
+    const role = sessionQuery.data?.user.role ?? null
+    if (role !== 'sales_admin' && role !== 'super_admin') {
+      const portalByRole: Record<string, string> = {
+        it_admin: '/it-admin/dashboard',
+        finance_admin: '/finance-admin/dashboard',
+        inventory_admin: '/inventory-admin/dashboard',
+        marketing_admin: '/marketing-admin/dashboard',
+        content_admin: '/content-admin/dashboard',
+      }
+      return <Navigate to={portalByRole[role ?? ''] ?? '/admin/access'} replace />
+    }
+    return <AdminConsole role={role} />
   }
-  return <Navigate to="/admin/login" replace />
+  return <Navigate to="/sales-admin/login" replace />
 }

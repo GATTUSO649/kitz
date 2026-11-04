@@ -218,7 +218,7 @@ adminEcosystemRouter.post('/verify-invitation', async (request, response) => {
     if (consumed.length !== 1) return false
     await transaction.update(adminUsers).set({ email: invitation.email, passwordHash: invitation.passwordHash, status: 'active', emailVerifiedAt: new Date(), passwordUpdatedAt: new Date() }).where(eq(adminUsers.id, invitation.adminUserId))
     await transaction.insert(adminAuditLogs).values({ adminUserId: invitation.adminUserId, action: 'administrator.email_verified', targetType: 'admin_user', targetId: String(invitation.adminUserId) })
-    return admin.role === 'it_admin' ? '/operations' : admin.role === 'sales_admin' ? '/admin/login' : `${administratorPortal(admin.role).replace(/\/dashboard$/, '')}/login`
+    return admin.role === 'it_admin' ? '/operations' : admin.role === 'sales_admin' ? '/sales-admin/login' : `${administratorPortal(admin.role).replace(/\/dashboard$/, '')}/login`
   })
   if (!verification) return response.status(400).json({ error: { code: 'INVALID_TOKEN', message: 'Invitation is invalid, expired, or already used.' } })
   response.json({ data: { verified: true, loginPath: verification } })

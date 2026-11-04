@@ -6,7 +6,7 @@ import '../admin-access.css'
 const portals = [
   { title: 'Super Admin', detail: 'System-wide administration and management', bullets: ['Administrators and roles', 'Permissions and governance', 'Security oversight and reports'], href: '/super-admin/login', icon: Crown, tone: 'violet' },
   { title: 'IT Admin', detail: 'IT operations and technical monitoring', bullets: ['System monitoring', 'Infrastructure operations', 'Security operations'], href: '/operations', icon: MonitorCog, tone: 'blue' },
-  { title: 'Sales & Customer Management', detail: 'Orders, products and customers', bullets: ['Orders management', 'Product management', 'Customer support'], href: '/admin/login', icon: ShoppingCart, tone: 'green' },
+  { title: 'Sales & Customer Management', detail: 'Orders, products and customers', bullets: ['Orders management', 'Product management', 'Customer support'], href: '/sales-admin/login', icon: ShoppingCart, tone: 'green' },
   { title: 'Finance Admin', detail: 'Payments, revenue and financial management', bullets: ['Payment management', 'Revenue analytics', 'Financial reports'], href: '/finance-admin/login', icon: CircleDollarSign, tone: 'orange' },
   { title: 'Inventory Admin', detail: 'Stock and inventory management', bullets: ['Stock management', 'Stock movements', 'Inventory analytics'], href: '/inventory-admin/login', icon: Boxes, tone: 'teal' },
   { title: 'Marketing Admin', detail: 'Campaigns and marketing activities', bullets: ['Campaign management', 'Customer notifications', 'Marketing analytics'], href: '/marketing-admin/login', icon: Megaphone, tone: 'pink' },
