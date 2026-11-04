@@ -40,6 +40,7 @@ export function AdminActivationPage() {
   const [sent, setSent] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [verification, setVerification] = useState<{ deliveryStatus: string; recipientEmail: string; deliveryErrorCode?: string } | null>(null)
 
   async function activate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -51,8 +52,46 @@ export function AdminActivationPage() {
     event.preventDefault()
     if (password !== confirmPassword) { setError('Passwords do not match.'); return }
     setBusy(true); setError('')
-    try { await request('/api/v1/admin/activate/password', { token, roleNumber, password, confirmPassword }); setSent(true) } catch (issue) { setError(issue instanceof Error ? issue.message : 'Password setup failed.') } finally { setBusy(false) }
+    try {
+      const result = await request<{ deliveryStatus: string; recipientEmail: string; deliveryErrorCode?: string }>('/api/v1/admin/activate/password', { token, roleNumber, password, confirmPassword })
+      setVerification(result)
+      setSent(true)
+    } catch (issue) { setError(issue instanceof Error ? issue.message : 'Password setup failed.') } finally { setBusy(false) }
   }
 
-  return <main className="admin-access-page"><section className="activation-card"><Link className="activation-brand" to="/admin/access"><ShieldCheck size={20} /> KitCulture Administration</Link><span className="access-eyebrow">SECURE ROLE ACTIVATION</span><h1>{sent ? 'Verify your email address' : activated ? 'Create your private password' : 'Activate your administrator role'}</h1>{sent ? <><p>Your password has been set. Check the invited email address and follow the verification link before signing in.</p><Link className="activation-button" to="/admin/access">Return to portal access</Link></> : !token ? <p className="activation-error">This activation page requires the secure invitation link from your email.</p> : activated ? <form onSubmit={(event) => void changePassword(event)}><p>Your assigned role number was accepted. Choose a new password before administrator sign-in is enabled.</p><label>Role number<input value={roleNumber} onChange={(event) => setRoleNumber(event.target.value)} autoComplete="username" required /></label><label>New password<input value={password} onChange={(event) => setPassword(event.target.value)} type="password" minLength={14} maxLength={128} autoComplete="new-password" required /></label><label>Confirm new password<input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} type="password" minLength={14} maxLength={128} autoComplete="new-password" required /></label>{error && <p className="activation-error" role="alert">{error}</p>}<button className="activation-button" type="submit" disabled={busy}>{busy ? 'Saving password...' : 'Save password and send verification'}</button></form> : <form onSubmit={(event) => void activate(event)}><p>Enter the role number from your invitation. It is the temporary activation credential for this account.</p><label>Assigned role number<input value={roleNumber} onChange={(event) => setRoleNumber(event.target.value)} autoComplete="username" required placeholder="FIN-0001" /></label>{error && <p className="activation-error" role="alert">{error}</p>}<button className="activation-button" type="submit" disabled={busy}>{busy ? 'Activating role...' : 'Activate role number'}</button></form>}</section></main>
+  async function resendVerification() {
+    setBusy(true); setError('')
+    try {
+      const result = await request<{ deliveryStatus: string; recipientEmail: string; deliveryErrorCode?: string }>('/api/v1/admin/activate/verification/resend', { token, roleNumber })
+      setVerification(result)
+    } catch (issue) { setError(issue instanceof Error ? issue.message : 'Verification email could not be resent.') } finally { setBusy(false) }
+  }
+
+  return <main className="admin-access-page"><section className="activation-card">
+    <Link className="activation-brand" to="/admin/access"><ShieldCheck size={20} /> KitCulture Administration</Link>
+    <span className="access-eyebrow">SECURE ROLE ACTIVATION</span>
+    <h1>{sent ? 'Verify your email address' : activated ? 'Create your private password' : 'Activate your administrator role'}</h1>
+    {sent ? <>
+      {verification?.deliveryStatus === 'accepted'
+        ? <p role="status">The email provider accepted the verification message. Check the address below, including its spam folder.</p>
+        : <p className="activation-error" role="alert">The verification email was not accepted for delivery. Check the status below and try again after the delivery issue is resolved.</p>}
+      <p>Verification address: <strong>{verification?.recipientEmail ?? 'Unavailable'}</strong></p>
+      <p>Delivery status: <strong>{verification?.deliveryStatus ?? 'unknown'}</strong>{verification?.deliveryErrorCode ? ` (${verification.deliveryErrorCode})` : ''}</p>
+      {error && <p className="activation-error" role="alert">{error}</p>}
+      <button className="activation-button" type="button" onClick={() => void resendVerification()} disabled={busy}>{busy ? 'Sending verification...' : 'Resend verification email'}</button>
+      <Link className="activation-button" to="/admin/access">Return to portal access</Link>
+    </> : !token ? <p className="activation-error">This activation page requires the secure invitation link from your email.</p> : activated ? <form onSubmit={(event) => void changePassword(event)}>
+      <p>Your assigned role number was accepted. Choose a new password before administrator sign-in is enabled.</p>
+      <label>Role number<input value={roleNumber} onChange={(event) => setRoleNumber(event.target.value)} autoComplete="username" required /></label>
+      <label>New password<input value={password} onChange={(event) => setPassword(event.target.value)} type="password" minLength={14} maxLength={128} autoComplete="new-password" required /></label>
+      <label>Confirm new password<input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} type="password" minLength={14} maxLength={128} autoComplete="new-password" required /></label>
+      {error && <p className="activation-error" role="alert">{error}</p>}
+      <button className="activation-button" type="submit" disabled={busy}>{busy ? 'Saving password...' : 'Save password and send verification'}</button>
+    </form> : <form onSubmit={(event) => void activate(event)}>
+      <p>Enter the role number from your invitation. It is the temporary activation credential for this account.</p>
+      <label>Assigned role number<input value={roleNumber} onChange={(event) => setRoleNumber(event.target.value)} autoComplete="username" required placeholder="FIN-0001" /></label>
+      {error && <p className="activation-error" role="alert">{error}</p>}
+      <button className="activation-button" type="submit" disabled={busy}>{busy ? 'Checking role number...' : 'Continue securely'}</button>
+    </form>}
+  </section></main>
 }

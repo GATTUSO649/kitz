@@ -120,6 +120,23 @@ async function findPendingInvitation(token: string, roleNumber: string) {
   return invitation
 }
 
+async function sendInvitationVerification(invitation: { id: number; email: string }, token: string) {
+  const verificationUrl = buildAbsoluteUrl(`/admin/verify?token=${encodeURIComponent(token)}&invitation=1`)
+  const delivery = await sendTransactionalEmail({
+    to: invitation.email,
+    subject: 'Verify your KitCulture administrator account',
+    text: `Verify your administrator account using this link: ${verificationUrl}`,
+    html: customerEmailTemplate({ title: 'Verify administrator account', intro: 'Your password has been set. Verify your email address to activate administrator sign-in.', actionLabel: 'Verify administrator account', actionUrl: verificationUrl, footer: 'This link expires with the administrator invitation.' }),
+    notificationType: 'email_verification',
+  })
+  await adminDb!.update(adminInvitations).set({
+    deliveredAt: delivery.status === 'accepted' ? new Date() : null,
+    deliveryStatus: delivery.status,
+    deliveryErrorCode: delivery.reason?.slice(0, 80) ?? null,
+  }).where(eq(adminInvitations.id, invitation.id))
+  return { deliveryStatus: delivery.status, deliveryErrorCode: delivery.reason, recipientEmail: invitation.email }
+}
+
 adminEcosystemRouter.post('/activate', async (request, response) => {
   const input = activationSchema.safeParse(request.body)
   if (!input.success || !adminDb) return response.status(400).json({ error: { code: 'INVALID_ACTIVATION', message: 'The activation link or role number is invalid.' } })
@@ -139,15 +156,18 @@ adminEcosystemRouter.post('/activate/password', async (request, response) => {
     await transaction.update(adminInvitations).set({ passwordHash }).where(eq(adminInvitations.id, invitation.id))
     await transaction.insert(adminAuditLogs).values({ adminUserId: invitation.adminUserId, action: 'administrator.password_initialized', targetType: 'admin_user', targetId: String(invitation.adminUserId) })
   })
-  const verificationUrl = buildAbsoluteUrl(`/admin/verify?token=${encodeURIComponent(input.data.token)}&invitation=1`)
-  const delivery = await sendTransactionalEmail({
-    to: invitation.email,
-    subject: 'Verify your KitCulture administrator account',
-    text: `Verify your administrator account using this link: ${verificationUrl}`,
-    html: customerEmailTemplate({ title: 'Verify administrator account', intro: 'Your password has been set. Verify your email address to activate administrator sign-in.', actionLabel: 'Verify administrator account', actionUrl: verificationUrl, footer: 'This link expires in 60 minutes.' }),
-    notificationType: 'email_verification',
-  })
-  response.status(202).json({ data: { pendingVerification: true, deliveryStatus: delivery.status, deliveryErrorCode: delivery.reason } })
+  const delivery = await sendInvitationVerification(invitation, input.data.token)
+  response.status(202).json({ data: { pendingVerification: true, ...delivery } })
+})
+
+adminEcosystemRouter.post('/activate/verification/resend', async (request, response) => {
+  const input = activationSchema.safeParse(request.body)
+  if (!input.success || !adminDb) return response.status(400).json({ error: { code: 'INVALID_ACTIVATION', message: 'The activation link or role number is invalid.' } })
+  const invitation = await findPendingInvitation(input.data.token, input.data.roleNumber)
+  if (!invitation) return response.status(400).json({ error: { code: 'INVALID_ACTIVATION', message: 'The activation link or assigned role number is invalid.' } })
+  if (!invitation.passwordHash) return response.status(409).json({ error: { code: 'PASSWORD_NOT_SET', message: 'Set your new password before requesting a verification email.' } })
+  const delivery = await sendInvitationVerification(invitation, input.data.token)
+  response.status(202).json({ data: { pendingVerification: true, ...delivery } })
 })
 
 adminEcosystemRouter.post('/onboarding', async (request, response) => {
@@ -285,7 +305,7 @@ adminEcosystemRouter.post('/ecosystem/administrators/invite', async (request, re
   if (!created) return response.status(409).json({ error: { code: 'ADMIN_EMAIL_EXISTS', message: 'An administrator with that email already exists.' } })
   const url = buildAbsoluteUrl(`/admin/activate?token=${encodeURIComponent(rawToken)}`)
   const delivery = await sendTransactionalEmail({ to: email, subject: 'Your KitCulture administrator invitation', text: `Open this secure onboarding link: ${url}`, html: customerEmailTemplate({ title: 'Administrator invitation', intro: `Your role number is ${created.roleNumber}. Complete secure onboarding before activation.`, actionLabel: 'Complete administrator onboarding', actionUrl: url, footer: 'This invitation expires in 72 hours.' }), notificationType: 'email_verification' })
-  await adminDb.update(adminInvitations).set({ deliveredAt: delivery.status === 'accepted' ? new Date() : null, deliveryStatus: delivery.status === 'accepted' ? 'accepted' : delivery.status }).where(eq(adminInvitations.adminUserId, created.id))
+  await adminDb.update(adminInvitations).set({ deliveredAt: delivery.status === 'accepted' ? new Date() : null, deliveryStatus: delivery.status, deliveryErrorCode: delivery.reason?.slice(0, 80) ?? null }).where(eq(adminInvitations.adminUserId, created.id))
   response.status(201).json({ data: { id: created.id, roleNumber: created.roleNumber, deliveryStatus: delivery.status === 'accepted' ? 'accepted' : delivery.status } })
 })
 
