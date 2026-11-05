@@ -3,6 +3,7 @@ import { after, before, test } from 'node:test'
 
 delete process.env.MARKETPLACE_DATABASE_URL
 const { app } = await import('./app.js')
+const { getMarketplaceDatabaseConfig } = await import('./database/connection.js')
 const server = app.listen(0, '127.0.0.1')
 let origin = ''
 
@@ -100,4 +101,59 @@ test('seller contact endpoint rejects requests without an unlock token', async (
   })
   assert.equal(response.status, 404)
   assert.equal((await response.json()).error.code, 'CONTACT_NOT_AVAILABLE')
+})
+
+test('database configuration accepts the shared postgres database only with matching host and schema', () => {
+  const config = getMarketplaceDatabaseConfig({
+    MARKETPLACE_DATABASE_URL: 'postgresql://marketplace_app:secret@db.example.supabase.co:5432/postgres',
+    MARKETPLACE_DATABASE_NAME: 'postgres',
+    MARKETPLACE_DATABASE_HOST: 'db.example.supabase.co',
+    MARKETPLACE_DATABASE_USER: 'marketplace_app',
+    MARKETPLACE_DATABASE_SCHEMA: 'marketplace',
+    NODE_ENV: 'development',
+  })
+  assert.equal(config?.connectionString.endsWith('/postgres'), true)
+  assert.throws(() => getMarketplaceDatabaseConfig({
+    MARKETPLACE_DATABASE_URL: 'postgresql://marketplace_app:secret@db.example.supabase.co:5432/postgres',
+    MARKETPLACE_DATABASE_NAME: 'marketplace',
+    MARKETPLACE_DATABASE_HOST: 'db.example.supabase.co',
+    MARKETPLACE_DATABASE_USER: 'marketplace_app',
+    MARKETPLACE_DATABASE_SCHEMA: 'marketplace',
+  }), /MARKETPLACE_DATABASE_NAME/)
+  assert.throws(() => getMarketplaceDatabaseConfig({
+    MARKETPLACE_DATABASE_URL: 'not-a-url-with-secret',
+    MARKETPLACE_DATABASE_NAME: 'postgres',
+    MARKETPLACE_DATABASE_HOST: 'db.example.supabase.co',
+    MARKETPLACE_DATABASE_USER: 'marketplace_app',
+    MARKETPLACE_DATABASE_SCHEMA: 'marketplace',
+  }), /valid PostgreSQL connection URL/)
+  assert.throws(() => getMarketplaceDatabaseConfig({
+    MARKETPLACE_DATABASE_URL: 'postgresql://marketplace_app:secret@db.example.supabase.co:5432/postgres',
+    MARKETPLACE_DATABASE_NAME: 'postgres',
+    MARKETPLACE_DATABASE_HOST: 'db.example.supabase.co',
+    MARKETPLACE_DATABASE_USER: 'marketplace_app',
+    MARKETPLACE_DATABASE_SCHEMA: 'public',
+  }), /MARKETPLACE_DATABASE_SCHEMA/)
+})
+
+test('production database configuration requires verified TLS and its CA', () => {
+  const config = getMarketplaceDatabaseConfig({
+    MARKETPLACE_DATABASE_URL: 'postgresql://marketplace_app:secret@db.example.supabase.co:5432/postgres',
+    MARKETPLACE_DATABASE_NAME: 'postgres',
+    MARKETPLACE_DATABASE_HOST: 'db.example.supabase.co',
+    MARKETPLACE_DATABASE_USER: 'marketplace_app',
+    MARKETPLACE_DATABASE_SCHEMA: 'marketplace',
+    MARKETPLACE_DATABASE_CA: 'verified-ca',
+    NODE_ENV: 'production',
+  })
+  assert.deepEqual(config?.ssl, { ca: 'verified-ca', rejectUnauthorized: true })
+  assert.throws(() => getMarketplaceDatabaseConfig({ NODE_ENV: 'production' }), /MARKETPLACE_DATABASE_URL/)
+  assert.throws(() => getMarketplaceDatabaseConfig({
+    MARKETPLACE_DATABASE_URL: 'postgresql://marketplace_app:secret@db.example.supabase.co:5432/postgres',
+    MARKETPLACE_DATABASE_NAME: 'postgres',
+    MARKETPLACE_DATABASE_HOST: 'db.example.supabase.co',
+    MARKETPLACE_DATABASE_USER: 'marketplace_app',
+    MARKETPLACE_DATABASE_SCHEMA: 'marketplace',
+    NODE_ENV: 'production',
+  }), /MARKETPLACE_DATABASE_CA/)
 })

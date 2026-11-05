@@ -16,7 +16,7 @@ The platform has its own frontend entry, router, styles, backend, API namespace,
 
 ## Marketplace Data and Integrations
 
-- Use a dedicated PostgreSQL database and dedicated least-privilege role, with the marketplace Drizzle schema and migration journal owned only by the platform. Never point marketplace migrations at the existing Kitz database. If infrastructure forces a shared PostgreSQL server, use a separately provisioned database first; an isolated schema and role is a fallback requiring owner review.
+- MarketHub may share the existing Supabase PostgreSQL database only through its dedicated `marketplace` schema, MarketHub-specific connection settings, and a least-privilege database role. Keep all tables, indexes, constraints and migration history in `marketplace`; never replay legacy unqualified migrations or alter objects in `public`. Schema separation is not application-level authorization, so all protected operations remain server-side.
 - Keep marketplace publication and contact-unlock payments in a separate Daraja integration module, with distinct payment-purpose values, records, callbacks, references, secrets and audit trail. Live mode stays disabled until merchant approval, credentials, registered callback, reconciliation and a controlled end-to-end verification are complete.
 - Store listing images in a dedicated persistent object-storage bucket. Do not write durable uploads to the application filesystem.
 - Marketplace administrators use a separate identity/session store and backend-enforced permissions. No Kitz administrator identity or permission is accepted by the marketplace.

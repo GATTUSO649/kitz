@@ -42,7 +42,15 @@ app.get('/health/ready', async (_request, response) => {
     return
   }
   try {
-    await pool.query('SELECT 1')
+    const result = await pool.query(`
+      SELECT EXISTS (
+        SELECT 1
+        FROM pg_namespace
+        WHERE nspname = 'marketplace'
+          AND has_schema_privilege(current_user, oid, 'USAGE')
+      ) AS schema_access
+    `)
+    if (result.rows[0]?.schema_access !== true) throw new Error('Marketplace schema access is unavailable.')
     response.json({ status: 'ready', database: 'ok' })
   } catch {
     response.status(503).json({ status: 'not_ready', database: 'unavailable' })
