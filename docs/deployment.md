@@ -4,7 +4,7 @@
 
 ## Build and run
 
-Use `npm ci` to install dependencies, `npm run build:deploy` to build the Vite client and compile the API, and `npm run start:server` to start the compiled server. The frontend output is in `dist`; the API entry point is `server/dist/server.js`. When `dist/index.html` exists, the server serves the frontend, generated assets, and client-side routes alongside the API on the same origin. Set `NODE_ENV=production` for secure cookies and verified MySQL TLS, and use the platform-provided `PORT`.
+Use `npm ci` to install dependencies, `npm run build:deploy` to build the Vite client and compile the API, and `npm run start:server` to start the compiled server. The frontend output is in `dist`; the API entry point is `server/dist/server.js`. When `dist/index.html` exists, the server serves the frontend, generated assets, and client-side routes alongside the API on the same origin. Set `NODE_ENV=production` for secure cookies and verified PostgreSQL TLS, and use the platform-provided `PORT`.
 
 The frontend uses relative `/api/...` requests. Keeping the storefront and API on the same public origin lets session cookies and the Daraja callback use one HTTPS host. Set `CLIENT_ORIGIN` to that exact storefront origin. Do not expose the API's internal port directly to the internet.
 
@@ -24,7 +24,7 @@ Set `DATABASE_URL` to the Supabase PostgreSQL connection string for the same pro
 
 Production starts only when all required live Daraja settings are explicit and consistent; it never falls back to Sandbox. Follow [M-Pesa Daraja Setup](mpesa-setup.md) to select PayBill versus Buy Goods and register the exact callback URL. Local `.env` values are not deployed to Render.
 
-The legacy MySQL adapter and its separate TLS settings remain available for source/rollback work, but they are not used by the active PostgreSQL runtime. Both storefront and administrator PostgreSQL access share one pool; do not configure a separate `ADMIN_DATABASE_URL`. Store optional `ADMIN_SIGNUP_SECRET` and `OPERATIONS_SIGNUP_SECRET` only in Render's server-side secret manager and keep them separate. Never run migrations automatically at API startup.
+The legacy MySQL adapter and its separate TLS settings remain available for source/rollback work, but they are not used by the active PostgreSQL runtime. Both storefront and administrator PostgreSQL access share one pool; do not configure a separate `ADMIN_DATABASE_URL`. Administrator invitations are managed by Super Admin; Operations self-signup is disabled. Never run migrations automatically at API startup.
 
 ## Stable Daraja callback
 
@@ -45,7 +45,8 @@ MPESA_SHORTCODE=<Safaricom-approved production shortcode>
 MPESA_ACCOUNT_REFERENCE=KitCulture
 MPESA_TRANSACTION_DESC=Jersey Purchase
 CLIENT_ORIGIN=https://your-domain.example
-DATABASE_URL=<TLS-enabled Railway MySQL URL>
+DATABASE_URL=<TLS-verified Supabase PostgreSQL URL>
+SUPABASE_CA_CERT=<official Supabase CA PEM>
 LOG_LEVEL=info
 # MYSQL_SSL_CA=<optional PEM CA certificate for the MySQL provider>
 # CLOUDINARY_CLOUD_NAME=<optional>
@@ -76,7 +77,7 @@ The callback route is `POST /api/v1/orders/mpesa/callback/:token`. With `MPESA_C
 
 Set `MPESA_TRANSACTION_TYPE` to `CustomerBuyGoodsOnline` only for an approved Buy Goods setup or `CustomerPayBillOnline` only for an approved PayBill shortcode. Production requires `MPESA_ENV=production` and an explicit transaction type; startup rejects sandbox mode and incomplete settings. Set live values only after Safaricom approves the app and supplies matching credentials and merchant details. Register the resulting callback URL in the live Daraja app. Never mix sandbox and production values.
 
-Use `/health/live` for liveness and `/health/ready` to check both MySQL connections. Run Drizzle migrations as an explicit release step after a backup; do not run migrations automatically at API startup. Store database credentials in the hosting secret manager and use dedicated least-privilege database users. The compose file is for local development only.
+Use `/health/live` for liveness and `/health/ready` for a verified PostgreSQL connectivity check. Supabase CLI is the only migration executor; `npm run db:migrate` is blocked. Run a remote Supabase dry-run and review the plan after backup/staging checks; do not run migrations automatically at API startup. Store database credentials in the hosting secret manager and use a dedicated least-privilege runtime role. The compose file is for local development only.
 
 ## Commerce readiness
 

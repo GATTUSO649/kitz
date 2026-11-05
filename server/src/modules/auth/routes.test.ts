@@ -13,12 +13,12 @@ const { adminIdleTimeoutMs, adminLoginSchema, invalidAdminCredentialsMessage, ma
 const { classifyOperationsDatabaseFailure, probeDatabase } = await import('../operations/routes.js')
 const { adminSessionAbsoluteLifetimeMs, customerSessionAbsoluteLifetimeMs, customerSessionIdleTimeoutMs, nextSessionExpiry, operationsSessionIdleTimeoutMs, shouldRefreshSession } = await import('../../config/session-policy.js')
 const { attemptPasswordResetDelivery, loginSchema, registerSchema } = await import('./routes.js')
-const { createOrderSchema, createTemporaryOrderNumber, exceedsProductQuantityLimit, ordersRouter } = await import('../orders/routes.js')
+const { createOrderSchema, createTemporaryOrderNumber, exceedsProductQuantityLimit, ordersRouter, supportLocationFields } = await import('../orders/routes.js')
 const { combinedRating, quickProductRatingSchema } = await import('../catalogue/routes.js')
 const { buildDarajaCallbackUrl, callbackFailureStatus, canVerifySuccessfulStkPayment, DarajaRequestError, darajaCallbackRoute, initiateStkPush, isFinalDarajaPaymentStatus, isValidDarajaPaymentAmount, matchesCallbackToken, normalizeKenyanPhone, parseDarajaTimestamp, parseStkCallback, resolveDarajaShortcodes } = await import('../orders/daraja.js')
 const { createAddressSchema, passwordSchema, productReviewSchema, profileSchema, supportMessageSchema, supportRequestSchema } = await import('../account/routes.js')
 const { adminNotificationSchema, canTransitionOrderStatus, createProductSchema, homepageSlideBatchSchema, homepageSlideSchema, isDuplicateKeyError, settingsSchema, supportUpdateSchema } = await import('../admin/routes.js')
-const { hasItPermission } = await import('../admin/it-access.js')
+const { hasItPermission, hasOperationsRoutePermission, operationsPermissionForRoute } = await import('../admin/it-access.js')
 const { detectImageFormat } = await import('../admin/image-storage.js')
 
 test('registration normalizes email and accepts a long password', () => {
@@ -776,4 +776,41 @@ test('IT roles follow least privilege and viewer access is read-only overview', 
   assert.equal(hasItPermission('it_support', 'audit.read'), false)
   assert.equal(hasItPermission('viewer', 'overview.read'), true)
   assert.equal(hasItPermission('viewer', 'incidents.write'), false)
+})
+
+test('Operations API routes enforce their least-privilege permission map', () => {
+  assert.equal(operationsPermissionForRoute('GET', '/overview'), 'overview.read')
+  assert.equal(operationsPermissionForRoute('GET', '/database-performance'), 'database.read')
+  assert.equal(operationsPermissionForRoute('POST', '/security/scans'), 'security.scan')
+  assert.equal(operationsPermissionForRoute('PATCH', '/security/findings/scan-1/status'), 'security.findings.write')
+  assert.equal(operationsPermissionForRoute('GET', '/unreviewed-route'), null)
+  assert.equal(hasOperationsRoutePermission('viewer', 'GET', '/overview'), true)
+  assert.equal(hasOperationsRoutePermission('viewer', 'GET', '/incidents'), false)
+  assert.equal(hasOperationsRoutePermission('security_analyst', 'GET', '/security/scans'), true)
+  assert.equal(hasOperationsRoutePermission('security_analyst', 'GET', '/database-performance'), false)
+  assert.equal(hasOperationsRoutePermission('database_admin', 'GET', '/database-performance'), true)
+  assert.equal(hasOperationsRoutePermission('database_admin', 'POST', '/security/scans'), false)
+  assert.equal(hasOperationsRoutePermission('viewer', 'GET', '/operators'), false)
+  assert.equal(hasOperationsRoutePermission('super_admin', 'GET', '/operators'), true)
+  const protectedRoutes = [
+    ['GET', '/me'], ['GET', '/operators'], ['GET', '/permissions'], ['PATCH', '/permissions/users/1/role'],
+    ['GET', '/telemetry'], ['GET', '/detections'], ['GET', '/workers'], ['GET', '/health'],
+    ['GET', '/events'], ['GET', '/alerts'], ['PATCH', '/alerts/1'], ['GET', '/metrics'],
+    ['GET', '/database-performance'], ['GET', '/database-performance/events'], ['GET', '/runtime-performance'],
+    ['GET', '/provider-performance'], ['GET', '/overview'], ['GET', '/incidents'], ['POST', '/incidents'],
+    ['GET', '/incidents/1/events'], ['POST', '/incidents/1/events'], ['GET', '/audit'],
+    ['GET', '/security/overview'], ['GET', '/security/scanners'], ['GET', '/security/scans'],
+    ['GET', '/security/scans/scan-1'], ['POST', '/security/scans'], ['POST', '/security/scans/scan-1/cancel'],
+    ['GET', '/security/findings'], ['PATCH', '/security/findings/finding-1/status'], ['GET', '/security/reports'],
+  ] as const
+  for (const [method, path] of protectedRoutes) assert.notEqual(operationsPermissionForRoute(method, path), null, `${method} ${path}`)
+})
+
+test('checkout support records preserve an omitted delivery pin as null coordinates', () => {
+  assert.deepEqual(supportLocationFields({}), { latitude: null, longitude: null, label: 'not shared' })
+  assert.deepEqual(supportLocationFields({ latitude: -1.2864, longitude: 36.8172 }), {
+    latitude: '-1.2864',
+    longitude: '36.8172',
+    label: '-1.2864, 36.8172',
+  })
 })

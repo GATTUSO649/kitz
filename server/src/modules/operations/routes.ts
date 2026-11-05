@@ -10,18 +10,18 @@ import { verifyPassword } from '../../config/password-policy.js'
 import { nextSessionExpiry, operationsSessionAbsoluteLifetimeMs, operationsSessionIdleTimeoutMs } from '../../config/session-policy.js'
 import { adminUsers, monitoringAlerts, monitoringDetectionRules, monitoringEvents, monitoringWorkerState, operationsAuditEvents, operationsIncidentEvents, operationsIncidents, operationsSessions, operationsUsers } from '../../database/admin-schema.js'
 import { getTelemetryQueueState } from './telemetry-store.js'
-import { cancelSecurityScan, getSecurityOverview, getSecurityScan, listSecurityFindings, listSecurityScans, startSecurityScan, updateSecurityFinding, type ScannerModule } from '../security/scanner-engine.js'
+import { cancelSecurityScan, dependencyScannerAvailability, getSecurityOverview, getSecurityScan, listSecurityFindings, listSecurityScans, startSecurityScan, updateSecurityFinding, type ScannerModule } from '../security/scanner-engine.js'
 import { getRequestMetrics } from '../../middleware/request-metrics.js'
 import { loadPersistedSecurityScans, persistSecurityScan } from '../security/scanner-persistence.js'
 import { summarizeDatabaseAggregates } from './database-performance.js'
-import { hasItPermission, itPermissions } from '../admin/it-access.js'
+import { hasItPermission, hasOperationsRoutePermission, itPermissions, type ItPermission } from '../admin/it-access.js'
 import { itAccessRoles, type ItAccessRole } from '../../database/admin-schema.js'
 
 export const operationsRouter = Router()
 const operationsCookieName = 'kc_ops_session'
 const operationsLoginLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 8, standardHeaders: 'draft-8', legacyHeaders: false })
 
-type OperationsUser = { id: number; email: string; fullName: string }
+type OperationsUser = { id: number; email: string; fullName: string; role: ItAccessRole }
 type OperationsRequest = Request & { operationsUser?: OperationsUser }
 
 function hashOperationsToken(token: string) {
@@ -104,7 +104,7 @@ const authenticateOperations = async (request: Request, response: Response, next
       response.status(401).json({ error: { code: 'OPERATIONS_UNAUTHENTICATED', message: 'Operations sign in is required.' } })
       return
     }
-    const [user] = await adminDb.select({ id: operationsUsers.id, email: operationsUsers.email, fullName: operationsUsers.fullName, disabledAt: operationsUsers.disabledAt })
+    const [user] = await adminDb.select({ id: operationsUsers.id, email: operationsUsers.email, fullName: operationsUsers.fullName, role: operationsUsers.role, disabledAt: operationsUsers.disabledAt })
       .from(operationsUsers).where(eq(operationsUsers.id, session.operationsUserId)).limit(1)
     if (!user || user.disabledAt) {
       await adminDb.delete(operationsSessions).where(eq(operationsSessions.id, session.id))
@@ -119,7 +119,7 @@ const authenticateOperations = async (request: Request, response: Response, next
       response.status(401).json({ error: { code: 'OPERATIONS_UNAUTHENTICATED', message: 'Operations sign in is required.' } })
       return
     }
-    ;(request as OperationsRequest).operationsUser = { id: user.id, email: user.email, fullName: user.fullName }
+    ;(request as OperationsRequest).operationsUser = { id: user.id, email: user.email, fullName: user.fullName, role: user.role }
     next()
   } catch (error) {
     next(error)
@@ -216,6 +216,14 @@ operationsRouter.post('/session/activity', authenticateOperations, async (reques
   response.status(204).end()
 })
 operationsRouter.use(authenticateOperations)
+operationsRouter.use((request, response, next) => {
+  const actor = authenticatedOperationsUser(request)
+  if (!actor) return response.status(401).json({ error: { code: 'OPERATIONS_UNAUTHENTICATED', message: 'Operations sign in is required.' } })
+  if (!hasOperationsRoutePermission(actor.role, request.method, request.path)) {
+    return response.status(403).json({ error: { code: 'OPERATIONS_PERMISSION_REQUIRED', message: 'This operations role cannot access the requested resource.' } })
+  }
+  next()
+})
 
 function operationsUnavailable(response: import('express').Response, requestId?: string) {
   return response.status(503).json({ error: {
@@ -264,23 +272,6 @@ const roleDescriptions: Record<ItAccessRole, string> = {
 operationsRouter.get('/permissions', async (request, response) => {
   const actor = authenticatedOperationsUser(request)
   if (!actor || !adminDb) return operationsUnavailable(response)
-  const result = await adminDb.transaction(async (transaction) => {
-    const [user] = await transaction.select({ id: operationsUsers.id, role: operationsUsers.role }).from(operationsUsers).where(eq(operationsUsers.id, actor.id)).for('update').limit(1)
-    if (!user) return { permitted: false as const, bootstrapped: false as const }
-    if (user.role === 'super_admin') return { permitted: true as const, bootstrapped: false as const }
-    const [{ total }] = await transaction.select({ total: count() }).from(operationsUsers).where(eq(operationsUsers.role, 'super_admin'))
-    if (Number(total) !== 0) return { permitted: false as const, bootstrapped: false as const }
-    await transaction.update(operationsUsers).set({ role: 'super_admin' }).where(eq(operationsUsers.id, user.id))
-    await transaction.insert(operationsAuditEvents).values({
-      actorOperationsUserId: user.id,
-      actorType: 'operations_user',
-      action: 'operations.super_admin_bootstrapped',
-      targetType: 'operations_user',
-      targetId: String(user.id),
-    })
-    return { permitted: true as const, bootstrapped: true as const }
-  })
-  if (!result.permitted) return response.status(403).json({ error: { code: 'OPERATIONS_PERMISSION_REQUIRED', message: 'Only an IT super-admin can manage roles.' } })
   const users = await adminDb.select({ id: operationsUsers.id, email: operationsUsers.email, fullName: operationsUsers.fullName, role: operationsUsers.role, disabledAt: operationsUsers.disabledAt, lastLoginAt: operationsUsers.lastLoginAt })
     .from(operationsUsers).where(isNull(operationsUsers.disabledAt)).orderBy(asc(operationsUsers.fullName))
   response.json({ data: {
@@ -1067,21 +1058,10 @@ const findingLifecycleSchema = z.object({
   verificationStatus: z.enum(['UNVERIFIED', 'VERIFIED_FIXED', 'VERIFIED_NOT_FIXED']).optional(),
 }).strict()
 
-async function requireSecurityAction(request: Request, response: Response) {
+async function requireSecurityAction(request: Request, response: Response, permission: ItPermission) {
   const actor = authenticatedOperationsUser(request)
   if (!actor || !adminDb) return false
-  const result = await adminDb.transaction(async (transaction) => {
-    const [operator] = await transaction.select({ role: operationsUsers.role }).from(operationsUsers).where(eq(operationsUsers.id, actor.id)).for('update').limit(1)
-    if (operator?.role === 'super_admin' || operator?.role === 'security_analyst') return { authorized: true as const, role: operator.role }
-    const [{ total }] = await transaction.select({ total: count() }).from(operationsUsers).where(eq(operationsUsers.role, 'super_admin'))
-    if (operator && Number(total) === 0) {
-      await transaction.update(operationsUsers).set({ role: 'super_admin' }).where(eq(operationsUsers.id, actor.id))
-      await transaction.insert(operationsAuditEvents).values({ actorOperationsUserId: actor.id, actorType: 'operations_user', action: 'operations.super_admin_bootstrapped', targetType: 'operations_user', targetId: String(actor.id) })
-      return { authorized: true as const, role: 'super_admin' as const }
-    }
-    return { authorized: false as const, role: null }
-  })
-  if (!result.authorized) {
+  if (!hasItPermission(actor.role, permission)) {
     response.status(403).json({ error: { code: 'SECURITY_PERMISSION_REQUIRED', message: 'A security administrator role is required.' } })
     return false
   }
@@ -1109,7 +1089,7 @@ operationsRouter.get('/security/overview', async (_request, response) => {
 
 operationsRouter.get('/security/scanners', (_request, response) => {
   response.json({ data: [
-    { scanner: 'npm-audit', status: 'healthy', coverage: 'dependency', source: 'local fixed-command' },
+    { scanner: 'npm-audit', status: dependencyScannerAvailability(), coverage: 'dependency', source: 'npm audit runner; findings require an executed scan' },
     { scanner: 'semgrep', status: 'not_configured', coverage: 'source', source: 'not installed' },
     { scanner: 'gitleaks', status: 'not_configured', coverage: 'secrets', source: 'not installed' },
     { scanner: 'database-readonly', status: 'not_configured', coverage: 'database', source: 'credentials not configured for assessment' },
@@ -1129,7 +1109,7 @@ operationsRouter.get('/security/scans', async (_request, response) => {
 })
 
 operationsRouter.post('/security/scans', async (request, response) => {
-  const actor = await requireSecurityAction(request, response)
+  const actor = await requireSecurityAction(request, response, 'security.scan')
   if (!actor) return
   const input = securityScanScopeSchema.safeParse(request.body)
   if (!input.success) return response.status(400).json({ error: { code: 'INVALID_SECURITY_SCAN', message: 'The security scan scope or timeout is invalid.' } })
@@ -1159,7 +1139,7 @@ operationsRouter.get('/security/scans/:id', (request, response) => {
 })
 
 operationsRouter.post('/security/scans/:id/cancel', async (request, response) => {
-  const actor = await requireSecurityAction(request, response)
+  const actor = await requireSecurityAction(request, response, 'security.scan')
   if (!actor) return
   const scan = getSecurityScan(request.params.id)
   if (!scan) return response.status(404).json({ error: { code: 'SECURITY_SCAN_NOT_FOUND', message: 'The security scan was not found.' } })
@@ -1190,7 +1170,7 @@ operationsRouter.get('/security/findings', async (request, response) => {
 })
 
 operationsRouter.patch('/security/findings/:id/status', async (request, response) => {
-  const actor = await requireSecurityAction(request, response)
+  const actor = await requireSecurityAction(request, response, 'security.findings.write')
   if (!actor) return
   const input = findingLifecycleSchema.safeParse(request.body)
   if (!input.success) return response.status(400).json({ error: { code: 'INVALID_FINDING_STATUS', message: 'The finding lifecycle update is invalid.' } })

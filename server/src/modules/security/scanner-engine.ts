@@ -32,6 +32,10 @@ const scans = new Map<string, SecurityScan>()
 let activeScan: AbortController | null = null
 let activeScanId: string | null = null
 
+export function dependencyScannerAvailability(npmExecPath = process.env.npm_execpath) {
+  return npmExecPath?.trim() ? 'not_run' : 'not_configured'
+}
+
 const notConfigured = (module: ScannerModule): SecurityScanModule => ({
   module,
   status: module === 'dependency' ? 'queued' : 'not_configured',

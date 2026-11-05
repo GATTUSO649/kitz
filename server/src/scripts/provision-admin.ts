@@ -2,7 +2,8 @@ import { hash } from 'bcryptjs'
 import { eq } from 'drizzle-orm'
 import { adminDb, adminPool } from '../config/database.js'
 import { bcryptPasswordSchema } from '../config/password-policy.js'
-import { adminUsers } from '../database/admin-schema.js'
+import { adminAuditLogs, adminUsers } from '../database/admin-schema.js'
+import { allocateAdministratorRoleNumber } from '../modules/admin/role-number.js'
 
 async function main() {
   const email = process.env.ADMIN_EMAIL?.trim().toLowerCase()
@@ -19,15 +20,25 @@ async function main() {
 
   const passwordHash = await hash(password, 12)
   const result = await adminDb.transaction(async (transaction) => {
+    const roleNumber = await allocateAdministratorRoleNumber(transaction, 'sales_admin')
     const [created] = await transaction.insert(adminUsers).values({
       email,
       fullName,
       passwordHash,
+      roleNumber,
+      role: 'sales_admin',
+      status: 'active',
       emailVerifiedAt: new Date(),
     }).returning({ id: adminUsers.id })
-    return created.id
+    await transaction.insert(adminAuditLogs).values({
+      adminUserId: created.id,
+      action: 'administrator.provisioned_by_cli',
+      targetType: 'admin_user',
+      targetId: String(created.id),
+    })
+    return { id: created.id, roleNumber }
   })
-  console.info(`Administrator provisioned: ${email} (user ${result}). Remove ADMIN_PASSWORD from the environment now.`)
+  console.info(`Sales administrator provisioned: ${email} (${result.roleNumber}). Remove ADMIN_PASSWORD from the environment now.`)
 }
 
 try {

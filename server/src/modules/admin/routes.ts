@@ -55,6 +55,7 @@ adminRouter.use(async (request, response, next) => {
       response.status(403).json({ error: { code: 'ADMIN_PERMISSION_REQUIRED', message: 'This administrator does not have permission to access the requested resource.' } })
       return
     }
+    response.locals.administratorPermissions = granted
     next()
   } catch (error) {
     next(error)
@@ -93,7 +94,7 @@ adminRouter.get('/dashboard', async (request, response) => {
   const data = await buildAdminDashboardReport(db, range)
   if (!data) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Dashboard services are not configured.' } })
   const actor = authenticatedAdmin(request)
-  response.json({ data: projectDashboardForRole(actor?.role ?? null, data as unknown as Record<string, unknown>) })
+  response.json({ data: projectDashboardForRole(actor?.role ?? null, data as unknown as Record<string, unknown>, response.locals.administratorPermissions) })
 })
 
 const variantInput = z.object({

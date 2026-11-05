@@ -5,17 +5,25 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
 import { adminDb, db } from '../../config/database.js'
-import { env } from '../../config/env.js'
+import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { bcryptPasswordSchema } from '../../config/password-policy.js'
 import { buildAbsoluteUrl, customerEmailTemplate, sendTransactionalEmail } from '../../config/email.js'
-import { adminAuditLogs, adminInvitations, adminLoginAttempts, adminRolePermissions, adminSessions, adminSetupLocks, adminUserPermissions, adminUsers, adminVerificationTokens, administratorRoles, monitoringAlerts, monitoringDetectionRules, monitoringEvents } from '../../database/admin-schema.js'
+import { adminAuditLogs, adminInvitations, adminLoginAttempts, adminRolePermissions, adminSessions, adminSetupLocks, adminUserPermissions, adminUsers, adminVerificationTokens, administratorRoles, monitoringAlerts, monitoringDetectionRules, monitoringEvents, type AdministratorRole } from '../../database/admin-schema.js'
 import { categories, expenses, homepageSlides, inventoryMovements, notificationCampaigns, orders, payments, productVariants, products, supportRequests, users } from '../../database/schema.js'
 import { authenticateAdmin, authenticatedAdmin } from '../../middleware/authenticate.js'
 import { allocateAdministratorRoleNumber } from './role-number.js'
 import { administratorPermissions as permissionKeys, administratorPortal, administratorRoles as roles, defaultAdministratorPermissions, hasAdministratorPermission, type AdministratorPermission } from './administration.js'
+import { administratorPortalPermission } from './permission-routes.js'
 import { loadAdministratorPermissions, permissionDescriptions, validatePermissionSelection } from './permissions.js'
 
 export const adminEcosystemRouter = Router()
+adminEcosystemRouter.use((request, response, next) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(request.method) || isAllowedClientOrigin(request.get('origin'))) {
+    next()
+    return
+  }
+  response.status(403).json({ error: { code: 'ORIGIN_REJECTED', message: 'Request origin is not allowed.' } })
+})
 const bootstrapLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 5, standardHeaders: true, legacyHeaders: false })
 const verificationEmailLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 3, standardHeaders: true, legacyHeaders: false, message: { error: { code: 'VERIFICATION_EMAIL_RATE_LIMITED', message: 'Too many verification emails were requested. Please wait 15 minutes before trying again.' } } })
 const tokenHash = (token: string) => createHash('sha256').update(token).digest('hex')
@@ -368,38 +376,39 @@ adminEcosystemRouter.post('/ecosystem/administrators/:id/status', async (request
   response.json({ data: { updated: true } })
 })
 
-adminEcosystemRouter.delete('/ecosystem/administrators/:id', async (request, response) => {
-  const archiveAdministratorsSchema = z.object({ ids: z.array(z.number().int().positive()).min(1).max(100).refine((ids) => new Set(ids).size === ids.length) }).strict()
+const archiveAdministratorsSchema = z.object({ ids: z.array(z.number().int().positive()).min(1).max(100).refine((ids) => new Set(ids).size === ids.length) }).strict()
 
-  adminEcosystemRouter.post('/ecosystem/administrators/archive', async (request, response) => {
-    const authorization = await requireSuperAdmin('administrators.manage', request, response)
-    if (!authorization || !adminDb) return
-    const input = archiveAdministratorsSchema.safeParse(request.body)
-    if (!input.success) return response.status(400).json({ error: { code: 'INVALID_ARCHIVE_SELECTION', message: 'Select between 1 and 100 unique administrator accounts.' } })
-    if (input.data.ids.includes(authorization.actor.id)) return response.status(409).json({ error: { code: 'SELF_ARCHIVE_FORBIDDEN', message: 'You cannot archive your own Super Administrator account.' } })
+adminEcosystemRouter.post('/ecosystem/administrators/archive', async (request, response) => {
+  const authorization = await requireSuperAdmin('administrators.manage', request, response)
+  if (!authorization || !adminDb) return
+  const input = archiveAdministratorsSchema.safeParse(request.body)
+  if (!input.success) return response.status(400).json({ error: { code: 'INVALID_ARCHIVE_SELECTION', message: 'Select between 1 and 100 unique administrator accounts.' } })
+  if (input.data.ids.includes(authorization.actor.id)) return response.status(409).json({ error: { code: 'SELF_ARCHIVE_FORBIDDEN', message: 'You cannot archive your own Super Administrator account.' } })
 
-    const result = await adminDb.transaction(async (transaction) => {
-      const targets = await transaction.select({ id: adminUsers.id, role: adminUsers.role, status: adminUsers.status })
-        .from(adminUsers).where(inArray(adminUsers.id, input.data.ids)).for('update')
-      if (targets.length !== input.data.ids.length) return { status: 404 as const }
-      const toArchive = targets.filter((target) => target.status !== 'disabled')
-      if (!toArchive.length) return { status: 200 as const, archived: 0 }
-      const activeSuperAdminCount = Number((await transaction.select({ total: count() }).from(adminUsers)
-        .where(and(eq(adminUsers.role, 'super_admin'), eq(adminUsers.status, 'active'))))[0]?.total ?? 0)
-      const activeSuperAdminsToArchive = toArchive.filter((target) => target.role === 'super_admin' && target.status === 'active').length
-      if (activeSuperAdminCount - activeSuperAdminsToArchive < 1) return { status: 409 as const }
+  const result = await adminDb.transaction(async (transaction) => {
+    const targets = await transaction.select({ id: adminUsers.id, role: adminUsers.role, status: adminUsers.status })
+      .from(adminUsers).where(inArray(adminUsers.id, input.data.ids)).for('update')
+    if (targets.length !== input.data.ids.length) return { status: 404 as const }
+    const toArchive = targets.filter((target) => target.status !== 'disabled')
+    if (!toArchive.length) return { status: 200 as const, archived: 0 }
+    const activeSuperAdminCount = Number((await transaction.select({ total: count() }).from(adminUsers)
+      .where(and(eq(adminUsers.role, 'super_admin'), eq(adminUsers.status, 'active'))))[0]?.total ?? 0)
+    const activeSuperAdminsToArchive = toArchive.filter((target) => target.role === 'super_admin' && target.status === 'active').length
+    if (activeSuperAdminCount - activeSuperAdminsToArchive < 1) return { status: 409 as const }
 
-      const archivedIds = toArchive.map(({ id }) => id)
-      await transaction.update(adminUsers).set({ status: 'disabled', suspendedAt: new Date(), suspendedReason: 'Archived by Super Administrator' })
-        .where(inArray(adminUsers.id, archivedIds))
-      await transaction.delete(adminSessions).where(inArray(adminSessions.adminUserId, archivedIds))
-      await transaction.insert(adminAuditLogs).values(toArchive.map(({ id }) => ({ adminUserId: authorization.actor.id, action: 'administrator.archived', targetType: 'admin_user', targetId: String(id) })))
-      return { status: 200 as const, archived: archivedIds.length }
-    })
-    if (result.status === 404) return response.status(404).json({ error: { code: 'ADMIN_NOT_FOUND', message: 'One or more selected administrator accounts were not found.' } })
-    if (result.status === 409) return response.status(409).json({ error: { code: 'LAST_SUPER_ADMIN', message: 'At least one active Super Administrator must remain.' } })
-    response.json({ data: { archived: result.archived } })
+    const archivedIds = toArchive.map(({ id }) => id)
+    await transaction.update(adminUsers).set({ status: 'disabled', suspendedAt: new Date(), suspendedReason: 'Archived by Super Administrator' })
+      .where(inArray(adminUsers.id, archivedIds))
+    await transaction.delete(adminSessions).where(inArray(adminSessions.adminUserId, archivedIds))
+    await transaction.insert(adminAuditLogs).values(toArchive.map(({ id }) => ({ adminUserId: authorization.actor.id, action: 'administrator.archived', targetType: 'admin_user', targetId: String(id) })))
+    return { status: 200 as const, archived: archivedIds.length }
   })
+  if (result.status === 404) return response.status(404).json({ error: { code: 'ADMIN_NOT_FOUND', message: 'One or more selected administrator accounts were not found.' } })
+  if (result.status === 409) return response.status(409).json({ error: { code: 'LAST_SUPER_ADMIN', message: 'At least one active Super Administrator must remain.' } })
+  response.json({ data: { archived: result.archived } })
+})
+
+adminEcosystemRouter.delete('/ecosystem/administrators/:id', async (request, response) => {
 
   const authorization = await requireSuperAdmin('administrators.manage', request, response)
   if (!authorization || !adminDb) return
@@ -422,9 +431,16 @@ adminEcosystemRouter.delete('/ecosystem/administrators/:id', async (request, res
 
 adminEcosystemRouter.get('/portal/:role', authenticateAdmin, async (request, response) => {
   const actor = authenticatedAdmin(request)
-  const requestedRole = request.params.role
+  const requestedRole = String(request.params.role)
   if (!roles.includes(requestedRole as (typeof roles)[number])) return response.status(400).json({ error: { code: 'INVALID_ADMIN_ROLE', message: 'Administrator role is invalid.' } })
   if (!actor || (actor.role !== 'super_admin' && actor.role !== requestedRole)) return response.status(403).json({ error: { code: 'ADMIN_PORTAL_FORBIDDEN', message: 'This administrator cannot access the requested portal.' } })
+  const portalPermission = administratorPortalPermission(requestedRole)
+  if (!portalPermission) return response.status(400).json({ error: { code: 'INVALID_ADMIN_ROLE', message: 'Administrator role is invalid.' } })
+  if (actor.role !== 'super_admin') {
+    const granted = await loadAdministratorPermissions(actor.id, actor.role as AdministratorRole)
+    if (!granted) return response.status(503).json({ error: { code: 'ADMIN_AUTHORIZATION_UNAVAILABLE', message: 'Administrator permissions could not be verified.' } })
+    if (!granted.has(portalPermission)) return response.status(403).json({ error: { code: 'ADMIN_PERMISSION_REQUIRED', message: 'This administrator cannot view the requested portal summary.' } })
+  }
   if (!db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Portal data is unavailable.' } })
 
   let metrics: Record<string, number | string> = {}
@@ -529,7 +545,8 @@ adminEcosystemRouter.post('/ecosystem/administrators/:id/invitation/resend', asy
   response.json({ data: { deliveryStatus: delivery.status === 'accepted' ? 'accepted' : delivery.status } })
 })
 
-adminEcosystemRouter.get('/ecosystem/roles', (_request, response) => {
+adminEcosystemRouter.get('/ecosystem/roles', async (request, response) => {
+  if (!await requireSuperAdmin('roles.manage', request, response)) return
   response.json({ data: roles.map((role) => ({ role, portal: administratorPortal(role) })) })
 })
 

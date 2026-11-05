@@ -87,6 +87,17 @@ function fromCents(amount: number) {
   return (amount / 100).toFixed(2)
 }
 
+export function supportLocationFields(address: { latitude?: number; longitude?: number }) {
+  if (address.latitude === undefined || address.longitude === undefined) {
+    return { latitude: null, longitude: null, label: 'not shared' }
+  }
+  return {
+    latitude: String(address.latitude),
+    longitude: String(address.longitude),
+    label: `${address.latitude}, ${address.longitude}`,
+  }
+}
+
 function hasDuplicateKeyError(error: unknown, seen = new Set<unknown>()): boolean {
   if (!error || typeof error !== 'object' || seen.has(error)) return false
   seen.add(error)
@@ -400,6 +411,7 @@ ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, re
       }).returning({ id: notificationCampaigns.id })
       await transaction.insert(notificationRecipients).values({ campaignId: notificationId, userId: auth.userId })
       const address = input.data.address
+      const location = supportLocationFields(address)
       const addressLines = [address.address, address.estate, address.town, address.county].filter(Boolean)
       const message = [
         `New order ${orderNumber} created; payment is pending.`,
@@ -409,7 +421,7 @@ ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, re
         `Delivery area: ${zone.name}`,
         `Address: ${addressLines.join(', ')}`,
         ...(address.landmark ? [`Landmark: ${address.landmark}`] : []),
-        `Delivery pin: ${address.latitude}, ${address.longitude}`,
+        `Delivery pin: ${location.label}`,
         `Subtotal: KES ${(subtotalCents / 100).toFixed(2)}; delivery: KES ${(deliveryFeeCents / 100).toFixed(2)}; total: KES ${(totalCents / 100).toFixed(2)}`,
       ].join('\n')
       const [{ id: conversationId }] = await transaction.insert(supportRequests).values({
@@ -418,13 +430,13 @@ ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, re
         category: 'delivery',
         subject: `Delivery tracking · ${orderNumber}`,
         message,
-      }).returning({ id: notificationCampaigns.id })
+      }).returning({ id: supportRequests.id })
       await transaction.insert(supportMessages).values({
         supportRequestId: conversationId,
         senderType: 'customer',
         body: message,
-        latitude: String(address.latitude),
-        longitude: String(address.longitude),
+        latitude: location.latitude,
+        longitude: location.longitude,
         deliveredAt: isAdminOnline() ? new Date() : null,
       })
       return { orderNumber, conversationId, status: 'pending_payment' as const, paymentMethod: input.data.paymentMethod, subtotal: fromCents(subtotalCents), deliveryFee: fromCents(deliveryFeeCents), discount: fromCents(discountCents), total: fromCents(totalCents) }

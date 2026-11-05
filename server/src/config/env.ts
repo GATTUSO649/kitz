@@ -38,7 +38,6 @@ const schema = z.object({
   SUPABASE_CA_CERT: z.string().trim().min(1).optional(),
   ADMIN_SIGNUP_SECRET: z.string().min(32).max(512).optional(),
   ADMIN_SECRET_KEY: z.string().min(32).max(512).optional(),
-  OPERATIONS_SIGNUP_SECRET: z.string().min(32).max(512).optional(),
   ORIGIN_AUTH_TOKEN: z.string().min(32).max(256).optional(),
   MYSQL_URL: z.string().min(1).optional(),
   MYSQL_PUBLIC_URL: z.string().min(1).optional(),

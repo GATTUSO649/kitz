@@ -9,7 +9,6 @@ process.env.CLIENT_ORIGIN = 'http://localhost:5173'
 process.env.DATABASE_URL = 'postgresql://test:test@127.0.0.1:1/kitculture'
 process.env.ADMIN_DATABASE_URL = 'postgresql://test:test@127.0.0.1:1/kitculture_admin'
 process.env.LOG_LEVEL = 'silent'
-delete process.env.OPERATIONS_SIGNUP_SECRET
 
 const { app } = await import('./app.js')
 const { pool, adminPool } = await import('./config/database.js')
@@ -188,11 +187,13 @@ test('ordinary administrator registration is disabled in favor of Super Admin in
   assert.equal((await registrationResponse.json() as { error: { code: string } }).error.code, 'NOT_FOUND')
 })
 
-test('Super Admin alert and permission APIs reject callers without an admin session', async () => {
+test('Super Admin ecosystem APIs reject callers without an admin session', async () => {
   const requests = [
     fetch(`${baseUrl}/api/v1/admin/ecosystem/alerts`),
+    fetch(`${baseUrl}/api/v1/admin/ecosystem/roles`),
     fetch(`${baseUrl}/api/v1/admin/ecosystem/roles/sales_admin/permissions`),
     fetch(`${baseUrl}/api/v1/admin/ecosystem/administrators/1/permissions`),
+    fetch(`${baseUrl}/api/v1/admin/ecosystem/administrators/archive`, { method: 'POST', headers: { origin: process.env.CLIENT_ORIGIN!, 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [1] }) }),
   ]
   const responses = await Promise.all(requests)
   for (const response of responses) {
@@ -247,6 +248,16 @@ test('operations mutations reject cross-origin requests before checking authenti
     method: 'POST',
     headers: { origin: 'https://attacker.invalid', 'content-type': 'application/json' },
     body: JSON.stringify({}),
+  })
+  assert.equal(response.status, 403)
+  assert.equal((await response.json() as { error: { code: string } }).error.code, 'ORIGIN_REJECTED')
+})
+
+test('administrator ecosystem mutations reject cross-origin requests before authentication', async () => {
+  const response = await fetch(`${baseUrl}/api/v1/admin/ecosystem/roles/sales_admin/permissions`, {
+    method: 'PUT',
+    headers: { origin: 'https://attacker.invalid', 'content-type': 'application/json' },
+    body: JSON.stringify({ permissions: ['sales.view'] }),
   })
   assert.equal(response.status, 403)
   assert.equal((await response.json() as { error: { code: string } }).error.code, 'ORIGIN_REJECTED')

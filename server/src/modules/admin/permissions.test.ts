@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { administratorPermissions, administratorPortal, defaultAdministratorPermissions, requiredAdministratorRole } from './administration.js'
-import { administratorPermissionsForRoute, hasAnyPermission, hasDedicatedAdministratorGuard, projectDashboardForRole } from './permission-routes.js'
+import { administratorPermissionsForRoute, administratorPortalPermission, hasAnyPermission, hasDedicatedAdministratorGuard, projectDashboardForRole } from './permission-routes.js'
 import { resolveAdministratorPermissions, validatePermissionSelection } from './permissions.js'
 
 test('permission resolver preserves default access until a role is configured', () => {
@@ -42,15 +42,21 @@ test('route permission matrix preserves Sales ownership and protects Finance bou
   assert.equal(hasAnyPermission(finance, administratorPermissionsForRoute('GET', '/dashboard') ?? []), true)
   assert.equal(hasAnyPermission(finance, administratorPermissionsForRoute('PATCH', '/orders/42/status') ?? []), false)
   assert.equal(hasAnyPermission(finance, administratorPermissionsForRoute('POST', '/expenses') ?? []), true)
+  assert.equal(hasAnyPermission(finance, administratorPermissionsForRoute('POST', '/finance/reconciliation') ?? []), true)
+  assert.equal(hasAnyPermission(defaultAdministratorPermissions.sales_admin, administratorPermissionsForRoute('POST', '/finance/reconciliation') ?? []), false)
 })
 
 test('Inventory Admin permissions cover stock, movement, and fulfillment boundaries', () => {
   const inventory = defaultAdministratorPermissions.inventory_admin
+  assert.equal(hasAnyPermission(inventory, administratorPermissionsForRoute('GET', '/dashboard') ?? []), true)
   assert.equal(hasAnyPermission(inventory, administratorPermissionsForRoute('GET', '/products') ?? []), true)
   assert.equal(hasAnyPermission(inventory, administratorPermissionsForRoute('POST', '/products/15/variants/22/stock') ?? []), true)
   assert.equal(hasAnyPermission(inventory, administratorPermissionsForRoute('GET', '/inventory/movements') ?? []), true)
   assert.equal(hasAnyPermission(inventory, administratorPermissionsForRoute('GET', '/orders') ?? []), true)
   assert.equal(hasAnyPermission(defaultAdministratorPermissions.finance_admin, administratorPermissionsForRoute('POST', '/products/15/variants/22/stock') ?? []), false)
+  assert.deepEqual(administratorPermissionsForRoute('POST', '/inventory/purchase-orders'), ['inventory.purchase_orders.create'])
+  assert.deepEqual(administratorPermissionsForRoute('PATCH', '/inventory/purchase-orders/15'), ['inventory.purchase_orders.approve'])
+  assert.deepEqual(administratorPermissionsForRoute('POST', '/inventory/purchase-orders/15/receive'), ['inventory.receiving.manage'])
 })
 
 test('Marketing Admin permissions cover campaign notification boundaries', () => {
@@ -58,6 +64,8 @@ test('Marketing Admin permissions cover campaign notification boundaries', () =>
   assert.equal(hasAnyPermission(marketing, administratorPermissionsForRoute('GET', '/notifications') ?? []), true)
   assert.equal(hasAnyPermission(marketing, administratorPermissionsForRoute('POST', '/notifications') ?? []), true)
   assert.equal(hasAnyPermission(defaultAdministratorPermissions.finance_admin, administratorPermissionsForRoute('POST', '/notifications') ?? []), false)
+  assert.deepEqual(administratorPermissionsForRoute('POST', '/marketing/email-campaigns'), ['marketing.email.send'])
+  assert.equal(hasAnyPermission(marketing, administratorPermissionsForRoute('POST', '/marketing/email-campaigns') ?? []), false)
 })
 
 test('unclassified business routes are not assigned an accidental permission', () => {
@@ -84,6 +92,20 @@ test('Sales dashboard projection does not expose finance or inventory aggregates
     recentOrders: [{ orderNumber: 'KC-1' }],
   })
   assert.deepEqual(data, { totalOrders: 12, totalCustomers: 25, recentOrders: [{ orderNumber: 'KC-1' }] })
+})
+
+test('dashboard projections honor stored permission overrides', () => {
+  const data = projectDashboardForRole('finance_admin', {
+    paidRevenue: '5000.00',
+    totalOrders: 12,
+  }, new Set(['sales.view']))
+  assert.deepEqual(data, { totalOrders: 12 })
+})
+
+test('portal summary endpoints require the role-specific dashboard permission', () => {
+  assert.equal(administratorPortalPermission('finance_admin'), 'finance.view')
+  assert.equal(administratorPortalPermission('inventory_admin'), 'inventory.dashboard.view')
+  assert.equal(administratorPortalPermission('unknown_role'), null)
 })
 
 test('administrator portal destination and login role come from server policy', () => {

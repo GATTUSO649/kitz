@@ -1,9 +1,32 @@
-# Security status
+# Security status (2026-11-05)
 
-Implemented protections include validated environment configuration; Helmet headers; exact-origin CORS and Origin checks on customer authentication, account, and order mutations; bounded JSON requests; API and authentication rate limits; Zod input validation; parameterized Drizzle queries; redacted request logging; and generic production error responses. Customer and administrator passwords use bcrypt hashes. Authentication uses random opaque database-backed session tokens stored as SHA-256 digests, not JWTs. HttpOnly, SameSite=Strict cookies are Secure when `NODE_ENV=production`. Customer sessions expire after 60 minutes idle and at most 30 days after issuance; administrator sessions expire after 15 minutes idle and at most 8 hours after issuance. Only explicit user-activity endpoints renew a still-valid session; background API polling does not extend idle time. Logout and password reset revoke database records. No session secret or timeout environment variable is used.
+This is a source review and targeted remediation record, not a penetration test or production security certification. See [the production-readiness report](production-readiness-report-2026-11-05.md) for evidence, test results, and remaining gates.
 
-Administrator records are stored separately from customer accounts. Administrator API routes require an authenticated administrator session. Signup is available whenever `ADMIN_SIGNUP_SECRET` is configured (at least 32 characters) and entered in the setup form; each new admin email must be unique and verified. Login verifies the email and password against a verified administrator account; the shared setup key is not required after signup. Configure the setup key as a Render secret and do not put it in source control, logs, or client configuration. Because the key is shared across administrators, rotate it in Render if it is exposed. All provisioned administrator accounts currently have the same full access; fine-grained administrator role permissions are not implemented. The application has an administrator audit log. Product image uploads enforce an 8 MB limit and JPEG/PNG/WebP signatures before upload. Daraja callbacks require a secret path token, query the provider, and validate order, amount, phone, currency, and transaction time before marking a payment successful. These controls have unit coverage, but the database-backed callback flow has not been fully tested end to end.
+## Controls observed
 
-This is not a launch security review. Customer email verification and password recovery, role-based administrator permissions, broader privacy/data-retention workflows, tested backups and restores, payment/order expiry operations, monitoring/alerting, and end-to-end production tests remain incomplete. Image signature checks do not replace image re-encoding or malware scanning. Dependency audit and unit tests are useful checks, not proof that the application is secure. Do not accept live orders, expose customer data, or process production payments until the remaining controls are reviewed and tested.
+- Customer, administrator, and Operations credentials use bcrypt. Opaque random session tokens are stored as SHA-256 digests; cookies are HttpOnly, `SameSite=Strict`, and Secure in production. Customer sessions have a 60-minute idle timeout and 30-day absolute lifetime; admin and Operations sessions have 20-minute idle timeouts and 8-hour absolute lifetimes.
+- Authentication, account, order, admin, and Operations mutations enforce configured-origin checks. Super Admin ecosystem writes now enforce the same Origin rule. CORS is exact-origin for browser requests; the optional origin-auth header remains disabled unless configured.
+- Express uses Helmet/CSP, bounded JSON, global/auth/provider rate limits, generic production errors, and structured redacted logs. Drizzle parameterizes query values.
+- Customer records, addresses, notifications, support messages, and orders are scoped by authenticated ownership in the reviewed handlers. Password reset and administrator role/status changes revoke sessions.
+- Administrator business APIs use a default-deny route permission map; role summaries and dashboard fields honor role permissions. Operations endpoints now have a separate default-deny permission map, and there is no HTTP self-bootstrap for an Operations Super Admin.
+- M-Pesa callbacks use a secret path token, provider query verification, and order/amount/currency/payer/time matching before transactional settlement. No live payment was initiated during this review.
 
-For deployment, use dedicated least-privilege MySQL accounts and verified TLS, managed secrets, HTTPS, tested backups, monitoring, and continuous dependency scanning. Rotate any credentials that have ever been committed or shared.
+## Remediation completed
+
+- Removed the first-Operations-user promotion paths from `/permissions` and security actions. One-time Operations Super Admin provisioning now requires explicit CLI approval and exact email matching.
+- Added least-privilege checks across Operations routes; unknown routes fail closed. Added finer admin permissions for inventory receiving, PO creation/approval, finance reconciliation, marketing email send, and inventory dashboard access.
+- Fixed custom admin permission overrides being ignored when projecting dashboard data, and gated role summaries by the configured dashboard permission.
+- Added Origin enforcement to the Super Admin ecosystem router and corrected the misplaced batch-archive route registration.
+- Checkout now persists missing optional GPS coordinates as `NULL` and uses the inserted support request ID rather than the notification ID.
+- The administrator CLI now creates a usable active Sales Admin with a role number and audit event. The scanner catalog no longer reports `npm-audit` healthy before a scan is run.
+
+## Residual risks
+
+- The connected PostgreSQL runtime role has `BYPASSRLS=true`. RLS is enabled on all 62 observed public tables, but it does not contain a compromise of the runtime role. Replacing the role requires database-owner approval and staging verification; no grants or roles were changed.
+- Migration state and data provenance remain unreconciled. The Supabase ledger has 11 applied migrations while the Drizzle bookkeeping table has only its baseline marker. The database contains customer/order/payment rows; these were not inspected individually or classified as production, imported, or test data.
+- Production session roles, grants, exposed APIs, WAF/origin reachability, DNS/TLS configuration, secret rotation, backup restoration, email delivery, Cloudinary, and live Daraja behavior were not independently verified.
+- Rate limits are process-local and may not coordinate across multiple instances. `trust proxy` is configured for three hops and requires confirmation against the deployed proxy chain.
+- Upload checks validate size and file signatures, not decoded dimensions, re-encoding, or malware. Email verification is optional by default. Registration returns a distinct conflict code for an existing email.
+- Database-backed ownership, stock contention, refund/reconciliation, and payment callback flows lack comprehensive PostgreSQL integration tests.
+
+Do not treat passing builds or tests as production readiness. Preserve current data, restore-test backups, reconcile migrations and records, and complete authorized staging end-to-end checks before production cutover.

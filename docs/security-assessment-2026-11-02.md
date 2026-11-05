@@ -1,5 +1,7 @@
 # KitCulture Security Assessment
 
+> **Historical assessment:** This read-only assessment was performed on 2026-11-02 and predates the 2026-11-05 role, route, scanner, and database-state verification. Use [the current production-readiness report](production-readiness-report-2026-11-05.md) for current findings and remediation status.
+
 **Assessment date:** 2026-11-02  
 **Scope:** Read-only source review, dependency audit, and limited read-only checks against the configured Supabase PostgreSQL database and public Render endpoints. No penetration testing, production login, payment initiation, file upload, migration, or destructive testing was performed.
 
@@ -153,3 +155,5 @@ The table groups routes that share the same router middleware. `validate` means 
 ## Readiness
 
 **NOT READY for an unconditional production-security claim.** Source controls are substantial, but the reproduced best-sellers failure must be fixed, runtime RLS bypass requires an explicit database-owner risk decision, administrators have broad shared access, and backups, edge configuration, and live payment reconciliation remain externally unverified.
+
+Current verified findings and remediation status: [production-readiness report](production-readiness-report-2026-11-05.md).

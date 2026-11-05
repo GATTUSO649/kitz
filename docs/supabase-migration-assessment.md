@@ -1,5 +1,7 @@
 # KitCulture Supabase PostgreSQL Migration Assessment
 
+> **Historical assessment:** This document records the migration implementation and evidence available at the time it was written. Its references to an empty 46-table target and incomplete live ledger are superseded by the read-only verification in [the 2026-11-05 production-readiness report](production-readiness-report-2026-11-05.md). Do not use the historical row-count statements as current database state.
+
 **Status:** PostgreSQL runtime and empty schema are implemented; MySQL data import and production cutover are not complete.  
 **Production readiness:** Not ready for a PostgreSQL cutover.
 

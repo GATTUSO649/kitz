@@ -1,4 +1,5 @@
 import { defaultAdministratorPermissions, type AdministratorPermission } from './administration.js'
+import type { AdministratorRole } from '../../database/admin-schema.js'
 
 type PermissionRule = {
   path: RegExp
@@ -7,17 +8,19 @@ type PermissionRule = {
 }
 
 const rules: PermissionRule[] = [
-  { path: /^\/dashboard\/?$/, read: ['analytics.system', 'sales.view', 'finance.view'] },
+  { path: /^\/dashboard\/?$/, read: ['analytics.system', 'sales.view', 'finance.view', 'inventory.dashboard.view'] },
   { path: /^\/finance\/refunds(?:\/|$)/, read: ['finance.manage_refunds'], write: ['finance.manage_refunds'] },
-  { path: /^\/finance\/reconciliation\/?$/, read: ['finance.view'], write: ['finance.view'] },
+  { path: /^\/finance\/reconciliation\/?$/, read: ['finance.view'], write: ['finance.manage_reconciliation'] },
   { path: /^\/(?:payments)(?:\/|$)/, read: ['finance.view_transactions'] },
   { path: /^\/reports\/financial\/?$/, read: ['finance.view'] },
   { path: /^\/finance\/settings\/?$/, read: ['finance.view'], write: ['finance.manage_settings'] },
   { path: /^\/expenses(?:\/|$)/, read: ['finance.view'], write: ['finance.manage_expenses'] },
-  { path: /^\/inventory(?:\/|$)/, read: ['inventory.stock.movements.view', 'inventory.manage_stock'], write: ['inventory.stock.adjust', 'inventory.manage_stock'] },
   { path: /^\/inventory\/suppliers(?:\/|$)/, read: ['inventory.suppliers.view', 'inventory.manage_suppliers'], write: ['inventory.suppliers.manage', 'inventory.manage_suppliers'] },
-  { path: /^\/inventory\/purchase-orders(?:\/|$)/, read: ['inventory.purchase_orders.view'], write: ['inventory.purchase_orders.create', 'inventory.purchase_orders.approve'] },
+  { path: /^\/inventory\/purchase-orders\/[^/]+\/receive\/?$/, read: ['inventory.purchase_orders.view'], write: ['inventory.receiving.manage'] },
+  { path: /^\/inventory\/purchase-orders\/?$/, read: ['inventory.purchase_orders.view'], write: ['inventory.purchase_orders.create'] },
+  { path: /^\/inventory\/purchase-orders\/[^/]+\/?$/, read: ['inventory.purchase_orders.view'], write: ['inventory.purchase_orders.approve'] },
   { path: /^\/inventory\/returns(?:\/|$)/, read: ['inventory.returns.view'], write: ['inventory.returns.approve'] },
+  { path: /^\/inventory(?:\/|$)/, read: ['inventory.stock.movements.view', 'inventory.manage_stock'], write: ['inventory.stock.adjust', 'inventory.manage_stock'] },
   { path: /^\/products\/[^/]+\/variants\/[^/]+\/stock\/?$/, read: ['inventory.stock.view', 'inventory.manage_stock'], write: ['inventory.stock.adjust', 'inventory.manage_stock'] },
   { path: /^\/(?:leagues|jersey-categories)(?:\/|$)/, read: ['sales.manage_catalogue', 'content.manage_categories'], write: ['sales.manage_catalogue', 'content.manage_categories'] },
   { path: /^\/products(?:\/|$)/, read: ['sales.manage_products', 'content.manage_products', 'inventory.stock.view'], write: ['sales.manage_products', 'content.manage_products'] },
@@ -32,7 +35,7 @@ const rules: PermissionRule[] = [
   { path: /^\/notifications(?:\/|$)/, read: ['sales.manage_customers', 'marketing.notifications.manage', 'marketing.campaigns.view', 'marketing.manage_campaigns'], write: ['sales.manage_customers', 'marketing.notifications.manage', 'marketing.campaigns.publish', 'marketing.manage_campaigns'] },
   { path: /^\/marketing\/coupons(?:\/|$)/, read: ['marketing.coupons.view'], write: ['marketing.coupons.manage'] },
   { path: /^\/marketing\/audiences\/?$/, read: ['marketing.audiences.view'] },
-  { path: /^\/marketing\/email-campaigns(?:\/|$)/, read: ['marketing.email.view'], write: ['marketing.email.create'] },
+  { path: /^\/marketing\/email-campaigns\/?$/, read: ['marketing.email.view'], write: ['marketing.email.send'] },
   { path: /^\/settings\/?$/, read: ['application.manage_settings'], write: ['application.manage_settings'] },
   { path: /^\/audit\/?$/, read: ['audit.view', 'inventory.audit.view', 'marketing.audit.view'] },
 ]
@@ -49,6 +52,20 @@ export function hasAnyPermission(granted: ReadonlySet<AdministratorPermission>, 
 
 export function hasDedicatedAdministratorGuard(path: string) {
   return path === '/me' || path.startsWith('/it/') || /^\/portal\/(?:super_admin|it_admin|sales_admin|finance_admin|inventory_admin|marketing_admin|content_admin)$/.test(path)
+}
+
+const portalPermissions: Record<AdministratorRole, AdministratorPermission> = {
+  super_admin: 'analytics.system',
+  it_admin: 'it.view_operations',
+  sales_admin: 'sales.view',
+  finance_admin: 'finance.view',
+  inventory_admin: 'inventory.dashboard.view',
+  marketing_admin: 'marketing.dashboard.view',
+  content_admin: 'content.manage_products',
+}
+
+export function administratorPortalPermission(role: string): AdministratorPermission | null {
+  return role in portalPermissions ? portalPermissions[role as AdministratorRole] : null
 }
 
 const salesDashboardFields = [

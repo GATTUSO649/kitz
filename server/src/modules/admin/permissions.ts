@@ -22,6 +22,7 @@ export const permissionDescriptions: Record<AdministratorPermission, string> = {
   'sales.manage_catalogue': 'Manage categories, teams, collections, and catalogue imagery.',
   'finance.view': 'View finance summaries and financial reports.',
   'finance.view_transactions': 'View payment and transaction records.',
+  'finance.manage_reconciliation': 'Record and update payment settlement reconciliation.',
   'finance.manage_refunds': 'Authorize and process refunds.',
   'finance.manage_expenses': 'Create and manage business expenses.',
   'finance.manage_settings': 'Manage the finance-owned M-Pesa display and receiving details.',

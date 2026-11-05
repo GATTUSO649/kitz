@@ -1,5 +1,7 @@
 # KitCulture IT Operations Portal
 
+> **Current-state notice (2026-11-05):** This document contains historical MySQL-era migration observations from 2026-11-01. The active runtime is PostgreSQL/Supabase. Follow [Supabase PostgreSQL migration status](supabase-postgresql.md) and the [production-readiness report](production-readiness-report-2026-11-05.md) for current database facts. The old Operations self-signup instructions below are superseded; public signup is disabled.
+
 ## Admin-integrated IT Operations (staged)
 
 The `/admin/it` page and `/api/v1/admin/it/*` APIs use the existing administrator session. Access is denied unless an explicit active IT role grant exists in `operations_operators`; no existing administrator or independent Operations user is automatically granted access. The existing `/operations` login, users, sessions, incidents, and audit history remain unchanged during this transition. The initial IT page provides a verified overview, incident create/list/update/timeline, read-only IT audit, and super-admin-only grant management.
@@ -14,11 +16,11 @@ The initial `/admin/it` overview uses current process memory/uptime, shared API 
 
 The portal is available at `/operations` and has its own login form and API namespace at `/api/v1/operations`. Operations users, password hashes, sessions, and audit records are stored in dedicated tables; sessions use the separate HTTP-only `kc_ops_session` cookie scoped to `/api/v1/operations`. Store-admin credentials and cookies do not authenticate operations requests, and store-admin accounts do not receive operations access automatically. There is no default operator, no fallback to `/admin/login`, and no shared identity table.
 
-The IT sign-in form links to `/admin/register` for the separate store-administrator identity. A store-admin account is not an IT operator account and does not grant Operations access.
+The IT sign-in flow is separate from Sales at `/sales-admin/login` (the legacy `/admin/login` redirects). A store-admin account is not an Operations user and does not grant Operations access.
 
 Manage independent operations accounts with `npm run operations:user -- <create|disable|enable|reset-password>`. Set `OPERATIONS_EMAIL` for all actions; `create` also requires `OPERATIONS_NAME` and `OPERATIONS_PASSWORD`, while `reset-password` requires `OPERATIONS_PASSWORD`. The password must satisfy the current 14-character policy and bcrypt byte limit. `disable` and `reset-password` revoke all current operations sessions; `enable` reactivates a disabled account. The CLI writes a provisioning audit event and does not create or modify any store-admin account. These variables are only used by the one-shot CLI, not stored as application runtime secrets.
 
-Optional self-signup is available only when the API environment has `OPERATIONS_SIGNUP_SECRET` set to a random value of at least 32 characters. Enter that value in the IT signup form's **IT secret key** field. The key is never sent to the frontend except when an operator submits the form, and it is compared server-side. Unset the variable after the intended signup window closes; use the CLI for additional accounts.
+Public Operations self-signup is disabled. Create independent Operations accounts with the controlled CLI. A one-time Operations Super Admin bootstrap requires `OPERATIONS_BOOTSTRAP_APPROVED=YES` and an exact `OPERATIONS_BOOTSTRAP_EMAIL` match for the existing enabled account; remove those values immediately. Do not expose the bootstrap through HTTP or store the approval values in the deployed runtime environment.
 
 ## Data currently collected
 
@@ -58,19 +60,19 @@ Both store and admin Drizzle configs use MySQL's default `__drizzle_migrations` 
 6. Apply the approved staging plan once, then verify all columns, indexes, foreign keys, migration records, existing row counts, and the Operations flows. Re-run the plan on a fresh restored clone to prove repeatable release procedure. Capture before/after record counts for affected legacy tables.
 7. Only after written database-owner approval, a verified backup, and successful staging restore/test, schedule the same reviewed plan as a controlled production release. Monitor the migration runner and stop on the first unexpected DDL result; do not let API startup run migrations.
 
-Read-only inspection SQL (run with a read-only account, over verified TLS, in the intended database):
+Historical MySQL-only inspection SQL from the 2026-11-01 investigation. Do not run these statements against the active PostgreSQL runtime:
 
 ```sql
 SELECT TABLE_NAME
 FROM information_schema.TABLES
 WHERE TABLE_SCHEMA = DATABASE()
-	AND (TABLE_NAME LIKE 'operations_%' OR TABLE_NAME IN ('admin_users', '__drizzle_migrations'))
+    AND (TABLE_NAME LIKE 'operations_%' OR TABLE_NAME IN ('admin_users', '__drizzle_migrations'))
 ORDER BY TABLE_NAME;
 
 SELECT TABLE_NAME, COLUMN_NAME, IS_NULLABLE, COLUMN_TYPE
 FROM information_schema.COLUMNS
 WHERE TABLE_SCHEMA = DATABASE()
-	AND TABLE_NAME LIKE 'operations_%'
+    AND TABLE_NAME LIKE 'operations_%'
 ORDER BY TABLE_NAME, ORDINAL_POSITION;
 
 SELECT id, hash, created_at

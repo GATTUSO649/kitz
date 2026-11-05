@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { classifySeverity, redactSensitiveEvidence, runDependencyScanner } from './dependency-scanner.js'
-import { getSecurityOverview, listSecurityFindings, startSecurityScan, cancelSecurityScan } from './scanner-engine.js'
+import { dependencyScannerAvailability, getSecurityOverview, listSecurityFindings, startSecurityScan, cancelSecurityScan } from './scanner-engine.js'
 
 test('redacts sensitive scanner evidence without exposing secrets', () => {
   const result = redactSensitiveEvidence({ text: 'password=hunter2', authorization: 'Bearer complete-secret-token' }) as Record<string, unknown>
@@ -22,6 +22,11 @@ test('scanner engine exposes unsupported modules and does not fabricate coverage
   assert.equal(overview.score, null)
   assert.equal(overview.coverage.secrets, false)
   assert.equal(overview.coverage.web, false)
+})
+
+test('dependency scanner availability does not claim health before an executed scan', () => {
+  assert.equal(dependencyScannerAvailability('/path/to/npm'), 'not_run')
+  assert.equal(dependencyScannerAvailability(''), 'not_configured')
 })
 
 test('a dependency scan completes and deduplicates repeated vulnerability observations', async () => {

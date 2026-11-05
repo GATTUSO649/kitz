@@ -1,8 +1,10 @@
 # Supabase PostgreSQL Migration Status
 
-**Current state:** The Express server and Drizzle adapter use PostgreSQL. The Supabase `public` schema contains the 46 KitCulture tables, 54 foreign keys, and 113 indexes. All 46 tables have RLS enabled and there are no client-role policies. A read-only Drizzle query against `products` succeeded.
+**Current state (read-only verification, 2026-11-05):** The Express runtime and Drizzle adapter use PostgreSQL. The connected `public` schema contains 62 base tables and RLS is enabled on all 62. The runtime role has `BYPASSRLS=true`, so RLS is not a containment boundary for the application connection. No grants, roles, schemas, or production rows were changed during verification.
 
-**Data state:** No MySQL records have been imported. The MySQL source was not reachable during the migration (`ENOTFOUND`); no source backup was available. Supabase currently has an empty KitCulture schema. This is not a production-ready data migration or cutover.
+**Data state:** The database is not empty. Aggregate counts observed: 1 user, 7 administrator accounts, 4 orders, 4 payments, 1 product, 4 variants, 4 categories, 1 delivery zone, 1 support request, 4 notifications, and 8 inventory movements. Individual records were not inspected and their provenance is unknown. Do not delete, label, or migrate these rows without a verified backup and record-level reconciliation.
+
+**Migration ledgers:** Supabase records 11 applied migrations through `20261103000010`. The Drizzle tracker contains one initial-baseline marker; this is consistent with the repository's policy that Supabase CLI is the only migration executor, but the live schema has not been fully diffed against all migrations. A remote Supabase dry-run reports `20261105000000_enable_public_rls.sql` as pending; it was not applied. The target is not approved for production cutover.
 
 ## Runtime Configuration
 
@@ -25,7 +27,7 @@ Do not configure the legacy MySQL source as `DATABASE_URL` while running the Pos
 - `npm run db:supabase:create-schema` creates the PostgreSQL baseline only when `public` is empty; it aborts rather than overwriting existing tables.
 - `npm run db:supabase:register-baseline` verifies table, foreign-key, index, and RLS counts, then registers the already-applied baseline in Drizzle's `drizzle` migration history without changing application tables.
 - `npm run db:generate` generates future PostgreSQL migrations from both active schemas.
-- `npm run db:migrate` applies pending PostgreSQL migrations. It was verified after baseline registration and did not recreate the existing tables.
+- `npm run db:migrate` is intentionally blocked. Supabase CLI is the only migration executor. Use `npm run db:supabase:dry-run -- --remote` for a non-mutating plan; never push without a verified backup, staging rehearsal, and database-owner approval.
 - `npm run db:mysql:generate` and `npm run db:mysql:migrate` use preserved MySQL schemas/configuration for rollback/source work only. Review their target URL before running; never point them at Supabase.
 
 The active PostgreSQL schema files are `server/src/database/schema.ts` and `server/src/database/admin-schema.ts`. Byte-for-byte MySQL schema snapshots are preserved in `schema.mysql.ts` and `admin-schema.mysql.ts`; the original MySQL migration folders and separate Drizzle configs are retained.
@@ -43,6 +45,8 @@ Never mark an unverified migration as applied or run MySQL migrations on Postgre
 
 ## Verification and Limitations
 
-Verified so far: TLS-verified `SELECT 1`, Drizzle `products` count query, 46 tables, 54 foreign keys, 113 indexes, RLS enabled on all tables, empty application tables, baseline registration/no-op migration, TypeScript typecheck, and 94 automated tests.
+Verified in the current review: TLS-verified `SELECT 1`; 62 public base tables; RLS enabled on all 62; runtime `BYPASSRLS=true`; aggregate row counts for representative customer/commerce tables; Supabase migration ledger count 11/latest version `20261103000010`; Drizzle history count 1; and a remote Supabase dry-run that listed only `20261105000000_enable_public_rls.sql` without applying it.
 
-Not verified: MySQL backup/restore, data import or row-count parity, PostgreSQL end-to-end account/order/payment workflows, production deployment, or a rollback after PostgreSQL writes. Do not accept production commerce traffic on the empty target until these gates pass.
+Not verified: whether the current rows came from MySQL, fixtures, or later manual/operator actions; full per-table count parity; constraints/index drift; `FORCE ROW LEVEL SECURITY`; exact grants to `anon`/`authenticated`/`service_role`; source backup/restore; production deployment settings; end-to-end PostgreSQL account/order/payment behavior; live email/Cloudinary/Daraja; and rollback after PostgreSQL writes. Do not cut over or automatically clean up data until these gates pass.
+
+Current readiness findings and gates: [production-readiness report](production-readiness-report-2026-11-05.md).

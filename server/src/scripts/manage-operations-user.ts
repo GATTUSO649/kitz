@@ -1,5 +1,5 @@
 import { hash } from 'bcryptjs'
-import { eq } from 'drizzle-orm'
+import { and, count, eq, isNull, sql } from 'drizzle-orm'
 import { adminDb, adminPool } from '../config/database.js'
 import { bcryptPasswordSchema } from '../config/password-policy.js'
 import { operationsAuditEvents, operationsSessions, operationsUsers } from '../database/admin-schema.js'
@@ -10,8 +10,35 @@ async function main() {
   const fullName = process.env.OPERATIONS_NAME?.trim()
   const password = process.env.OPERATIONS_PASSWORD
   if (!adminDb) throw new Error('Set DATABASE_URL before managing operations accounts.')
-  if (!['create', 'disable', 'enable', 'reset-password'].includes(action) || !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new Error('Usage: set OPERATIONS_EMAIL and run npm run operations:user -- <create|disable|enable|reset-password>. Create also requires OPERATIONS_NAME and OPERATIONS_PASSWORD; reset-password requires OPERATIONS_PASSWORD.')
+  if (!['create', 'disable', 'enable', 'reset-password', 'bootstrap-super-admin'].includes(action) || !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error('Usage: set OPERATIONS_EMAIL and run npm run operations:user -- <create|disable|enable|reset-password|bootstrap-super-admin>. Create also requires OPERATIONS_NAME and OPERATIONS_PASSWORD; reset-password requires OPERATIONS_PASSWORD.')
+  }
+
+  if (action === 'bootstrap-super-admin') {
+    const approvedEmail = process.env.OPERATIONS_BOOTSTRAP_EMAIL?.trim().toLowerCase()
+    if (process.env.OPERATIONS_BOOTSTRAP_APPROVED !== 'YES' || approvedEmail !== email) {
+      throw new Error('Bootstrap denied. Set explicit approval and an exact matching OPERATIONS_BOOTSTRAP_EMAIL for this one-time action.')
+    }
+    const [user] = await adminDb.select({ id: operationsUsers.id, disabledAt: operationsUsers.disabledAt }).from(operationsUsers).where(eq(operationsUsers.email, email)).limit(1)
+    if (!user || user.disabledAt) throw new Error('Bootstrap target must be an existing enabled operations account.')
+    await adminDb.transaction(async (transaction) => {
+      await transaction.execute(sql`SELECT pg_advisory_xact_lock(hashtext('kitculture.operations.super_admin.bootstrap'))`)
+      const [{ total }] = await transaction.select({ total: count() }).from(operationsUsers)
+        .where(and(eq(operationsUsers.role, 'super_admin'), isNull(operationsUsers.disabledAt)))
+      if (Number(total) > 0) throw new Error('An active Operations Super Admin already exists.')
+      await transaction.update(operationsUsers).set({ role: 'super_admin' })
+        .where(and(eq(operationsUsers.id, user.id), isNull(operationsUsers.disabledAt)))
+      await transaction.insert(operationsAuditEvents).values({
+        actorOperationsUserId: user.id,
+        actorType: 'provisioning_cli',
+        action: 'operations.super_admin_bootstrapped',
+        targetType: 'operations_user',
+        targetId: String(user.id),
+        details: JSON.stringify({ email }),
+      })
+    })
+    console.info(`One-time Operations Super Admin bootstrapped for ${email}. Remove the bootstrap approval variables now.`)
+    return
   }
 
   if (action === 'create' || action === 'reset-password') {
