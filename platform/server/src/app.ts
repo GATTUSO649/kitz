@@ -78,11 +78,19 @@ if (existsSync(clientDist)) {
 }
 app.use((_request, response) => response.status(404).json({ error: { code: 'NOT_FOUND', message: 'The requested resource was not found.' } }))
 
-const errorHandler: ErrorRequestHandler = (error, _request, response, _next) => {
+const errorHandler: ErrorRequestHandler = (error, request, response, _next) => {
   if (error && typeof error === 'object' && 'type' in error && error.type === 'entity.too.large') {
     response.status(413).json({ error: { code: 'PAYLOAD_TOO_LARGE', message: 'The uploaded file exceeds the 8 MB limit.' } })
     return
   }
+  const errorCode = error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' && /^[A-Z0-9_]{1,16}$/.test(error.code)
+    ? error.code
+    : undefined
+  console.error('Unhandled MarketHub request error', {
+    method: request.method,
+    route: request.route?.path ?? 'unknown',
+    code: errorCode,
+  })
   response.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Something went wrong. Please try again.' } })
 }
 app.use(errorHandler)
