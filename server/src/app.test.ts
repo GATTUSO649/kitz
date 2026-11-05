@@ -274,16 +274,33 @@ test('customer and administrator session renewal reject requests without valid s
   }
 })
 
-test('sets hardened security headers for production-safe responses', async () => {
-  const response = await fetch(`${baseUrl}/health/live`)
+test('denies framing on application, admin, not-found, and error responses', async () => {
+  const responses = await Promise.all([
+    fetch(`${baseUrl}/health/live`),
+    fetch(`${baseUrl}/api/v1/admin/me`),
+    fetch(`${baseUrl}/api/v1/missing`),
+    fetch(`${baseUrl}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{invalid json',
+    }),
+  ])
+  const [response] = responses
   const policy = response.headers.get('content-security-policy') ?? ''
   assert.match(policy, /img-src[^;]*https:/)
   assert.match(policy, /frame-src[^;]*https:\/\/maps\.google\.com/)
   assert.match(policy, /frame-src[^;]*https:\/\/www\.google\.com/)
+  assert.match(policy, /frame-ancestors 'none'/)
   assert.equal(response.headers.get('strict-transport-security') ?? '', 'max-age=31536000; includeSubDomains')
   assert.equal(response.headers.get('x-content-type-options') ?? '', 'nosniff')
   assert.equal(response.headers.get('referrer-policy') ?? '', 'no-referrer')
-  assert.equal(response.headers.get('x-frame-options') ?? '', 'SAMEORIGIN')
+  for (const protectedResponse of responses) {
+    assert.equal(protectedResponse.headers.get('x-frame-options') ?? '', 'DENY')
+    assert.match(protectedResponse.headers.get('content-security-policy') ?? '', /frame-ancestors 'none'/)
+  }
+  assert.equal(responses[1].status, 401)
+  assert.equal(responses[2].status, 404)
+  assert.equal(responses[3].status, 500)
 })
 
 test('readiness reflects unavailable MySQL while liveness remains healthy', async () => {

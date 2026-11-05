@@ -33,14 +33,14 @@ app.use(helmet({
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
       formAction: ["'self'"],
-      frameAncestors: ["'self'"],
+      frameAncestors: ["'none'"],
       imgSrc: ["'self'", 'data:', 'https:'],
       frameSrc: ["'self'", 'https://maps.google.com', 'https://www.google.com'],
     },
   },
   crossOriginResourcePolicy: { policy: 'same-origin' },
   dnsPrefetchControl: { allow: false },
-  frameguard: { action: 'sameorigin' },
+  frameguard: { action: 'deny' },
   hidePoweredBy: true,
   hsts: {
     maxAge: 31536000,
@@ -173,9 +173,10 @@ app.use((_request, response) => {
 
 const errorHandler: ErrorRequestHandler = (error, request, response, _next) => {
   if (response.headersSent) return
+  const requestLogger = request.log ?? logger
   const databaseError = inspectDatabaseError(error)
   if (databaseError.category) {
-    request.log.error({
+    requestLogger.error({
       requestId: request.id,
       operation: response.locals.databaseOperation ?? 'http.request',
       category: databaseError.category,
@@ -192,7 +193,7 @@ const errorHandler: ErrorRequestHandler = (error, request, response, _next) => {
     response.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Something went wrong. Please try again.', requestId: String(request.id) } })
     return
   }
-  request.log.error({
+  requestLogger.error({
     requestId: String(request.id),
     errorType: error instanceof Error ? error.name : 'UnknownError',
   }, 'Request failed')
