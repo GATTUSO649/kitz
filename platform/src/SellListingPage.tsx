@@ -178,7 +178,7 @@ export function SellListingPage() {
           setPaymentMessage('Payment verified. Your listing is now published.')
           return
         }
-        if (['failed', 'cancelled', 'reversed', 'refunded'].includes(statusResult.data.status)) {
+        if (['failed', 'cancelled', 'expired', 'reversed', 'refunded'].includes(statusResult.data.status)) {
           setPaymentMessage('Payment was not completed. Your listing remains unpublished.')
           return
         }

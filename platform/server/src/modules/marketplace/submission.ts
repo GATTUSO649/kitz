@@ -1,11 +1,12 @@
-import { and, asc, eq, gt } from 'drizzle-orm'
+import { and, asc, eq, gt, inArray } from 'drizzle-orm'
 import { raw, Router } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
 import { database } from '../../database/connection.js'
-import { marketplaceCategories, marketplaceCounties, marketplaceProductAccess, marketplaceProductImages, marketplaceProducts, marketplaceSellers, marketplaceSettings, marketplaceSubcategories } from '../../database/schema.js'
+import { marketplaceAdminUsers, marketplaceCategories, marketplaceCounties, marketplaceProductAccess, marketplaceProductImages, marketplaceProducts, marketplaceSellers, marketplaceSettings, marketplaceSubcategories } from '../../database/schema.js'
 import { deleteMarketplaceImage, uploadMarketplaceImage } from './images.js'
 import { calculateFeeKes, createListingReference, createListingSlug, createSecret, hashSecret, normalizeKenyanPhone } from './security.js'
+import { enqueueMarketplaceEmail } from '../email/outbox.js'
 
 export const submissionRouter = Router()
 const imageBody = raw({ type: ['image/jpeg', 'image/png', 'image/webp', 'application/octet-stream'], limit: '8mb' })
@@ -93,11 +94,12 @@ submissionRouter.post('/submissions', async (request, response, next) => {
     const slug = createListingSlug(submission.title, reference)
     const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
     await database.transaction(async (transaction) => {
+      const sellerEmail = submission.seller.email?.trim().toLowerCase() || null
       const [seller] = await transaction.insert(marketplaceSellers).values({
         name: submission.seller.name,
         phone: sellerPhone,
         whatsapp,
-        email: submission.seller.email || null,
+        email: sellerEmail,
         countyId: county.id,
         subcounty: submission.seller.subcounty,
         town: submission.seller.town,
@@ -119,6 +121,20 @@ submissionRouter.post('/submissions', async (request, response, next) => {
       }).returning({ id: marketplaceProducts.id })
       if (!product) throw new Error('Marketplace listing record was not created.')
       await transaction.insert(marketplaceProductAccess).values({ productId: product.id, tokenHash: hashSecret(statusToken), expiresAt })
+      if (sellerEmail) await enqueueMarketplaceEmail(transaction, {
+        eventKey: `listing:${reference}:submission-received:seller`,
+        to: sellerEmail,
+        kind: 'product_submission_received',
+        data: { name: submission.seller.name, title: submission.title, reference, amountKes: publicationFeeKes },
+      })
+      const adminEmails = await transaction.select({ email: marketplaceAdminUsers.email }).from(marketplaceAdminUsers)
+        .where(and(eq(marketplaceAdminUsers.active, true), inArray(marketplaceAdminUsers.role, ['super_admin', 'product_admin'])))
+      for (const admin of adminEmails) await enqueueMarketplaceEmail(transaction, {
+        eventKey: `listing:${reference}:new-submission:${admin.email}`,
+        to: admin.email,
+        kind: 'admin_new_submission',
+        data: { title: submission.title, reference, amountKes: publicationFeeKes },
+      })
     })
     response.status(201).json({ data: {
       reference,

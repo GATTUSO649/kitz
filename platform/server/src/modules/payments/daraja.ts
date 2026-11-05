@@ -7,6 +7,13 @@ export class DarajaUnavailableError extends Error {
   }
 }
 
+export class DarajaRequestError extends DarajaUnavailableError {
+  constructor(readonly stage: 'oauth' | 'stk_push' | 'stk_query', readonly outcome: 'rejected' | 'unknown') {
+    super('Marketplace M-Pesa request could not be verified.')
+    this.name = 'DarajaRequestError'
+  }
+}
+
 type DarajaConfig = {
   baseUrl: string
   consumerKey: string
@@ -24,29 +31,32 @@ type StkResult = {
   ResponseDescription?: string
   CustomerMessage?: string
 }
+type DarajaDependencies = { env?: NodeJS.ProcessEnv; fetcher?: typeof fetch; now?: () => number }
 
-let cachedToken: { value: string; expiresAt: number } | null = null
+const cachedTokens = new Map<string, { value: string; expiresAt: number }>()
 
-function getConfig(): DarajaConfig {
-  const mode = process.env.MPESA_ENV
+function getConfig(env: NodeJS.ProcessEnv = process.env): DarajaConfig {
+  const mode = env.MARKETPLACE_DARAJA_ENVIRONMENT
   if (mode !== 'sandbox' && mode !== 'production') throw new DarajaUnavailableError()
-  const consumerKey = process.env.MPESA_CONSUMER_KEY
-  const consumerSecret = process.env.MPESA_CONSUMER_SECRET
-  const passkey = process.env.MPESA_PASSKEY
-  const shortcode = process.env.MPESA_SHORTCODE
-  const transactionType = process.env.MPESA_TRANSACTION_TYPE
-  const callbackUrl = process.env.MPESA_CALLBACK_URL
-  const callbackToken = process.env.MPESA_CALLBACK_TOKEN
+  const consumerKey = env.MARKETPLACE_DARAJA_CONSUMER_KEY
+  const consumerSecret = env.MARKETPLACE_DARAJA_CONSUMER_SECRET
+  const passkey = env.MARKETPLACE_DARAJA_PASSKEY
+  const shortcode = env.MARKETPLACE_DARAJA_SHORTCODE
+  const transactionType = env.MARKETPLACE_DARAJA_TRANSACTION_TYPE
+  const callbackUrl = env.MARKETPLACE_DARAJA_CALLBACK_URL
+  const callbackToken = env.MARKETPLACE_DARAJA_CALLBACK_TOKEN
   if (!consumerKey || !consumerSecret || !passkey || !shortcode || !callbackUrl || !callbackToken
     || (transactionType !== 'CustomerPayBillOnline' && transactionType !== 'CustomerBuyGoodsOnline')) {
     throw new DarajaUnavailableError('Marketplace M-Pesa configuration is incomplete.')
   }
-  const parsedCallbackUrl = new URL(callbackUrl)
-  if (mode === 'production' && parsedCallbackUrl.protocol !== 'https:') {
-    throw new DarajaUnavailableError('Production M-Pesa callbacks require HTTPS.')
+  if (!/^\d{5,20}$/.test(shortcode) || !/^[A-Za-z0-9_-]{32,128}$/.test(callbackToken)) {
+    throw new DarajaUnavailableError('Marketplace M-Pesa configuration is invalid.')
   }
-  if (!parsedCallbackUrl.pathname.includes(`/callback/${encodeURIComponent(callbackToken)}`)) {
-    throw new DarajaUnavailableError('The callback URL must contain the configured callback token path.')
+  const parsedCallbackUrl = new URL(callbackUrl)
+  const expectedCallbackPath = `/api/v1/marketplace/payments/callback/${encodeURIComponent(callbackToken)}`
+  if (parsedCallbackUrl.protocol !== 'https:' || parsedCallbackUrl.username || parsedCallbackUrl.password
+    || parsedCallbackUrl.pathname !== expectedCallbackPath || parsedCallbackUrl.search || parsedCallbackUrl.hash) {
+    throw new DarajaUnavailableError('The M-Pesa callback URL must be HTTPS and match the configured marketplace callback route exactly.')
   }
   return {
     baseUrl: mode === 'production' ? 'https://api.safaricom.co.ke' : 'https://sandbox.safaricom.co.ke',
@@ -63,27 +73,86 @@ export function assertDarajaConfigured(): void {
   getConfig()
 }
 
-async function getAccessToken(config: DarajaConfig): Promise<string> {
-  if (cachedToken && cachedToken.expiresAt > Date.now()) return cachedToken.value
+async function getAccessToken(config: DarajaConfig, fetcher: typeof fetch = fetch, now: () => number = Date.now): Promise<string> {
+  const cacheKey = createHash('sha256').update(`${config.baseUrl}:${config.consumerKey}:${config.consumerSecret}`).digest('hex')
+  const cachedToken = cachedTokens.get(cacheKey)
+  if (cachedToken && cachedToken.expiresAt > now() + 60_000) return cachedToken.value
   const authorization = Buffer.from(`${config.consumerKey}:${config.consumerSecret}`).toString('base64')
-  const response = await fetch(`${config.baseUrl}/oauth/v1/generate?grant_type=client_credentials`, {
-    headers: { Authorization: `Basic ${authorization}` },
-    signal: AbortSignal.timeout(10_000),
-  })
-  if (!response.ok) throw new DarajaUnavailableError('M-Pesa authentication could not be completed.')
-  const body = await response.json() as { access_token?: string; expires_in?: string }
-  if (!body.access_token) throw new DarajaUnavailableError('M-Pesa authentication response was invalid.')
-  cachedToken = { value: body.access_token, expiresAt: Date.now() + Math.max(30, Number(body.expires_in || 3600) - 30) * 1000 }
+  let response: Response
+  try {
+    response = await fetcher(`${config.baseUrl}/oauth/v1/generate?grant_type=client_credentials`, {
+      headers: { Authorization: `Basic ${authorization}` },
+      signal: AbortSignal.timeout(10_000),
+    })
+  } catch {
+    throw new DarajaRequestError('oauth', 'unknown')
+  }
+  if (!response.ok) throw new DarajaRequestError('oauth', response.status >= 500 || response.status === 408 ? 'unknown' : 'rejected')
+  const body = await response.json().catch(() => null) as { access_token?: string; expires_in?: string } | null
+  if (!body?.access_token) throw new DarajaRequestError('oauth', 'unknown')
+  const expiresIn = Number(body.expires_in || 3600)
+  cachedTokens.set(cacheKey, { value: body.access_token, expiresAt: now() + Math.max(30, expiresIn - 60) * 1000 })
   return body.access_token
 }
 
-function darajaTimestamp(): string {
+function darajaTimestamp(date = new Date()): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Africa/Nairobi', year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-  }).formatToParts(new Date())
+  }).formatToParts(date)
   const values = new Map(parts.map(({ type, value }) => [type, value]))
   return `${values.get('year')}${values.get('month')}${values.get('day')}${values.get('hour')}${values.get('minute')}${values.get('second')}`
+}
+
+export function parseDarajaTimestamp(value: unknown): Date | null {
+  const digits = typeof value === 'string' || typeof value === 'number' ? String(value) : ''
+  if (!/^\d{14}$/.test(digits)) return null
+  const year = Number(digits.slice(0, 4))
+  const month = Number(digits.slice(4, 6))
+  const day = Number(digits.slice(6, 8))
+  const hour = Number(digits.slice(8, 10))
+  const minute = Number(digits.slice(10, 12))
+  const second = Number(digits.slice(12, 14))
+  const nairobiTime = new Date(Date.UTC(year, month - 1, day, hour, minute, second))
+  if (nairobiTime.getUTCFullYear() !== year || nairobiTime.getUTCMonth() !== month - 1 || nairobiTime.getUTCDate() !== day
+    || hour > 23 || minute > 59 || second > 59) return null
+  return new Date(nairobiTime.getTime() - 3 * 60 * 60 * 1000)
+}
+
+export function verifyMarketplaceStkCallback(input: {
+  callbackResultCode: string
+  callbackCheckoutRequestId: string
+  callbackMerchantRequestId: string
+  queryCheckoutRequestId?: string
+  queryMerchantRequestId?: string
+  queryResultCode: string
+  callbackAmount: number
+  expectedAmount: number
+  callbackPhone: string | null
+  expectedPhone: string
+  receipt: string
+  transactionAt: Date | null
+  paymentCreatedAt: Date
+  now?: Date
+}): boolean {
+  const now = input.now ?? new Date()
+  const validTime = input.transactionAt !== null
+    && input.transactionAt.getTime() >= input.paymentCreatedAt.getTime() - 2 * 60_000
+    && input.transactionAt.getTime() <= now.getTime() + 5 * 60_000
+  return input.callbackResultCode === '0'
+    && input.queryResultCode === '0'
+    && input.callbackCheckoutRequestId === input.queryCheckoutRequestId
+    && input.callbackMerchantRequestId === input.queryMerchantRequestId
+    && Number.isSafeInteger(input.callbackAmount)
+    && input.callbackAmount === input.expectedAmount
+    && input.callbackPhone !== null
+    && input.callbackPhone === input.expectedPhone
+    && /^[A-Z0-9]{6,32}$/.test(input.receipt)
+    && validTime
+}
+
+export function callbackFailureStatus(resultCode: string): 'failed' | 'cancelled' | 'expired' {
+  return resultCode === '1032' ? 'cancelled' : resultCode === '1037' ? 'expired' : 'failed'
 }
 
 function darajaPassword(config: DarajaConfig, timestamp: string): string {
@@ -95,11 +164,16 @@ export async function initiateStkPush(input: {
   amountKes: number
   paymentReference: string
   description: string
-}): Promise<StkResult> {
-  const config = getConfig()
-  const accessToken = await getAccessToken(config)
-  const timestamp = darajaTimestamp()
-  const response = await fetch(`${config.baseUrl}/mpesa/stkpush/v1/processrequest`, {
+}, dependencies: DarajaDependencies = {}): Promise<StkResult> {
+  if (!/^254[17]\d{8}$/.test(input.phone) || !Number.isSafeInteger(input.amountKes) || input.amountKes < 1) {
+    throw new DarajaUnavailableError('M-Pesa payment details are invalid.')
+  }
+  const config = getConfig(dependencies.env)
+  const fetcher = dependencies.fetcher ?? fetch
+  const now = dependencies.now ?? Date.now
+  const accessToken = await getAccessToken(config, fetcher, now)
+  const timestamp = darajaTimestamp(new Date(now()))
+  const response = await fetcher(`${config.baseUrl}/mpesa/stkpush/v1/processrequest`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -112,24 +186,27 @@ export async function initiateStkPush(input: {
       PartyB: config.shortcode,
       PhoneNumber: input.phone,
       CallBackURL: config.callbackUrl,
-      AccountReference: input.paymentReference,
-      TransactionDesc: input.description.slice(0, 20),
+      AccountReference: input.paymentReference.slice(0, 12),
+      TransactionDesc: input.description.slice(0, 13),
     }),
     signal: AbortSignal.timeout(15_000),
-  })
-  if (!response.ok) throw new DarajaUnavailableError('M-Pesa could not accept the payment request.')
-  const result = await response.json() as Partial<StkResult>
+  }).catch(() => { throw new DarajaRequestError('stk_push', 'unknown') })
+  if (!response.ok) throw new DarajaRequestError('stk_push', response.status >= 500 || response.status === 408 ? 'unknown' : 'rejected')
+  const result = await response.json().catch(() => null) as Partial<StkResult> | null
+  if (!result) throw new DarajaRequestError('stk_push', 'unknown')
   if (result.ResponseCode !== '0' || !result.CheckoutRequestID || !result.MerchantRequestID) {
-    throw new DarajaUnavailableError('M-Pesa did not accept the payment request.')
+    throw new DarajaRequestError('stk_push', 'rejected')
   }
   return result as StkResult
 }
 
-export async function queryStkPayment(checkoutRequestId: string): Promise<{ resultCode: string; resultDescription: string }> {
-  const config = getConfig()
-  const accessToken = await getAccessToken(config)
-  const timestamp = darajaTimestamp()
-  const response = await fetch(`${config.baseUrl}/mpesa/stkpushquery/v1/query`, {
+export async function queryStkPayment(checkoutRequestId: string, dependencies: DarajaDependencies = {}): Promise<{ resultCode: string; resultDescription: string; checkoutRequestId?: string; merchantRequestId?: string }> {
+  const config = getConfig(dependencies.env)
+  const fetcher = dependencies.fetcher ?? fetch
+  const now = dependencies.now ?? Date.now
+  const accessToken = await getAccessToken(config, fetcher, now)
+  const timestamp = darajaTimestamp(new Date(now()))
+  const response = await fetcher(`${config.baseUrl}/mpesa/stkpushquery/v1/query`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -139,11 +216,16 @@ export async function queryStkPayment(checkoutRequestId: string): Promise<{ resu
       CheckoutRequestID: checkoutRequestId,
     }),
     signal: AbortSignal.timeout(15_000),
-  })
-  if (!response.ok) throw new DarajaUnavailableError('M-Pesa payment status is not yet verifiable.')
-  const result = await response.json() as { ResultCode?: string | number; ResultDesc?: string }
-  if (result.ResultCode === undefined) throw new DarajaUnavailableError('M-Pesa payment status response was incomplete.')
-  return { resultCode: String(result.ResultCode), resultDescription: result.ResultDesc ?? '' }
+  }).catch(() => { throw new DarajaRequestError('stk_query', 'unknown') })
+  if (!response.ok) throw new DarajaRequestError('stk_query', response.status >= 500 || response.status === 408 ? 'unknown' : 'rejected')
+  const result = await response.json().catch(() => null) as { ResultCode?: string | number; ResultDesc?: string; CheckoutRequestID?: string; MerchantRequestID?: string } | null
+  if (!result || result.ResultCode === undefined) throw new DarajaRequestError('stk_query', 'unknown')
+  return {
+    resultCode: String(result.ResultCode),
+    resultDescription: result.ResultDesc ?? '',
+    checkoutRequestId: result.CheckoutRequestID,
+    merchantRequestId: result.MerchantRequestID,
+  }
 }
 
 export function paymentCallbackFingerprint(payload: unknown): string {

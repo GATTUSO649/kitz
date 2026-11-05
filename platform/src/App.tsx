@@ -1,4 +1,4 @@
-import { ArrowRight, BadgeCheck, CircleHelp, Compass, House, LayoutGrid, List as ListIcon, MapPin, MessageCircle, Phone, Search, ShieldCheck, ShoppingBag, SlidersHorizontal, Sparkles, Zap } from 'lucide-react'
+import { ArrowRight, BadgeCheck, CircleHelp, Compass, House, LayoutGrid, List as ListIcon, MapPin, Phone, Search, ShieldCheck, ShoppingBag, SlidersHorizontal, Sparkles, Zap } from 'lucide-react'
 import { FaFacebookF, FaWhatsapp, FaXTwitter, FaYoutube } from 'react-icons/fa6'
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, Route, Routes, useParams, useSearchParams } from 'react-router-dom'
@@ -77,6 +77,7 @@ function ProductResults({ search, category, filterQuery, page, view, onPageChang
         {listing.featured && <b>Featured</b>}
       </Link>
       <div className="listing-info"><small><MapPin size={11} /> {listing.town}, {listing.county}</small><Link to={`/marketplace/products/${encodeURIComponent(listing.slug)}`}><strong>{listing.title}</strong></Link><div><b>KSh {new Intl.NumberFormat('en-KE').format(listing.priceKes)}</b><span>{listing.negotiable ? 'Negotiable' : listing.condition.replaceAll('_', ' ')}</span></div></div>
+      <Link className="listing-whatsapp-cta" to={`/marketplace/products/${encodeURIComponent(listing.slug)}?intent=whatsapp`} aria-label={`Pay contact fee to reach the seller of ${listing.title} on WhatsApp`}><FaWhatsapp size={15} /> WhatsApp seller</Link>
     </article>)}</div>
     {pagination && pagination.total > pagination.limit && <nav className="catalogue-pagination" aria-label="Product pages"><button type="button" disabled={pagination.page <= 1} onClick={() => onPageChange(pagination.page - 1)}>Previous</button><span>Page {pagination.page} · {pagination.total} listings</span><button type="button" disabled={!pagination.hasMore} onClick={() => onPageChange(pagination.page + 1)}>Next</button></nav>}
   </>
@@ -84,11 +85,14 @@ function ProductResults({ search, category, filterQuery, page, view, onPageChang
 
 function MarketplaceProductPage() {
   const { slug = '' } = useParams()
+  const [searchParams] = useSearchParams()
+  const whatsappIntent = searchParams.get('intent') === 'whatsapp'
   const [listing, setListing] = useState<(Listing & { images: string[]; contactUnlockFeeKes: number }) | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [selectedImage, setSelectedImage] = useState(0)
   const [phone, setPhone] = useState('')
+  const [email, setEmail] = useState('')
   const [contact, setContact] = useState<{ name: string; phone: string; whatsapp: string | null; email: string | null } | null>(null)
   const [unlockToken, setUnlockToken] = useState(() => sessionStorage.getItem(`mh_unlock_token_${slug}`) ?? '')
   const [unlockMessage, setUnlockMessage] = useState('')
@@ -130,7 +134,7 @@ function MarketplaceProductPage() {
       const response = await fetch('/api/v1/marketplace/payments/contact-unlock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug, phone }),
+        body: JSON.stringify({ slug, phone, email }),
       })
       const result = await response.json() as { data?: { paymentReference: string; accessToken: string; status: string }; error?: { message?: string } }
       if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Contact unlock could not be started.')
@@ -152,7 +156,7 @@ function MarketplaceProductPage() {
           setUnlockMessage('Payment verified. Seller contact is unlocked for seven days.')
           return
         }
-        if (['failed', 'cancelled', 'reversed', 'refunded'].includes(statusResult.data.status)) {
+        if (['failed', 'cancelled', 'expired', 'reversed', 'refunded'].includes(statusResult.data.status)) {
           setUnlockMessage('Payment was not completed. Seller contact remains protected.')
           return
         }
@@ -235,14 +239,16 @@ function MarketplaceProductPage() {
             <div>
               <strong>{contact.name}</strong>
               <p><Phone size={14} /> <a href={`tel:${contact.phone}`}>{contact.phone}</a></p>
-              {contact.whatsapp && <p><MessageCircle size={14} /> <a href={`https://wa.me/${contact.whatsapp}`} target="_blank" rel="noreferrer">WhatsApp</a></p>}
+              {(contact.whatsapp || contact.phone) && <a className="whatsapp-contact-button" href={`https://wa.me/${(contact.whatsapp || contact.phone).replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer"><FaWhatsapp size={17} /> Continue to seller on WhatsApp</a>}
+              <p className="whatsapp-retry-note">If WhatsApp does not open or the message fails, use the button again to retry.</p>
               {contact.email && <p><a href={`mailto:${contact.email}`}>{contact.email}</a></p>}
             </div>
           </aside> : <>
             <aside className="contact-protection"><ShieldCheck /><div><strong>Seller contact is protected</strong><p>Unlock for {formatKes(listing.contactUnlockFeeKes)}. Contact remains private until M-Pesa payment is verified.</p></div></aside>
             <form className="unlock-form" onSubmit={unlockSellerContact}>
               <label>M-Pesa phone number<input required inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="0712 345 678" /></label>
-              <button className="pay-button" type="submit" disabled={unlocking}>{unlocking ? 'Checking payment…' : <>Unlock seller contact · {formatKes(listing.contactUnlockFeeKes)}</>}</button>
+              <label>Email for payment receipt<input required type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+              <button className="pay-button" type="submit" disabled={unlocking}>{unlocking ? 'Checking payment…' : whatsappIntent ? <>Pay and unlock WhatsApp · {formatKes(listing.contactUnlockFeeKes)}</> : <>Unlock seller contact · {formatKes(listing.contactUnlockFeeKes)}</>}</button>
               {unlockMessage && <p role="status">{unlockMessage}</p>}
             </form>
             {unlockToken && <button className="sell-secondary check-unlock" type="button" onClick={() => void checkExistingUnlock()} disabled={unlocking}>Check payment status</button>}

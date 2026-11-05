@@ -2,11 +2,13 @@ import { and, asc, count, desc, eq, ilike, inArray, sql } from 'drizzle-orm'
 import { Router } from 'express'
 import { z } from 'zod'
 import { database } from '../../database/connection.js'
-import { marketplaceAuditLogs, marketplaceCategories, marketplaceContactUnlocks, marketplaceCounties, marketplacePaymentCallbacks, marketplacePayments, marketplaceProductReports, marketplaceProducts, marketplaceSettings, marketplaceSellers } from '../../database/schema.js'
+import { marketplaceAdminUsers, marketplaceAuditLogs, marketplaceCategories, marketplaceContactUnlocks, marketplaceCounties, marketplacePaymentCallbacks, marketplacePayments, marketplaceProductReports, marketplaceProducts, marketplaceSettings, marketplaceSellers } from '../../database/schema.js'
 import { requireMarketplacePermission, type MarketplaceAdminSession } from './marketplace-auth.js'
-import { queryStkPayment } from '../payments/daraja.js'
+import { parseDarajaTimestamp, queryStkPayment } from '../payments/daraja.js'
 import { normalizeKenyanPhone } from '../marketplace/security.js'
+import { listingExpiryAt, resolveListingExpiryDays } from '../marketplace/expiry.js'
 import { parseMarketplaceSocialLinks } from '../marketplace/social-links.js'
+import { enqueueMarketplaceEmail } from '../email/outbox.js'
 
 export const marketplaceAdminDataRouter = Router()
 const adminSession = (response: import('express').Response) => response.locals.marketplaceAdmin as MarketplaceAdminSession
@@ -90,7 +92,8 @@ marketplaceAdminDataRouter.patch('/listings/:reference/status', requireMarketpla
     return
   }
   try {
-    const [product] = await database.select({ id: marketplaceProducts.id, status: marketplaceProducts.status, publishedAt: marketplaceProducts.publishedAt }).from(marketplaceProducts).where(eq(marketplaceProducts.reference, reference.data)).limit(1)
+    const [product] = await database.select({ id: marketplaceProducts.id, status: marketplaceProducts.status, publishedAt: marketplaceProducts.publishedAt, title: marketplaceProducts.title, sellerName: marketplaceSellers.name, sellerEmail: marketplaceSellers.email }).from(marketplaceProducts)
+      .innerJoin(marketplaceSellers, eq(marketplaceProducts.sellerId, marketplaceSellers.id)).where(eq(marketplaceProducts.reference, reference.data)).limit(1)
     if (!product) {
       response.status(404).json({ error: { code: 'LISTING_NOT_FOUND', message: 'The listing could not be found.' } })
       return
@@ -107,6 +110,12 @@ marketplaceAdminDataRouter.patch('/listings/:reference/status', requireMarketpla
     await database.transaction(async (transaction) => {
       await transaction.update(marketplaceProducts).set({ status: parsed.data.status, updatedAt: new Date() }).where(eq(marketplaceProducts.id, product.id))
       await transaction.insert(marketplaceAuditLogs).values({ adminUserId: admin.id, action: `listing.${parsed.data.status}`, resourceType: 'marketplace_product', resourceId: product.id, metadata: { reference: reference.data } })
+      if (parsed.data.status === 'removed' && product.sellerEmail) await enqueueMarketplaceEmail(transaction, {
+        eventKey: `listing:${reference.data}:removed`,
+        to: product.sellerEmail,
+        kind: 'product_removed',
+        data: { name: product.sellerName, title: product.title, reference: reference.data },
+      })
     })
     response.json({ data: { reference: reference.data, status: parsed.data.status } })
   } catch (error) {
@@ -134,12 +143,13 @@ marketplaceAdminDataRouter.get('/settings/fees', requireMarketplacePermission('s
   }
   try {
     const settings = await database.select({ key: marketplaceSettings.key, value: marketplaceSettings.value }).from(marketplaceSettings)
-      .where(inArray(marketplaceSettings.key, ['publication_fee_basis_points', 'contact_unlock_fee_basis_points']))
+      .where(inArray(marketplaceSettings.key, ['publication_fee_basis_points', 'contact_unlock_fee_basis_points', 'listing_expiry_days']))
     const values = new Map(settings.map(({ key, value }) => [key, Number(value)]))
     response.setHeader('Cache-Control', 'no-store')
     response.json({ data: {
       publicationFeeBasisPoints: values.get('publication_fee_basis_points') ?? 1_000,
       contactUnlockFeeBasisPoints: values.get('contact_unlock_fee_basis_points') ?? 500,
+      listingExpiryDays: resolveListingExpiryDays(values.get('listing_expiry_days')),
     } })
   } catch (error) {
     next(error)
@@ -260,7 +270,7 @@ marketplaceAdminDataRouter.patch('/categories/:id', requireMarketplacePermission
 })
 
 marketplaceAdminDataRouter.patch('/settings/fees', requireMarketplacePermission('settings:manage'), async (request, response, next) => {
-  const parsed = z.object({ publicationFeeBasisPoints: z.number().int().min(1).max(10_000), contactUnlockFeeBasisPoints: z.number().int().min(1).max(10_000) }).safeParse(request.body)
+  const parsed = z.object({ publicationFeeBasisPoints: z.number().int().min(1).max(10_000), contactUnlockFeeBasisPoints: z.number().int().min(1).max(10_000), listingExpiryDays: z.number().int().min(1).max(365) }).safeParse(request.body)
   if (!parsed.success) {
     response.status(400).json({ error: { code: 'INVALID_FEE_SETTINGS', message: 'Fee rates must be between 0.01% and 100%.' } })
     return
@@ -275,7 +285,12 @@ marketplaceAdminDataRouter.patch('/settings/fees', requireMarketplacePermission(
       await transaction.insert(marketplaceSettings).values([
         { key: 'publication_fee_basis_points', value: parsed.data.publicationFeeBasisPoints },
         { key: 'contact_unlock_fee_basis_points', value: parsed.data.contactUnlockFeeBasisPoints },
+        { key: 'listing_expiry_days', value: parsed.data.listingExpiryDays },
       ]).onConflictDoUpdate({ target: marketplaceSettings.key, set: { value: sql`excluded.value`, updatedAt: new Date() } })
+      await transaction.update(marketplaceProducts).set({
+        expiresAt: sql`${marketplaceProducts.publishedAt} + (${parsed.data.listingExpiryDays} * interval '1 day')`,
+        updatedAt: new Date(),
+      }).where(eq(marketplaceProducts.status, 'published'))
       await transaction.insert(marketplaceAuditLogs).values({ adminUserId: admin.id, action: 'settings.fees.update', resourceType: 'marketplace_settings', metadata: parsed.data })
     })
     response.json({ data: parsed.data })
@@ -312,7 +327,7 @@ marketplaceAdminDataRouter.post('/payments/:reference/reconcile', requireMarketp
     return
   }
   try {
-    const [payment] = await database.select({ id: marketplacePayments.id, checkoutRequestId: marketplacePayments.checkoutRequestId, merchantRequestId: marketplacePayments.merchantRequestId, purpose: marketplacePayments.purpose, productId: marketplacePayments.productId, amountKes: marketplacePayments.amountKes, phone: marketplacePayments.phone, status: marketplacePayments.status, accessTokenHash: marketplacePayments.accessTokenHash })
+    const [payment] = await database.select({ id: marketplacePayments.id, checkoutRequestId: marketplacePayments.checkoutRequestId, merchantRequestId: marketplacePayments.merchantRequestId, purpose: marketplacePayments.purpose, productId: marketplacePayments.productId, amountKes: marketplacePayments.amountKes, phone: marketplacePayments.phone, customerEmail: marketplacePayments.customerEmail, status: marketplacePayments.status, accessTokenHash: marketplacePayments.accessTokenHash })
       .from(marketplacePayments).where(eq(marketplacePayments.paymentReference, reference.data)).limit(1)
     if (!payment) {
       response.status(404).json({ error: { code: 'PAYMENT_NOT_FOUND', message: 'The marketplace payment could not be found.' } })
@@ -326,8 +341,10 @@ marketplaceAdminDataRouter.post('/payments/:reference/reconcile', requireMarketp
       response.status(409).json({ error: { code: 'PAYMENT_NOT_RECONCILABLE', message: 'This payment is not in a reconcilable state.' } })
       return
     }
+    await database.update(marketplacePayments).set({ lastReconciliationAt: new Date(), reconciliationAttempts: sql`${marketplacePayments.reconciliationAttempts} + 1`, updatedAt: new Date() })
+      .where(eq(marketplacePayments.id, payment.id))
     const providerResult = await queryStkPayment(payment.checkoutRequestId)
-    if (providerResult.resultCode !== '0') {
+    if (providerResult.resultCode !== '0' || providerResult.checkoutRequestId !== payment.checkoutRequestId || providerResult.merchantRequestId !== payment.merchantRequestId) {
       response.json({ data: { reference: reference.data, status: payment.status, reconciled: false } })
       return
     }
@@ -340,33 +357,52 @@ marketplaceAdminDataRouter.post('/payments/:reference/reconcile', requireMarketp
     }
     const callbackData = callback.data.Body.stkCallback
     const metadata = new Map(callbackData.CallbackMetadata.Item.map(({ Name, Value }) => [Name, Value]))
+    const receipt = metadata.get('MpesaReceiptNumber')
+    const transactionAt = parseDarajaTimestamp(metadata.get('TransactionDate'))
     const matches = String(callbackData.ResultCode) === '0'
       && callbackData.CheckoutRequestID === payment.checkoutRequestId
       && callbackData.MerchantRequestID === payment.merchantRequestId
       && Number(metadata.get('Amount')) === payment.amountKes
       && normalizeKenyanPhone(String(metadata.get('PhoneNumber') ?? '')) === payment.phone
-      && Boolean(metadata.get('MpesaReceiptNumber'))
+      && typeof receipt === 'string' && /^[A-Z0-9]{6,32}$/.test(receipt)
+      && transactionAt !== null
     if (!matches || !payment.productId) {
       response.json({ data: { reference: reference.data, status: 'ambiguous', reconciled: false } })
       return
     }
     const now = new Date()
     const admin = adminSession(response)
+    let reconciled = false
     await database.transaction(async (transaction) => {
-      const updated = await transaction.update(marketplacePayments).set({ status: 'succeeded', callbackProcessedAt: now, updatedAt: now })
+      const updated = await transaction.update(marketplacePayments).set({ status: 'succeeded', providerReceipt: receipt, transactionAt, verifiedAt: now, callbackProcessedAt: now, providerDetails: { verification: 'operator_reconciliation', checkoutRequestId: payment.checkoutRequestId, merchantRequestId: payment.merchantRequestId }, updatedAt: now })
         .where(and(eq(marketplacePayments.id, payment.id), inArray(marketplacePayments.status, ['pending', 'ambiguous'])))
         .returning({ id: marketplacePayments.id })
       if (!updated.length) return
+      reconciled = true
       if (callbackRow) await transaction.update(marketplacePaymentCallbacks).set({ outcome: 'reconciled_success', processedAt: now }).where(eq(marketplacePaymentCallbacks.id, callbackRow.id))
       if (payment.purpose === 'PRODUCT_PUBLICATION') {
-        await transaction.update(marketplaceProducts).set({ status: 'published', publishedAt: now, updatedAt: now })
+        const [expirySetting] = await transaction.select({ value: marketplaceSettings.value }).from(marketplaceSettings)
+          .where(eq(marketplaceSettings.key, 'listing_expiry_days')).limit(1)
+        const [published] = await transaction.update(marketplaceProducts).set({ status: 'published', publishedAt: now, expiresAt: listingExpiryAt(now, expirySetting?.value), updatedAt: now })
           .where(and(eq(marketplaceProducts.id, payment.productId!), eq(marketplaceProducts.status, 'pending_payment')))
+          .returning({ id: marketplaceProducts.id })
+        const [product] = await transaction.select({ title: marketplaceProducts.title, reference: marketplaceProducts.reference, sellerEmail: marketplaceSellers.email, sellerName: marketplaceSellers.name }).from(marketplaceProducts)
+          .innerJoin(marketplaceSellers, eq(marketplaceProducts.sellerId, marketplaceSellers.id)).where(eq(marketplaceProducts.id, payment.productId!)).limit(1)
+        if (published && product?.sellerEmail) {
+          await enqueueMarketplaceEmail(transaction, { eventKey: `payment:${reference.data}:verified`, to: product.sellerEmail, kind: 'publication_payment_success', data: { name: product.sellerName, title: product.title, reference: reference.data, amountKes: payment.amountKes } })
+          await enqueueMarketplaceEmail(transaction, { eventKey: `listing:${reference.data}:published`, to: product.sellerEmail, kind: 'product_published', data: { name: product.sellerName, title: product.title, reference: reference.data, amountKes: payment.amountKes } })
+        }
+        if (payment.customerEmail) await enqueueMarketplaceEmail(transaction, { eventKey: `payment:${reference.data}:receipt`, to: payment.customerEmail, kind: 'payment_receipt', data: { title: product?.title, reference: reference.data, amountKes: payment.amountKes } })
+        const financeAdmins = await transaction.select({ email: marketplaceAdminUsers.email }).from(marketplaceAdminUsers)
+          .where(and(eq(marketplaceAdminUsers.active, true), inArray(marketplaceAdminUsers.role, ['super_admin', 'finance_admin'])))
+        for (const recipient of financeAdmins) await enqueueMarketplaceEmail(transaction, { eventKey: `payment:${reference.data}:admin-success:${recipient.email}`, to: recipient.email, kind: 'admin_publication_success', data: { title: product?.title, reference: reference.data, amountKes: payment.amountKes } })
       } else if (payment.purpose === 'CONTACT_UNLOCK' && payment.accessTokenHash) {
         await transaction.insert(marketplaceContactUnlocks).values({ productId: payment.productId!, paymentId: payment.id, tokenHash: payment.accessTokenHash, expiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000) }).onConflictDoNothing()
+        if (payment.customerEmail) await enqueueMarketplaceEmail(transaction, { eventKey: `payment:${reference.data}:receipt`, to: payment.customerEmail, kind: 'payment_receipt', data: { reference: reference.data, amountKes: payment.amountKes } })
       }
       await transaction.insert(marketplaceAuditLogs).values({ adminUserId: admin.id, action: 'payment.reconcile.success', resourceType: 'marketplace_payment', resourceId: payment.id, metadata: { reference: reference.data } })
     })
-    response.json({ data: { reference: reference.data, status: 'succeeded', reconciled: true } })
+    response.json({ data: { reference: reference.data, status: reconciled ? 'succeeded' : payment.status, reconciled } })
   } catch (error) {
     next(error)
   }

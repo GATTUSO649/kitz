@@ -7,7 +7,7 @@ type Listing = { reference: string; title: string; status: string; priceKes: num
 type Category = { id: string; name: string; slug: string; active: boolean; sortOrder: number }
 type Payment = { reference: string; purpose: string; amountKes: number; status: string; createdAt: string; listingReference: string | null }
 type ListingReport = { id: string; reference: string; title: string; reason: string; details: string | null; reporterEmail: string | null; status: string; createdAt: string }
-type FeeSettings = { publicationFeeBasisPoints: number; contactUnlockFeeBasisPoints: number }
+type FeeSettings = { publicationFeeBasisPoints: number; contactUnlockFeeBasisPoints: number; listingExpiryDays: number }
 type FooterSocialSettings = { facebookUrl: string; xUrl: string; youtubeUrl: string; whatsappPhone: string }
 type Dashboard = { listings: { total: number; published: number; pendingPayment: number; sold: number; expired: number; suspended: number }; payments: { successful: number; failed: number; pending: number; ambiguous: number }; reports: { open: number }; revenueKes?: { publication: number; contactUnlock: number }; recentListings: Listing[] }
 
@@ -24,7 +24,7 @@ export function MarketplaceAdminPage() {
   const [listings, setListings] = useState<Listing[]>([])
   const [payments, setPayments] = useState<Payment[]>([])
   const [reports, setReports] = useState<ListingReport[]>([])
-  const [feeSettings, setFeeSettings] = useState<FeeSettings>({ publicationFeeBasisPoints: 1_000, contactUnlockFeeBasisPoints: 500 })
+  const [feeSettings, setFeeSettings] = useState<FeeSettings>({ publicationFeeBasisPoints: 1_000, contactUnlockFeeBasisPoints: 500, listingExpiryDays: 7 })
   const [footerSocialSettings, setFooterSocialSettings] = useState<FooterSocialSettings>({ facebookUrl: '', xUrl: '', youtubeUrl: '', whatsappPhone: '' })
   const [categories, setCategories] = useState<Category[]>([])
   const [categoryName, setCategoryName] = useState('')
@@ -32,6 +32,8 @@ export function MarketplaceAdminPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [listingSearchInput, setListingSearchInput] = useState('')
+  const [listingSearch, setListingSearch] = useState('')
   const isLogin = window.location.pathname.endsWith('/login')
   const section = searchParams.get('section') ?? 'dashboard'
 
@@ -45,7 +47,9 @@ export function MarketplaceAdminPage() {
       const session = await sessionResponse.json() as { data?: AdminUser; error?: { message?: string } }
       if (!sessionResponse.ok || !session.data) throw new Error(session.error?.message ?? 'Sign in to continue.')
       setAdmin(session.data)
-      const endpoint = section === 'listings' ? `${adminApi}/listings?limit=50`
+      const listingQuery = new URLSearchParams({ limit: '50' })
+      if (listingSearch.trim()) listingQuery.set('q', listingSearch.trim())
+      const endpoint = section === 'listings' ? `${adminApi}/listings?${listingQuery}`
         : section === 'payments' ? `${adminApi}/payments?page=1`
           : section === 'reports' ? `${adminApi}/reports?status=open`
             : section === 'settings' ? `${adminApi}/settings/fees`
@@ -79,7 +83,13 @@ export function MarketplaceAdminPage() {
       else setError(message)
     }).finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
-  }, [isLogin, navigate, section])
+  }, [isLogin, listingSearch, navigate, section])
+
+  function searchListings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setListingSearch(listingSearchInput.trim())
+    if (section !== 'listings') navigate('/admin/marketplace/dashboard?section=listings')
+  }
 
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -229,7 +239,7 @@ export function MarketplaceAdminPage() {
 
   if (section === 'settings') return <div className="admin-app">
     <aside className="admin-sidebar"><Link to="/" className="admin-logo"><Tags /><span><b>MarketHub</b><small>Marketplace Admin</small></span></Link><nav aria-label="Marketplace administration"><Link to="/admin/marketplace/dashboard">Dashboard</Link><Link to="/admin/marketplace/dashboard?section=listings">Listings</Link><Link to="/admin/marketplace/dashboard?section=payments">Payments</Link><Link className="active" to="/admin/marketplace/dashboard?section=settings">Settings</Link></nav><div className="admin-sidebar-bottom"><button type="button" onClick={() => void logout()}><LogOut />Sign out</button></div></aside>
-    <main className="admin-main"><header className="admin-topbar"><Link to="/admin/marketplace/dashboard">Marketplace dashboard</Link><span className="admin-user"><b>{admin?.role.replaceAll('_', ' ')}</b><small>{admin?.email}</small></span></header><section className="admin-workspace"><div className="admin-page-title"><div><span>MARKETPLACE OPERATIONS</span><h1>Settings</h1></div></div>{error && <div className="admin-alert" role="alert">{error}</div>}<div className="admin-panel admin-settings-panel"><header><h2>Marketplace fees</h2><span>Calculated by the server before payment</span></header><form onSubmit={saveFees}><label>Publication fee (%)<input type="number" min="1" max="10000" step="1" value={feeSettings.publicationFeeBasisPoints} onChange={(event) => setFeeSettings((current) => ({ ...current, publicationFeeBasisPoints: Number(event.target.value) }))} /></label><small>Basis points: 100 = 1%. Current rate: {feeSettings.publicationFeeBasisPoints / 100}%.</small><label>Contact unlock fee (%)<input type="number" min="1" max="10000" step="1" value={feeSettings.contactUnlockFeeBasisPoints} onChange={(event) => setFeeSettings((current) => ({ ...current, contactUnlockFeeBasisPoints: Number(event.target.value) }))} /></label><small>Current rate: {feeSettings.contactUnlockFeeBasisPoints / 100}%.</small><button disabled={busy}>{busy ? 'Saving…' : 'Save fee settings'}</button></form></div><div className="admin-panel admin-settings-panel"><header><h2>Footer social links</h2><span>Only configured destinations are clickable</span></header><form onSubmit={saveFooterSocialSettings}><label>Facebook profile URL<input type="url" value={footerSocialSettings.facebookUrl} onChange={(event) => setFooterSocialSettings((current) => ({ ...current, facebookUrl: event.target.value }))} placeholder="https://facebook.com/your-page" /></label><label>X profile URL<input type="url" value={footerSocialSettings.xUrl} onChange={(event) => setFooterSocialSettings((current) => ({ ...current, xUrl: event.target.value }))} placeholder="https://x.com/your-profile" /></label><label>YouTube channel URL<input type="url" value={footerSocialSettings.youtubeUrl} onChange={(event) => setFooterSocialSettings((current) => ({ ...current, youtubeUrl: event.target.value }))} placeholder="https://youtube.com/@your-channel" /></label><label>WhatsApp mobile number (Kenya)<input type="tel" inputMode="tel" value={footerSocialSettings.whatsappPhone} onChange={(event) => setFooterSocialSettings((current) => ({ ...current, whatsappPhone: event.target.value }))} placeholder="0712 345 678" /></label><small>Enter a Kenyan mobile number; the footer will create the WhatsApp link using country code +254.</small><button disabled={busy}>{busy ? 'Saving…' : 'Save footer links'}</button></form></div></section></main>
+    <main className="admin-main"><header className="admin-topbar"><Link to="/admin/marketplace/dashboard">Marketplace dashboard</Link><span className="admin-user"><b>{admin?.role.replaceAll('_', ' ')}</b><small>{admin?.email}</small></span></header><section className="admin-workspace"><div className="admin-page-title"><div><span>MARKETPLACE OPERATIONS</span><h1>Settings</h1></div></div>{error && <div className="admin-alert" role="alert">{error}</div>}<div className="admin-panel admin-settings-panel"><header><h2>Marketplace fees and listing visibility</h2><span>Listing duration begins after verified publication</span></header><form onSubmit={saveFees}><label>Publication fee (basis points)<input type="number" min="1" max="10000" step="1" value={feeSettings.publicationFeeBasisPoints} onChange={(event) => setFeeSettings((current) => ({ ...current, publicationFeeBasisPoints: Number(event.target.value) }))} /></label><small>Basis points: 100 = 1%. Current rate: {feeSettings.publicationFeeBasisPoints / 100}%.</small><label>Contact unlock fee (basis points)<input type="number" min="1" max="10000" step="1" value={feeSettings.contactUnlockFeeBasisPoints} onChange={(event) => setFeeSettings((current) => ({ ...current, contactUnlockFeeBasisPoints: Number(event.target.value) }))} /></label><small>Current rate: {feeSettings.contactUnlockFeeBasisPoints / 100}%.</small><label>Listing visibility (days)<input type="number" min="1" max="365" step="1" value={feeSettings.listingExpiryDays} onChange={(event) => setFeeSettings((current) => ({ ...current, listingExpiryDays: Number(event.target.value) }))} /></label><small>Published listings become unavailable when this period ends.</small><button disabled={busy}>{busy ? 'Saving…' : 'Save fee settings'}</button></form></div><div className="admin-panel admin-settings-panel"><header><h2>Footer social links</h2><span>Only configured destinations are clickable</span></header><form onSubmit={saveFooterSocialSettings}><label>Facebook profile URL<input type="url" value={footerSocialSettings.facebookUrl} onChange={(event) => setFooterSocialSettings((current) => ({ ...current, facebookUrl: event.target.value }))} placeholder="https://facebook.com/your-page" /></label><label>X profile URL<input type="url" value={footerSocialSettings.xUrl} onChange={(event) => setFooterSocialSettings((current) => ({ ...current, xUrl: event.target.value }))} placeholder="https://x.com/your-profile" /></label><label>YouTube channel URL<input type="url" value={footerSocialSettings.youtubeUrl} onChange={(event) => setFooterSocialSettings((current) => ({ ...current, youtubeUrl: event.target.value }))} placeholder="https://youtube.com/@your-channel" /></label><label>WhatsApp mobile number (Kenya)<input type="tel" inputMode="tel" value={footerSocialSettings.whatsappPhone} onChange={(event) => setFooterSocialSettings((current) => ({ ...current, whatsappPhone: event.target.value }))} placeholder="0712 345 678" /></label><small>Enter a Kenyan mobile number; the footer will create the WhatsApp link using country code +254.</small><button disabled={busy}>{busy ? 'Saving…' : 'Save footer links'}</button></form></div></section></main>
   </div>
 
   const title = section === 'listings' ? 'Listings' : section === 'payments' ? 'Payments' : section === 'reports' ? 'Reports' : 'Dashboard'
@@ -247,7 +257,7 @@ export function MarketplaceAdminPage() {
       <div className="admin-sidebar-bottom"><span><ShieldCheck /><span><b>Marketplace only</b><small>Kitz access is separate</small></span></span><button type="button" onClick={() => void logout()}><LogOut />Sign out</button></div>
     </aside>
     <main className="admin-main">
-      <header className="admin-topbar"><label><Search /><input placeholder="Search marketplace listings…" aria-label="Search marketplace listings" /></label><div><span className="admin-status"><Activity /> Marketplace</span><span className="admin-user"><b>{admin?.role.replaceAll('_', ' ') ?? 'Admin'}</b><small>{admin?.email}</small></span><ChevronDown size={15} /></div></header>
+      <header className="admin-topbar">{(admin?.role === 'super_admin' || admin?.role === 'product_admin') && <form className="admin-listing-search" onSubmit={searchListings}><label><Search /><input value={listingSearchInput} onChange={(event) => setListingSearchInput(event.target.value)} placeholder="Search marketplace listings" aria-label="Search marketplace listings" /></label><button type="submit">Search</button></form>}<div><span className="admin-status"><Activity /> Marketplace</span><span className="admin-user"><b>{admin?.role.replaceAll('_', ' ') ?? 'Admin'}</b><small>{admin?.email}</small></span><ChevronDown size={15} /></div></header>
       <section className="admin-workspace"><div className="admin-page-title"><div><span>MARKETPLACE OPERATIONS</span><h1>{title}</h1></div><p><MapPin size={14} /> Kenya</p></div>
         {error && <div className="admin-alert" role="alert"><CircleAlert size={16} />{error}</div>}
         {loading ? <div className="admin-loading">Loading marketplace data…</div> : section === 'dashboard' ? <>

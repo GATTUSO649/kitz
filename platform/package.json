@@ -16,7 +16,7 @@
     "db:migrate": "drizzle-kit migrate --config=server/drizzle.config.ts",
     "admin:provision": "tsx server/src/scripts/provision-marketplace-admin.ts",
     "lint": "oxlint src server/src",
-    "test": "tsx --test server/src/app.test.ts server/src/modules/marketplace/security.test.ts server/src/modules/marketplace/images.test.ts"
+    "test": "tsx --test server/src/app.test.ts server/src/modules/marketplace/security.test.ts server/src/modules/marketplace/images.test.ts server/src/modules/marketplace/expiry.test.ts server/src/modules/email/service.test.ts server/src/modules/payments/daraja.test.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.21",
@@ -29,6 +29,7 @@
     "express-rate-limit": "^8.2.1",
     "helmet": "^8.1.0",
     "lucide-react": "^0.562.0",
+    "nodemailer": "^10.3.1",
     "pg": "^8.23.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -41,6 +42,7 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^24.13.3",
+    "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.23.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",

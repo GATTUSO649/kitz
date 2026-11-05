@@ -98,9 +98,15 @@ export const marketplacePayments = marketplaceSchema.table('marketplace_payments
   productId: uuid('product_id').references(() => marketplaceProducts.id, { onDelete: 'restrict' }),
   amountKes: bigint('amount_kes', { mode: 'number' }).notNull(),
   phone: varchar('phone', { length: 16 }).notNull(),
+  customerEmail: varchar('customer_email', { length: 254 }),
   status: varchar('status', { length: 24 }).notNull().default('initiated'),
   accessTokenHash: varchar('access_token_hash', { length: 64 }),
   providerDetails: jsonb('provider_details').$type<Record<string, unknown> | null>(),
+  providerReceipt: varchar('provider_receipt', { length: 32 }),
+  transactionAt: timestamp('transaction_at', { withTimezone: true }),
+  verifiedAt: timestamp('verified_at', { withTimezone: true }),
+  lastReconciliationAt: timestamp('last_reconciliation_at', { withTimezone: true }),
+  reconciliationAttempts: integer('reconciliation_attempts').notNull().default(0),
   callbackProcessedAt: timestamp('callback_processed_at', { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -110,7 +116,7 @@ export const marketplacePayments = marketplaceSchema.table('marketplace_payments
   uniqueIndex('marketplace_payments_checkout_uq').on(table.checkoutRequestId),
   index('marketplace_payments_status_created_idx').on(table.status, table.createdAt),
   check('marketplace_payments_purpose_ck', sql`${table.purpose} IN ('PRODUCT_PUBLICATION', 'CONTACT_UNLOCK')`),
-  check('marketplace_payments_status_ck', sql`${table.status} IN ('initiated', 'pending', 'succeeded', 'failed', 'cancelled', 'ambiguous', 'reversed', 'refunded')`),
+  check('marketplace_payments_status_ck', sql`${table.status} IN ('initiated', 'pending', 'processing', 'succeeded', 'failed', 'cancelled', 'expired', 'ambiguous', 'reversed', 'refunded')`),
   check('marketplace_payments_amount_positive_ck', sql`${table.amountKes} > 0`),
 ])
 
@@ -208,3 +214,24 @@ export const marketplaceNotifications = marketplaceSchema.table('marketplace_not
   createdAt: createdAt(),
   sentAt: timestamp('sent_at', { withTimezone: true }),
 }, (table) => [index('marketplace_notifications_status_idx').on(table.status, table.createdAt)])
+
+export const marketplaceEmailEvents = marketplaceSchema.table('marketplace_email_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  eventKey: varchar('event_key', { length: 180 }).notNull(),
+  kind: varchar('kind', { length: 48 }).notNull(),
+  recipientEmail: varchar('recipient_email', { length: 254 }).notNull(),
+  payload: jsonb('payload').$type<Record<string, string | number | null>>().notNull().default({}),
+  status: varchar('status', { length: 16 }).notNull().default('pending'),
+  attempts: integer('attempts').notNull().default(0),
+  nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).notNull().defaultNow(),
+  lockedAt: timestamp('locked_at', { withTimezone: true }),
+  providerMessageId: varchar('provider_message_id', { length: 180 }),
+  lastErrorCode: varchar('last_error_code', { length: 48 }),
+  createdAt: createdAt(),
+  sentAt: timestamp('sent_at', { withTimezone: true }),
+}, (table) => [
+  uniqueIndex('marketplace_email_events_key_uq').on(table.eventKey),
+  index('marketplace_email_events_delivery_idx').on(table.status, table.nextAttemptAt, table.createdAt),
+  check('marketplace_email_events_status_ck', sql`${table.status} IN ('pending', 'sending', 'sent', 'failed', 'uncertain')`),
+  check('marketplace_email_events_attempts_ck', sql`${table.attempts} >= 0`),
+])

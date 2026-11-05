@@ -2,19 +2,21 @@ import { and, desc, eq, gt, gte, inArray } from 'drizzle-orm'
 import { Router } from 'express'
 import { z } from 'zod'
 import { database } from '../../database/connection.js'
-import { marketplaceContactUnlocks, marketplaceCounties, marketplacePaymentCallbacks, marketplacePayments, marketplaceProductAccess, marketplaceProducts, marketplaceSellers, marketplaceSettings } from '../../database/schema.js'
+import { marketplaceAdminUsers, marketplaceContactUnlocks, marketplaceCounties, marketplacePaymentCallbacks, marketplacePayments, marketplaceProductAccess, marketplaceProducts, marketplaceSellers, marketplaceSettings } from '../../database/schema.js'
 import { calculateFeeKes, createListingReference, createSecret, hashSecret, normalizeKenyanPhone } from '../marketplace/security.js'
-import { assertDarajaConfigured, DarajaUnavailableError, initiateStkPush, paymentCallbackFingerprint, queryStkPayment, verifyCallbackToken } from './daraja.js'
+import { enqueueMarketplaceEmail } from '../email/outbox.js'
+import { listingExpiryAt } from '../marketplace/expiry.js'
+import { assertDarajaConfigured, callbackFailureStatus, DarajaRequestError, DarajaUnavailableError, initiateStkPush, parseDarajaTimestamp, paymentCallbackFingerprint, queryStkPayment, verifyCallbackToken, verifyMarketplaceStkCallback } from './daraja.js'
 
 export const paymentRouter = Router()
 
 const publicationInput = z.object({ reference: z.string().regex(/^MH-[A-F0-9]{16}$/), phone: z.string().max(24), submissionToken: z.string().min(20).max(100) })
-const unlockInput = z.object({ slug: z.string().min(1).max(180), phone: z.string().max(24) })
+const unlockInput = z.object({ slug: z.string().min(1).max(180), phone: z.string().max(24), email: z.string().trim().email().max(254) })
 const callbackSchema = z.object({
   Body: z.object({ stkCallback: z.object({
     MerchantRequestID: z.string().min(1).max(100),
     CheckoutRequestID: z.string().min(1).max(100),
-    ResultCode: z.union([z.string(), z.number()]),
+    ResultCode: z.union([z.string().regex(/^\d{1,10}$/), z.number().int().min(0).max(Number.MAX_SAFE_INTEGER)]),
     ResultDesc: z.string().max(500).optional(),
     CallbackMetadata: z.object({ Item: z.array(z.object({ Name: z.string().max(80), Value: z.union([z.string(), z.number()]).optional() })).optional() }).optional(),
   }) }),
@@ -46,6 +48,8 @@ async function startPayment(input: {
   phone: string
   amountKes: number
   accessToken: string
+  customerEmail: string | null
+  recipientName?: string
 }): Promise<{ paymentReference: string; status: string }> {
   if (!database) throw new Error('Marketplace data is unavailable.')
   const paymentReference = `MP-${createListingReference().slice(3)}`
@@ -57,6 +61,7 @@ async function startPayment(input: {
     productId: input.productId,
     amountKes: input.amountKes,
     phone: input.phone,
+    customerEmail: input.customerEmail,
     accessTokenHash: hashSecret(input.accessToken),
     status: 'initiated',
   }).returning({ id: marketplacePayments.id })
@@ -68,17 +73,44 @@ async function startPayment(input: {
       paymentReference,
       description: input.purpose === 'PRODUCT_PUBLICATION' ? 'Marketplace listing fee' : 'Marketplace contact fee',
     })
-    await database.update(marketplacePayments).set({
-      checkoutRequestId: provider.CheckoutRequestID,
-      merchantRequestId: provider.MerchantRequestID,
-      providerDetails: { merchantRequestId: provider.MerchantRequestID },
-      status: 'pending',
-      updatedAt: new Date(),
-    }).where(eq(marketplacePayments.id, payment.id))
+    await database.transaction(async (transaction) => {
+      await transaction.update(marketplacePayments).set({
+        checkoutRequestId: provider.CheckoutRequestID,
+        merchantRequestId: provider.MerchantRequestID,
+        providerDetails: { merchantRequestId: provider.MerchantRequestID },
+        status: 'pending',
+        updatedAt: new Date(),
+      }).where(eq(marketplacePayments.id, payment.id))
+      if (input.customerEmail) await enqueueMarketplaceEmail(transaction, {
+        eventKey: `payment:${paymentReference}:initiated:${input.purpose}`,
+        to: input.customerEmail,
+        kind: input.purpose === 'PRODUCT_PUBLICATION' ? 'publication_payment_initiated' : 'contact_unlock_payment_initiated',
+        data: { name: input.recipientName, reference: paymentReference, amountKes: input.amountKes },
+      })
+    })
     return { paymentReference, status: 'pending' }
-  } catch {
-    await database.update(marketplacePayments).set({ status: 'ambiguous', updatedAt: new Date() }).where(eq(marketplacePayments.id, payment.id))
-    return { paymentReference, status: 'ambiguous' }
+  } catch (error) {
+    const rejected = error instanceof DarajaRequestError && error.outcome === 'rejected'
+    const status = rejected ? 'failed' : 'ambiguous'
+    await database.transaction(async (transaction) => {
+      await transaction.update(marketplacePayments).set({ status, updatedAt: new Date(), providerDetails: { initiationOutcome: status } }).where(eq(marketplacePayments.id, payment.id))
+      if (!rejected) return
+      if (input.customerEmail) await enqueueMarketplaceEmail(transaction, {
+        eventKey: `payment:${paymentReference}:initiation-failed`,
+        to: input.customerEmail,
+        kind: input.purpose === 'PRODUCT_PUBLICATION' ? 'product_publication_failed' : 'payment_unsuccessful',
+        data: { name: input.recipientName, reference: paymentReference, amountKes: input.amountKes },
+      })
+      const admins = await transaction.select({ email: marketplaceAdminUsers.email }).from(marketplaceAdminUsers)
+        .where(and(eq(marketplaceAdminUsers.active, true), inArray(marketplaceAdminUsers.role, ['super_admin', 'finance_admin'])))
+      for (const admin of admins) await enqueueMarketplaceEmail(transaction, {
+        eventKey: `payment:${paymentReference}:initiation-failed-admin:${admin.email}`,
+        to: admin.email,
+        kind: 'admin_payment_failure',
+        data: { reference: paymentReference, amountKes: input.amountKes },
+      })
+    })
+    return { paymentReference, status }
   }
 }
 
@@ -96,9 +128,10 @@ paymentRouter.post('/publication', async (request, response, next) => {
     assertDarajaConfigured()
     const phone = normalizeKenyanPhone(parsed.data.phone)
     const tokenHash = hashSecret(parsed.data.submissionToken)
-    const [product] = await database.select({ id: marketplaceProducts.id, status: marketplaceProducts.status, priceKes: marketplaceProducts.priceKes, tokenHash: marketplaceProductAccess.tokenHash })
+    const [product] = await database.select({ id: marketplaceProducts.id, reference: marketplaceProducts.reference, title: marketplaceProducts.title, status: marketplaceProducts.status, priceKes: marketplaceProducts.priceKes, sellerName: marketplaceSellers.name, sellerEmail: marketplaceSellers.email, tokenHash: marketplaceProductAccess.tokenHash })
       .from(marketplaceProducts)
       .innerJoin(marketplaceProductAccess, eq(marketplaceProductAccess.productId, marketplaceProducts.id))
+      .innerJoin(marketplaceSellers, eq(marketplaceProducts.sellerId, marketplaceSellers.id))
       .where(and(eq(marketplaceProducts.reference, parsed.data.reference), gt(marketplaceProductAccess.expiresAt, new Date())))
       .limit(1)
     if (!product || product.tokenHash !== tokenHash) {
@@ -118,7 +151,7 @@ paymentRouter.post('/publication', async (request, response, next) => {
       return
     }
     const fee = calculateFeeKes(product.priceKes, await getFeeBasisPoints('publication_fee_basis_points', 1_000))
-    const result = await startPayment({ purpose: 'PRODUCT_PUBLICATION', productId: product.id, phone, amountKes: fee, accessToken: parsed.data.submissionToken })
+    const result = await startPayment({ purpose: 'PRODUCT_PUBLICATION', productId: product.id, phone, amountKes: fee, accessToken: parsed.data.submissionToken, customerEmail: product.sellerEmail, recipientName: product.sellerName })
     response.status(202).json({ data: { ...result, amountKes: fee, currency: 'KES', paymentPurpose: 'PRODUCT_PUBLICATION' } })
   } catch (error) {
     if (error instanceof DarajaUnavailableError || (error instanceof Error && /valid Kenyan mobile number/.test(error.message))) {
@@ -143,7 +176,7 @@ paymentRouter.post('/contact-unlock', async (request, response, next) => {
     assertDarajaConfigured()
     const phone = normalizeKenyanPhone(parsed.data.phone)
     const [product] = await database.select({ id: marketplaceProducts.id, status: marketplaceProducts.status, priceKes: marketplaceProducts.priceKes })
-      .from(marketplaceProducts).where(and(eq(marketplaceProducts.slug, parsed.data.slug), eq(marketplaceProducts.status, 'published'))).limit(1)
+      .from(marketplaceProducts).where(and(eq(marketplaceProducts.slug, parsed.data.slug), eq(marketplaceProducts.status, 'published'), gt(marketplaceProducts.expiresAt, new Date()))).limit(1)
     if (!product) {
       response.status(404).json({ error: { code: 'LISTING_NOT_FOUND', message: 'This listing is not available.' } })
       return
@@ -164,7 +197,7 @@ paymentRouter.post('/contact-unlock', async (request, response, next) => {
     }
     const fee = calculateFeeKes(product.priceKes, await getFeeBasisPoints('contact_unlock_fee_basis_points', 500))
     const accessToken = createSecret()
-    const result = await startPayment({ purpose: 'CONTACT_UNLOCK', productId: product.id, phone, amountKes: fee, accessToken })
+    const result = await startPayment({ purpose: 'CONTACT_UNLOCK', productId: product.id, phone, amountKes: fee, accessToken, customerEmail: parsed.data.email.toLowerCase() })
     response.status(202).json({ data: { ...result, accessToken, amountKes: fee, currency: 'KES', paymentPurpose: 'CONTACT_UNLOCK' } })
   } catch (error) {
     if (error instanceof DarajaUnavailableError || (error instanceof Error && /valid Kenyan mobile number/.test(error.message))) {
@@ -198,40 +231,76 @@ paymentRouter.get('/:reference/status', async (request, response) => {
 })
 
 paymentRouter.post('/callback/:token', async (request, response) => {
-  const expectedToken = process.env.MPESA_CALLBACK_TOKEN ?? ''
+  const expectedToken = process.env.MARKETPLACE_DARAJA_CALLBACK_TOKEN ?? ''
   if (!expectedToken || !verifyCallbackToken(request.params.token, expectedToken)) {
     response.status(404).json({ ResultCode: 1, ResultDesc: 'Not found' })
     return
   }
   const parsed = callbackSchema.safeParse(request.body)
-  if (!parsed.success || !database) {
+  if (!parsed.success) {
     response.status(400).json({ ResultCode: 1, ResultDesc: 'Invalid callback' })
+    return
+  }
+  if (!database) {
+    response.status(503).json({ ResultCode: 1, ResultDesc: 'Payment services are unavailable.' })
     return
   }
   const callback = parsed.data.Body.stkCallback
   const resultCode = String(callback.ResultCode)
-  const [payment] = await database.select({ id: marketplacePayments.id, checkoutRequestId: marketplacePayments.checkoutRequestId, merchantRequestId: marketplacePayments.merchantRequestId, purpose: marketplacePayments.purpose, productId: marketplacePayments.productId, amountKes: marketplacePayments.amountKes, phone: marketplacePayments.phone, status: marketplacePayments.status, accessTokenHash: marketplacePayments.accessTokenHash })
-    .from(marketplacePayments).where(eq(marketplacePayments.checkoutRequestId, callback.CheckoutRequestID)).limit(1)
+  const [payment] = await database.select({ id: marketplacePayments.id, reference: marketplacePayments.paymentReference, checkoutRequestId: marketplacePayments.checkoutRequestId, merchantRequestId: marketplacePayments.merchantRequestId, purpose: marketplacePayments.purpose, productId: marketplacePayments.productId, amountKes: marketplacePayments.amountKes, phone: marketplacePayments.phone, customerEmail: marketplacePayments.customerEmail, status: marketplacePayments.status, accessTokenHash: marketplacePayments.accessTokenHash, createdAt: marketplacePayments.createdAt, productTitle: marketplaceProducts.title, sellerEmail: marketplaceSellers.email, sellerName: marketplaceSellers.name })
+    .from(marketplacePayments).leftJoin(marketplaceProducts, eq(marketplacePayments.productId, marketplaceProducts.id))
+    .leftJoin(marketplaceSellers, eq(marketplaceProducts.sellerId, marketplaceSellers.id))
+    .where(eq(marketplacePayments.checkoutRequestId, callback.CheckoutRequestID)).limit(1)
   if (!payment) {
+    response.status(503).json({ ResultCode: 1, ResultDesc: 'Payment request is not ready for verification; retry callback.' })
+    return
+  }
+  if (callback.MerchantRequestID !== payment.merchantRequestId) {
     response.status(200).json({ ResultCode: 0, ResultDesc: 'Accepted' })
     return
   }
   const fingerprint = paymentCallbackFingerprint(request.body)
+  const [insertedCallback] = await database.insert(marketplacePaymentCallbacks).values({
+    paymentId: payment.id,
+    payloadHash: fingerprint,
+    payload: request.body as Record<string, unknown>,
+    outcome: 'received',
+  }).onConflictDoNothing({ target: marketplacePaymentCallbacks.payloadHash }).returning({ id: marketplacePaymentCallbacks.id })
+  const [callbackEvent] = insertedCallback
+    ? [insertedCallback]
+    : await database.select({ id: marketplacePaymentCallbacks.id }).from(marketplacePaymentCallbacks).where(eq(marketplacePaymentCallbacks.payloadHash, fingerprint)).limit(1)
+  if (!callbackEvent) {
+    response.status(503).json({ ResultCode: 1, ResultDesc: 'Callback could not be recorded; retry.' })
+    return
+  }
   let callbackOutcome = 'verified_failure'
   let shouldSettle = false
-  let failureStatus: 'failed' | 'ambiguous' = 'failed'
+  let failureStatus: 'failed' | 'cancelled' | 'expired' | 'ambiguous' = 'failed'
   if (resultCode === '0') {
     const values = new Map((callback.CallbackMetadata?.Item ?? []).map(({ Name, Value }) => [Name, Value]))
     const amount = Number(values.get('Amount'))
-    const callbackPhone = String(values.get('PhoneNumber') ?? '')
-    const receipt = values.get('MpesaReceiptNumber')
+    const callbackPhone = normalizeKenyanPhone(String(values.get('PhoneNumber') ?? ''))
+    const receiptValue = values.get('MpesaReceiptNumber')
+    const receipt = typeof receiptValue === 'string' ? receiptValue : ''
+    const transactionAt = parseDarajaTimestamp(values.get('TransactionDate'))
     try {
       const verified = await queryStkPayment(callback.CheckoutRequestID)
-      const callbackMatches = callback.MerchantRequestID === payment.merchantRequestId
-        && Number.isSafeInteger(amount) && amount === payment.amountKes
-        && normalizeKenyanPhone(callbackPhone) === payment.phone
-        && Boolean(receipt)
-      if (verified.resultCode === '0' && callbackMatches) {
+      const callbackMatches = verifyMarketplaceStkCallback({
+        callbackResultCode: resultCode,
+        callbackCheckoutRequestId: callback.CheckoutRequestID,
+        callbackMerchantRequestId: callback.MerchantRequestID,
+        queryCheckoutRequestId: verified.checkoutRequestId,
+        queryMerchantRequestId: verified.merchantRequestId,
+        queryResultCode: verified.resultCode,
+        callbackAmount: amount,
+        expectedAmount: payment.amountKes,
+        callbackPhone,
+        expectedPhone: payment.phone,
+        receipt,
+        transactionAt,
+        paymentCreatedAt: payment.createdAt,
+      })
+      if (callbackMatches) {
         callbackOutcome = 'verified_success'
         shouldSettle = true
       } else {
@@ -242,32 +311,80 @@ paymentRouter.post('/callback/:token', async (request, response) => {
       response.status(503).json({ ResultCode: 1, ResultDesc: 'Payment verification is temporarily unavailable' })
       return
     }
+    if (shouldSettle) {
+      const now = new Date()
+      await database.transaction(async (transaction) => {
+        await transaction.update(marketplacePaymentCallbacks).set({ outcome: callbackOutcome, processedAt: now }).where(eq(marketplacePaymentCallbacks.id, callbackEvent.id))
+        const updated = await transaction.update(marketplacePayments).set({
+          status: 'succeeded',
+          callbackProcessedAt: now,
+          providerReceipt: receipt,
+          transactionAt,
+          verifiedAt: now,
+          providerDetails: { verification: 'stk_query_and_callback_match', resultCode, checkoutRequestId: callback.CheckoutRequestID, merchantRequestId: callback.MerchantRequestID },
+          updatedAt: now,
+        }).where(and(eq(marketplacePayments.id, payment.id), inArray(marketplacePayments.status, ['initiated', 'pending', 'processing', 'ambiguous']))).returning({ id: marketplacePayments.id })
+        if (!updated.length || !payment.productId) return
+        if (payment.purpose === 'PRODUCT_PUBLICATION') {
+          const [expirySetting] = await transaction.select({ value: marketplaceSettings.value }).from(marketplaceSettings)
+            .where(eq(marketplaceSettings.key, 'listing_expiry_days')).limit(1)
+          await transaction.update(marketplaceProducts).set({ status: 'published', publishedAt: now, expiresAt: listingExpiryAt(now, expirySetting?.value), updatedAt: now })
+            .where(and(eq(marketplaceProducts.id, payment.productId), eq(marketplaceProducts.status, 'pending_payment')))
+          if (payment.customerEmail) {
+            await enqueueMarketplaceEmail(transaction, { eventKey: `payment:${payment.reference}:verified`, to: payment.customerEmail, kind: 'publication_payment_success', data: { name: payment.sellerName, title: payment.productTitle, reference: payment.reference, amountKes: payment.amountKes } })
+            await enqueueMarketplaceEmail(transaction, { eventKey: `listing:${payment.reference}:published`, to: payment.customerEmail, kind: 'product_published', data: { name: payment.sellerName, title: payment.productTitle, reference: payment.reference, amountKes: payment.amountKes } })
+            await enqueueMarketplaceEmail(transaction, { eventKey: `payment:${payment.reference}:receipt`, to: payment.customerEmail, kind: 'payment_receipt', data: { name: payment.sellerName, title: payment.productTitle, reference: payment.reference, amountKes: payment.amountKes } })
+          }
+          const admins = await transaction.select({ email: marketplaceAdminUsers.email }).from(marketplaceAdminUsers)
+            .where(and(eq(marketplaceAdminUsers.active, true), inArray(marketplaceAdminUsers.role, ['super_admin', 'finance_admin'])))
+          for (const admin of admins) await enqueueMarketplaceEmail(transaction, { eventKey: `payment:${payment.reference}:admin-success:${admin.email}`, to: admin.email, kind: 'admin_publication_success', data: { title: payment.productTitle, reference: payment.reference, amountKes: payment.amountKes } })
+        } else if (payment.purpose === 'CONTACT_UNLOCK' && payment.accessTokenHash) {
+          await transaction.insert(marketplaceContactUnlocks).values({ productId: payment.productId, paymentId: payment.id, tokenHash: payment.accessTokenHash, expiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000) }).onConflictDoNothing()
+          if (payment.customerEmail) {
+            await enqueueMarketplaceEmail(transaction, { eventKey: `payment:${payment.reference}:verified`, to: payment.customerEmail, kind: 'contact_unlock_payment_success', data: { title: payment.productTitle, reference: payment.reference, amountKes: payment.amountKes } })
+            await enqueueMarketplaceEmail(transaction, { eventKey: `payment:${payment.reference}:contact-unlocked`, to: payment.customerEmail, kind: 'contact_details_unlocked', data: { title: payment.productTitle, reference: payment.reference, amountKes: payment.amountKes } })
+            await enqueueMarketplaceEmail(transaction, { eventKey: `payment:${payment.reference}:receipt`, to: payment.customerEmail, kind: 'payment_receipt', data: { title: payment.productTitle, reference: payment.reference, amountKes: payment.amountKes } })
+          }
+        }
+      })
+      response.status(200).json({ ResultCode: 0, ResultDesc: 'Accepted' })
+      return
+    }
+  } else {
+    failureStatus = callbackFailureStatus(resultCode)
   }
   const now = new Date()
   await database.transaction(async (transaction) => {
-    const inserted = await transaction.insert(marketplacePaymentCallbacks).values({
-      paymentId: payment.id,
-      payloadHash: fingerprint,
-      payload: request.body as Record<string, unknown>,
-      outcome: callbackOutcome,
-      processedAt: now,
-    }).onConflictDoNothing({ target: marketplacePaymentCallbacks.payloadHash }).returning({ id: marketplacePaymentCallbacks.id })
-    if (!inserted.length) return
-    const nextStatus = shouldSettle ? 'succeeded' : resultCode === '0' ? failureStatus : 'failed'
-    await transaction.update(marketplacePayments).set({ status: nextStatus, callbackProcessedAt: now, updatedAt: now })
-      .where(and(eq(marketplacePayments.id, payment.id), inArray(marketplacePayments.status, ['initiated', 'pending', 'ambiguous'])))
-    if (!shouldSettle || !payment.productId) return
-    if (payment.purpose === 'PRODUCT_PUBLICATION') {
-      await transaction.update(marketplaceProducts).set({ status: 'published', publishedAt: now, updatedAt: now })
-        .where(and(eq(marketplaceProducts.id, payment.productId), eq(marketplaceProducts.status, 'pending_payment')))
-    } else if (payment.purpose === 'CONTACT_UNLOCK' && payment.accessTokenHash) {
-      await transaction.insert(marketplaceContactUnlocks).values({
-        productId: payment.productId,
-        paymentId: payment.id,
-        tokenHash: payment.accessTokenHash,
-        expiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
-      }).onConflictDoNothing()
+    await transaction.update(marketplacePaymentCallbacks).set({ outcome: callbackOutcome, processedAt: now }).where(eq(marketplacePaymentCallbacks.id, callbackEvent.id))
+    const updated = await transaction.update(marketplacePayments).set({ status: failureStatus, callbackProcessedAt: now, updatedAt: now })
+      .where(and(eq(marketplacePayments.id, payment.id), inArray(marketplacePayments.status, ['initiated', 'pending', 'processing', 'ambiguous'])))
+      .returning({ id: marketplacePayments.id })
+    if (!updated.length) return
+    if (failureStatus === 'ambiguous') {
+      const admins = await transaction.select({ email: marketplaceAdminUsers.email }).from(marketplaceAdminUsers)
+        .where(and(eq(marketplaceAdminUsers.active, true), inArray(marketplaceAdminUsers.role, ['super_admin', 'finance_admin'])))
+      for (const admin of admins) await enqueueMarketplaceEmail(transaction, {
+        eventKey: `payment:${payment.reference}:verification-review:${admin.email}`,
+        to: admin.email,
+        kind: 'admin_marketplace_activity',
+        data: { reference: payment.reference, amountKes: payment.amountKes, reason: 'Daraja verification requires review' },
+      })
+      return
     }
+    if (payment.customerEmail) await enqueueMarketplaceEmail(transaction, {
+      eventKey: `payment:${payment.reference}:not-completed:${failureStatus}`,
+      to: payment.customerEmail,
+      kind: payment.purpose === 'PRODUCT_PUBLICATION' ? 'product_publication_failed' : 'payment_unsuccessful',
+      data: { name: payment.sellerName, title: payment.productTitle, reference: payment.reference, amountKes: payment.amountKes },
+    })
+    const admins = await transaction.select({ email: marketplaceAdminUsers.email }).from(marketplaceAdminUsers)
+      .where(and(eq(marketplaceAdminUsers.active, true), inArray(marketplaceAdminUsers.role, ['super_admin', 'finance_admin'])))
+    for (const admin of admins) await enqueueMarketplaceEmail(transaction, {
+      eventKey: `payment:${payment.reference}:admin-failure:${admin.email}`,
+      to: admin.email,
+      kind: 'admin_payment_failure',
+      data: { title: payment.productTitle, reference: payment.reference, amountKes: payment.amountKes, reason: failureStatus },
+    })
   })
   response.status(200).json({ ResultCode: 0, ResultDesc: 'Accepted' })
 })
@@ -289,7 +406,7 @@ paymentRouter.post('/products/:slug/contact', async (request, response) => {
     .innerJoin(marketplaceProducts, eq(marketplaceContactUnlocks.productId, marketplaceProducts.id))
     .innerJoin(marketplaceSellers, eq(marketplaceProducts.sellerId, marketplaceSellers.id))
     .innerJoin(marketplaceCounties, eq(marketplaceSellers.countyId, marketplaceCounties.id))
-    .where(and(eq(marketplaceProducts.slug, slug.data), eq(marketplaceProducts.status, 'published'), eq(marketplaceContactUnlocks.tokenHash, hashSecret(token)), gt(marketplaceContactUnlocks.expiresAt, new Date()), eq(marketplacePayments.status, 'succeeded')))
+    .where(and(eq(marketplaceProducts.slug, slug.data), eq(marketplaceProducts.status, 'published'), gt(marketplaceProducts.expiresAt, new Date()), eq(marketplaceContactUnlocks.tokenHash, hashSecret(token)), gt(marketplaceContactUnlocks.expiresAt, new Date()), eq(marketplacePayments.status, 'succeeded')))
     .limit(1)
   if (!contact) {
     response.status(403).json({ error: { code: 'CONTACT_LOCKED', message: 'A verified contact-unlock payment is required.' } })

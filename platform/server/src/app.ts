@@ -48,9 +48,23 @@ app.get('/health/ready', async (_request, response) => {
         FROM pg_namespace
         WHERE nspname = 'marketplace'
           AND has_schema_privilege(current_user, oid, 'USAGE')
-      ) AS schema_access
+      ) AS schema_access,
+      (
+        to_regclass('marketplace.marketplace_products') IS NOT NULL
+        AND to_regclass('marketplace.marketplace_categories') IS NOT NULL
+        AND to_regclass('marketplace.marketplace_counties') IS NOT NULL
+        AND to_regclass('marketplace.marketplace_payments') IS NOT NULL
+        AND to_regclass('marketplace.marketplace_email_events') IS NOT NULL
+        AND has_table_privilege(current_user, 'marketplace.marketplace_products', 'SELECT')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_categories', 'SELECT')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_counties', 'SELECT')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_payments', 'SELECT')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_email_events', 'SELECT')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_email_events', 'INSERT')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_email_events', 'UPDATE')
+      ) AS required_tables_ready
     `)
-    if (result.rows[0]?.schema_access !== true) throw new Error('Marketplace schema access is unavailable.')
+    if (result.rows[0]?.schema_access !== true || result.rows[0]?.required_tables_ready !== true) throw new Error('Marketplace schema access is unavailable.')
     response.json({ status: 'ready', database: 'ok' })
   } catch {
     response.status(503).json({ status: 'not_ready', database: 'unavailable' })

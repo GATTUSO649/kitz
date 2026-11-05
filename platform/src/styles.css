@@ -167,6 +167,9 @@ button, input { font: inherit; }
 .listing-info > div { display: flex; align-items: center; justify-content: space-between; gap: 5px; }
 .listing-info > div b { color: #098e3d; font-size: 12px; }
 .listing-info > div span { padding: 3px 6px; border-radius: 10px; color: #1374c8; background: #e6f3ff; font-size: 8px; white-space: nowrap; }
+.listing-whatsapp-cta { min-height: 31px; margin: 0 8px 8px; display: flex; align-items: center; justify-content: center; gap: 6px; border-radius: 5px; color: white; background: #078e3b; font-size: 10px; font-weight: 700; }
+.listing-whatsapp-cta:hover, .whatsapp-contact-button:hover { background: #067a34; }
+.listing-grid.list-view .listing-whatsapp-cta { grid-column: 2; justify-self: start; min-width: 150px; margin: 0 13px 10px; padding: 0 10px; }
 .catalogue-message { min-height: 130px; margin-top: 10px; padding: 18px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; border: 1px solid #e1e9e3; border-radius: 9px; background: white; text-align: center; color: #5d7164; font-size: 11px; }
 .catalogue-message strong { color: #183527; font-size: 13px; }
 .catalogue-message button { margin-top: 3px; padding: 7px 14px; border: 0; border-radius: 18px; color: white; background: #078e3b; font-size: 11px; font-weight: 700; cursor: pointer; }
@@ -223,6 +226,8 @@ button, input { font: inherit; }
 .contact-protection.is-unlocked { color: #16482b; }
 .contact-protection.is-unlocked p { display: flex; align-items: center; gap: 5px; }
 .contact-protection.is-unlocked a { color: #087c38; font-weight: 700; }
+.whatsapp-contact-button { min-height: 38px; margin-top: 8px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border-radius: 5px; color: white !important; background: #078e3b; font-size: 11px; font-weight: 700; }
+.contact-protection .whatsapp-retry-note { color: #496657; font-size: 9px; }
 .unlock-form { margin-top: 12px; }
 .unlock-form label { display: grid; gap: 6px; margin-bottom: 8px; color: #31483b; font-size: 11px; font-weight: 700; }
 .unlock-form input { width: 100%; min-height: 39px; padding: 9px 11px; border: 1px solid #cad7ce; border-radius: 6px; color: #183527; font-size: 12px; }

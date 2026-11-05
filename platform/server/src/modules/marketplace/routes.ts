@@ -3,9 +3,10 @@ import { Router } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
 import { database } from '../../database/connection.js'
-import { marketplaceCategories, marketplaceCounties, marketplaceProductImages, marketplaceProductReports, marketplaceProductViews, marketplaceProducts, marketplaceSellers, marketplaceSettings, marketplaceSubcategories } from '../../database/schema.js'
+import { marketplaceAdminUsers, marketplaceCategories, marketplaceCounties, marketplaceProductImages, marketplaceProductReports, marketplaceProductViews, marketplaceProducts, marketplaceSellers, marketplaceSettings, marketplaceSubcategories } from '../../database/schema.js'
 import { calculateFeeKes } from './security.js'
 import { parseMarketplaceSocialLinks } from './social-links.js'
+import { enqueueMarketplaceEmail } from '../email/outbox.js'
 
 export const marketplaceRouter = Router()
 const productViewLimiter = rateLimit({ windowMs: 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false })
@@ -86,7 +87,7 @@ marketplaceRouter.get('/products', async (request, response, next) => {
     return
   }
   try {
-    const conditions = [eq(marketplaceProducts.status, 'published')]
+    const conditions = [eq(marketplaceProducts.status, 'published'), gt(marketplaceProducts.expiresAt, new Date())]
     if (filters.q) conditions.push(or(ilike(marketplaceProducts.title, `%${filters.q}%`), ilike(marketplaceProducts.description, `%${filters.q}%`))!)
     if (filters.category) conditions.push(eq(marketplaceCategories.slug, filters.category))
     if (filters.subcategory) conditions.push(eq(marketplaceSubcategories.slug, filters.subcategory))
@@ -188,7 +189,7 @@ marketplaceRouter.get('/products/:slug', async (request, response, next) => {
       .leftJoin(marketplaceSubcategories, eq(marketplaceProducts.subcategoryId, marketplaceSubcategories.id))
       .innerJoin(marketplaceSellers, eq(marketplaceProducts.sellerId, marketplaceSellers.id))
       .innerJoin(marketplaceCounties, eq(marketplaceSellers.countyId, marketplaceCounties.id))
-      .where(and(eq(marketplaceProducts.slug, slug.data), eq(marketplaceProducts.status, 'published'), eq(marketplaceCategories.active, true)))
+      .where(and(eq(marketplaceProducts.slug, slug.data), eq(marketplaceProducts.status, 'published'), gt(marketplaceProducts.expiresAt, new Date()), eq(marketplaceCategories.active, true)))
       .limit(1)
     if (!product) {
       response.status(404).json({ error: { code: 'LISTING_NOT_FOUND', message: 'This listing is not available.' } })
@@ -233,7 +234,7 @@ marketplaceRouter.post('/products/:slug/views', productViewLimiter, async (reque
     return
   }
   const [product] = await database.select({ id: marketplaceProducts.id }).from(marketplaceProducts)
-    .where(and(eq(marketplaceProducts.slug, slug.data), eq(marketplaceProducts.status, 'published'))).limit(1)
+    .where(and(eq(marketplaceProducts.slug, slug.data), eq(marketplaceProducts.status, 'published'), gt(marketplaceProducts.expiresAt, new Date()))).limit(1)
   if (product) await database.insert(marketplaceProductViews).values({ productId: product.id })
   response.status(202).json({ data: { recorded: Boolean(product) } })
 })
@@ -249,12 +250,24 @@ marketplaceRouter.post('/products/:slug/reports', productReportLimiter, async (r
     response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Marketplace reports are temporarily unavailable.' } })
     return
   }
-  const [product] = await database.select({ id: marketplaceProducts.id }).from(marketplaceProducts)
-    .where(and(eq(marketplaceProducts.slug, slug.data), eq(marketplaceProducts.status, 'published'))).limit(1)
+  const [product] = await database.select({ id: marketplaceProducts.id, reference: marketplaceProducts.reference, title: marketplaceProducts.title }).from(marketplaceProducts)
+    .where(and(eq(marketplaceProducts.slug, slug.data), eq(marketplaceProducts.status, 'published'), gt(marketplaceProducts.expiresAt, new Date()))).limit(1)
   if (!product) {
     response.status(404).json({ error: { code: 'LISTING_NOT_FOUND', message: 'This listing is not available.' } })
     return
   }
-  const [created] = await database.insert(marketplaceProductReports).values({ productId: product.id, reason: report.data.reason, details: report.data.details || null, reporterEmail: report.data.email || null }).returning({ id: marketplaceProductReports.id })
+  const [created] = await database.transaction(async (transaction) => {
+    const [createdReport] = await transaction.insert(marketplaceProductReports).values({ productId: product.id, reason: report.data.reason, details: report.data.details || null, reporterEmail: report.data.email || null }).returning({ id: marketplaceProductReports.id })
+    if (!createdReport) return []
+    const admins = await transaction.select({ email: marketplaceAdminUsers.email }).from(marketplaceAdminUsers)
+      .where(and(eq(marketplaceAdminUsers.active, true), inArray(marketplaceAdminUsers.role, ['super_admin', 'support_admin'])))
+    for (const admin of admins) await enqueueMarketplaceEmail(transaction, {
+      eventKey: `report:${createdReport.id}:admin-notification:${admin.email}`,
+      to: admin.email,
+      kind: 'admin_product_report',
+      data: { title: product.title, reference: product.reference, reason: report.data.reason },
+    })
+    return [createdReport]
+  })
   response.status(201).json({ data: { reportReference: created?.id } })
 })
