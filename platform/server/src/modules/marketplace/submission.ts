@@ -27,8 +27,8 @@ const submissionSchema = z.object({
     whatsapp: z.string().trim().max(24).optional(),
     email: z.string().trim().email().max(254).optional().or(z.literal('')),
     countyCode: z.string().regex(/^\d{3}$/),
-    subcounty: z.string().trim().min(2).max(100),
-    town: z.string().trim().min(2).max(100),
+    subcounty: z.string().trim().min(2).max(100).optional().or(z.literal('')),
+    town: z.string().trim().min(2).max(100).optional().or(z.literal('')),
     area: z.string().trim().max(120).optional(),
   }).optional(),
 })
@@ -78,7 +78,7 @@ submissionRouter.post('/submissions', optionalMarketplaceSeller, async (request,
     const [category] = await database.select({ id: marketplaceCategories.id }).from(marketplaceCategories)
       .where(and(eq(marketplaceCategories.id, submission.categoryId), eq(marketplaceCategories.active, true)))
       .limit(1)
-    const [county] = await database.select({ id: marketplaceCounties.id }).from(marketplaceCounties)
+    const [county] = await database.select({ id: marketplaceCounties.id, name: marketplaceCounties.name }).from(marketplaceCounties)
       .where(and(eq(marketplaceCounties.code, sellerSession?.countyCode ?? sellerInput!.countyCode), eq(marketplaceCounties.active, true)))
       .limit(1)
     if (!category || !county) {
@@ -110,8 +110,8 @@ submissionRouter.post('/submissions', optionalMarketplaceSeller, async (request,
           whatsapp,
           email: sellerEmail,
           countyId: county.id,
-          subcounty: sellerInput!.subcounty,
-          town: sellerInput!.town,
+          subcounty: sellerInput!.subcounty || county.name,
+          town: sellerInput!.town || county.name,
           area: sellerInput!.area || null,
         }).returning({ id: marketplaceSellers.id })
         sellerId = seller?.id

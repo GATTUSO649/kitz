@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useState, type FormEvent } from 'react'
-import { Activity, ArrowLeft, ArrowRight, BadgeCheck, BarChart3, Bell, Box, CalendarDays, Check, CircleAlert, CircleHelp, Clock3, Eye, EyeOff, LayoutDashboard, Leaf, ListChecks, LogOut, MapPin, Megaphone, Menu, MessageSquareText, Pencil, Plus, Search, Settings, ShieldCheck, ShoppingBag, Store, Tag, Trash2, UserRound, WalletCards, X } from 'lucide-react'
+import { Activity, ArrowLeft, ArrowRight, BadgeCheck, BarChart3, Bell, Box, CalendarDays, Check, ChevronDown, CircleAlert, CircleHelp, Clock3, Eye, EyeOff, LayoutDashboard, Leaf, ListChecks, LogOut, MapPin, Megaphone, Menu, MessageSquareText, Pencil, Plus, Search, Settings, ShieldCheck, ShoppingBag, Store, Tag, Trash2, UserRound, WalletCards, X } from 'lucide-react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 type County = { code: string; name: string }
@@ -38,7 +38,7 @@ export function SellerSignupPage() {
   const [busy, setBusy] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
-  const [values, setValues] = useState({ name: '', email: '', phone: '', whatsapp: '', countyCode: '', subcounty: '', town: '', area: '', password: '', confirmPassword: '' })
+  const [values, setValues] = useState({ name: '', email: '', phone: '', whatsapp: '', countyCode: '', password: '', confirmPassword: '' })
 
   useEffect(() => {
     const controller = new AbortController()
@@ -77,8 +77,7 @@ export function SellerSignupPage() {
         <label>Full name<input required minLength={2} maxLength={120} autoComplete="name" value={values.name} onChange={(event) => update('name', event.target.value)} /></label>
         <label>Email address<input required type="email" maxLength={254} autoComplete="email" value={values.email} onChange={(event) => update('email', event.target.value)} /></label>
         <div className="seller-form-pair"><label>Phone<input required inputMode="tel" autoComplete="tel" value={values.phone} onChange={(event) => update('phone', event.target.value)} placeholder="0712 345 678" /></label><label>WhatsApp (optional)<input inputMode="tel" value={values.whatsapp} onChange={(event) => update('whatsapp', event.target.value)} /></label></div>
-        <div className="seller-form-pair"><label>County<select required disabled={loadingCounties} value={values.countyCode} onChange={(event) => update('countyCode', event.target.value)}><option value="">Select county</option>{counties.map((county) => <option key={county.code} value={county.code}>{county.name}</option>)}</select></label><label>Subcounty<input required minLength={2} maxLength={100} value={values.subcounty} onChange={(event) => update('subcounty', event.target.value)} /></label></div>
-        <div className="seller-form-pair"><label>Town<input required minLength={2} maxLength={100} value={values.town} onChange={(event) => update('town', event.target.value)} /></label><label>Area (optional)<input maxLength={120} value={values.area} onChange={(event) => update('area', event.target.value)} /></label></div>
+        <label>County<select required disabled={loadingCounties} value={values.countyCode} onChange={(event) => update('countyCode', event.target.value)}><option value="">Select county</option>{counties.map((county) => <option key={county.code} value={county.code}>{county.name}</option>)}</select></label>
         <label>Password<span className="seller-auth-password"><input required type={showPassword ? 'text' : 'password'} autoComplete="new-password" minLength={12} maxLength={128} value={values.password} onChange={(event) => update('password', event.target.value)} /><button type="button" className="seller-auth-password-toggle" aria-label={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword((shown) => !shown)}>{showPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button></span></label>
         <label>Confirm password<span className="seller-auth-password"><input required type={showConfirmPassword ? 'text' : 'password'} autoComplete="new-password" minLength={12} maxLength={128} value={values.confirmPassword} onChange={(event) => update('confirmPassword', event.target.value)} /><button type="button" className="seller-auth-password-toggle" aria-label={showConfirmPassword ? 'Hide password' : 'Show password'} onClick={() => setShowConfirmPassword((shown) => !shown)}>{showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button></span></label>
         <button className="seller-primary-button" disabled={busy || loadingCounties || !counties.length}>{busy ? 'Creating account…' : <>Create seller account <ArrowRight size={16} /></>}</button>
@@ -300,6 +299,7 @@ export function SellerPortalPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [counties, setCounties] = useState<County[]>([])
   const [menuOpen, setMenuOpen] = useState(false)
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false)
   const [section, setSection] = useState<SellerSection>('dashboard')
   const [tab, setTab] = useState<'mine' | 'marketplace'>('mine')
   const [viewsPeriod, setViewsPeriod] = useState<ViewsPeriod>('daily')
@@ -363,6 +363,7 @@ export function SellerPortalPage() {
   }
 
   async function logout() {
+    setAccountMenuOpen(false)
     await fetch(`${sellerApi}/logout`, { method: 'POST' })
     navigate('/marketplace/seller/login', { replace: true })
   }
@@ -418,7 +419,8 @@ export function SellerPortalPage() {
     setError('')
     setNotice('')
     try {
-      const response = await fetch(`${sellerApi}/profile`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(profileDraft) })
+      const countyName = counties.find((county) => county.code === profileDraft.countyCode)?.name
+      const response = await fetch(`${sellerApi}/profile`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...profileDraft, subcounty: countyName ?? profileDraft.subcounty, town: countyName ?? profileDraft.town, area: '' }) })
       if (!response.ok) throw new Error(await getError(response, 'Profile changes could not be saved.'))
       const result = await response.json() as { data: SellerProfile }
       setProfile(result.data)
@@ -472,10 +474,10 @@ export function SellerPortalPage() {
     <aside className={`seller-dashboard-sidebar${menuOpen ? ' is-open' : ''}`}>
       <Link to="/marketplace" className="seller-sidebar-brand"><Tag size={32} /><span><b>MarketHub</b><small>Buy · Sell · Reuse · Save</small></span></Link>
       <nav aria-label="Seller portal">{navigation.map((item) => item.id === 'add' ? <Link className="seller-sidebar-link" to="/marketplace/sell" key={item.id}><item.icon /><span>{item.label}</span></Link> : <button className={`seller-sidebar-link${section === item.id && (item.id !== 'listings' || tab === 'mine') ? ' active' : ''}`} type="button" key={item.id} onClick={() => { setSection(item.id as SellerSection); setTab('mine'); setMenuOpen(false); setEditing(null) }}><item.icon /><span>{item.label}</span></button>)}</nav>
-      <div className="seller-sidebar-bottom"><button className="seller-sidebar-link" type="button" onClick={() => void logout()}><LogOut /><span>Logout</span></button><div className="seller-green-promo"><Leaf /><strong>GROW YOUR BUSINESS</strong><span>Reach more local buyers with MarketHub.</span><button type="button" onClick={() => setSection('help')}>Learn More <ArrowRight size={13} /></button></div></div>
+      <div className="seller-sidebar-bottom"><div className="seller-green-promo"><Leaf /><strong>GROW YOUR BUSINESS</strong><span>Reach more local buyers with MarketHub.</span><button type="button" onClick={() => setSection('help')}>Learn More <ArrowRight size={13} /></button></div></div>
     </aside>
     <div className="seller-dashboard-body">
-      <header className="seller-dashboard-topbar"><button className="seller-menu-button" type="button" aria-label="Open seller navigation" onClick={() => setMenuOpen((open) => !open)}><Menu size={20} /></button><form className="seller-global-search" onSubmit={(event) => { event.preventDefault(); setSection('listings'); setMenuOpen(false) }}><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search your products..." aria-label="Search products" /><button type="submit" aria-label="Search"><Search size={17} /></button></form><button className="seller-topbar-alert" type="button" aria-label="Messages" onClick={() => setSection('messages')}><Bell size={18} /></button><button className="seller-account-chip" type="button" onClick={() => setSection('profile')}><span>{profile?.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'S'}</span><b>{profile?.name.split(' ')[0] ?? 'Seller'}</b><UserRound size={14} /></button></header>
+      <header className="seller-dashboard-topbar"><button className="seller-menu-button" type="button" aria-label="Open seller navigation" onClick={() => setMenuOpen((open) => !open)}><Menu size={20} /></button><form className="seller-global-search" onSubmit={(event) => { event.preventDefault(); setSection('listings'); setMenuOpen(false) }}><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search your products..." aria-label="Search products" /><button type="submit" aria-label="Search"><Search size={17} /></button></form><button className="seller-topbar-alert" type="button" aria-label="Messages" onClick={() => setSection('messages')}><Bell size={18} /></button><div className="seller-account-menu"><button className="seller-account-chip" type="button" aria-haspopup="menu" aria-expanded={accountMenuOpen} onClick={() => setAccountMenuOpen((open) => !open)}><span>{profile?.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'S'}</span><b>{profile?.name.split(' ')[0] ?? 'Seller'}</b><ChevronDown size={14} /></button>{accountMenuOpen && <div className="seller-account-dropdown" role="menu"><button type="button" role="menuitem" onClick={() => { setSection('profile'); setAccountMenuOpen(false) }}><UserRound size={15} /> Profile &amp; Settings</button><button type="button" role="menuitem" onClick={() => void logout()}><LogOut size={15} /> Log out</button></div>}</div></header>
       <main className="seller-dashboard-content" onClickCapture={(event) => {
         const target = event.target instanceof HTMLElement ? event.target : null
         const link = target?.closest('a')

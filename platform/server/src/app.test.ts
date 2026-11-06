@@ -129,6 +129,34 @@ test('seller account management fails closed when the marketplace database is un
   assert.equal((await response.json()).error.code, 'MARKETPLACE_UNAVAILABLE')
 })
 
+test('seller signup accepts county-only location details', async () => {
+  const response = await fetch(`${origin}/api/v1/marketplace/seller/signup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:5173' },
+    body: JSON.stringify({ name: 'Test Seller', email: 'seller@example.test', phone: '0712345678', countyCode: '001', password: 'secure-password-123', confirmPassword: 'secure-password-123' }),
+  })
+  assert.equal(response.status, 503)
+  assert.equal((await response.json()).error.code, 'MARKETPLACE_UNAVAILABLE')
+})
+
+test('guest listing submission accepts county-only location details', async () => {
+  const response = await fetch(`${origin}/api/v1/marketplace/submissions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:5173' },
+    body: JSON.stringify({
+      title: 'A valid marketplace item',
+      description: 'This is a sufficiently detailed description for the seller listing.',
+      categoryId: '00000000-0000-4000-8000-000000000001',
+      condition: 'good',
+      priceKes: 1000,
+      negotiable: false,
+      seller: { name: 'Test Seller', phone: '0712345678', countyCode: '001' },
+    }),
+  })
+  assert.equal(response.status, 503)
+  assert.equal((await response.json()).error.code, 'MARKETPLACE_UNAVAILABLE')
+})
+
 test('second-hand admin assignment is managed by KitCulture Super Admin', async () => {
   const response = await fetch(`${origin}/api/v1/admin/marketplace/admins/invitations`, {
     method: 'POST',

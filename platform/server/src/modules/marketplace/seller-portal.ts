@@ -123,8 +123,8 @@ const signupSchema = z.object({
   phone: z.string().trim().max(24),
   whatsapp: z.string().trim().max(24).optional().or(z.literal('')),
   countyCode: z.string().regex(/^\d{3}$/),
-  subcounty: z.string().trim().min(2).max(100),
-  town: z.string().trim().min(2).max(100),
+  subcounty: z.string().trim().min(2).max(100).optional().or(z.literal('')),
+  town: z.string().trim().min(2).max(100).optional().or(z.literal('')),
   area: z.string().trim().max(120).optional(),
   password: z.string().min(12).max(128),
   confirmPassword: z.string(),
@@ -146,7 +146,7 @@ marketplaceSellerAuthRouter.post('/seller/signup', signupLimiter, async (request
       response.status(409).json({ error: { code: 'SELLER_EMAIL_EXISTS', message: 'An account already uses this email. Sign in or request a new verification email.' } })
       return
     }
-    const [county] = await database.select({ id: marketplaceCounties.id }).from(marketplaceCounties)
+    const [county] = await database.select({ id: marketplaceCounties.id, name: marketplaceCounties.name }).from(marketplaceCounties)
       .where(and(eq(marketplaceCounties.code, parsed.data.countyCode), eq(marketplaceCounties.active, true))).limit(1)
     if (!county) {
       response.status(400).json({ error: { code: 'INVALID_SELLER_LOCATION', message: 'Choose an active county.' } })
@@ -166,8 +166,8 @@ marketplaceSellerAuthRouter.post('/seller/signup', signupLimiter, async (request
         whatsapp,
         email: parsed.data.email,
         countyId: county.id,
-        subcounty: parsed.data.subcounty,
-        town: parsed.data.town,
+        subcounty: parsed.data.subcounty || county.name,
+        town: parsed.data.town || county.name,
         area: parsed.data.area || null,
       })
       await transaction.insert(marketplaceSellerVerificationTokens).values({ sellerAccountId: account.id, tokenHash: tokenHash(rawToken), expiresAt: new Date(Date.now() + verificationLifetimeMs) })
