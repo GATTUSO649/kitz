@@ -12,7 +12,7 @@ export function isMarketplaceRoleNumberActivation(input: { role: AdministratorRo
     && marketplaceAdministratorRoles.has(input.role)
 }
 
-export function isMarketplaceAdminApprovalPending(input: { role: AdministratorRole | null; status: string; emailVerifiedAt: Date | null }): boolean {
+export function isVerifiedPendingMarketplaceAdmin(input: { role: AdministratorRole | null; status: string; emailVerifiedAt: Date | null }): boolean {
   return input.status === 'pending'
     && input.emailVerifiedAt !== null
     && input.role !== null

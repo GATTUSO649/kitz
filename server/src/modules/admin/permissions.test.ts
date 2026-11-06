@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { administratorPermissions, administratorPortal, defaultAdministratorPermissions, isMarketplaceAdminApprovalPending, isMarketplaceRoleNumberActivation, requiredAdministratorRole } from './administration.js'
+import { administratorPermissions, administratorPortal, defaultAdministratorPermissions, isMarketplaceRoleNumberActivation, isVerifiedPendingMarketplaceAdmin, requiredAdministratorRole } from './administration.js'
 import { administratorPermissionsForRoute, administratorPortalPermission, hasAnyPermission, hasDedicatedAdministratorGuard, projectDashboardForRole } from './permission-routes.js'
 import { resolveAdministratorPermissions, validatePermissionSelection } from './permissions.js'
 
@@ -18,11 +18,11 @@ test('role number is a temporary activation credential only for pending unverifi
   assert.equal(isMarketplaceRoleNumberActivation({ ...pendingSecondHand, password: 'wrong-password' }), false)
 })
 
-test('verified Marketplace administrators remain blocked until Super Admin approval', () => {
-  assert.equal(isMarketplaceAdminApprovalPending({ role: 'second_hand_admin', status: 'pending', emailVerifiedAt: new Date() }), true)
-  assert.equal(isMarketplaceAdminApprovalPending({ role: 'second_hand_admin', status: 'pending', emailVerifiedAt: null }), false)
-  assert.equal(isMarketplaceAdminApprovalPending({ role: 'second_hand_admin', status: 'active', emailVerifiedAt: new Date() }), false)
-  assert.equal(isMarketplaceAdminApprovalPending({ role: 'finance_admin', status: 'pending', emailVerifiedAt: new Date() }), false)
+test('verified Marketplace admin records with pending status are identified for invitation reconciliation', () => {
+  assert.equal(isVerifiedPendingMarketplaceAdmin({ role: 'second_hand_admin', status: 'pending', emailVerifiedAt: new Date() }), true)
+  assert.equal(isVerifiedPendingMarketplaceAdmin({ role: 'second_hand_admin', status: 'pending', emailVerifiedAt: null }), false)
+  assert.equal(isVerifiedPendingMarketplaceAdmin({ role: 'second_hand_admin', status: 'active', emailVerifiedAt: new Date() }), false)
+  assert.equal(isVerifiedPendingMarketplaceAdmin({ role: 'finance_admin', status: 'pending', emailVerifiedAt: new Date() }), false)
 })
 
 test('configured role permissions replace defaults and user overrides are applied', () => {

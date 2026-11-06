@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { hash } from 'bcryptjs'
-import { and, asc, count, desc, eq, gt, inArray, isNull } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull } from 'drizzle-orm'
 import { Router, type NextFunction, type Request, type Response } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
@@ -12,7 +12,7 @@ import { adminAuditLogs, adminInvitations, adminLoginAttempts, adminRolePermissi
 import { categories, expenses, homepageSlides, inventoryMovements, notificationCampaigns, orders, payments, productVariants, products, supportRequests, users } from '../../database/schema.js'
 import { authenticateAdmin, authenticatedAdmin } from '../../middleware/authenticate.js'
 import { allocateAdministratorRoleNumber } from './role-number.js'
-import { administratorPermissions as permissionKeys, administratorPortal, administratorRoles as roles, defaultAdministratorPermissions, hasAdministratorPermission, isMarketplaceAdminApprovalPending, isMarketplaceRoleNumberActivation, marketplaceAdministratorRoles, type AdministratorPermission } from './administration.js'
+import { administratorPermissions as permissionKeys, administratorPortal, administratorRoles as roles, defaultAdministratorPermissions, hasAdministratorPermission, isMarketplaceRoleNumberActivation, isVerifiedPendingMarketplaceAdmin, marketplaceAdministratorRoles, type AdministratorPermission } from './administration.js'
 import { administratorPortalPermission } from './permission-routes.js'
 import { loadAdministratorPermissions, permissionDescriptions, validatePermissionSelection } from './permissions.js'
 
@@ -112,11 +112,35 @@ adminEcosystemRouter.post('/marketplace/authenticate', marketplaceAuthentication
     await adminDb.insert(adminLoginAttempts).values({ identity: input.data.email, adminUserId: admin?.id, success: false, failureCode: 'MARKETPLACE_AUTH_REJECTED' })
     return response.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'The email address or password is incorrect.' } })
   }
-  if (isMarketplaceAdminApprovalPending(admin)) {
+
+  let accountStatus = admin.status
+  if (isVerifiedPendingMarketplaceAdmin(admin)) {
+    const [verifiedInvitation] = await adminDb.select({ id: adminInvitations.id }).from(adminInvitations)
+      .where(and(
+        eq(adminInvitations.adminUserId, admin.id),
+        eq(adminInvitations.email, admin.email),
+        eq(adminInvitations.role, admin.role!),
+        isNotNull(adminInvitations.consumedAt),
+      )).orderBy(desc(adminInvitations.createdAt)).limit(1)
+    if (verifiedInvitation) {
+      const activated = await adminDb.transaction(async (transaction) => {
+        const [current] = await transaction.select({ status: adminUsers.status, emailVerifiedAt: adminUsers.emailVerifiedAt })
+          .from(adminUsers).where(eq(adminUsers.id, admin.id)).for('update').limit(1)
+        if (current?.status === 'active') return true
+        if (current?.status !== 'pending' || !current.emailVerifiedAt) return false
+        await transaction.update(adminUsers).set({ status: 'active', suspendedAt: null, suspendedReason: null }).where(eq(adminUsers.id, admin.id))
+        await transaction.insert(adminAuditLogs).values({ adminUserId: admin.id, action: 'administrator.email_verified', targetType: 'admin_user', targetId: String(admin.id) })
+        return true
+      })
+      if (activated) accountStatus = 'active'
+    }
+  }
+
+  if (accountStatus === 'pending' && isVerifiedPendingMarketplaceAdmin(admin)) {
     await adminDb.insert(adminLoginAttempts).values({ identity: input.data.email, adminUserId: admin.id, success: false, failureCode: 'MARKETPLACE_ADMIN_APPROVAL_PENDING' })
     return response.status(403).json({ error: { code: 'MARKETPLACE_ADMIN_APPROVAL_PENDING', message: 'Email verified. Your MarketHub administrator access is waiting for Super Admin approval.' } })
   }
-  if (admin.status !== 'active' || !admin.emailVerifiedAt) {
+  if (accountStatus !== 'active' || !admin.emailVerifiedAt) {
     await adminDb.insert(adminLoginAttempts).values({ identity: input.data.email, adminUserId: admin.id, success: false, failureCode: 'MARKETPLACE_AUTH_REJECTED' })
     return response.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'The email address or password is incorrect.' } })
   }
@@ -342,12 +366,12 @@ adminEcosystemRouter.post('/verify-invitation', async (request, response) => {
     if (emailOwner && emailOwner.id !== invitation.adminUserId) return false
     const consumed = await transaction.update(adminInvitations).set({ consumedAt: new Date() }).where(and(eq(adminInvitations.id, invitation.id), isNull(adminInvitations.consumedAt))).returning({ id: adminInvitations.id })
     if (consumed.length !== 1) return false
-    const approvalPending = marketplaceAdministratorRoles.has(admin.role)
     const verifiedAt = new Date()
-    await transaction.update(adminUsers).set({ email: invitation.email, passwordHash: invitation.passwordHash, status: approvalPending ? 'pending' : 'active', emailVerifiedAt: verifiedAt, passwordUpdatedAt: verifiedAt }).where(eq(adminUsers.id, invitation.adminUserId))
-    await transaction.insert(adminAuditLogs).values({ adminUserId: invitation.adminUserId, action: approvalPending ? 'administrator.application_email_verified' : 'administrator.email_verified', targetType: 'admin_user', targetId: String(invitation.adminUserId) })
-    const loginPath = approvalPending ? '/admin/access?status=approval-pending' : admin.role === 'it_admin' ? '/operations' : admin.role === 'sales_admin' ? '/sales-admin/login' : `${administratorPortal(admin.role).replace(/\/dashboard$/, '')}/login`
-    return { loginPath, approvalPending }
+    await transaction.update(adminUsers).set({ email: invitation.email, passwordHash: invitation.passwordHash, status: 'active', emailVerifiedAt: verifiedAt, passwordUpdatedAt: verifiedAt }).where(eq(adminUsers.id, invitation.adminUserId))
+    await transaction.insert(adminAuditLogs).values({ adminUserId: invitation.adminUserId, action: 'administrator.email_verified', targetType: 'admin_user', targetId: String(invitation.adminUserId) })
+    const marketplaceRole = marketplaceAdministratorRoles.has(admin.role)
+    const loginPath = marketplaceRole ? '/admin/access' : admin.role === 'it_admin' ? '/operations' : admin.role === 'sales_admin' ? '/sales-admin/login' : `${administratorPortal(admin.role).replace(/\/dashboard$/, '')}/login`
+    return { loginPath, approvalPending: false }
   })
   if (!verification) return response.status(400).json({ error: { code: 'INVALID_TOKEN', message: 'Invitation is invalid, expired, or already used.' } })
   response.json({ data: { verified: true, ...verification } })
