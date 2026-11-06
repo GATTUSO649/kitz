@@ -88,9 +88,7 @@ const schema = z.object({
     context.addIssue({ code: 'custom', path: ['DATABASE_SLOW_QUERY_CRITICAL_MS'], message: 'Must exceed DATABASE_SLOW_QUERY_ERROR_MS.' })
   }
   if (configuration.NODE_ENV === 'production') {
-    if (!configuration.MARKETHUB_SERVICE_TOKEN) context.addIssue({ code: 'custom', path: ['MARKETHUB_SERVICE_TOKEN'], message: 'MARKETHUB_SERVICE_TOKEN is required for central Marketplace administrator authentication.' })
-    if (!configuration.MARKETHUB_PUBLIC_URL) context.addIssue({ code: 'custom', path: ['MARKETHUB_PUBLIC_URL'], message: 'MARKETHUB_PUBLIC_URL is required for administrator decision notifications.' })
-    else {
+    if (configuration.MARKETHUB_PUBLIC_URL) {
       const marketHubUrl = new URL(configuration.MARKETHUB_PUBLIC_URL)
       if (marketHubUrl.protocol !== 'https:' || marketHubUrl.username || marketHubUrl.password || marketHubUrl.search || marketHubUrl.hash) {
         context.addIssue({ code: 'custom', path: ['MARKETHUB_PUBLIC_URL'], message: 'MARKETHUB_PUBLIC_URL must be a public HTTPS origin.' })

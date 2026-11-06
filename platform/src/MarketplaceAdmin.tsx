@@ -120,24 +120,6 @@ export function MarketplaceAdminPage() {
     }
   }
 
-  async function updateSellerStatus(account: MarketplaceSellerAccount) {
-    const status = account.status === 'active' ? 'suspended' : 'active'
-    setBusy(true)
-    setError('')
-    setNotice('')
-    try {
-      const response = await fetch(`${adminApi}/seller-accounts/${account.id}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) })
-      const result = await response.json() as { error?: { message?: string } }
-      if (!response.ok) throw new Error(result.error?.message ?? 'Seller status could not be updated.')
-      setSellerAccounts((current) => current.map((item) => item.id === account.id ? { ...item, status } : item))
-      setNotice(status === 'suspended' ? 'Seller account suspended and sessions revoked.' : 'Seller account reactivated.')
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Seller status could not be updated.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setBusy(true)
