@@ -15,7 +15,48 @@ type SellerActivity = { action: string; reference: string | null; title: string 
 type ViewsChartPoint = { label: string; views: number; previous: number }
 
 const sellerApi = '/api/v1/marketplace/seller'
+const sellerSections: SellerSection[] = ['dashboard', 'listings', 'orders', 'messages', 'analytics', 'promotions', 'payments', 'reviews', 'profile', 'settings', 'help']
+const sellerNavigation: { id: SellerSection | 'add'; label: string; icon: typeof LayoutDashboard }[] = [
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'listings', label: 'My Listings', icon: ListChecks },
+  { id: 'add', label: 'Add Item', icon: Plus },
+  { id: 'orders', label: 'Orders & Sales', icon: ShoppingBag },
+  { id: 'messages', label: 'Messages', icon: MessageSquareText },
+  { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+  { id: 'promotions', label: 'Promotions', icon: Megaphone },
+  { id: 'payments', label: 'Payments & Earnings', icon: WalletCards },
+  { id: 'reviews', label: 'Reviews & Ratings', icon: BadgeCheck },
+  { id: 'profile', label: 'Profile & Settings', icon: UserRound },
+  { id: 'settings', label: 'Account Security', icon: Settings },
+  { id: 'help', label: 'Help & Support', icon: CircleHelp },
+]
 const formatKes = (value: number) => `KSh ${new Intl.NumberFormat('en-KE').format(value)}`
+
+type SellerPortalSidebarProps = {
+  activeSection: SellerSection | 'add'
+  menuOpen: boolean
+  onClose: () => void
+  onSelectSection?: (section: SellerSection) => void
+}
+
+export function SellerPortalSidebar({ activeSection, menuOpen, onClose, onSelectSection }: SellerPortalSidebarProps) {
+  const renderItem = (item: typeof sellerNavigation[number]) => {
+    const className = `seller-sidebar-link${activeSection === item.id ? ' active' : ''}`
+    const Icon = item.icon
+    if (item.id === 'add') return <Link className={className} to="/marketplace/sell" key={item.id} onClick={onClose}><Icon /><span>{item.label}</span></Link>
+    if (onSelectSection) return <button className={className} type="button" key={item.id} onClick={() => { onSelectSection(item.id as SellerSection); onClose() }}><Icon /><span>{item.label}</span></button>
+    return <Link className={className} to={`/marketplace/seller?section=${item.id}`} key={item.id} onClick={onClose}><Icon /><span>{item.label}</span></Link>
+  }
+  return <aside className={`seller-dashboard-sidebar${menuOpen ? ' is-open' : ''}`}>
+    <Link to="/marketplace" className="seller-sidebar-brand" onClick={onClose}><Tag size={32} /><span><b>MarketHub</b><small>Buy · Sell · Reuse · Save</small></span></Link>
+    <nav aria-label="Seller portal">{sellerNavigation.map(renderItem)}</nav>
+    <div className="seller-sidebar-bottom"><div className="seller-green-promo"><Leaf /><strong>GROW YOUR BUSINESS</strong><span>Reach more local buyers with MarketHub.</span>{onSelectSection ? <button type="button" onClick={() => { onSelectSection('help'); onClose() }}>Learn More <ArrowRight size={13} /></button> : <Link to="/marketplace/seller?section=help" onClick={onClose}>Learn More <ArrowRight size={13} /></Link>}</div></div>
+  </aside>
+}
+
+function isSellerSection(value: string | null): value is SellerSection {
+  return value !== null && sellerSections.includes(value as SellerSection)
+}
 
 async function getError(response: Response, fallback: string) {
   const result = await response.json().catch(() => ({})) as { error?: { message?: string } }
@@ -291,6 +332,7 @@ function activityLabel(action: string) {
 
 export function SellerPortalPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [profile, setProfile] = useState<SellerProfile | null>(null)
   const [products, setProducts] = useState<SellerProduct[]>([])
   const [analytics, setAnalytics] = useState<SellerAnalytics | null>(null)
@@ -300,7 +342,10 @@ export function SellerPortalPage() {
   const [counties, setCounties] = useState<County[]>([])
   const [menuOpen, setMenuOpen] = useState(false)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
-  const [section, setSection] = useState<SellerSection>('dashboard')
+  const [section, setSection] = useState<SellerSection>(() => {
+    const requestedSection = searchParams.get('section')
+    return isSellerSection(requestedSection) ? requestedSection : 'dashboard'
+  })
   const [tab, setTab] = useState<'mine' | 'marketplace'>('mine')
   const [viewsPeriod, setViewsPeriod] = useState<ViewsPeriod>('daily')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -454,28 +499,10 @@ export function SellerPortalPage() {
   const listingViews = analytics?.listingViews ?? 0
   const viewsChange = (analytics?.viewsLast30Days ?? 0) - (analytics?.viewsPrevious30Days ?? 0)
   const sectionName: Record<SellerSection, string> = { dashboard: 'Dashboard', listings: tab === 'marketplace' ? 'Other products' : 'My listings', orders: 'Orders & Sales', messages: 'Messages', analytics: 'Analytics', promotions: 'Promotions', payments: 'Payments & Earnings', reviews: 'Reviews & Ratings', profile: 'Profile & Settings', settings: 'Account Security', help: 'Help & Support' }
-  const navigation: { id: SellerSection | 'add'; label: string; icon: typeof LayoutDashboard }[] = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'listings', label: 'My Listings', icon: ListChecks },
-    { id: 'add', label: 'Add Item', icon: Plus },
-    { id: 'orders', label: 'Orders & Sales', icon: ShoppingBag },
-    { id: 'messages', label: 'Messages', icon: MessageSquareText },
-    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-    { id: 'promotions', label: 'Promotions', icon: Megaphone },
-    { id: 'payments', label: 'Payments & Earnings', icon: WalletCards },
-    { id: 'reviews', label: 'Reviews & Ratings', icon: BadgeCheck },
-    { id: 'profile', label: 'Profile & Settings', icon: UserRound },
-    { id: 'settings', label: 'Account Security', icon: Settings },
-    { id: 'help', label: 'Help & Support', icon: CircleHelp },
-  ]
   const viewsChart = <section className="seller-analytics-panel"><header><div><span className="seller-eyebrow">LISTING PERFORMANCE</span><h2>Listing Views</h2><p>{listingViews.toLocaleString('en-KE')} lifetime views · {analytics?.viewsLast30Days.toLocaleString('en-KE') ?? 0} in the last 30 days</p></div><div className="seller-period-switch" role="group" aria-label="Views chart period">{(['daily', 'weekly', 'monthly'] as const).map((period) => <button type="button" className={viewsPeriod === period ? 'active' : ''} aria-pressed={viewsPeriod === period} key={period} onClick={() => setViewsPeriod(period)}>{period}</button>)}</div></header><div className="seller-chart-wrap"><SellerViewsChart data={viewsChartData} /></div><footer><span><i className="this-period" /> Selected period</span><span><i /> Previous period</span><b>{viewsChange >= 0 ? '+' : ''}{viewsChange.toLocaleString('en-KE')} views vs. prior 30 days</b></footer></section>
   const activityPanel = <section className="seller-activity-panel"><header><div><span className="seller-eyebrow">ACCOUNT HISTORY</span><h2>Recent Activity</h2></div><button type="button" className="seller-text-link" onClick={() => setSection('listings')}>View listings <ArrowRight size={14} /></button></header>{activity.length ? <ol>{activity.slice(0, 6).map((item, index) => <li key={`${item.action}-${item.reference ?? 'account'}-${item.createdAt}-${index}`}><span className="seller-activity-icon">{item.action === 'listing.published' ? <Check size={15} /> : item.action === 'seller.listing.sold' ? <ShoppingBag size={15} /> : <Activity size={15} />}</span><div><strong>{activityLabel(item.action)}</strong>{item.title && <span>{item.title}</span>}<time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString('en-KE', { dateStyle: 'medium', timeStyle: 'short' })}</time></div></li>)}</ol> : <div className="seller-empty"><Clock3 size={22} /><strong>No activity recorded yet</strong><p>Listing updates will appear here.</p></div>}</section>
   return <div className="seller-dashboard-shell">
-    <aside className={`seller-dashboard-sidebar${menuOpen ? ' is-open' : ''}`}>
-      <Link to="/marketplace" className="seller-sidebar-brand"><Tag size={32} /><span><b>MarketHub</b><small>Buy · Sell · Reuse · Save</small></span></Link>
-      <nav aria-label="Seller portal">{navigation.map((item) => item.id === 'add' ? <Link className="seller-sidebar-link" to="/marketplace/sell" key={item.id}><item.icon /><span>{item.label}</span></Link> : <button className={`seller-sidebar-link${section === item.id && (item.id !== 'listings' || tab === 'mine') ? ' active' : ''}`} type="button" key={item.id} onClick={() => { setSection(item.id as SellerSection); setTab('mine'); setMenuOpen(false); setEditing(null) }}><item.icon /><span>{item.label}</span></button>)}</nav>
-      <div className="seller-sidebar-bottom"><div className="seller-green-promo"><Leaf /><strong>GROW YOUR BUSINESS</strong><span>Reach more local buyers with MarketHub.</span><button type="button" onClick={() => setSection('help')}>Learn More <ArrowRight size={13} /></button></div></div>
-    </aside>
+    <SellerPortalSidebar activeSection={section} menuOpen={menuOpen} onClose={() => setMenuOpen(false)} onSelectSection={(nextSection) => { setSection(nextSection); setTab('mine'); setEditing(null) }} />
     <div className="seller-dashboard-body">
       <header className="seller-dashboard-topbar"><button className="seller-menu-button" type="button" aria-label="Open seller navigation" onClick={() => setMenuOpen((open) => !open)}><Menu size={20} /></button><form className="seller-global-search" onSubmit={(event) => { event.preventDefault(); setSection('listings'); setMenuOpen(false) }}><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search your products..." aria-label="Search products" /><button type="submit" aria-label="Search"><Search size={17} /></button></form><button className="seller-topbar-alert" type="button" aria-label="Messages" onClick={() => setSection('messages')}><Bell size={18} /></button><div className="seller-account-menu"><button className="seller-account-chip" type="button" aria-haspopup="menu" aria-expanded={accountMenuOpen} onClick={() => setAccountMenuOpen((open) => !open)}><span>{profile?.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'S'}</span><b>{profile?.name.split(' ')[0] ?? 'Seller'}</b><ChevronDown size={14} /></button>{accountMenuOpen && <div className="seller-account-dropdown" role="menu"><button type="button" role="menuitem" onClick={() => { setSection('profile'); setAccountMenuOpen(false) }}><UserRound size={15} /> Profile &amp; Settings</button><button type="button" role="menuitem" onClick={() => void logout()}><LogOut size={15} /> Log out</button></div>}</div></header>
       <main className="seller-dashboard-content" onClickCapture={(event) => {

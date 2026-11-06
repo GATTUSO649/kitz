@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, BadgeCheck, Check, ImagePlus, LoaderCircle, Trash2, Upload } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, BadgeCheck, Check, ImagePlus, LoaderCircle, Menu, Trash2, Upload } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { SellerPortalSidebar } from './SellerPortal'
 
 type Subcategory = { id: string; name: string; slug: string }
 type Category = { id: string; name: string; slug: string; subcategories: Subcategory[] }
@@ -20,6 +21,7 @@ const formatKes = (value: number) => `KSh ${new Intl.NumberFormat('en-KE').forma
 
 export function SellListingPage() {
   const [values, setValues] = useState(initialValues)
+  const [menuOpen, setMenuOpen] = useState(false)
   const [categories, setCategories] = useState<Category[]>([])
   const [counties, setCounties] = useState<County[]>([])
   const [sellerProfile, setSellerProfile] = useState<SellerAccountProfile | null>(null)
@@ -201,8 +203,11 @@ export function SellListingPage() {
   }
 
   const stepTitles = ['Product information', 'Product images', 'Seller information', 'Publication payment']
-  return <div className="sell-page">
-    <header><Link className="market-brand" to="/marketplace"><span className="market-logo"><ImagePlus size={25} /></span><span><strong>Market<span>hub</span></strong><small>Buy. Sell. Save More.</small></span></Link>{sellerProfile ? <Link to="/marketplace/seller">Seller dashboard</Link> : <Link to="/marketplace/seller/login">Seller sign in</Link>}</header>
+  return <div className="seller-dashboard-shell seller-posting-shell">
+    <SellerPortalSidebar activeSection="add" menuOpen={menuOpen} onClose={() => setMenuOpen(false)} />
+    <div className="seller-dashboard-body">
+    <div className="sell-page">
+    <header><button className="seller-menu-button seller-posting-menu-button" type="button" aria-label="Open seller navigation" onClick={() => setMenuOpen((open) => !open)}><Menu size={19} /></button><Link className="market-brand" to="/marketplace"><span className="market-logo"><ImagePlus size={25} /></span><span><strong>Market<span>hub</span></strong><small>Buy. Sell. Save More.</small></span></Link>{sellerProfile ? <Link to="/marketplace/seller">Seller dashboard</Link> : <Link to="/marketplace/seller/login">Seller sign in</Link>}</header>
     <main className="sell-main">
       <Link to="/marketplace" className="back-link"><ArrowLeft size={15} /> Marketplace</Link>
       <div className="sell-heading"><div><span>MARKETPLACE LISTING</span><h1>{published ? 'Your listing is live' : 'Sell an item'}</h1></div><p>Machakos County · Kenya</p></div>
@@ -216,6 +221,8 @@ export function SellListingPage() {
   {!published && <div className="sell-form-actions">{step > 1 && step < 4 && <button className="sell-secondary" type="button" onClick={() => setStep((current) => current - 1)}><ArrowLeft size={15} /> Back</button>}{step === 4 && <Link className="sell-secondary" to={sellerProfile ? '/marketplace/seller' : '/marketplace'}><ArrowLeft size={15} /> {sellerProfile ? 'Back to seller portal' : 'Back to marketplace'}</Link>}{step < 3 && <button className="sell-primary" type="submit">Continue <ArrowRight size={15} /></button>}{step === 3 && <button className="sell-primary" type="submit" disabled={loadingData}>{loadingData ? <><LoaderCircle /> Creating listing…</> : <>Create listing <ArrowRight size={15} /></>}</button>}</div>}
   </form>}
     </main>
+    </div>
+    </div>
   </div>
 }
 
