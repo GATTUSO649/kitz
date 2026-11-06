@@ -1,15 +1,18 @@
 import { useEffect, useEffectEvent, useState, type FormEvent } from 'react'
-import { ArrowLeft, ArrowRight, BadgeCheck, Bell, Box, CalendarDays, Check, CircleAlert, CircleHelp, Eye, EyeOff, LayoutDashboard, Leaf, ListChecks, LogOut, MapPin, Menu, MessageSquareText, Pencil, Plus, Search, Settings, ShieldCheck, ShoppingBag, Store, Tag, Trash2, UserRound, X } from 'lucide-react'
+import { Activity, ArrowLeft, ArrowRight, BadgeCheck, BarChart3, Bell, Box, CalendarDays, Check, CircleAlert, CircleHelp, Clock3, Eye, EyeOff, LayoutDashboard, Leaf, ListChecks, LogOut, MapPin, Megaphone, Menu, MessageSquareText, Pencil, Plus, Search, Settings, ShieldCheck, ShoppingBag, Store, Tag, Trash2, UserRound, WalletCards, X } from 'lucide-react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 type County = { code: string; name: string }
 type SellerProfile = { id: string; email: string; sellerId: string; name: string; phone: string; whatsapp: string | null; countyCode: string; county: string; subcounty: string; town: string; area: string | null }
 type SellerImage = { id: string; imageUrl: string; isPrimary: boolean; sortOrder: number }
-type SellerProduct = { id: string; reference: string; slug: string; title: string; description: string; condition: string; priceKes: number; negotiable: boolean; status: string; categoryId: string; category: string; subcategoryId: string | null; createdAt: string; images: SellerImage[] }
+type SellerProduct = { id: string; reference: string; slug: string; title: string; description: string; condition: string; priceKes: number; negotiable: boolean; status: string; expiresAt: string | null; publicAvailable: boolean; categoryId: string; category: string; categoryActive: boolean; subcategoryId: string | null; createdAt: string; publishedAt: string | null; images: SellerImage[] }
 type OtherProduct = { slug: string; title: string; priceKes: number; category: string; county: string; town: string; imageUrl: string | null; condition: string }
 type Category = { id: string; name: string; subcategories: { id: string; name: string }[] }
 type ProductDraft = Pick<SellerProduct, 'title' | 'description' | 'categoryId' | 'subcategoryId' | 'condition' | 'priceKes' | 'negotiable'>
-type SellerSection = 'dashboard' | 'listings' | 'orders' | 'messages' | 'profile' | 'settings' | 'help'
+type SellerSection = 'dashboard' | 'listings' | 'orders' | 'messages' | 'analytics' | 'promotions' | 'payments' | 'reviews' | 'profile' | 'settings' | 'help'
+type SellerAnalytics = { listingViews: number; viewsLast30Days: number; viewsPrevious30Days: number; dailyViews: { day: string; views: number }[]; viewsByListing: { reference: string; views: number }[] }
+type SellerActivity = { action: string; reference: string | null; title: string | null; createdAt: string }
+type ViewsChartPoint = { label: string; views: number; previous: number }
 
 const sellerApi = '/api/v1/marketplace/seller'
 const formatKes = (value: number) => `KSh ${new Intl.NumberFormat('en-KE').format(value)}`
@@ -193,16 +196,113 @@ export function SellerVerifyPage() {
   return <div className="seller-auth-page"><SellerAuthBrand /><main className="seller-auth-main"><section className="seller-auth-card seller-verified-state"><span className={`seller-auth-icon${displayError ? ' is-error' : ''}`}>{displayError ? <CircleAlert /> : <BadgeCheck />}</span><span className="seller-eyebrow">SELLER ACCOUNT</span><h1>{displayError ? 'Verification failed' : message === 'Verifying your email…' ? 'Verifying your email' : 'Email verified'}</h1>{displayError ? <p className="seller-error" role="alert">{displayError}</p> : <p>{message}</p>}{message !== 'Verifying your email…' && !displayError && <button className="seller-primary-button" type="button" onClick={() => navigate('/marketplace/seller/login', { replace: true })}>Continue to sign in <ArrowRight size={16} /></button>}{displayError && <Link className="seller-primary-button" to="/marketplace/seller/signup">Return to registration</Link>}</section></main></div>
 }
 
+type ViewsPeriod = 'daily' | 'weekly' | 'monthly'
+
+function buildViewsChartData(dailyViews: SellerAnalytics['dailyViews'], period: ViewsPeriod) {
+  const viewsByDay = new Map(dailyViews.map((item) => [item.day, item.views]))
+  const today = new Date()
+  today.setUTCHours(0, 0, 0, 0)
+  const sumDays = (start: Date, count: number) => {
+    let total = 0
+    for (let offset = 0; offset < count; offset += 1) {
+      const date = new Date(start)
+      date.setUTCDate(date.getUTCDate() + offset)
+      total += viewsByDay.get(date.toISOString().slice(0, 10)) ?? 0
+    }
+    return total
+  }
+
+  if (period === 'daily') return Array.from({ length: 30 }, (_, index) => {
+    const date = new Date(today)
+    date.setUTCDate(date.getUTCDate() - (29 - index))
+    const previousDate = new Date(date)
+    previousDate.setUTCDate(previousDate.getUTCDate() - 30)
+    const key = date.toISOString().slice(0, 10)
+    return { label: date.toLocaleDateString('en-KE', { day: 'numeric', month: 'short', timeZone: 'UTC' }), views: viewsByDay.get(key) ?? 0, previous: viewsByDay.get(previousDate.toISOString().slice(0, 10)) ?? 0 }
+  })
+
+  if (period === 'weekly') {
+    today.setUTCDate(today.getUTCDate() - (today.getUTCDay() + 6) % 7)
+    return Array.from({ length: 12 }, (_, index) => {
+      const start = new Date(today)
+      start.setUTCDate(start.getUTCDate() - (11 - index) * 7)
+      const previousStart = new Date(start)
+      previousStart.setUTCDate(previousStart.getUTCDate() - 84)
+      return { label: start.toLocaleDateString('en-KE', { day: 'numeric', month: 'short', timeZone: 'UTC' }), views: sumDays(start, 7), previous: sumDays(previousStart, 7) }
+    })
+  }
+
+  const currentMonth = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1))
+  return Array.from({ length: 6 }, (_, index) => {
+    const start = new Date(Date.UTC(currentMonth.getUTCFullYear(), currentMonth.getUTCMonth() - (5 - index), 1))
+    const end = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1))
+    const previousStart = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() - 6, 1))
+    const previousEnd = new Date(Date.UTC(previousStart.getUTCFullYear(), previousStart.getUTCMonth() + 1, 1))
+    const days = Math.round((end.getTime() - start.getTime()) / 86_400_000)
+    const previousDays = Math.round((previousEnd.getTime() - previousStart.getTime()) / 86_400_000)
+    return { label: start.toLocaleDateString('en-KE', { month: 'short', year: '2-digit', timeZone: 'UTC' }), views: sumDays(start, days), previous: sumDays(previousStart, previousDays) }
+  })
+}
+
+function SellerViewsChart({ data }: { data: ViewsChartPoint[] }) {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null)
+  const width = 720
+  const height = 220
+  const left = 38
+  const right = 12
+  const top = 14
+  const bottom = 28
+  const chartWidth = width - left - right
+  const chartHeight = height - top - bottom
+  const maximum = Math.max(4, ...data.flatMap((item) => [item.views, item.previous]))
+  const x = (index: number) => left + index / Math.max(1, data.length - 1) * chartWidth
+  const y = (value: number) => top + chartHeight - value / maximum * chartHeight
+  const path = (key: 'views' | 'previous') => data.map((item, index) => `${x(index)},${y(item[key])}`).join(' ')
+  const interval = data.length > 18 ? 5 : data.length > 10 ? 3 : 1
+  const hovered = hoverIndex === null ? null : data[hoverIndex]
+
+  return <div className="seller-chart-canvas">
+    <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label="Daily listing views compared with the previous period">
+      {Array.from({ length: 5 }, (_, index) => {
+        const value = Math.ceil(maximum / 4 * (4 - index))
+        const lineY = top + chartHeight / 4 * index
+        return <g key={index}><line x1={left} x2={width - right} y1={lineY} y2={lineY} stroke="#e8edf4" /><text x={left - 7} y={lineY + 3} textAnchor="end" fill="#64748b" fontSize="9">{value}</text></g>
+      })}
+      <polyline points={path('previous')} fill="none" stroke="#bdcfee" strokeWidth="2" strokeDasharray="5 5" />
+      <polyline points={path('views')} fill="none" stroke="#2563eb" strokeWidth="2.5" />
+      {data.map((item, index) => <g key={`${item.label}-${index}`}>
+        <circle cx={x(index)} cy={y(item.views)} r={hoverIndex === index ? 4 : 2.5} fill="#2563eb" tabIndex={0} aria-label={`${item.label}: ${item.views} views; ${item.previous} previous period`} onMouseEnter={() => setHoverIndex(index)} onMouseLeave={() => setHoverIndex(null)} onFocus={() => setHoverIndex(index)} onBlur={() => setHoverIndex(null)} />
+        {index % interval === 0 && <text x={x(index)} y={height - 7} textAnchor="middle" fill="#64748b" fontSize="9">{item.label}</text>}
+      </g>)}
+    </svg>
+    {hovered && hoverIndex !== null && <div className="seller-chart-tooltip" style={{ left: `${x(hoverIndex) / width * 100}%`, top: `${Math.max(4, y(hovered.views) / height * 100 - 13)}%` }}><strong>{hovered.label}</strong><span>This period: {hovered.views.toLocaleString('en-KE')}</span><span>Previous: {hovered.previous.toLocaleString('en-KE')}</span></div>}
+  </div>
+}
+
+function activityLabel(action: string) {
+  const labels: Record<string, string> = {
+    'listing.created': 'Listing submitted',
+    'listing.published': 'Listing published',
+    'seller.listing.updated': 'Listing updated',
+    'seller.listing.sold': 'Marked as sold',
+    'seller.listing.removed': 'Listing removed',
+  }
+  return labels[action] ?? 'Listing activity'
+}
+
 export function SellerPortalPage() {
   const navigate = useNavigate()
   const [profile, setProfile] = useState<SellerProfile | null>(null)
   const [products, setProducts] = useState<SellerProduct[]>([])
+  const [analytics, setAnalytics] = useState<SellerAnalytics | null>(null)
+  const [activity, setActivity] = useState<SellerActivity[]>([])
   const [otherProducts, setOtherProducts] = useState<OtherProduct[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [counties, setCounties] = useState<County[]>([])
   const [menuOpen, setMenuOpen] = useState(false)
   const [section, setSection] = useState<SellerSection>('dashboard')
   const [tab, setTab] = useState<'mine' | 'marketplace'>('mine')
+  const [viewsPeriod, setViewsPeriod] = useState<ViewsPeriod>('daily')
   const [statusFilter, setStatusFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [editing, setEditing] = useState<SellerProduct | null>(null)
@@ -230,11 +330,13 @@ export function SellerPortalPage() {
     if (!otherResponse.ok) throw new Error(await getError(otherResponse, 'Marketplace products could not be loaded.'))
     if (!categoryResponse.ok) throw new Error(await getError(categoryResponse, 'Product categories could not be loaded.'))
     if (!countyResponse.ok) throw new Error(await getError(countyResponse, 'Seller locations could not be loaded.'))
-    const mine = await mineResponse.json() as { data: SellerProduct[] }
+    const mine = await mineResponse.json() as { data: SellerProduct[]; analytics: SellerAnalytics; recentActivity: SellerActivity[] }
     const others = await otherResponse.json() as { data: OtherProduct[] }
     const categoryData = await categoryResponse.json() as { data: Category[] }
     const countyData = await countyResponse.json() as { data: County[] }
     setProducts(mine.data)
+    setAnalytics(mine.analytics)
+    setActivity(mine.recentActivity)
     setOtherProducts(others.data)
     setCategories(categoryData.data)
     setCounties(countyData.data)
@@ -345,38 +447,64 @@ export function SellerPortalPage() {
   const pendingCount = products.filter((product) => product.status === 'pending_payment').length
   const soldCount = products.filter((product) => product.status === 'sold').length
   const expiredCount = products.filter((product) => product.status === 'expired').length
-  const sectionName: Record<SellerSection, string> = { dashboard: 'Dashboard', listings: tab === 'marketplace' ? 'Other products' : 'My listings', orders: 'Orders & Sales', messages: 'Messages', profile: 'Profile', settings: 'Settings', help: 'Help & Support' }
+  const activeCount = products.filter((product) => product.publicAvailable).length
+  const viewsChartData = buildViewsChartData(analytics?.dailyViews ?? [], viewsPeriod)
+  const listingViews = analytics?.listingViews ?? 0
+  const viewsChange = (analytics?.viewsLast30Days ?? 0) - (analytics?.viewsPrevious30Days ?? 0)
+  const sectionName: Record<SellerSection, string> = { dashboard: 'Dashboard', listings: tab === 'marketplace' ? 'Other products' : 'My listings', orders: 'Orders & Sales', messages: 'Messages', analytics: 'Analytics', promotions: 'Promotions', payments: 'Payments & Earnings', reviews: 'Reviews & Ratings', profile: 'Profile & Settings', settings: 'Account Security', help: 'Help & Support' }
   const navigation: { id: SellerSection | 'add'; label: string; icon: typeof LayoutDashboard }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'listings', label: 'My Listings', icon: ListChecks },
     { id: 'add', label: 'Add Item', icon: Plus },
     { id: 'orders', label: 'Orders & Sales', icon: ShoppingBag },
     { id: 'messages', label: 'Messages', icon: MessageSquareText },
-    { id: 'profile', label: 'Profile', icon: UserRound },
-    { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+    { id: 'promotions', label: 'Promotions', icon: Megaphone },
+    { id: 'payments', label: 'Payments & Earnings', icon: WalletCards },
+    { id: 'reviews', label: 'Reviews & Ratings', icon: BadgeCheck },
+    { id: 'profile', label: 'Profile & Settings', icon: UserRound },
+    { id: 'settings', label: 'Account Security', icon: Settings },
     { id: 'help', label: 'Help & Support', icon: CircleHelp },
   ]
+  const viewsChart = <section className="seller-analytics-panel"><header><div><span className="seller-eyebrow">LISTING PERFORMANCE</span><h2>Listing Views</h2><p>{listingViews.toLocaleString('en-KE')} lifetime views · {analytics?.viewsLast30Days.toLocaleString('en-KE') ?? 0} in the last 30 days</p></div><div className="seller-period-switch" role="group" aria-label="Views chart period">{(['daily', 'weekly', 'monthly'] as const).map((period) => <button type="button" className={viewsPeriod === period ? 'active' : ''} aria-pressed={viewsPeriod === period} key={period} onClick={() => setViewsPeriod(period)}>{period}</button>)}</div></header><div className="seller-chart-wrap"><SellerViewsChart data={viewsChartData} /></div><footer><span><i className="this-period" /> Selected period</span><span><i /> Previous period</span><b>{viewsChange >= 0 ? '+' : ''}{viewsChange.toLocaleString('en-KE')} views vs. prior 30 days</b></footer></section>
+  const activityPanel = <section className="seller-activity-panel"><header><div><span className="seller-eyebrow">ACCOUNT HISTORY</span><h2>Recent Activity</h2></div><button type="button" className="seller-text-link" onClick={() => setSection('listings')}>View listings <ArrowRight size={14} /></button></header>{activity.length ? <ol>{activity.slice(0, 6).map((item, index) => <li key={`${item.action}-${item.reference ?? 'account'}-${item.createdAt}-${index}`}><span className="seller-activity-icon">{item.action === 'listing.published' ? <Check size={15} /> : item.action === 'seller.listing.sold' ? <ShoppingBag size={15} /> : <Activity size={15} />}</span><div><strong>{activityLabel(item.action)}</strong>{item.title && <span>{item.title}</span>}<time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString('en-KE', { dateStyle: 'medium', timeStyle: 'short' })}</time></div></li>)}</ol> : <div className="seller-empty"><Clock3 size={22} /><strong>No activity recorded yet</strong><p>Listing updates will appear here.</p></div>}</section>
   return <div className="seller-dashboard-shell">
     <aside className={`seller-dashboard-sidebar${menuOpen ? ' is-open' : ''}`}>
       <Link to="/marketplace" className="seller-sidebar-brand"><Tag size={32} /><span><b>MarketHub</b><small>Buy · Sell · Reuse · Save</small></span></Link>
       <nav aria-label="Seller portal">{navigation.map((item) => item.id === 'add' ? <Link className="seller-sidebar-link" to="/marketplace/sell" key={item.id}><item.icon /><span>{item.label}</span></Link> : <button className={`seller-sidebar-link${section === item.id && (item.id !== 'listings' || tab === 'mine') ? ' active' : ''}`} type="button" key={item.id} onClick={() => { setSection(item.id as SellerSection); setTab('mine'); setMenuOpen(false); setEditing(null) }}><item.icon /><span>{item.label}</span></button>)}</nav>
-      <div className="seller-sidebar-bottom"><button className="seller-sidebar-link" type="button" onClick={() => void logout()}><LogOut /><span>Logout</span></button><div className="seller-green-promo"><Leaf /><strong>Go Green</strong><span>Give items a second life.</span></div></div>
+      <div className="seller-sidebar-bottom"><button className="seller-sidebar-link" type="button" onClick={() => void logout()}><LogOut /><span>Logout</span></button><div className="seller-green-promo"><Leaf /><strong>GROW YOUR BUSINESS</strong><span>Reach more local buyers with MarketHub.</span><button type="button" onClick={() => setSection('help')}>Learn More <ArrowRight size={13} /></button></div></div>
     </aside>
     <div className="seller-dashboard-body">
       <header className="seller-dashboard-topbar"><button className="seller-menu-button" type="button" aria-label="Open seller navigation" onClick={() => setMenuOpen((open) => !open)}><Menu size={20} /></button><form className="seller-global-search" onSubmit={(event) => { event.preventDefault(); setSection('listings'); setMenuOpen(false) }}><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search your products..." aria-label="Search products" /><button type="submit" aria-label="Search"><Search size={17} /></button></form><button className="seller-topbar-alert" type="button" aria-label="Messages" onClick={() => setSection('messages')}><Bell size={18} /></button><button className="seller-account-chip" type="button" onClick={() => setSection('profile')}><span>{profile?.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'S'}</span><b>{profile?.name.split(' ')[0] ?? 'Seller'}</b><UserRound size={14} /></button></header>
-      <main className="seller-dashboard-content">
+      <main className="seller-dashboard-content" onClickCapture={(event) => {
+        const target = event.target instanceof HTMLElement ? event.target : null
+        const link = target?.closest('a')
+        const listingItem = link?.closest('.seller-listing-card-grid article, .seller-product-row')
+        const status = listingItem?.querySelector('.seller-status')?.textContent?.trim().toLowerCase()
+        const hrefSlug = link?.getAttribute('href')?.split('/').pop()
+        const cardTitle = listingItem?.querySelector('.seller-listing-card-title, .seller-product-main > a')?.textContent
+        const product = products.find((item) => item.slug === hrefSlug || item.title === cardTitle)
+        if (link && listingItem && (product && !product.publicAvailable || status && status !== 'published')) {
+          event.preventDefault()
+          setNotice('This listing is not currently available on the public marketplace.')
+        }
+      }}>
         {error && <div className="seller-error" role="alert"><CircleAlert size={16} />{error}</div>}{notice && <p className="admin-success-message" role="status">{notice}</p>}
         {loading ? <div className="seller-loading">Loading your workspace…</div> : section === 'profile' ? <section className="seller-account-settings"><span className="seller-eyebrow">SELLER ACCOUNT</span><h1>Profile</h1><p>Keep your seller details current for marketplace listings.</p><form className="seller-settings-form" onSubmit={saveProfile}><label>Full name<input required minLength={2} maxLength={120} value={profileDraft.name} onChange={(event) => setProfileDraft({ ...profileDraft, name: event.target.value })} /></label><label>Phone<input required inputMode="tel" value={profileDraft.phone} onChange={(event) => setProfileDraft({ ...profileDraft, phone: event.target.value })} /></label><label>WhatsApp (optional)<input inputMode="tel" value={profileDraft.whatsapp} onChange={(event) => setProfileDraft({ ...profileDraft, whatsapp: event.target.value })} /></label><div className="seller-form-pair"><label>County<select required value={profileDraft.countyCode} onChange={(event) => setProfileDraft({ ...profileDraft, countyCode: event.target.value })}>{counties.map((county) => <option value={county.code} key={county.code}>{county.name}</option>)}</select></label><label>Subcounty<input required minLength={2} maxLength={100} value={profileDraft.subcounty} onChange={(event) => setProfileDraft({ ...profileDraft, subcounty: event.target.value })} /></label></div><div className="seller-form-pair"><label>Town<input required minLength={2} maxLength={100} value={profileDraft.town} onChange={(event) => setProfileDraft({ ...profileDraft, town: event.target.value })} /></label><label>Area (optional)<input maxLength={120} value={profileDraft.area} onChange={(event) => setProfileDraft({ ...profileDraft, area: event.target.value })} /></label></div><button className="seller-primary-button" disabled={profileBusy}>{profileBusy ? 'Saving…' : 'Save profile'}</button></form></section>
           : section === 'settings' ? <section className="seller-account-settings"><span className="seller-eyebrow">ACCOUNT SECURITY</span><h1>Settings</h1><p>Change your password. Other signed-in seller sessions will be revoked.</p><form className="seller-settings-form" onSubmit={changePassword}><label>Current password<input required type="password" autoComplete="current-password" value={passwordDraft.currentPassword} onChange={(event) => setPasswordDraft({ ...passwordDraft, currentPassword: event.target.value })} /></label><label>New password<input required type="password" autoComplete="new-password" minLength={12} value={passwordDraft.password} onChange={(event) => setPasswordDraft({ ...passwordDraft, password: event.target.value })} /></label><label>Confirm new password<input required type="password" autoComplete="new-password" minLength={12} value={passwordDraft.confirmPassword} onChange={(event) => setPasswordDraft({ ...passwordDraft, confirmPassword: event.target.value })} /></label><button className="seller-primary-button" disabled={profileBusy}>{profileBusy ? 'Updating…' : 'Change password'}</button></form></section>
-          : section === 'orders' ? <section className="seller-account-settings"><span className="seller-eyebrow">SALES</span><h1>Orders &amp; Sales</h1><p>This marketplace currently records published listings and seller-marked sold items, but does not have an order or sales-payment ledger.</p><div className="seller-status-summary"><span>Items marked sold<strong>{soldCount}</strong></span><span>Published listings<strong>{publishedCount}</strong></span><span>Pending payment<strong>{pendingCount}</strong></span></div>{products.filter((product) => product.status === 'sold').length > 0 && <div className="seller-product-list">{products.filter((product) => product.status === 'sold').map((product) => <article className="seller-product-row" key={product.id}><span className="seller-product-thumb">{product.images[0] ? <img src={product.images[0].imageUrl} alt="" /> : <Box size={22} />}</span><div className="seller-product-main"><strong>{product.title}</strong><span>{product.category} · {product.reference}</span></div><div className="seller-product-price"><strong>{formatKes(product.priceKes)}</strong><span className="seller-status status-sold">Sold</span></div></article>)}</div>}</section>
+          : section === 'analytics' ? <section className="seller-analytics-page"><div className="seller-page-heading"><div><span className="seller-eyebrow">SELLER PERFORMANCE</span><h1>Analytics</h1><p>Views from your marketplace listings. No estimates or simulated sales data.</p></div></div>{viewsChart}<section className="seller-views-ranking"><header><div><span className="seller-eyebrow">LISTING PERFORMANCE</span><h2>Views by listing</h2></div><span>{listingViews.toLocaleString('en-KE')} lifetime views</span></header>{[...(analytics?.viewsByListing ?? [])].sort((a, b) => b.views - a.views).map((item) => { const product = products.find((candidate) => candidate.reference === item.reference); return product ? <article key={item.reference}><span className="seller-product-thumb">{product.images[0] ? <img src={product.images[0].imageUrl} alt="" /> : <Box size={20} />}</span><div><strong>{product.title}</strong><small>{product.category} · {product.status.replaceAll('_', ' ')}</small></div><b><Eye size={14} /> {item.views.toLocaleString('en-KE')}</b></article> : null })}{products.length === 0 && <div className="seller-empty"><BarChart3 size={22} /><strong>No listing analytics yet</strong><p>Views will be recorded when buyers open your published listings.</p></div>}</section></section>
+          : ['promotions', 'payments', 'reviews'].includes(section) ? <section className="seller-feature-unavailable"><span className="seller-feature-icon">{section === 'promotions' ? <Megaphone /> : section === 'payments' ? <WalletCards /> : <BadgeCheck />}</span><span className="seller-eyebrow">{sectionName[section].toUpperCase()}</span><h1>{sectionName[section]}</h1><p>{section === 'promotions' ? 'Featured placement is managed by MarketHub administrators. Seller-funded promotions are not available.' : section === 'payments' ? 'The marketplace records publication and contact-unlock fees, but does not yet track seller earnings or payouts.' : 'Buyer reviews and ratings are not currently collected for marketplace listings.'}</p><Link className="seller-outline-button" to="/marketplace/sell">Create a listing <ArrowRight size={14} /></Link></section>
+          : section === 'orders' ? <section className="seller-account-settings"><span className="seller-eyebrow">SALES</span><h1>Orders &amp; Sales</h1><p>MarketHub currently lets sellers mark a listing as sold, but does not have a buyer order or seller sales-payment ledger. Sold items below are seller-reported, not verified payments.</p><div className="seller-status-summary"><span>Seller-marked sold<strong>{soldCount}</strong></span><span>Published listings<strong>{publishedCount}</strong></span><span>Pending publication<strong>{pendingCount}</strong></span></div>{products.filter((product) => product.status === 'sold').length > 0 && <div className="seller-product-list">{products.filter((product) => product.status === 'sold').map((product) => <article className="seller-product-row" key={product.id}><span className="seller-product-thumb">{product.images[0] ? <img src={product.images[0].imageUrl} alt="" /> : <Box size={22} />}</span><div className="seller-product-main"><strong>{product.title}</strong><span>{product.category} · {product.reference}</span></div><div className="seller-product-price"><strong>{formatKes(product.priceKes)}</strong><span className="seller-status status-sold">Sold</span></div></article>)}</div>}</section>
           : section === 'messages' ? <section className="seller-account-settings"><span className="seller-eyebrow">BUYER COMMUNICATION</span><h1>Messages</h1><div className="seller-unavailable"><MessageSquareText size={24} /><strong>Marketplace messaging isn’t available</strong><p>Buyers currently contact sellers through the protected contact-unlock flow on each listing. Messages are not stored in a seller inbox.</p></div></section>
           : section === 'help' ? <section className="seller-account-settings"><span className="seller-eyebrow">MARKETHUB SUPPORT</span><h1>Help &amp; Support</h1><p>Need help with your seller account or a listing?</p><div className="seller-help-links"><a href="mailto:hello@markethub.co.ke"><CircleHelp size={18} /><span><strong>Email MarketHub support</strong><small>hello@markethub.co.ke</small></span><ArrowRight size={16} /></a><Link to="/marketplace"><Store size={18} /><span><strong>Browse the marketplace</strong><small>Review your live products as buyers see them</small></span><ArrowRight size={16} /></Link></div></section>
           : <>
             {section === 'dashboard' && <>
-              <section className="seller-dashboard-hero"><div className="seller-dashboard-hero-copy"><span>SELLER PORTAL</span><h1>Welcome back, {profile?.name.split(' ')[0] ?? 'Seller'}!</h1><h2>Grow your business on MarketHub.</h2><p>List more, sell more, and reach new buyers.</p><Link className="seller-primary-button" to="/marketplace/sell">Add New Item <ArrowRight size={16} /></Link></div></section>
-              <div className="seller-metric-grid"><article><span><ShoppingBag /></span><small>Total Listings</small><strong>{products.length}</strong><em>{publishedCount} published</em></article><article><span><Check /></span><small>Items Sold</small><strong>{soldCount}</strong><em>Marked sold by you</em></article><article><span><CalendarDays /></span><small>Pending Payment</small><strong>{pendingCount}</strong><em>Awaiting publication payment</em></article><article><span><Eye /></span><small>Active Listings</small><strong>{publishedCount}</strong><em>{expiredCount} expired</em></article></div>
+              <section className="seller-dashboard-hero"><div className="seller-dashboard-hero-copy"><span>SELLER PORTAL</span><h1>Welcome back, {profile?.name.split(' ')[0] ?? 'Seller'}!</h1><h2>Here’s what’s happening with your MarketHub account.</h2><Link className="seller-primary-button" to="/marketplace/sell"><Plus size={16} /> Add Listing</Link></div><div className="seller-hero-actions"><button type="button" className="seller-topbar-alert" aria-label="Open recent activity" onClick={() => document.getElementById('seller-recent-activity')?.scrollIntoView({ behavior: 'smooth' })}><Bell size={19} /></button><button type="button" className="seller-account-chip" onClick={() => setSection('profile')}><span>{profile?.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'S'}</span><b>{profile?.name.split(' ')[0] ?? 'Seller'}</b><UserRound size={14} /></button></div></section>
+              <div className="seller-metric-grid"><button type="button" onClick={() => { setSection('listings'); setStatusFilter('published') }}><span><Tag /></span><small>Active Listings</small><strong>{activeCount}</strong><em>Currently available</em></button><button type="button" onClick={() => setSection('orders')}><span><ShoppingBag /></span><small>New Orders</small><strong>Not tracked</strong><em>No order ledger available</em></button><button type="button" onClick={() => setSection('payments')}><span><WalletCards /></span><small>Total Sales</small><strong>Not tracked</strong><em>Seller sales are not recorded</em></button><button type="button" onClick={() => setSection('analytics')}><span><Eye /></span><small>Listing Views</small><strong>{listingViews.toLocaleString('en-KE')}</strong><em>{analytics?.viewsLast30Days.toLocaleString('en-KE') ?? 0} in last 30 days</em></button></div>
+              <section className="seller-listing-preview"><header><div><span className="seller-eyebrow">YOUR CATALOGUE</span><h2>Your Listings</h2></div><button type="button" className="seller-text-link" onClick={() => setSection('listings')}>View all <ArrowRight size={14} /></button></header><div className="seller-listing-card-grid">{products.slice(0, 4).map((product) => <article key={product.id}><Link to={product.status === 'published' ? `/marketplace/products/${product.slug}` : '#'} onClick={(event) => { if (product.status !== 'published') { event.preventDefault(); setNotice('Only published listings have a public product page.') } }} className="seller-listing-card-image">{product.images[0] ? <img src={product.images[0].imageUrl} alt={product.title} /> : <Box size={28} />}<span className={`seller-status status-${product.status}`}>{product.status.replaceAll('_', ' ')}</span></Link><Link className="seller-listing-card-title" to={product.status === 'published' ? `/marketplace/products/${product.slug}` : '/marketplace/seller'}>{product.title}</Link><strong>{formatKes(product.priceKes)}</strong><small><Eye size={13} /> {analytics?.viewsByListing.find((item) => item.reference === product.reference)?.views ?? 0} views</small><div className="seller-listing-card-actions"><button type="button" title="Edit listing" aria-label={`Edit ${product.title}`} onClick={() => { setSection('listings'); startEdit(product) }}><Pencil size={14} /></button>{product.status === 'published' && <button type="button" title="Mark sold" aria-label={`Mark ${product.title} sold`} onClick={() => void markSold(product)}><Check size={14} /></button>}<button type="button" title="Remove listing" aria-label={`Remove ${product.title}`} onClick={() => void removeProduct(product)}><Trash2 size={14} /></button></div></article>)}{products.length === 0 && <div className="seller-empty"><Box size={22} /><strong>No listings yet</strong><p>Create a listing to start showing up in the marketplace.</p><Link className="seller-primary-button" to="/marketplace/sell"><Plus size={15} /> Add Listing</Link></div>}</div></section>
+              <div className="seller-dashboard-lower"><div>{viewsChart}</div><div id="seller-recent-activity">{activityPanel}<section className="seller-account-health"><span className="seller-account-health-icon"><BadgeCheck size={20} /></span><div><strong>Seller account verified</strong><p>{profile?.town}, {profile?.county}</p></div><button type="button" className="seller-outline-button" onClick={() => setSection('profile')}>Manage account <ArrowRight size={14} /></button></section></div></div>
             </>}
-            <div className={`seller-dashboard-columns${section === 'listings' ? ' is-listings' : ''}`}>
+            <div data-section={section} className={`seller-dashboard-columns${section === 'listings' ? ' is-listings' : ''}`}>
               <div className="seller-dashboard-products"><div className="seller-dashboard-section-heading"><div><span className="seller-eyebrow">{section === 'dashboard' ? 'YOUR CATALOGUE' : 'MARKETPLACE CATALOGUE'}</span><h2>{section === 'dashboard' ? 'My Listings' : sectionName[section]}</h2></div>{section === 'dashboard' && <button className="seller-text-link" type="button" onClick={() => setSection('listings')}>View All <ArrowRight size={14} /></button>}</div>
                 <div className="seller-portal-page"><SellerHeader profile={profile} /><main className="seller-portal-main">
     <div className="seller-portal-heading"><div><span className="seller-eyebrow">SELLER WORKSPACE</span><h1>{profile ? `Welcome, ${profile.name.split(' ')[0]}` : 'Your products'}</h1><p><MapPin size={14} /> {profile ? `${profile.town}, ${profile.county}` : 'Marketplace Kenya'}</p></div><div><Link className="seller-outline-button" to="/marketplace">Browse marketplace</Link><button className="seller-icon-button" type="button" title="Sign out" aria-label="Sign out" onClick={() => void logout()}><LogOut size={17} /></button></div></div>

@@ -1,12 +1,12 @@
 import { randomBytes } from 'node:crypto'
 import bcrypt from 'bcryptjs'
-import { and, desc, eq, gt, inArray, isNull, ne } from 'drizzle-orm'
+import { and, count, desc, eq, gte, gt, inArray, isNull, ne, sql } from 'drizzle-orm'
 import type { NextFunction, Request, Response } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import { Router } from 'express'
 import { z } from 'zod'
 import { database } from '../../database/connection.js'
-import { marketplaceAuditLogs, marketplaceCategories, marketplaceCounties, marketplaceProductImages, marketplaceProducts, marketplaceSellerAccounts, marketplaceSellerSessions, marketplaceSellers, marketplaceSellerVerificationTokens, marketplaceSubcategories } from '../../database/schema.js'
+import { marketplaceAuditLogs, marketplaceCategories, marketplaceCounties, marketplaceProductImages, marketplaceProductViews, marketplaceProducts, marketplaceSellerAccounts, marketplaceSellerSessions, marketplaceSellers, marketplaceSellerVerificationTokens, marketplaceSubcategories } from '../../database/schema.js'
 import { enqueueMarketplaceEmail } from '../email/outbox.js'
 import { hashSecret, normalizeKenyanPhone } from './security.js'
 
@@ -327,10 +327,13 @@ marketplaceSellerDataRouter.get('/seller/products', requireMarketplaceSeller, as
       priceKes: marketplaceProducts.priceKes,
       negotiable: marketplaceProducts.negotiable,
       status: marketplaceProducts.status,
+      expiresAt: marketplaceProducts.expiresAt,
       categoryId: marketplaceProducts.categoryId,
       category: marketplaceCategories.name,
+      categoryActive: marketplaceCategories.active,
       subcategoryId: marketplaceProducts.subcategoryId,
       createdAt: marketplaceProducts.createdAt,
+      publishedAt: marketplaceProducts.publishedAt,
       updatedAt: marketplaceProducts.updatedAt,
     }).from(marketplaceProducts)
       .innerJoin(marketplaceSellers, eq(marketplaceProducts.sellerId, marketplaceSellers.id))
@@ -338,10 +341,70 @@ marketplaceSellerDataRouter.get('/seller/products', requireMarketplaceSeller, as
       .where(eq(marketplaceSellers.accountId, seller.id)).orderBy(desc(marketplaceProducts.createdAt))
     const images = products.length ? await database.select({ id: marketplaceProductImages.id, productId: marketplaceProductImages.productId, imageUrl: marketplaceProductImages.imageUrl, isPrimary: marketplaceProductImages.isPrimary, sortOrder: marketplaceProductImages.sortOrder })
       .from(marketplaceProductImages).where(inArray(marketplaceProductImages.productId, products.map((product) => product.id))).orderBy(desc(marketplaceProductImages.isPrimary), marketplaceProductImages.sortOrder) : []
+    const productIds = products.map((product) => product.id)
+    const yearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000)
+    const [viewTotals, dailyViews, recentActivity] = await Promise.all([
+      productIds.length
+        ? database.select({ productId: marketplaceProductViews.productId, total: count() }).from(marketplaceProductViews)
+          .where(inArray(marketplaceProductViews.productId, productIds)).groupBy(marketplaceProductViews.productId)
+        : Promise.resolve([]),
+      productIds.length
+        ? database.select({ day: sql<string>`to_char(date_trunc('day', ${marketplaceProductViews.viewedAt}), 'YYYY-MM-DD')`, total: count() })
+          .from(marketplaceProductViews)
+          .where(and(inArray(marketplaceProductViews.productId, productIds), gte(marketplaceProductViews.viewedAt, yearAgo)))
+          .groupBy(sql`date_trunc('day', ${marketplaceProductViews.viewedAt})`)
+          .orderBy(sql`date_trunc('day', ${marketplaceProductViews.viewedAt})`)
+        : Promise.resolve([]),
+      productIds.length
+        ? database.select({ action: marketplaceAuditLogs.action, resourceId: marketplaceAuditLogs.resourceId, createdAt: marketplaceAuditLogs.createdAt })
+          .from(marketplaceAuditLogs)
+          .where(and(
+            eq(marketplaceAuditLogs.resourceType, 'marketplace_product'),
+            inArray(marketplaceAuditLogs.resourceId, productIds),
+            sql`${marketplaceAuditLogs.metadata}->>'sellerAccountId' = ${seller.id}`,
+          ))
+          .orderBy(desc(marketplaceAuditLogs.createdAt)).limit(12)
+        : Promise.resolve([]),
+    ])
     const imagesByProduct = new Map<string, typeof images>()
     for (const image of images) imagesByProduct.set(image.productId, [...(imagesByProduct.get(image.productId) ?? []), image])
+    const viewCountByProduct = new Map(viewTotals.map((row) => [row.productId, Number(row.total)]))
+    const productById = new Map(products.map((product) => [product.id, product]))
+    const today = new Date()
+    const viewsLast30Days = dailyViews.filter((row) => row.day >= new Date(today.getTime() - 29 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10))
+      .reduce((total, row) => total + Number(row.total), 0)
+    const viewsPrevious30Days = dailyViews.filter((row) => {
+      const start = new Date(today.getTime() - 59 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+      const end = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+      return row.day >= start && row.day <= end
+    }).reduce((total, row) => total + Number(row.total), 0)
     response.setHeader('Cache-Control', 'no-store')
-    response.json({ data: products.map((product) => ({ ...product, images: imagesByProduct.get(product.id) ?? [] })) })
+    response.json({
+      data: products.map((product) => ({
+        ...product,
+        publicAvailable: product.status === 'published' && product.categoryActive && Boolean(product.expiresAt && product.expiresAt > new Date()),
+        images: imagesByProduct.get(product.id) ?? [],
+      })),
+      analytics: {
+        listingViews: [...viewCountByProduct].reduce((total, [, views]) => total + views, 0),
+        viewsLast30Days,
+        viewsPrevious30Days,
+        dailyViews: dailyViews.map((row) => ({ day: row.day, views: Number(row.total) })),
+        viewsByListing: products.map((product) => ({ reference: product.reference, views: viewCountByProduct.get(product.id) ?? 0 })),
+      },
+      recentActivity: [
+        ...products.flatMap((product) => [
+          { action: 'listing.created', reference: product.reference, title: product.title, createdAt: product.createdAt },
+          ...(product.publishedAt ? [{ action: 'listing.published', reference: product.reference, title: product.title, createdAt: product.publishedAt }] : []),
+        ]),
+        ...recentActivity.map((item) => ({
+          action: item.action,
+          reference: item.resourceId ? productById.get(item.resourceId)?.reference ?? null : null,
+          title: item.resourceId ? productById.get(item.resourceId)?.title ?? null : null,
+          createdAt: item.createdAt,
+        })),
+      ].sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime()).slice(0, 12),
+    })
   } catch (error) {
     next(error)
   }

@@ -237,8 +237,16 @@ submissionRouter.post('/submissions/:reference/images', imageUploadLimiter, imag
     if (!image) throw new Error('Marketplace image record was not created.')
     response.status(201).json({ data: image })
   } catch (error) {
-    if (error instanceof Error && /valid JPEG|persistent image storage|storage rejected|storage returned/.test(error.message)) {
+    if (error instanceof Error && /valid JPEG/.test(error.message)) {
       response.status(400).json({ error: { code: 'INVALID_IMAGE', message: error.message } })
+      return
+    }
+    if (error instanceof Error && /persistent image storage is not configured/.test(error.message)) {
+      response.status(503).json({ error: { code: 'IMAGE_STORAGE_UNAVAILABLE', message: 'Product image storage is not configured. Contact marketplace support.' } })
+      return
+    }
+    if (error instanceof Error && /storage rejected|storage returned/.test(error.message)) {
+      response.status(502).json({ error: { code: 'IMAGE_STORAGE_FAILED', message: 'Product image storage could not process this upload. Please try again.' } })
       return
     }
     next(error)
