@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { hash } from 'bcryptjs'
-import { and, asc, count, desc, eq, inArray, isNull } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gt, inArray, isNull } from 'drizzle-orm'
 import { Router, type NextFunction, type Request, type Response } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
@@ -12,7 +12,7 @@ import { adminAuditLogs, adminInvitations, adminLoginAttempts, adminRolePermissi
 import { categories, expenses, homepageSlides, inventoryMovements, notificationCampaigns, orders, payments, productVariants, products, supportRequests, users } from '../../database/schema.js'
 import { authenticateAdmin, authenticatedAdmin } from '../../middleware/authenticate.js'
 import { allocateAdministratorRoleNumber } from './role-number.js'
-import { administratorPermissions as permissionKeys, administratorPortal, administratorRoles as roles, defaultAdministratorPermissions, hasAdministratorPermission, marketplaceAdministratorRoles, type AdministratorPermission } from './administration.js'
+import { administratorPermissions as permissionKeys, administratorPortal, administratorRoles as roles, defaultAdministratorPermissions, hasAdministratorPermission, isMarketplaceRoleNumberActivation, marketplaceAdministratorRoles, type AdministratorPermission } from './administration.js'
 import { administratorPortalPermission } from './permission-routes.js'
 import { loadAdministratorPermissions, permissionDescriptions, validatePermissionSelection } from './permissions.js'
 
@@ -62,10 +62,52 @@ adminEcosystemRouter.post('/marketplace/authenticate', marketplaceAuthentication
   if (!input.success) return response.status(400).json({ error: { code: 'INVALID_MARKETPLACE_CREDENTIALS', message: 'Enter a valid administrator email and password.' } })
   if (!adminDb) return response.status(503).json({ error: { code: 'ADMIN_DATABASE_UNAVAILABLE', message: 'Administrator authentication is temporarily unavailable.' } })
 
-  const [admin] = await adminDb.select({ id: adminUsers.id, email: adminUsers.email, fullName: adminUsers.fullName, passwordHash: adminUsers.passwordHash, role: adminUsers.role, status: adminUsers.status, emailVerifiedAt: adminUsers.emailVerifiedAt })
+  const [admin] = await adminDb.select({ id: adminUsers.id, email: adminUsers.email, fullName: adminUsers.fullName, passwordHash: adminUsers.passwordHash, roleNumber: adminUsers.roleNumber, role: adminUsers.role, status: adminUsers.status, emailVerifiedAt: adminUsers.emailVerifiedAt })
     .from(adminUsers).where(eq(adminUsers.email, input.data.email)).limit(1)
-  const passwordMatches = await verifyPassword(input.data.password, admin?.passwordHash)
   const roleAllowed = admin?.role === 'super_admin' || (admin?.role ? marketplaceAdministratorRoles.has(admin.role) : false)
+
+  if (admin && roleAllowed && admin.roleNumber && isMarketplaceRoleNumberActivation({
+    role: admin.role,
+    status: admin.status,
+    roleNumber: admin.roleNumber,
+    emailVerifiedAt: admin.emailVerifiedAt,
+    password: input.data.password,
+  })) {
+    const [invitation] = await adminDb.select({ id: adminInvitations.id })
+      .from(adminInvitations)
+      .where(and(
+        eq(adminInvitations.adminUserId, admin.id),
+        eq(adminInvitations.email, admin.email),
+        isNull(adminInvitations.consumedAt),
+        gt(adminInvitations.expiresAt, new Date()),
+      )).limit(1)
+    if (invitation) {
+      const activationToken = randomBytes(32).toString('base64url')
+      await adminDb.transaction(async (transaction) => {
+        await transaction.update(adminInvitations).set({
+          tokenHash: tokenHash(activationToken),
+          expiresAt: new Date(Date.now() + 72 * 60 * 60_000),
+        }).where(eq(adminInvitations.id, invitation.id))
+        await transaction.insert(adminAuditLogs).values({
+          adminUserId: admin.id,
+          action: 'administrator.role_number_activation_started',
+          targetType: 'admin_user',
+          targetId: String(admin.id),
+        })
+      })
+      response.setHeader('Cache-Control', 'no-store')
+      response.json({ data: {
+        activationRequired: true,
+        activationToken,
+        roleNumber: admin.roleNumber,
+        email: admin.email,
+        portal: administratorPortal(admin.role!),
+      } })
+      return
+    }
+  }
+
+  const passwordMatches = await verifyPassword(input.data.password, admin?.passwordHash)
   if (!admin || !passwordMatches || admin.status !== 'active' || !admin.emailVerifiedAt || !roleAllowed) {
     await adminDb.insert(adminLoginAttempts).values({ identity: input.data.email, adminUserId: admin?.id, success: false, failureCode: 'MARKETPLACE_AUTH_REJECTED' })
     return response.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'The email address or password is incorrect.' } })

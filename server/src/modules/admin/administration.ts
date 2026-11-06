@@ -3,6 +3,15 @@ import type { AdministratorRole } from '../../database/admin-schema.js'
 export const administratorRoles: AdministratorRole[] = ['super_admin', 'it_admin', 'sales_admin', 'finance_admin', 'inventory_admin', 'marketing_admin', 'content_admin', 'second_hand_admin', 'seller_support_admin', 'marketplace_finance_admin', 'marketplace_moderator']
 export const marketplaceAdministratorRoles: ReadonlySet<AdministratorRole> = new Set(['second_hand_admin', 'seller_support_admin', 'marketplace_finance_admin', 'marketplace_moderator'])
 
+export function isMarketplaceRoleNumberActivation(input: { role: AdministratorRole | null; status: string; roleNumber: string | null; emailVerifiedAt: Date | null; password: string }): boolean {
+  return input.status === 'pending'
+    && input.emailVerifiedAt === null
+    && input.roleNumber !== null
+    && input.password === input.roleNumber
+    && input.role !== null
+    && marketplaceAdministratorRoles.has(input.role)
+}
+
 export const administratorPermissions = [
   'administrators.manage',
   'administrators.view',

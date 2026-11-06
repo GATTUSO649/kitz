@@ -1,12 +1,21 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { administratorPermissions, administratorPortal, defaultAdministratorPermissions, requiredAdministratorRole } from './administration.js'
+import { administratorPermissions, administratorPortal, defaultAdministratorPermissions, isMarketplaceRoleNumberActivation, requiredAdministratorRole } from './administration.js'
 import { administratorPermissionsForRoute, administratorPortalPermission, hasAnyPermission, hasDedicatedAdministratorGuard, projectDashboardForRole } from './permission-routes.js'
 import { resolveAdministratorPermissions, validatePermissionSelection } from './permissions.js'
 
 test('permission resolver preserves default access until a role is configured', () => {
   const resolved = resolveAdministratorPermissions('sales_admin', [])
   assert.deepEqual([...resolved].sort(), [...defaultAdministratorPermissions.sales_admin].sort())
+})
+
+test('role number is a temporary activation credential only for pending unverified Marketplace admins', () => {
+  const pendingSecondHand = { role: 'second_hand_admin' as const, status: 'pending', roleNumber: 'SH-0001', emailVerifiedAt: null, password: 'SH-0001' }
+  assert.equal(isMarketplaceRoleNumberActivation(pendingSecondHand), true)
+  assert.equal(isMarketplaceRoleNumberActivation({ ...pendingSecondHand, role: 'finance_admin' }), false)
+  assert.equal(isMarketplaceRoleNumberActivation({ ...pendingSecondHand, emailVerifiedAt: new Date() }), false)
+  assert.equal(isMarketplaceRoleNumberActivation({ ...pendingSecondHand, status: 'active' }), false)
+  assert.equal(isMarketplaceRoleNumberActivation({ ...pendingSecondHand, password: 'wrong-password' }), false)
 })
 
 test('configured role permissions replace defaults and user overrides are applied', () => {

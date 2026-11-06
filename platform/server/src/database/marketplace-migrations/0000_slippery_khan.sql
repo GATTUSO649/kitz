@@ -18,6 +18,7 @@ BEGIN
 		JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
 		WHERE namespace.nspname = 'marketplace'
 			AND relation.relname <> '__drizzle_migrations'
+			AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
 	) THEN
 		RAISE EXCEPTION 'Relations already exist in marketplace; inspect current data before applying the marketplace baseline.';
 	END IF;

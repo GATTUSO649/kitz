@@ -126,8 +126,16 @@ export function MarketplaceAdminPage() {
     setError('')
     try {
       const response = await fetch(`${adminApi}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) })
-      const result = await response.json() as { error?: { message?: string } }
+      const result = await response.json() as { data?: { activationRequired?: boolean; activationToken?: string; roleNumber?: string; email?: string }; error?: { message?: string } }
       if (!response.ok) throw new Error(result.error?.message ?? 'Sign in failed.')
+      if (result.data?.activationRequired && result.data.activationToken && result.data.roleNumber && result.data.email) {
+        const activationUrl = new URL('/admin/activate', kitzAdminOrigin)
+        activationUrl.searchParams.set('token', result.data.activationToken)
+        activationUrl.searchParams.set('roleNumber', result.data.roleNumber)
+        activationUrl.searchParams.set('email', result.data.email)
+        window.location.assign(activationUrl.toString())
+        return
+      }
       setPassword('')
       navigate('/admin/marketplace/dashboard', { replace: true })
     } catch (reason) {
@@ -296,6 +304,7 @@ export function MarketplaceAdminPage() {
       <span className="admin-eyebrow">MARKETPLACE ADMINISTRATION</span>
       <h1>Welcome back</h1>
       <p>Sign in to manage second-hand marketplace operations.</p>
+      <p>First-time sign-in: use your assigned role number as the temporary password to set a private password and verify your email.</p>
       {error && <div className="admin-alert" role="alert"><CircleAlert size={16} />{error}</div>}
       <form onSubmit={login}>
         <label>Email<span className="admin-login-field"><Mail size={18} aria-hidden="true" /><input type="email" autoComplete="username" placeholder="Enter your email address" required value={email} onChange={(event) => setEmail(event.target.value)} /></span></label>

@@ -38,6 +38,16 @@ const kitzAdminSchema = z.object({
   permissions: z.array(z.string()),
 })
 type KitzAdmin = z.infer<typeof kitzAdminSchema>
+const kitzActivationSchema = z.object({
+  activationRequired: z.literal(true),
+  activationToken: z.string().min(32).max(128),
+  roleNumber: z.string().min(4).max(40),
+  email: z.string().email(),
+  portal: z.string().startsWith('/'),
+}).strict()
+type KitzAuthenticationResult =
+  | { kind: 'authenticated'; admin: KitzAdmin }
+  | { kind: 'activation_required'; activationToken: string; roleNumber: string; email: string }
 
 function getKitzServiceConfig() {
   const authValue = process.env.KITCULTURE_MARKETPLACE_AUTH_URL
@@ -85,13 +95,15 @@ async function postKitz(url: string, body: Record<string, unknown>) {
   return { status: response.status, data: payload?.data }
 }
 
-async function authenticateKitzAdmin(email: string, password: string): Promise<KitzAdmin | null> {
+async function authenticateKitzAdmin(email: string, password: string): Promise<KitzAuthenticationResult | null> {
   const result = await postKitz(getKitzServiceConfig()?.authUrl ?? '', { email, password })
   if (result.status === 401) return null
   if (result.status !== 200) throw new Error('Kitz administrator authentication is unavailable.')
+  const activation = kitzActivationSchema.safeParse(result.data)
+  if (activation.success) return { kind: 'activation_required', ...activation.data }
   const parsed = kitzAdminSchema.safeParse(result.data)
   if (!parsed.success) throw new Error('Kitz administrator authentication returned an invalid response.')
-  return parsed.data
+  return { kind: 'authenticated', admin: parsed.data }
 }
 
 async function authorizeKitzAdmin(adminId: number, permission: MarketplacePermission) {
@@ -313,17 +325,28 @@ marketplaceAdminRouter.post('/login', loginLimiter, async (request, response, ne
     return
   }
   try {
-    let centralAdmin: KitzAdmin | null
+    let authentication: KitzAuthenticationResult | null
     try {
-      centralAdmin = await authenticateKitzAdmin(parsed.data.email.toLowerCase(), parsed.data.password)
+      authentication = await authenticateKitzAdmin(parsed.data.email.toLowerCase(), parsed.data.password)
     } catch {
       response.status(503).json({ error: { code: 'CENTRAL_ADMIN_AUTH_UNAVAILABLE', message: 'Administrator sign in is temporarily unavailable.' } })
       return
     }
-    if (!centralAdmin) {
+    if (!authentication) {
       response.status(401).json({ error: { code: 'ADMIN_INVALID_LOGIN', message: 'Email or password is incorrect.' } })
       return
     }
+    if (authentication.kind === 'activation_required') {
+      response.setHeader('Cache-Control', 'no-store')
+      response.json({ data: {
+        activationRequired: true,
+        activationToken: authentication.activationToken,
+        roleNumber: authentication.roleNumber,
+        email: authentication.email,
+      } })
+      return
+    }
+    const centralAdmin = authentication.admin
     const marketplaceAdminId = await database.transaction(async (transaction) => {
       const [linkedAdmin] = await transaction.select({ id: marketplaceAdminUsers.id, kitzAdminId: marketplaceAdminUsers.kitzAdminId })
         .from(marketplaceAdminUsers).where(eq(marketplaceAdminUsers.kitzAdminId, centralAdmin.id)).limit(1)

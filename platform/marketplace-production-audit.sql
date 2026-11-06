@@ -106,7 +106,7 @@ table_privilege_report AS (
 ),
 expected_migrations(migration_order, tag, applied_at, local_sha256) AS (
   VALUES
-    (0, '0000_slippery_khan', 1793905383904::bigint, 'baaa8e7445c4701f78a084ed6cf210a7caacfdbbb72884aeca342ec936512bbe'),
+    (0, '0000_slippery_khan', 1793905383904::bigint, '9fde107da1d6116954e7ead89a5ee2b6673bec53ca4cd73cc634fd2a2515725a'),
     (1, '0001_round_hellfire_club', 1793905568058::bigint, '728e41c0942fbefda6ea31065f6bd45fb39051b06dd6dc1737c6a55bda5e8a61'),
     (2, '0002_faulty_blazing_skull', 1793917364294::bigint, 'd7940347753c27608eba51d7d35a69cfdc7a8889a0d65c2f9c380c42731a9224'),
     (3, '0003_accounts_and_verification', 1793951102537::bigint, '84531d606ecbd83946a9c795d34c66944c7f244dc0e31c79c9451a1bc81684df'),
