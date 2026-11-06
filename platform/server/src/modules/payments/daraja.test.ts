@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { callbackFailureStatus, DarajaRequestError, initiateStkPush, parseDarajaTimestamp, queryStkPayment, verifyMarketplaceStkCallback } from './daraja.js'
+import { callbackFailureStatus, DarajaRequestError, getDarajaReadiness, initiateStkPush, parseDarajaTimestamp, queryStkPayment, verifyMarketplaceStkCallback } from './daraja.js'
 
 const configuration = {
   MARKETPLACE_DARAJA_ENVIRONMENT: 'sandbox',
@@ -33,6 +33,25 @@ test('STK push authenticates, formats bounded reference fields, and stores provi
   assert.equal(requests.length, 2)
   assert.match(new Headers(requests[0]?.init?.headers).get('Authorization') ?? '', /^Basic /)
   assert.deepEqual(result, { ResponseCode: '0', CheckoutRequestID: 'ws_CO_123', MerchantRequestID: 'merchant_123' })
+})
+
+test('production mode uses the Safaricom production API and reports readiness without secrets', async () => {
+  const productionConfig = { ...configuration, MARKETPLACE_DARAJA_ENVIRONMENT: 'production' } as NodeJS.ProcessEnv
+  const urls: string[] = []
+  await initiateStkPush({ phone: '254712345678', amountKes: 150, paymentReference: 'MP-PRODUCTION-123', description: 'Marketplace fee' }, {
+    env: productionConfig,
+    fetcher: async (input) => {
+      const url = String(input)
+      urls.push(url)
+      return url.includes('/oauth/')
+        ? new Response(JSON.stringify({ access_token: 'production-unit-test-token', expires_in: '3600' }), { status: 200 })
+        : new Response(JSON.stringify({ ResponseCode: '0', CheckoutRequestID: 'ws_CO_PROD', MerchantRequestID: 'merchant_prod' }), { status: 200 })
+    },
+  })
+  assert.equal(new URL(urls[0]!).origin, 'https://api.safaricom.co.ke')
+  assert.deepEqual(getDarajaReadiness(productionConfig), { mode: 'production', status: 'ready' })
+  assert.deepEqual(getDarajaReadiness({ ...productionConfig, MARKETPLACE_DARAJA_PASSKEY: '' }), { mode: 'production', status: 'misconfigured' })
+  assert.deepEqual(getDarajaReadiness({}), { mode: 'disabled', status: 'disabled' })
 })
 
 test('invalid STK amount is rejected before contacting Daraja', async () => {

@@ -73,6 +73,17 @@ export function assertDarajaConfigured(): void {
   getConfig()
 }
 
+export function getDarajaReadiness(env: NodeJS.ProcessEnv = process.env): { mode: 'sandbox' | 'production' | 'disabled'; status: 'ready' | 'misconfigured' | 'disabled' } {
+  const mode = env.MARKETPLACE_DARAJA_ENVIRONMENT
+  if (mode !== 'sandbox' && mode !== 'production') return { mode: 'disabled', status: 'disabled' }
+  try {
+    getConfig(env)
+    return { mode, status: 'ready' }
+  } catch {
+    return { mode, status: 'misconfigured' }
+  }
+}
+
 async function getAccessToken(config: DarajaConfig, fetcher: typeof fetch = fetch, now: () => number = Date.now): Promise<string> {
   const cacheKey = createHash('sha256').update(`${config.baseUrl}:${config.consumerKey}:${config.consumerSecret}`).digest('hex')
   const cachedToken = cachedTokens.get(cacheKey)

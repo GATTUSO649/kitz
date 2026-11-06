@@ -8,6 +8,7 @@ import helmet from 'helmet'
 import { marketplaceDatabaseConnectionState, pool } from './database/connection.js'
 import { databaseErrorResponseCode } from './database/diagnostics.js'
 import { getMarketplaceEmailProviderStatus } from './modules/email/service.js'
+import { getDarajaReadiness } from './modules/payments/daraja.js'
 import { getKitzAdminServiceStatus, marketplaceAdminRouter } from './modules/admin/marketplace-auth.js'
 import { marketplaceAdminDataRouter } from './modules/admin/marketplace-routes.js'
 import { marketplaceSellerPasswordRecoveryRouter } from './modules/marketplace/seller-password-recovery.js'
@@ -43,7 +44,7 @@ app.use('/api/v1', rateLimit({ windowMs: 60_000, limit: process.env.NODE_ENV ===
 app.get('/health/live', (_request, response) => response.json({ status: 'ok', service: 'markethub-platform' }))
 app.get('/health/workers', (_request, response) => {
   response.setHeader('Cache-Control', 'no-store')
-  response.json({ workers: workerHealthSnapshot(), emailProvider: getMarketplaceEmailProviderStatus(), centralAdminAuth: getKitzAdminServiceStatus() })
+  response.json({ workers: workerHealthSnapshot(), emailProvider: getMarketplaceEmailProviderStatus(), centralAdminAuth: getKitzAdminServiceStatus(), marketplacePayments: getDarajaReadiness() })
 })
 app.get('/health/ready', async (_request, response) => {
   const workers = workerHealthSnapshot()
