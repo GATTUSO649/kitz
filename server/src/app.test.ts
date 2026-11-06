@@ -8,6 +8,7 @@ process.env.PORT = '4000'
 process.env.CLIENT_ORIGIN = 'http://localhost:5173'
 process.env.DATABASE_URL = 'postgresql://test:test@127.0.0.1:1/kitculture'
 process.env.ADMIN_DATABASE_URL = 'postgresql://test:test@127.0.0.1:1/kitculture_admin'
+process.env.MARKETHUB_SERVICE_TOKEN = 'a'.repeat(48)
 process.env.LOG_LEVEL = 'silent'
 
 const { app } = await import('./app.js')
@@ -261,6 +262,26 @@ test('administrator ecosystem mutations reject cross-origin requests before auth
   })
   assert.equal(response.status, 403)
   assert.equal((await response.json() as { error: { code: string } }).error.code, 'ORIGIN_REJECTED')
+})
+
+test('MarketHub service authentication endpoints reject ordinary browser requests', async () => {
+  for (const path of ['/api/v1/admin/marketplace/authenticate', '/api/v1/admin/marketplace/authorize']) {
+    const response = await fetch(`${baseUrl}${path}`, {
+      method: 'POST',
+      headers: { origin: process.env.CLIENT_ORIGIN!, 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+    assert.equal(response.status, 401, path)
+    assert.equal((await response.json() as { error: { code: string } }).error.code, 'MARKETHUB_SERVICE_UNAUTHORIZED', path)
+  }
+
+  const authenticatedRequest = await fetch(`${baseUrl}/api/v1/admin/marketplace/authenticate`, {
+    method: 'POST',
+    headers: { 'x-markethub-service-token': process.env.MARKETHUB_SERVICE_TOKEN!, 'content-type': 'application/json' },
+    body: JSON.stringify({}),
+  })
+  assert.equal(authenticatedRequest.status, 400)
+  assert.equal((await authenticatedRequest.json() as { error: { code: string } }).error.code, 'INVALID_MARKETPLACE_CREDENTIALS')
 })
 
 test('customer and administrator session renewal reject requests without valid sessions', async () => {

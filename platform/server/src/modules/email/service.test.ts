@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { renderMarketplaceEmail, sendMarketplaceEmail } from './service.js'
+import { getMarketplaceEmailProviderStatus, renderMarketplaceEmail, sendMarketplaceEmail } from './service.js'
 
 const smtpEnvironment = {
   MARKETPLACE_EMAIL_PROVIDER: 'smtp',
@@ -10,6 +10,13 @@ const smtpEnvironment = {
   MARKETPLACE_BREVO_SMTP_PORT: '2525',
   MARKETPLACE_BREVO_SMTP_USER: 'smtp-user',
   MARKETPLACE_BREVO_SMTP_PASSWORD: 'not-a-real-secret',
+}
+
+const resendEnvironment = {
+  MARKETPLACE_EMAIL_PROVIDER: 'resend',
+  MARKETPLACE_RESEND_API_KEY: 'resend-test-secret',
+  MARKETPLACE_RESEND_FROM_EMAIL: 'notify@example.test',
+  MARKETPLACE_RESEND_FROM_NAME: 'MarketHub',
 }
 
 test('marketplace email templates escape user-provided HTML', () => {
@@ -109,4 +116,47 @@ test('seller and admin verification emails include only safe HTTP action links',
   })
   assert.doesNotMatch(unsafe.html, /href="javascript:/)
   assert.doesNotMatch(unsafe.text, /Continue: javascript:/)
+})
+
+test('Resend accepts a verified sender and records provider acceptance', async () => {
+  let sender = ''
+  let apiKey = ''
+  const result = await sendMarketplaceEmail({ to: 'seller@example.test', kind: 'product_published', data: { reference: 'MH-1' } }, {
+    env: resendEnvironment,
+    sendResend: async (key, message) => { apiKey = key; sender = `${message.from.name} <${message.from.address}>`; return { status: 200, id: 'resend-message-1' } },
+  })
+  assert.deepEqual(result, { status: 'sent', providerMessageId: 'resend-message-1' })
+  assert.equal(sender, 'MarketHub <notify@example.test>')
+  assert.equal(apiKey, resendEnvironment.MARKETPLACE_RESEND_API_KEY)
+})
+
+test('production email refuses non-Brevo providers', async () => {
+  let called = false
+  const productionResend = { ...resendEnvironment, NODE_ENV: 'production' }
+  assert.deepEqual(getMarketplaceEmailProviderStatus(productionResend), { provider: 'resend', configured: false, code: 'BREVO_SMTP_REQUIRED' })
+  const result = await sendMarketplaceEmail({ to: 'seller@example.test', kind: 'product_published', data: {} }, {
+    env: productionResend,
+    sendResend: async () => { called = true; return { status: 200, id: 'resend-message-1' } },
+  })
+  assert.deepEqual(result, { status: 'failed', code: 'BREVO_SMTP_REQUIRED' })
+  assert.equal(called, false)
+})
+
+test('Resend rate limits are retried and unknown provider outcomes are not resent automatically', async () => {
+  const limited = await sendMarketplaceEmail({ to: 'seller@example.test', kind: 'product_published', data: {} }, {
+    env: resendEnvironment,
+    sendResend: async () => ({ status: 429 }),
+  })
+  assert.deepEqual(limited, { status: 'retry', code: 'RESEND_RATE_LIMITED' })
+  const unknown = await sendMarketplaceEmail({ to: 'seller@example.test', kind: 'product_published', data: {} }, {
+    env: resendEnvironment,
+    sendResend: async () => { throw new TypeError('network failed') },
+  })
+  assert.deepEqual(unknown, { status: 'uncertain', code: 'RESEND_OUTCOME_UNKNOWN' })
+})
+
+test('email provider readiness reports disabled, unsupported, or incomplete configuration safely', () => {
+  assert.deepEqual(getMarketplaceEmailProviderStatus({}), { provider: 'disabled', configured: false, code: 'EMAIL_PROVIDER_DISABLED' })
+  assert.deepEqual(getMarketplaceEmailProviderStatus({ MARKETPLACE_EMAIL_PROVIDER: 'resend', MARKETPLACE_RESEND_API_KEY: 'secret' }), { provider: 'resend', configured: false, code: 'RESEND_NOT_CONFIGURED' })
+  assert.deepEqual(getMarketplaceEmailProviderStatus(resendEnvironment), { provider: 'resend', configured: true, code: null })
 })

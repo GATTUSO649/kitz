@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, Route, Routes, useParams, useSearchParams } from 'react-router-dom'
 import { SellListingPage, SubmissionStatusPage } from './SellListingPage'
 import { MarketplaceAdminPage } from './MarketplaceAdmin'
-import { SellerLoginPage, SellerPortalPage, SellerSignupPage, SellerVerifyPage } from './SellerPortal'
+import { SellerForgotPasswordPage, SellerLoginPage, SellerPortalPage, SellerResetPasswordPage, SellerSignupPage, SellerVerifyPage } from './SellerPortal'
 
 const kitzOrigin = import.meta.env.VITE_KITZ_ORIGIN || 'https://kitz.onrender.com'
 const formatKes = (value: number) => `KSh ${new Intl.NumberFormat('en-KE').format(value)}`
@@ -425,7 +425,7 @@ function MarketplaceHome() {
     <header className="marketplace-header">
       <Link to="/" className="market-brand"><span className="market-logo"><ShoppingBag size={26} /></span><span><strong>Market<span>hub</span></strong><small>Buy. Sell. Save More.</small></span></Link>
       <nav aria-label="Marketplace navigation"><Link className="market-home" to="/marketplace"><House size={15} />Home</Link><a href="#categories">Categories⌄</a><a href="#locations">Locations⌄</a><a href="#how-it-works">How It Works</a><a href="mailto:hello@markethub.co.ke">Contact</a></nav>
-      <div className="market-actions"><Link className="sell-link" to="/marketplace/sell">+ <span>Sell an item</span></Link><Link className="market-seller-login" to="/marketplace/seller/login">Seller sign in</Link><Link className="market-login" to="/admin/marketplace/login">Admin</Link></div>
+      <div className="market-actions"><Link className="sell-link" to="/marketplace/seller/login">+ <span>Sell item</span></Link><Link className="market-login" to="/admin/marketplace/login">Admin</Link></div>
     </header>
     <main>
       <section className="market-hero">
@@ -484,6 +484,8 @@ export function App() {
     <Route path="/marketplace/sell" element={<SellListingPage />} />
     <Route path="/marketplace/seller/signup" element={<SellerSignupPage />} />
     <Route path="/marketplace/seller/login" element={<SellerLoginPage />} />
+    <Route path="/marketplace/seller/forgot-password" element={<SellerForgotPasswordPage />} />
+    <Route path="/marketplace/seller/reset-password" element={<SellerResetPasswordPage />} />
     <Route path="/marketplace/seller/verify" element={<SellerVerifyPage />} />
     <Route path="/marketplace/seller" element={<SellerPortalPage />} />
     <Route path="/marketplace/status" element={<SubmissionStatusPage />} />

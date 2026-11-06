@@ -51,7 +51,7 @@ export function hasAnyPermission(granted: ReadonlySet<AdministratorPermission>, 
 }
 
 export function hasDedicatedAdministratorGuard(path: string) {
-  return path === '/me' || path.startsWith('/it/') || /^\/portal\/(?:super_admin|it_admin|sales_admin|finance_admin|inventory_admin|marketing_admin|content_admin)$/.test(path)
+  return path === '/me' || path.startsWith('/it/') || /^\/portal\/(?:super_admin|it_admin|sales_admin|finance_admin|inventory_admin|marketing_admin|content_admin|second_hand_admin|seller_support_admin|marketplace_finance_admin|marketplace_moderator)$/.test(path)
 }
 
 const portalPermissions: Record<AdministratorRole, AdministratorPermission> = {
@@ -62,6 +62,10 @@ const portalPermissions: Record<AdministratorRole, AdministratorPermission> = {
   inventory_admin: 'inventory.dashboard.view',
   marketing_admin: 'marketing.dashboard.view',
   content_admin: 'content.manage_products',
+  second_hand_admin: 'marketplace.dashboard.read',
+  seller_support_admin: 'marketplace.support.manage',
+  marketplace_finance_admin: 'marketplace.finance.read',
+  marketplace_moderator: 'marketplace.moderation.manage',
 }
 
 export function administratorPortalPermission(role: string): AdministratorPermission | null {

@@ -73,6 +73,15 @@ export const permissionDescriptions: Record<AdministratorPermission, string> = {
   'content.manage_products': 'Manage product records and imagery.',
   'content.manage_categories': 'Manage product categories and catalogue structure.',
   'content.manage_content': 'Manage homepage and website content.',
+  'marketplace.dashboard.read': 'View MarketHub marketplace operations.',
+  'marketplace.listings.read': 'View marketplace listings for support and moderation.',
+  'marketplace.listings.manage': 'Manage marketplace listings.',
+  'marketplace.categories.manage': 'Manage marketplace categories.',
+  'marketplace.finance.read': 'View MarketHub payment and revenue records.',
+  'marketplace.finance.reconcile': 'Reconcile MarketHub payments.',
+  'marketplace.support.manage': 'Manage marketplace seller support requests.',
+  'marketplace.moderation.manage': 'Review and moderate marketplace listings and reports.',
+  'marketplace.settings.manage': 'Manage MarketHub marketplace settings.',
 }
 
 const permissionSet = new Set<string>(administratorPermissions)

@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import bcrypt from 'bcryptjs'
-import { and, desc, eq, gt, inArray, isNull } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray, isNull, ne } from 'drizzle-orm'
 import type { NextFunction, Request, Response } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import { Router } from 'express'
@@ -269,6 +269,39 @@ marketplaceSellerAuthRouter.get('/seller/session', requireMarketplaceSeller, (_r
   response.json({ data: currentSeller(response) })
 })
 
+marketplaceSellerAuthRouter.patch('/seller/password', requireMarketplaceSeller, async (request, response, next) => {
+  const parsed = z.object({ currentPassword: z.string().min(1).max(128), password: z.string().min(12).max(128), confirmPassword: z.string().min(12).max(128) })
+    .strict().refine((value) => value.password === value.confirmPassword, { path: ['confirmPassword'], message: 'Passwords do not match.' }).safeParse(request.body)
+  if (!parsed.success) {
+    response.status(400).json({ error: { code: 'INVALID_SELLER_PASSWORD', message: 'Check the password fields and try again.' } })
+    return
+  }
+  if (!database) return
+  try {
+    const seller = currentSeller(response)
+    const [account] = await database.select({ passwordHash: marketplaceSellerAccounts.passwordHash }).from(marketplaceSellerAccounts)
+      .where(eq(marketplaceSellerAccounts.id, seller.id)).limit(1)
+    if (!account || !await bcrypt.compare(parsed.data.currentPassword, account.passwordHash)) {
+      response.status(401).json({ error: { code: 'SELLER_PASSWORD_MISMATCH', message: 'Current password is incorrect.' } })
+      return
+    }
+    const token = readSessionToken(request)
+    if (!token) {
+      response.status(401).json({ error: { code: 'SELLER_UNAUTHENTICATED', message: 'Sign in to update your password.' } })
+      return
+    }
+    const passwordHash = await bcrypt.hash(parsed.data.password, 12)
+    await database.transaction(async (transaction) => {
+      await transaction.update(marketplaceSellerAccounts).set({ passwordHash, updatedAt: new Date() }).where(eq(marketplaceSellerAccounts.id, seller.id))
+      await transaction.delete(marketplaceSellerSessions).where(and(eq(marketplaceSellerSessions.sellerAccountId, seller.id), ne(marketplaceSellerSessions.tokenHash, tokenHash(token))))
+      await transaction.insert(marketplaceAuditLogs).values({ action: 'seller.password.changed', resourceType: 'marketplace_seller_account', resourceId: seller.id })
+    })
+    response.json({ data: { updated: true, otherSessionsRevoked: true } })
+  } catch (error) {
+    next(error)
+  }
+})
+
 marketplaceSellerAuthRouter.post('/seller/logout', async (request, response, next) => {
   const token = readSessionToken(request)
   try {
@@ -427,6 +460,63 @@ marketplaceSellerDataRouter.delete('/seller/products/:reference', requireMarketp
     })
     response.json({ data: { reference: reference.data, status: 'removed' } })
   } catch (error) {
+    next(error)
+  }
+})
+
+marketplaceSellerDataRouter.patch('/seller/profile', requireMarketplaceSeller, async (request, response, next) => {
+  const parsed = z.object({
+    name: z.string().trim().min(2).max(120),
+    phone: z.string().trim().max(24),
+    whatsapp: z.string().trim().max(24).optional().or(z.literal('')),
+    countyCode: z.string().regex(/^\d{3}$/),
+    subcounty: z.string().trim().min(2).max(100),
+    town: z.string().trim().min(2).max(100),
+    area: z.string().trim().max(120).optional(),
+  }).strict().safeParse(request.body)
+  if (!parsed.success) {
+    response.status(400).json({ error: { code: 'INVALID_SELLER_PROFILE', message: 'Check your seller profile details and try again.' } })
+    return
+  }
+  if (!database) return
+  try {
+    const seller = currentSeller(response)
+    const [county] = await database.select({ id: marketplaceCounties.id }).from(marketplaceCounties)
+      .where(and(eq(marketplaceCounties.code, parsed.data.countyCode), eq(marketplaceCounties.active, true))).limit(1)
+    if (!county) {
+      response.status(400).json({ error: { code: 'INVALID_SELLER_LOCATION', message: 'Choose an active county.' } })
+      return
+    }
+    const phone = normalizeKenyanPhone(parsed.data.phone)
+    const whatsapp = parsed.data.whatsapp ? normalizeKenyanPhone(parsed.data.whatsapp) : null
+    const [updated] = await database.transaction(async (transaction) => {
+      const rows = await transaction.update(marketplaceSellers).set({
+        name: parsed.data.name,
+        phone,
+        whatsapp,
+        countyId: county.id,
+        subcounty: parsed.data.subcounty,
+        town: parsed.data.town,
+        area: parsed.data.area || null,
+      }).where(and(eq(marketplaceSellers.id, seller.sellerId), eq(marketplaceSellers.accountId, seller.id))).returning({ id: marketplaceSellers.id })
+      if (rows[0]) await transaction.insert(marketplaceAuditLogs).values({ action: 'seller.profile.updated', resourceType: 'marketplace_seller_account', resourceId: seller.id })
+      return rows
+    })
+    if (!updated) {
+      response.status(404).json({ error: { code: 'SELLER_PROFILE_NOT_FOUND', message: 'Seller profile could not be found.' } })
+      return
+    }
+    const [profile] = await database.select({ id: marketplaceSellerAccounts.id, email: marketplaceSellerAccounts.email, sellerId: marketplaceSellers.id, name: marketplaceSellers.name, phone: marketplaceSellers.phone, whatsapp: marketplaceSellers.whatsapp, countyCode: marketplaceCounties.code, county: marketplaceCounties.name, subcounty: marketplaceSellers.subcounty, town: marketplaceSellers.town, area: marketplaceSellers.area })
+      .from(marketplaceSellerAccounts).innerJoin(marketplaceSellers, eq(marketplaceSellers.accountId, marketplaceSellerAccounts.id))
+      .innerJoin(marketplaceCounties, eq(marketplaceSellers.countyId, marketplaceCounties.id))
+      .where(eq(marketplaceSellerAccounts.id, seller.id)).limit(1)
+    response.setHeader('Cache-Control', 'no-store')
+    response.json({ data: profile })
+  } catch (error) {
+    if (error instanceof Error && /valid Kenyan mobile number/.test(error.message)) {
+      response.status(400).json({ error: { code: 'INVALID_PHONE', message: error.message } })
+      return
+    }
     next(error)
   }
 })

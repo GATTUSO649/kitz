@@ -4,9 +4,9 @@ import { boolean, check, index, integer as int, jsonb, pgTable as mysqlTable, pr
 const timestamp = (name: string) => pgTimestamp(name, { withTimezone: true, mode: 'date' })
 const enumText = <T extends string>(name: string, length: number) => varchar(name, { length }).$type<T>()
 
-export const administratorRoles = ['super_admin', 'it_admin', 'sales_admin', 'finance_admin', 'inventory_admin', 'marketing_admin', 'content_admin'] as const
+export const administratorRoles = ['super_admin', 'it_admin', 'sales_admin', 'finance_admin', 'inventory_admin', 'marketing_admin', 'content_admin', 'second_hand_admin', 'seller_support_admin', 'marketplace_finance_admin', 'marketplace_moderator'] as const
 export type AdministratorRole = typeof administratorRoles[number]
-export const administratorStatuses = ['pending', 'active', 'suspended', 'disabled'] as const
+export const administratorStatuses = ['pending', 'active', 'suspended', 'disabled', 'rejected'] as const
 export type AdministratorStatus = typeof administratorStatuses[number]
 
 export const adminUsers = mysqlTable('admin_users', {
@@ -26,8 +26,8 @@ export const adminUsers = mysqlTable('admin_users', {
 }, (table) => [
   index('admin_users_role_idx').on(table.role),
   index('admin_users_status_idx').on(table.status),
-  check('admin_users_role_check', sql`${table.role} IS NULL OR ${table.role} IN ('super_admin', 'it_admin', 'sales_admin', 'finance_admin', 'inventory_admin', 'marketing_admin', 'content_admin')`),
-  check('admin_users_status_check', sql`${table.status} IN ('pending', 'active', 'suspended', 'disabled')`),
+  check('admin_users_role_check', sql`${table.role} IS NULL OR ${table.role} IN ('super_admin', 'it_admin', 'sales_admin', 'finance_admin', 'inventory_admin', 'marketing_admin', 'content_admin', 'second_hand_admin', 'seller_support_admin', 'marketplace_finance_admin', 'marketplace_moderator')`),
+  check('admin_users_status_check', sql`${table.status} IN ('pending', 'active', 'suspended', 'disabled', 'rejected')`),
 ])
 
 export const adminSessions = mysqlTable('admin_sessions', {

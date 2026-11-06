@@ -1,6 +1,8 @@
 import { and, eq, lte } from 'drizzle-orm'
 import { database } from '../../database/connection.js'
 import { marketplaceProducts } from '../../database/schema.js'
+import { setWorkerEnabled } from '../../workers/health.js'
+import { startScheduledWorker } from '../../workers/scheduler.js'
 
 export const DEFAULT_LISTING_EXPIRY_DAYS = 7
 export const MAX_LISTING_EXPIRY_DAYS = 365
@@ -16,31 +18,29 @@ export function listingExpiryAt(publishedAt: Date, durationDays: unknown): Date 
   return new Date(publishedAt.getTime() + resolveListingExpiryDays(durationDays) * 24 * 60 * 60 * 1000)
 }
 
-export async function expireDueMarketplaceListings(now = new Date()): Promise<number> {
-  if (!database) return 0
-  const expired = await database.update(marketplaceProducts)
-    .set({ status: 'expired', updatedAt: now })
-    .where(and(eq(marketplaceProducts.status, 'published'), lte(marketplaceProducts.expiresAt, now)))
-    .returning({ id: marketplaceProducts.id })
-  return expired.length
+type ExpiryDatabase = NonNullable<typeof database>
+
+export async function expireDueMarketplaceListings(now = new Date(), databaseClient: ExpiryDatabase | null = database): Promise<number> {
+  if (!databaseClient) return 0
+  try {
+    const expired = await databaseClient.update(marketplaceProducts)
+      .set({ status: 'expired', updatedAt: now })
+      .where(and(eq(marketplaceProducts.status, 'published'), lte(marketplaceProducts.expiresAt, now)))
+      .returning({ id: marketplaceProducts.id })
+    return expired.length
+  } catch (error) {
+    throw Object.assign(new Error('Listing expiry database operation failed.', { cause: error }), { operation: 'expire_due_listings', category: 'database' as const })
+  }
 }
 
 export function startMarketplaceExpiryWorker(): () => void {
-  let running = false
-  const expire = async () => {
-    if (running) return
-    running = true
-    try {
-      const count = await expireDueMarketplaceListings()
-      if (count > 0) console.info('MarketHub listings expired', { count })
-    } catch (error) {
-      console.error('MarketHub listing expiry worker failed', { errorType: error instanceof Error ? error.name : 'unknown' })
-    } finally {
-      running = false
-    }
+  if (!database) {
+    setWorkerEnabled('marketplace_listing_expiry', false)
+    return () => undefined
   }
-  const timer = setInterval(() => { void expire() }, 60_000)
-  timer.unref()
-  void expire()
-  return () => clearInterval(timer)
+  return startScheduledWorker('marketplace_listing_expiry', { intervalMs: 60_000, maximumBackoffMs: 15 * 60_000 }, async () => {
+    const expiredCount = await expireDueMarketplaceListings()
+    if (expiredCount > 0) console.info('MarketHub listings expired', { worker: 'marketplace_listing_expiry', processedCount: expiredCount })
+    return expiredCount
+  })
 }

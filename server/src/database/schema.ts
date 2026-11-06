@@ -319,6 +319,7 @@ export const notificationRecipients = mysqlTable('notification_recipients', {
 
 export const payments = mysqlTable('payments', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  applicationId: varchar('application_id', { length: 16 }).$type<'KITZ' | 'MARKETHUB'>().notNull().default('KITZ'),
   orderId: int('order_id').notNull().references(() => orders.id),
   provider: enumText<'mpesa' | 'manual' | 'simulated'>('provider', 16).notNull(),
   providerRequestId: varchar('provider_request_id', { length: 120 }).unique(),
@@ -336,6 +337,7 @@ export const payments = mysqlTable('payments', {
   updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
 }, (table) => [
   index('payments_order_status_idx').on(table.orderId, table.status),
+  check('payments_application_id_check', sql`${table.applicationId} = 'KITZ'`),
   check('payments_provider_check', sql`${table.provider} IN ('mpesa', 'manual', 'simulated')`),
   check('payments_status_check', sql`${table.status} IN ('initiated', 'pending', 'succeeded', 'failed', 'cancelled', 'expired', 'requires_review', 'refunded')`),
 ])

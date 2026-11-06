@@ -55,6 +55,7 @@ async function startPayment(input: {
   const paymentReference = `MP-${createListingReference().slice(3)}`
   const merchantRequestId = createListingReference()
   const [payment] = await database.insert(marketplacePayments).values({
+    applicationId: 'MARKETHUB',
     paymentReference,
     merchantRequestId,
     purpose: input.purpose,
@@ -102,7 +103,7 @@ async function startPayment(input: {
         data: { name: input.recipientName, reference: paymentReference, amountKes: input.amountKes },
       })
       const admins = await transaction.select({ email: marketplaceAdminUsers.email }).from(marketplaceAdminUsers)
-        .where(and(eq(marketplaceAdminUsers.active, true), inArray(marketplaceAdminUsers.role, ['super_admin', 'finance_admin'])))
+        .where(and(eq(marketplaceAdminUsers.active, true), inArray(marketplaceAdminUsers.role, ['super_admin', 'marketplace_finance_admin'])))
       for (const admin of admins) await enqueueMarketplaceEmail(transaction, {
         eventKey: `payment:${paymentReference}:initiation-failed-admin:${admin.email}`,
         to: admin.email,
@@ -247,12 +248,16 @@ paymentRouter.post('/callback/:token', async (request, response) => {
   }
   const callback = parsed.data.Body.stkCallback
   const resultCode = String(callback.ResultCode)
-  const [payment] = await database.select({ id: marketplacePayments.id, reference: marketplacePayments.paymentReference, checkoutRequestId: marketplacePayments.checkoutRequestId, merchantRequestId: marketplacePayments.merchantRequestId, purpose: marketplacePayments.purpose, productId: marketplacePayments.productId, amountKes: marketplacePayments.amountKes, phone: marketplacePayments.phone, customerEmail: marketplacePayments.customerEmail, status: marketplacePayments.status, accessTokenHash: marketplacePayments.accessTokenHash, createdAt: marketplacePayments.createdAt, productTitle: marketplaceProducts.title, sellerEmail: marketplaceSellers.email, sellerName: marketplaceSellers.name })
+  const [payment] = await database.select({ id: marketplacePayments.id, applicationId: marketplacePayments.applicationId, reference: marketplacePayments.paymentReference, checkoutRequestId: marketplacePayments.checkoutRequestId, merchantRequestId: marketplacePayments.merchantRequestId, purpose: marketplacePayments.purpose, productId: marketplacePayments.productId, amountKes: marketplacePayments.amountKes, phone: marketplacePayments.phone, customerEmail: marketplacePayments.customerEmail, status: marketplacePayments.status, accessTokenHash: marketplacePayments.accessTokenHash, createdAt: marketplacePayments.createdAt, productTitle: marketplaceProducts.title, sellerEmail: marketplaceSellers.email, sellerName: marketplaceSellers.name })
     .from(marketplacePayments).leftJoin(marketplaceProducts, eq(marketplacePayments.productId, marketplaceProducts.id))
     .leftJoin(marketplaceSellers, eq(marketplaceProducts.sellerId, marketplaceSellers.id))
     .where(eq(marketplacePayments.checkoutRequestId, callback.CheckoutRequestID)).limit(1)
   if (!payment) {
     response.status(503).json({ ResultCode: 1, ResultDesc: 'Payment request is not ready for verification; retry callback.' })
+    return
+  }
+  if (payment.applicationId !== 'MARKETHUB') {
+    response.status(503).json({ ResultCode: 1, ResultDesc: 'Payment application is invalid.' })
     return
   }
   if (callback.MerchantRequestID !== payment.merchantRequestId) {
@@ -336,7 +341,7 @@ paymentRouter.post('/callback/:token', async (request, response) => {
             await enqueueMarketplaceEmail(transaction, { eventKey: `payment:${payment.reference}:receipt`, to: payment.customerEmail, kind: 'payment_receipt', data: { name: payment.sellerName, title: payment.productTitle, reference: payment.reference, amountKes: payment.amountKes } })
           }
           const admins = await transaction.select({ email: marketplaceAdminUsers.email }).from(marketplaceAdminUsers)
-            .where(and(eq(marketplaceAdminUsers.active, true), inArray(marketplaceAdminUsers.role, ['super_admin', 'finance_admin'])))
+            .where(and(eq(marketplaceAdminUsers.active, true), inArray(marketplaceAdminUsers.role, ['super_admin', 'marketplace_finance_admin'])))
           for (const admin of admins) await enqueueMarketplaceEmail(transaction, { eventKey: `payment:${payment.reference}:admin-success:${admin.email}`, to: admin.email, kind: 'admin_publication_success', data: { title: payment.productTitle, reference: payment.reference, amountKes: payment.amountKes } })
         } else if (payment.purpose === 'CONTACT_UNLOCK' && payment.accessTokenHash) {
           await transaction.insert(marketplaceContactUnlocks).values({ productId: payment.productId, paymentId: payment.id, tokenHash: payment.accessTokenHash, expiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000) }).onConflictDoNothing()
@@ -362,7 +367,7 @@ paymentRouter.post('/callback/:token', async (request, response) => {
     if (!updated.length) return
     if (failureStatus === 'ambiguous') {
       const admins = await transaction.select({ email: marketplaceAdminUsers.email }).from(marketplaceAdminUsers)
-        .where(and(eq(marketplaceAdminUsers.active, true), inArray(marketplaceAdminUsers.role, ['super_admin', 'finance_admin'])))
+        .where(and(eq(marketplaceAdminUsers.active, true), inArray(marketplaceAdminUsers.role, ['super_admin', 'marketplace_finance_admin'])))
       for (const admin of admins) await enqueueMarketplaceEmail(transaction, {
         eventKey: `payment:${payment.reference}:verification-review:${admin.email}`,
         to: admin.email,
@@ -378,7 +383,7 @@ paymentRouter.post('/callback/:token', async (request, response) => {
       data: { name: payment.sellerName, title: payment.productTitle, reference: payment.reference, amountKes: payment.amountKes },
     })
     const admins = await transaction.select({ email: marketplaceAdminUsers.email }).from(marketplaceAdminUsers)
-      .where(and(eq(marketplaceAdminUsers.active, true), inArray(marketplaceAdminUsers.role, ['super_admin', 'finance_admin'])))
+      .where(and(eq(marketplaceAdminUsers.active, true), inArray(marketplaceAdminUsers.role, ['super_admin', 'marketplace_finance_admin'])))
     for (const admin of admins) await enqueueMarketplaceEmail(transaction, {
       eventKey: `payment:${payment.reference}:admin-failure:${admin.email}`,
       to: admin.email,

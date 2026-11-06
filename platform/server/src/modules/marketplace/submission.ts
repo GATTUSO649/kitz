@@ -139,7 +139,7 @@ submissionRouter.post('/submissions', optionalMarketplaceSeller, async (request,
         data: { name: sellerSession?.name ?? sellerInput?.name ?? '', title: submission.title, reference, amountKes: publicationFeeKes },
       })
       const adminEmails = await transaction.select({ email: marketplaceAdminUsers.email }).from(marketplaceAdminUsers)
-        .where(and(eq(marketplaceAdminUsers.active, true), inArray(marketplaceAdminUsers.role, ['super_admin', 'product_admin'])))
+        .where(and(eq(marketplaceAdminUsers.active, true), inArray(marketplaceAdminUsers.role, ['super_admin', 'second_hand_admin', 'marketplace_moderator'])))
       for (const admin of adminEmails) await enqueueMarketplaceEmail(transaction, {
         eventKey: `listing:${reference}:new-submission:${admin.email}`,
         to: admin.email,

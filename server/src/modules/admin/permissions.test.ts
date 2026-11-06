@@ -116,3 +116,26 @@ test('administrator portal destination and login role come from server policy', 
   assert.equal(requiredAdministratorRole('/content-admin/login'), 'content_admin')
   assert.equal(requiredAdministratorRole('/login'), 'sales_admin')
 })
+
+test('Marketplace administrator roles receive only their assigned capabilities', () => {
+  const secondHand = defaultAdministratorPermissions.second_hand_admin
+  const support = defaultAdministratorPermissions.seller_support_admin
+  const finance = defaultAdministratorPermissions.marketplace_finance_admin
+  const moderator = defaultAdministratorPermissions.marketplace_moderator
+
+  assert.equal(secondHand.has('marketplace.listings.manage'), true)
+  assert.equal(support.has('marketplace.listings.read'), true)
+  assert.equal(support.has('marketplace.support.manage'), true)
+  assert.equal(finance.has('marketplace.finance.reconcile'), true)
+  assert.equal(moderator.has('marketplace.moderation.manage'), true)
+  assert.equal(moderator.has('marketplace.listings.read'), true)
+  assert.equal(moderator.has('marketplace.listings.manage'), false)
+  assert.equal(moderator.has('marketplace.finance.read'), false)
+  assert.equal(secondHand.has('administrators.manage'), false)
+})
+
+test('Marketplace administrator portals resolve through server policy', () => {
+  assert.equal(administratorPortal('second_hand_admin'), '/marketplace-admin/dashboard')
+  assert.equal(administratorPortalPermission('marketplace_finance_admin'), 'marketplace.finance.read')
+  assert.equal(hasDedicatedAdministratorGuard('/portal/seller_support_admin'), true)
+})

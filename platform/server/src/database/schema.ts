@@ -58,6 +58,15 @@ export const marketplaceSellerVerificationTokens = marketplaceSchema.table('mark
   createdAt: createdAt(),
 }, (table) => [uniqueIndex('marketplace_seller_verification_token_uq').on(table.tokenHash), index('marketplace_seller_verification_account_idx').on(table.sellerAccountId, table.expiresAt)])
 
+export const marketplaceSellerPasswordResetTokens = marketplaceSchema.table('marketplace_seller_password_reset_tokens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  sellerAccountId: uuid('seller_account_id').notNull().references(() => marketplaceSellerAccounts.id, { onDelete: 'cascade' }),
+  tokenHash: varchar('token_hash', { length: 64 }).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  consumedAt: timestamp('consumed_at', { withTimezone: true }),
+  createdAt: createdAt(),
+}, (table) => [uniqueIndex('marketplace_seller_password_reset_token_uq').on(table.tokenHash), index('marketplace_seller_password_reset_account_idx').on(table.sellerAccountId, table.expiresAt)])
+
 export const marketplaceSellers = marketplaceSchema.table('marketplace_sellers', {
   id: uuid('id').primaryKey().defaultRandom(),
   accountId: uuid('account_id').references(() => marketplaceSellerAccounts.id, { onDelete: 'set null' }),
@@ -119,6 +128,7 @@ export const marketplaceProductImages = marketplaceSchema.table('marketplace_pro
 
 export const marketplacePayments = marketplaceSchema.table('marketplace_payments', {
   id: uuid('id').primaryKey().defaultRandom(),
+  applicationId: varchar('application_id', { length: 16 }).$type<'KITZ' | 'MARKETHUB'>().notNull().default('MARKETHUB'),
   paymentReference: varchar('payment_reference', { length: 40 }).notNull(),
   merchantRequestId: varchar('merchant_request_id', { length: 100 }).notNull(),
   checkoutRequestId: varchar('checkout_request_id', { length: 100 }),
@@ -144,6 +154,7 @@ export const marketplacePayments = marketplaceSchema.table('marketplace_payments
   uniqueIndex('marketplace_payments_checkout_uq').on(table.checkoutRequestId),
   index('marketplace_payments_status_created_idx').on(table.status, table.createdAt),
   check('marketplace_payments_purpose_ck', sql`${table.purpose} IN ('PRODUCT_PUBLICATION', 'CONTACT_UNLOCK')`),
+  check('marketplace_payments_application_id_ck', sql`${table.applicationId} = 'MARKETHUB'`),
   check('marketplace_payments_status_ck', sql`${table.status} IN ('initiated', 'pending', 'processing', 'succeeded', 'failed', 'cancelled', 'expired', 'ambiguous', 'reversed', 'refunded')`),
   check('marketplace_payments_amount_positive_ck', sql`${table.amountKes} > 0`),
 ])
@@ -177,6 +188,7 @@ export const marketplaceProductAccess = marketplaceSchema.table('marketplace_pro
 
 export const marketplaceAdminUsers = marketplaceSchema.table('marketplace_admin_users', {
   id: uuid('id').primaryKey().defaultRandom(),
+  kitzAdminId: integer('kitz_admin_id'),
   email: varchar('email', { length: 254 }).notNull(),
   fullName: varchar('full_name', { length: 120 }).notNull().default(''),
   passwordHash: varchar('password_hash', { length: 100 }).notNull(),
@@ -185,7 +197,7 @@ export const marketplaceAdminUsers = marketplaceSchema.table('marketplace_admin_
   emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [uniqueIndex('marketplace_admin_users_email_uq').on(table.email)])
+}, (table) => [uniqueIndex('marketplace_admin_users_email_uq').on(table.email), uniqueIndex('marketplace_admin_users_kitz_id_uq').on(table.kitzAdminId)])
 
 export const marketplaceAdminInvitations = marketplaceSchema.table('marketplace_admin_invitations', {
   id: uuid('id').primaryKey().defaultRandom(),

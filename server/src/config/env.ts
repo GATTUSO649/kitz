@@ -39,6 +39,8 @@ const schema = z.object({
   ADMIN_SIGNUP_SECRET: z.string().min(32).max(512).optional(),
   ADMIN_SECRET_KEY: z.string().min(32).max(512).optional(),
   ORIGIN_AUTH_TOKEN: z.string().min(32).max(256).optional(),
+  MARKETHUB_SERVICE_TOKEN: z.string().regex(/^[A-Za-z0-9_-]{32,256}$/).optional(),
+  MARKETHUB_PUBLIC_URL: z.string().url().optional(),
   MYSQL_URL: z.string().min(1).optional(),
   MYSQL_PUBLIC_URL: z.string().min(1).optional(),
   ADMIN_MYSQL_URL: z.string().min(1).optional(),
@@ -84,6 +86,20 @@ const schema = z.object({
   }
   if (configuration.DATABASE_SLOW_QUERY_ERROR_MS >= configuration.DATABASE_SLOW_QUERY_CRITICAL_MS) {
     context.addIssue({ code: 'custom', path: ['DATABASE_SLOW_QUERY_CRITICAL_MS'], message: 'Must exceed DATABASE_SLOW_QUERY_ERROR_MS.' })
+  }
+  if (configuration.NODE_ENV === 'production') {
+    if (!configuration.MARKETHUB_SERVICE_TOKEN) context.addIssue({ code: 'custom', path: ['MARKETHUB_SERVICE_TOKEN'], message: 'MARKETHUB_SERVICE_TOKEN is required for central Marketplace administrator authentication.' })
+    if (!configuration.MARKETHUB_PUBLIC_URL) context.addIssue({ code: 'custom', path: ['MARKETHUB_PUBLIC_URL'], message: 'MARKETHUB_PUBLIC_URL is required for administrator decision notifications.' })
+    else {
+      const marketHubUrl = new URL(configuration.MARKETHUB_PUBLIC_URL)
+      if (marketHubUrl.protocol !== 'https:' || marketHubUrl.username || marketHubUrl.password || marketHubUrl.search || marketHubUrl.hash) {
+        context.addIssue({ code: 'custom', path: ['MARKETHUB_PUBLIC_URL'], message: 'MARKETHUB_PUBLIC_URL must be a public HTTPS origin.' })
+      }
+    }
+    if (configuration.EMAIL_PROVIDER !== 'smtp') context.addIssue({ code: 'custom', path: ['EMAIL_PROVIDER'], message: 'Production email must use the shared Brevo SMTP account.' })
+    if (!configuration.SMTP_HOST || !configuration.SMTP_PORT || !configuration.SMTP_USER || !configuration.SMTP_PASS || !configuration.EMAIL_FROM) {
+      context.addIssue({ code: 'custom', path: ['SMTP_HOST'], message: 'Complete Brevo SMTP settings are required in production.' })
+    }
   }
 })
 

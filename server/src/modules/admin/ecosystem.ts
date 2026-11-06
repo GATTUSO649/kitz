@@ -6,18 +6,24 @@ import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
 import { adminDb, db } from '../../config/database.js'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
-import { bcryptPasswordSchema } from '../../config/password-policy.js'
+import { bcryptPasswordSchema, verifyPassword } from '../../config/password-policy.js'
 import { buildAbsoluteUrl, customerEmailTemplate, sendTransactionalEmail } from '../../config/email.js'
 import { adminAuditLogs, adminInvitations, adminLoginAttempts, adminRolePermissions, adminSessions, adminSetupLocks, adminUserPermissions, adminUsers, adminVerificationTokens, administratorRoles, monitoringAlerts, monitoringDetectionRules, monitoringEvents, type AdministratorRole } from '../../database/admin-schema.js'
 import { categories, expenses, homepageSlides, inventoryMovements, notificationCampaigns, orders, payments, productVariants, products, supportRequests, users } from '../../database/schema.js'
 import { authenticateAdmin, authenticatedAdmin } from '../../middleware/authenticate.js'
 import { allocateAdministratorRoleNumber } from './role-number.js'
-import { administratorPermissions as permissionKeys, administratorPortal, administratorRoles as roles, defaultAdministratorPermissions, hasAdministratorPermission, type AdministratorPermission } from './administration.js'
+import { administratorPermissions as permissionKeys, administratorPortal, administratorRoles as roles, defaultAdministratorPermissions, hasAdministratorPermission, marketplaceAdministratorRoles, type AdministratorPermission } from './administration.js'
 import { administratorPortalPermission } from './permission-routes.js'
 import { loadAdministratorPermissions, permissionDescriptions, validatePermissionSelection } from './permissions.js'
 
 export const adminEcosystemRouter = Router()
 adminEcosystemRouter.use((request, response, next) => {
+  if (request.method === 'POST'
+    && ['/marketplace/authenticate', '/marketplace/authorize'].includes(request.path)
+    && secretMatches(request.get('x-markethub-service-token') ?? '', env.MARKETHUB_SERVICE_TOKEN)) {
+    next()
+    return
+  }
   if (['GET', 'HEAD', 'OPTIONS'].includes(request.method) || isAllowedClientOrigin(request.get('origin'))) {
     next()
     return
@@ -26,6 +32,7 @@ adminEcosystemRouter.use((request, response, next) => {
 })
 const bootstrapLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 5, standardHeaders: true, legacyHeaders: false })
 const verificationEmailLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 3, standardHeaders: true, legacyHeaders: false, message: { error: { code: 'VERIFICATION_EMAIL_RATE_LIMITED', message: 'Too many verification emails were requested. Please wait 15 minutes before trying again.' } } })
+const marketplaceAuthenticationLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: true, legacyHeaders: false, message: { error: { code: 'MARKETPLACE_AUTH_RATE_LIMITED', message: 'Too many administrator sign-in attempts. Please wait and try again.' } } })
 const tokenHash = (token: string) => createHash('sha256').update(token).digest('hex')
 const secretMatches = (candidate: string, configured?: string) => {
   if (!configured) return false
@@ -33,6 +40,67 @@ const secretMatches = (candidate: string, configured?: string) => {
   const right = createHash('sha256').update(configured).digest()
   return left.length === right.length && timingSafeEqual(left, right)
 }
+
+const marketplaceAuthenticationSchema = z.object({
+  email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
+  password: z.string().min(1).max(128),
+}).strict()
+const marketplaceAuthorizationSchema = z.object({
+  adminId: z.number().int().positive(),
+  permission: z.string().trim().min(1).max(120),
+}).strict()
+
+function authorizeMarketplaceService(request: Request, response: Response) {
+  if (secretMatches(request.get('x-markethub-service-token') ?? '', env.MARKETHUB_SERVICE_TOKEN)) return true
+  response.status(401).json({ error: { code: 'MARKETHUB_SERVICE_UNAUTHORIZED', message: 'Marketplace service authentication is required.' } })
+  return false
+}
+
+adminEcosystemRouter.post('/marketplace/authenticate', marketplaceAuthenticationLimiter, async (request, response) => {
+  if (!authorizeMarketplaceService(request, response)) return
+  const input = marketplaceAuthenticationSchema.safeParse(request.body)
+  if (!input.success) return response.status(400).json({ error: { code: 'INVALID_MARKETPLACE_CREDENTIALS', message: 'Enter a valid administrator email and password.' } })
+  if (!adminDb) return response.status(503).json({ error: { code: 'ADMIN_DATABASE_UNAVAILABLE', message: 'Administrator authentication is temporarily unavailable.' } })
+
+  const [admin] = await adminDb.select({ id: adminUsers.id, email: adminUsers.email, fullName: adminUsers.fullName, passwordHash: adminUsers.passwordHash, role: adminUsers.role, status: adminUsers.status, emailVerifiedAt: adminUsers.emailVerifiedAt })
+    .from(adminUsers).where(eq(adminUsers.email, input.data.email)).limit(1)
+  const passwordMatches = await verifyPassword(input.data.password, admin?.passwordHash)
+  const roleAllowed = admin?.role === 'super_admin' || (admin?.role ? marketplaceAdministratorRoles.has(admin.role) : false)
+  if (!admin || !passwordMatches || admin.status !== 'active' || !admin.emailVerifiedAt || !roleAllowed) {
+    await adminDb.insert(adminLoginAttempts).values({ identity: input.data.email, adminUserId: admin?.id, success: false, failureCode: 'MARKETPLACE_AUTH_REJECTED' })
+    return response.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'The email address or password is incorrect.' } })
+  }
+
+  const permissions = await loadAdministratorPermissions(admin.id, admin.role)
+  if (!permissions) return response.status(503).json({ error: { code: 'ADMIN_AUTHORIZATION_UNAVAILABLE', message: 'Administrator permissions could not be verified.' } })
+  await Promise.all([
+    adminDb.insert(adminLoginAttempts).values({ identity: input.data.email, adminUserId: admin.id, success: true }),
+    adminDb.insert(adminAuditLogs).values({ adminUserId: admin.id, action: 'admin.markethub_authenticated', targetType: 'admin_user', targetId: String(admin.id) }),
+  ])
+  response.setHeader('Cache-Control', 'no-store')
+  response.json({ data: { id: admin.id, email: admin.email, fullName: admin.fullName, role: admin.role, emailVerifiedAt: admin.emailVerifiedAt.toISOString(), permissions: [...permissions] } })
+})
+
+adminEcosystemRouter.post('/marketplace/authorize', async (request, response) => {
+  if (!authorizeMarketplaceService(request, response)) return
+  const input = marketplaceAuthorizationSchema.safeParse(request.body)
+  if (!input.success || !permissionKeys.includes(input.data.permission as AdministratorPermission)) {
+    return response.status(400).json({ error: { code: 'INVALID_MARKETPLACE_AUTHORIZATION', message: 'The marketplace authorization request is invalid.' } })
+  }
+  if (!adminDb) return response.status(503).json({ error: { code: 'ADMIN_DATABASE_UNAVAILABLE', message: 'Administrator authorization is temporarily unavailable.' } })
+
+  const [admin] = await adminDb.select({ id: adminUsers.id, email: adminUsers.email, fullName: adminUsers.fullName, role: adminUsers.role, status: adminUsers.status, emailVerifiedAt: adminUsers.emailVerifiedAt })
+    .from(adminUsers).where(eq(adminUsers.id, input.data.adminId)).limit(1)
+  if (!admin || admin.status !== 'active' || !admin.emailVerifiedAt
+    || (admin.role !== 'super_admin' && (!admin.role || !marketplaceAdministratorRoles.has(admin.role)))) {
+    response.setHeader('Cache-Control', 'no-store')
+    return response.json({ data: { authorized: false, accountActive: false } })
+  }
+  const permissions = await loadAdministratorPermissions(admin.id, admin.role)
+  if (!permissions) return response.status(503).json({ error: { code: 'ADMIN_AUTHORIZATION_UNAVAILABLE', message: 'Administrator permissions could not be verified.' } })
+  response.setHeader('Cache-Control', 'no-store')
+  response.json({ data: { authorized: permissions.has(input.data.permission as AdministratorPermission), accountActive: true, id: admin.id, email: admin.email, fullName: admin.fullName, role: admin.role, permissions: [...permissions] } })
+})
 
 const bootstrapSchema = z.object({
   fullName: z.string().trim().min(2).max(160),
@@ -218,18 +286,21 @@ adminEcosystemRouter.post('/verify-invitation', async (request, response) => {
     const [invitation] = await transaction.select({ id: adminInvitations.id, adminUserId: adminInvitations.adminUserId, email: adminInvitations.email, passwordHash: adminInvitations.passwordHash, expiresAt: adminInvitations.expiresAt, consumedAt: adminInvitations.consumedAt })
       .from(adminInvitations).where(eq(adminInvitations.tokenHash, tokenHash(input.data.token))).for('update').limit(1)
     if (!invitation || invitation.consumedAt || !invitation.passwordHash || invitation.expiresAt.getTime() <= Date.now()) return false
-    const [admin] = await transaction.select({ role: adminUsers.role }).from(adminUsers).where(eq(adminUsers.id, invitation.adminUserId)).limit(1)
-    if (!admin?.role) return false
+    const [admin] = await transaction.select({ role: adminUsers.role, status: adminUsers.status }).from(adminUsers).where(eq(adminUsers.id, invitation.adminUserId)).limit(1)
+    if (!admin?.role || admin.status !== 'pending') return false
     const [emailOwner] = await transaction.select({ id: adminUsers.id }).from(adminUsers).where(eq(adminUsers.email, invitation.email)).limit(1)
     if (emailOwner && emailOwner.id !== invitation.adminUserId) return false
     const consumed = await transaction.update(adminInvitations).set({ consumedAt: new Date() }).where(and(eq(adminInvitations.id, invitation.id), isNull(adminInvitations.consumedAt))).returning({ id: adminInvitations.id })
     if (consumed.length !== 1) return false
-    await transaction.update(adminUsers).set({ email: invitation.email, passwordHash: invitation.passwordHash, status: 'active', emailVerifiedAt: new Date(), passwordUpdatedAt: new Date() }).where(eq(adminUsers.id, invitation.adminUserId))
-    await transaction.insert(adminAuditLogs).values({ adminUserId: invitation.adminUserId, action: 'administrator.email_verified', targetType: 'admin_user', targetId: String(invitation.adminUserId) })
-    return admin.role === 'it_admin' ? '/operations' : admin.role === 'sales_admin' ? '/sales-admin/login' : `${administratorPortal(admin.role).replace(/\/dashboard$/, '')}/login`
+    const approvalPending = marketplaceAdministratorRoles.has(admin.role)
+    const verifiedAt = new Date()
+    await transaction.update(adminUsers).set({ email: invitation.email, passwordHash: invitation.passwordHash, status: approvalPending ? 'pending' : 'active', emailVerifiedAt: verifiedAt, passwordUpdatedAt: verifiedAt }).where(eq(adminUsers.id, invitation.adminUserId))
+    await transaction.insert(adminAuditLogs).values({ adminUserId: invitation.adminUserId, action: approvalPending ? 'administrator.application_email_verified' : 'administrator.email_verified', targetType: 'admin_user', targetId: String(invitation.adminUserId) })
+    const loginPath = approvalPending ? '/admin/access?status=approval-pending' : admin.role === 'it_admin' ? '/operations' : admin.role === 'sales_admin' ? '/sales-admin/login' : `${administratorPortal(admin.role).replace(/\/dashboard$/, '')}/login`
+    return { loginPath, approvalPending }
   })
   if (!verification) return response.status(400).json({ error: { code: 'INVALID_TOKEN', message: 'Invitation is invalid, expired, or already used.' } })
-  response.json({ data: { verified: true, loginPath: verification } })
+  response.json({ data: { verified: true, ...verification } })
 })
 
 adminEcosystemRouter.use((request, response, next) => {
@@ -352,28 +423,62 @@ adminEcosystemRouter.patch('/ecosystem/administrators/:id/role', async (request,
   response.json({ data: { updated: true, sessionsRevoked: true, permissionOverridesCleared: true } })
 })
 
-const statusSchema = z.object({ action: z.enum(['activate', 'suspend', 'disable']), reason: z.string().trim().max(500).optional() }).strict()
+const statusSchema = z.object({ action: z.enum(['activate', 'suspend', 'disable', 'reject']), reason: z.string().trim().max(500).optional() }).strict()
 adminEcosystemRouter.post('/ecosystem/administrators/:id/status', async (request, response) => {
   const authorization = await requireSuperAdmin('administrators.manage', request, response)
   if (!authorization || !adminDb) return
   const input = statusSchema.safeParse(request.body)
   if (!input.success) return response.status(400).json({ error: { code: 'INVALID_ADMIN_STATUS', message: 'Account status action is invalid.' } })
   const adminId = Number(request.params.id)
-  const [target] = await adminDb.select({ role: adminUsers.role }).from(adminUsers).where(eq(adminUsers.id, adminId)).limit(1)
+  const [target] = await adminDb.select({ role: adminUsers.role, status: adminUsers.status, email: adminUsers.email, fullName: adminUsers.fullName, emailVerifiedAt: adminUsers.emailVerifiedAt }).from(adminUsers).where(eq(adminUsers.id, adminId)).limit(1)
   if (!target) return response.status(404).json({ error: { code: 'ADMIN_NOT_FOUND', message: 'Administrator was not found.' } })
+  const marketplaceRole = target.role !== null && marketplaceAdministratorRoles.has(target.role)
+  if (input.data.action === 'reject' && (!marketplaceRole || target.status !== 'pending')) {
+    return response.status(409).json({ error: { code: 'APPLICATION_NOT_PENDING', message: 'Only a pending Marketplace administrator application can be rejected.' } })
+  }
+  if (input.data.action === 'activate' && marketplaceRole && !target.emailVerifiedAt) {
+    return response.status(409).json({ error: { code: 'EMAIL_VERIFICATION_REQUIRED', message: 'Verify the Marketplace administrator email before approving access.' } })
+  }
   if (target.role === 'super_admin') {
     const [{ total }] = await adminDb.select({ total: count() }).from(adminUsers).where(and(eq(adminUsers.role, 'super_admin'), eq(adminUsers.status, 'active')))
     if (Number(total) <= 1 && input.data.action !== 'activate') return response.status(409).json({ error: { code: 'LAST_SUPER_ADMIN', message: 'The last active Super Administrator cannot be suspended or disabled.' } })
   }
   await adminDb.transaction(async (transaction) => {
     const now = new Date()
-    await transaction.update(adminUsers).set(input.data.action === 'activate'
-      ? { status: 'active', suspendedAt: null, suspendedReason: null }
-      : { status: input.data.action === 'suspend' ? 'suspended' : 'disabled', suspendedAt: now, suspendedReason: input.data.reason ?? null }).where(eq(adminUsers.id, adminId))
-    if (input.data.action !== 'activate') await transaction.delete(adminSessions).where(eq(adminSessions.adminUserId, adminId))
-    await transaction.insert(adminAuditLogs).values({ adminUserId: authorization.actor.id, action: `administrator.${input.data.action}ed`, targetType: 'admin_user', targetId: String(adminId) })
+    const nextStatus = input.data.action === 'activate' ? 'active' : input.data.action === 'suspend' ? 'suspended' : input.data.action === 'reject' ? 'rejected' : 'disabled'
+    await transaction.update(adminUsers).set({
+      status: nextStatus,
+      suspendedAt: nextStatus === 'active' ? null : now,
+      suspendedReason: nextStatus === 'active' ? null : input.data.reason ?? null,
+    }).where(eq(adminUsers.id, adminId))
+    if (nextStatus !== 'active') await transaction.delete(adminSessions).where(eq(adminSessions.adminUserId, adminId))
+    const action = input.data.action === 'reject' ? 'administrator.application_rejected'
+      : input.data.action === 'activate' && marketplaceRole && ['pending', 'rejected'].includes(target.status) ? 'administrator.application_approved'
+        : `administrator.${input.data.action}ed`
+    await transaction.insert(adminAuditLogs).values({ adminUserId: authorization.actor.id, action, targetType: 'admin_user', targetId: String(adminId) })
   })
-  response.json({ data: { updated: true } })
+  const decision = input.data.action === 'reject' ? 'rejected'
+    : input.data.action === 'activate' && marketplaceRole && ['pending', 'rejected'].includes(target.status) ? 'approved' : null
+  if (!decision) return response.json({ data: { updated: true } })
+  const loginUrl = env.MARKETHUB_PUBLIC_URL
+    ? new URL('/admin/marketplace/login', `${env.MARKETHUB_PUBLIC_URL.replace(/\/$/, '')}/`).toString()
+    : buildAbsoluteUrl('/admin/access')
+  const delivery = await sendTransactionalEmail({
+    to: target.email,
+    subject: decision === 'approved' ? 'Your MarketHub administrator access is approved' : 'Your MarketHub administrator application was declined',
+    text: decision === 'approved'
+      ? `Your MarketHub administrator access has been approved. Sign in here: ${loginUrl}`
+      : 'Your MarketHub administrator application was declined. Contact KitCulture support if you believe this decision was made in error.',
+    html: customerEmailTemplate({
+      title: decision === 'approved' ? 'Marketplace access approved' : 'Marketplace application update',
+      intro: decision === 'approved' ? `Hello ${target.fullName}, your MarketHub administrator access has been approved.` : `Hello ${target.fullName}, your MarketHub administrator application was declined.`,
+      actionLabel: decision === 'approved' ? 'Open MarketHub' : 'Return to KitCulture',
+      actionUrl: decision === 'approved' ? loginUrl : buildAbsoluteUrl('/admin/access'),
+      footer: decision === 'approved' ? 'Sign in with your KitCulture administrator credentials.' : 'Contact KitCulture support if you believe this decision was made in error.',
+    }),
+    notificationType: 'administrator_decision',
+  })
+  response.json({ data: { updated: true, notificationStatus: delivery.status, notificationErrorCode: delivery.reason } })
 })
 
 const archiveAdministratorsSchema = z.object({ ids: z.array(z.number().int().positive()).min(1).max(100).refine((ids) => new Set(ids).size === ids.length) }).strict()

@@ -18,6 +18,8 @@ export type MarketplaceEmailKind =
   | 'admin_product_report'
   | 'admin_marketplace_activity'
   | 'seller_account_verification'
+  | 'seller_password_reset'
+  | 'seller_password_reset_completed'
   | 'marketplace_admin_invitation'
   | 'marketplace_admin_verification'
 
@@ -35,9 +37,11 @@ export type MarketplaceEmailDelivery =
 
 type MailMessage = { from: { name: string; address: string }; to: string; subject: string; text: string; html: string; replyTo?: string }
 type SmtpOptions = { host: string; port: number; user: string; pass: string; secure: boolean; requireTLS: boolean }
+type ResendResult = { status: number; id?: string }
 type Dependencies = {
   env?: NodeJS.ProcessEnv
   sendSmtp?: (options: SmtpOptions, message: MailMessage) => Promise<{ accepted: string[]; messageId?: string }>
+  sendResend?: (apiKey: string, message: MailMessage) => Promise<ResendResult>
 }
 
 const eventCopy: Record<MarketplaceEmailKind, { subject: string; intro: string }> = {
@@ -58,6 +62,8 @@ const eventCopy: Record<MarketplaceEmailKind, { subject: string; intro: string }
   admin_product_report: { subject: 'MarketHub: listing report received', intro: 'A buyer submitted a report for a marketplace listing.' },
   admin_marketplace_activity: { subject: 'MarketHub marketplace activity alert', intro: 'An important marketplace event requires attention.' },
   seller_account_verification: { subject: 'Verify your MarketHub seller account', intro: 'Confirm your email address to activate your seller account.' },
+  seller_password_reset: { subject: 'Reset your MarketHub seller password', intro: 'Use this one-time link to choose a new password. It expires in one hour.' },
+  seller_password_reset_completed: { subject: 'Your MarketHub seller password was changed', intro: 'Your seller account password was changed. All existing seller sessions have been signed out.' },
   marketplace_admin_invitation: { subject: 'MarketHub second-hand admin invitation', intro: 'A marketplace Super Admin invited you to manage second-hand listings.' },
   marketplace_admin_verification: { subject: 'Verify your MarketHub administrator account', intro: 'Your password is set. Confirm your email address to activate Second-hand admin access.' },
 }
@@ -85,7 +91,7 @@ export function renderMarketplaceEmail(input: MarketplaceEmailInput): { subject:
     const url = new URL(actionUrl)
     if (['https:', 'http:'].includes(url.protocol) && !url.username && !url.password) safeActionUrl = url.toString()
   } catch { /* An absent or invalid action URL is omitted. */ }
-  const actionLabel = input.kind === 'marketplace_admin_invitation' ? 'Complete administrator onboarding' : 'Verify email address'
+  const actionLabel = input.kind === 'marketplace_admin_invitation' ? 'Complete administrator onboarding' : input.kind === 'seller_password_reset' ? 'Reset password' : 'Verify email address'
   const details = [
     ...(name ? [`Hello ${name},`] : []),
     copy.intro,
@@ -135,11 +141,57 @@ function validRecipient(value: string): boolean {
   return value.length <= 254 && /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(value)
 }
 
+export function getMarketplaceEmailProviderStatus(env: NodeJS.ProcessEnv = process.env): { provider: string; configured: boolean; code: string | null } {
+  const provider = env.MARKETPLACE_EMAIL_PROVIDER ?? 'disabled'
+  if (env.NODE_ENV === 'production' && provider !== 'smtp') return { provider, configured: false, code: 'BREVO_SMTP_REQUIRED' }
+  if (provider === 'smtp') return { provider, configured: brevoConfig(env) !== null, code: brevoConfig(env) ? null : 'BREVO_SMTP_NOT_CONFIGURED' }
+  if (provider === 'resend') {
+    const configured = Boolean(env.MARKETPLACE_RESEND_API_KEY && env.MARKETPLACE_RESEND_FROM_EMAIL && validRecipient(env.MARKETPLACE_RESEND_FROM_EMAIL.trim()))
+    return { provider, configured, code: configured ? null : 'RESEND_NOT_CONFIGURED' }
+  }
+  return { provider, configured: false, code: provider === 'disabled' ? 'EMAIL_PROVIDER_DISABLED' : 'EMAIL_PROVIDER_UNSUPPORTED' }
+}
+
+async function sendWithResend(message: MailMessage, env: NodeJS.ProcessEnv, dependencies: Dependencies): Promise<MarketplaceEmailDelivery> {
+  const apiKey = env.MARKETPLACE_RESEND_API_KEY
+  if (!apiKey || !env.MARKETPLACE_RESEND_FROM_EMAIL || !validRecipient(env.MARKETPLACE_RESEND_FROM_EMAIL.trim())) return { status: 'failed', code: 'RESEND_NOT_CONFIGURED' }
+  const requestMessage: MailMessage = { ...message, from: { name: safeValue(env.MARKETPLACE_RESEND_FROM_NAME || 'MarketHub', 120), address: env.MARKETPLACE_RESEND_FROM_EMAIL.trim() } }
+  try {
+    const result = dependencies.sendResend
+      ? await dependencies.sendResend(apiKey, requestMessage)
+      : await (async () => {
+        const response = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            from: `${requestMessage.from.name} <${requestMessage.from.address}>`,
+            to: [requestMessage.to],
+            subject: requestMessage.subject,
+            text: requestMessage.text,
+            html: requestMessage.html,
+            ...(requestMessage.replyTo ? { reply_to: requestMessage.replyTo } : {}),
+          }),
+          signal: AbortSignal.timeout(15_000),
+        })
+        if (!response.ok) return { status: response.status }
+        const body = await response.json() as { id?: string }
+        return { status: response.status, id: body.id }
+      })()
+    if (result.status >= 200 && result.status < 300) return { status: 'sent', ...(result.id ? { providerMessageId: result.id } : {}) }
+    if (result.status === 429) return { status: 'retry', code: 'RESEND_RATE_LIMITED' }
+    if (result.status >= 500) return { status: 'uncertain', code: 'RESEND_OUTCOME_UNKNOWN' }
+    return { status: 'failed', code: 'RESEND_REQUEST_REJECTED' }
+  } catch {
+    return { status: 'uncertain', code: 'RESEND_OUTCOME_UNKNOWN' }
+  }
+}
+
 export async function sendMarketplaceEmail(input: MarketplaceEmailInput, dependencies: Dependencies = {}): Promise<MarketplaceEmailDelivery> {
   const env = dependencies.env ?? process.env
   if (!validRecipient(input.to)) return { status: 'failed', code: 'INVALID_RECIPIENT' }
   const rendered = renderMarketplaceEmail(input)
   const provider = env.MARKETPLACE_EMAIL_PROVIDER ?? 'disabled'
+  if (env.NODE_ENV === 'production' && provider !== 'smtp') return { status: 'failed', code: 'BREVO_SMTP_REQUIRED' }
   if (provider === 'smtp') {
     const config = brevoConfig(env)
     if (!config) return { status: 'failed', code: 'BREVO_SMTP_NOT_CONFIGURED' }
@@ -161,6 +213,17 @@ export async function sendMarketplaceEmail(input: MarketplaceEmailInput, depende
     } catch (error) {
       return smtpFailure(error)
     }
+  }
+
+  if (provider === 'resend') {
+    const configuredFrom = env.MARKETPLACE_RESEND_FROM_EMAIL?.trim()
+    const message: MailMessage = {
+      from: { name: safeValue(env.MARKETPLACE_RESEND_FROM_NAME || 'MarketHub', 120), address: configuredFrom || 'invalid@example.invalid' },
+      to: input.to,
+      ...rendered,
+      ...(env.MARKETPLACE_EMAIL_REPLY_TO ? { replyTo: env.MARKETPLACE_EMAIL_REPLY_TO } : {}),
+    }
+    return sendWithResend(message, env, dependencies)
   }
 
   return { status: 'failed', code: provider === 'disabled' ? 'EMAIL_PROVIDER_DISABLED' : 'EMAIL_PROVIDER_UNSUPPORTED' }

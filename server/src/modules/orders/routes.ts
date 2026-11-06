@@ -488,7 +488,7 @@ ordersRouter.post('/orders/guest/:orderNumber/mpesa/stk-push', rejectCrossOrigin
         .where(and(eq(payments.orderId, guestOrder.id), eq(payments.provider, 'mpesa'))).orderBy(desc(payments.createdAt)).limit(1)
       const retryable = existingPayment && ['failed', 'cancelled', 'expired'].includes(existingPayment.status)
       if (existingPayment && !retryable) throw new OrderRequestError(409, 'MPESA_REQUEST_ALREADY_EXISTS', 'The existing payment request is unresolved. Check its status before trying again.')
-      const [createdPayment] = await transaction.insert(payments).values({ orderId: guestOrder.id, provider: 'mpesa', amount: guestOrder.total, status: 'initiated', merchantShortcode: shortcodes.businessShortcode, payerPhone: phone }).returning({ id: payments.id })
+      const [createdPayment] = await transaction.insert(payments).values({ applicationId: 'KITZ', orderId: guestOrder.id, provider: 'mpesa', amount: guestOrder.total, status: 'initiated', merchantShortcode: shortcodes.businessShortcode, payerPhone: phone }).returning({ id: payments.id })
       return { order: guestOrder, amountCents, paymentId: createdPayment.id }
     })
     order = creation.order
@@ -564,6 +564,7 @@ ordersRouter.post('/orders/:orderNumber/mpesa/stk-push', rejectCrossOrigin, stkP
         throw new OrderRequestError(409, 'MPESA_REQUEST_ALREADY_EXISTS', 'The existing payment request is unresolved. Check its status before trying again.')
       }
       const [createdPayment] = await transaction.insert(payments).values({
+        applicationId: 'KITZ',
         orderId: lockedOrder.id,
         provider: 'mpesa',
         amount: lockedOrder.total,
@@ -661,6 +662,7 @@ ordersRouter.post(darajaCallbackRoute, async (request, response) => {
   const { checkoutRequestId, merchantRequestId } = callback
   const [payment] = await db.select({
     id: payments.id,
+    applicationId: payments.applicationId,
     orderId: payments.orderId,
     providerRequestId: payments.providerRequestId,
     merchantRequestId: payments.merchantRequestId,
@@ -672,6 +674,7 @@ ordersRouter.post(darajaCallbackRoute, async (request, response) => {
     status: payments.status,
   }).from(payments).where(eq(payments.providerRequestId, checkoutRequestId)).limit(1)
   if (!payment) return response.status(503).json({ ResultCode: 1, ResultDesc: 'Payment request is not ready for verification; retry callback.' })
+  if (payment.applicationId !== 'KITZ') return response.status(503).json({ ResultCode: 1, ResultDesc: 'Payment application is invalid.' })
   if (payment.merchantRequestId !== merchantRequestId) return response.status(200).json({ ResultCode: 0, ResultDesc: 'Accepted' })
   if (isFinalDarajaPaymentStatus(payment.status)) return response.json({ ResultCode: 0, ResultDesc: 'Accepted' })
 

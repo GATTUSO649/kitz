@@ -260,7 +260,7 @@ marketplaceRouter.post('/products/:slug/reports', productReportLimiter, async (r
     const [createdReport] = await transaction.insert(marketplaceProductReports).values({ productId: product.id, reason: report.data.reason, details: report.data.details || null, reporterEmail: report.data.email || null }).returning({ id: marketplaceProductReports.id })
     if (!createdReport) return []
     const admins = await transaction.select({ email: marketplaceAdminUsers.email }).from(marketplaceAdminUsers)
-      .where(and(eq(marketplaceAdminUsers.active, true), inArray(marketplaceAdminUsers.role, ['super_admin', 'support_admin'])))
+      .where(and(eq(marketplaceAdminUsers.active, true), inArray(marketplaceAdminUsers.role, ['super_admin', 'seller_support_admin', 'marketplace_moderator'])))
     for (const admin of admins) await enqueueMarketplaceEmail(transaction, {
       eventKey: `report:${createdReport.id}:admin-notification:${admin.email}`,
       to: admin.email,

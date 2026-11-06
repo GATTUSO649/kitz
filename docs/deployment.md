@@ -26,6 +26,48 @@ Production starts only when all required live Daraja settings are explicit and c
 
 The legacy MySQL adapter and its separate TLS settings remain available for source/rollback work, but they are not used by the active PostgreSQL runtime. Both storefront and administrator PostgreSQL access share one pool; do not configure a separate `ADMIN_DATABASE_URL`. Administrator invitations are managed by Super Admin; Operations self-signup is disabled. Never run migrations automatically at API startup.
 
+## MarketHub integration on Render
+
+MarketHub is deployed as a separate Render service under `platform/`. Kitz Super Admin owns all Marketplace administrator credentials, invitations, email verification, approvals, rejections, roles, permissions, and status changes. Configure both services with the same random service token; do not expose it through Vite variables.
+
+Kitz server environment:
+
+```env
+MARKETHUB_SERVICE_TOKEN=<same random URL-safe value configured on MarketHub>
+MARKETHUB_PUBLIC_URL=https://<markethub-host>
+EMAIL_PROVIDER=smtp
+SMTP_HOST=smtp-relay.brevo.com
+SMTP_PORT=2525
+SMTP_USER=<existing Brevo SMTP login>
+SMTP_PASS=<existing Brevo SMTP key>
+SMTP_SECURE=false
+SMTP_REQUIRE_TLS=true
+EMAIL_FROM=<verified sender used by Kitz and MarketHub>
+```
+
+Set Kitz build-time `VITE_MARKETHUB_ORIGIN=https://<markethub-host>` so `/admin/access` links to the separate service.
+
+MarketHub server environment:
+
+```env
+KITCULTURE_MARKETPLACE_AUTH_URL=https://<kitz-host>/api/v1/admin/marketplace/authenticate
+KITCULTURE_MARKETPLACE_AUTHORIZE_URL=https://<kitz-host>/api/v1/admin/marketplace/authorize
+KITCULTURE_MARKETPLACE_SERVICE_TOKEN=<same token as MARKETHUB_SERVICE_TOKEN>
+KITCULTURE_ORIGIN_AUTH_TOKEN=<Kitz ORIGIN_AUTH_TOKEN, only when that gate is enabled>
+MARKETPLACE_EMAIL_PROVIDER=smtp
+MARKETPLACE_BREVO_SMTP_HOST=smtp-relay.brevo.com
+MARKETPLACE_BREVO_SMTP_PORT=2525
+MARKETPLACE_BREVO_SMTP_USER=<same existing Brevo SMTP login>
+MARKETPLACE_BREVO_SMTP_PASSWORD=<same existing Brevo SMTP key>
+MARKETPLACE_BREVO_SMTP_SECURE=false
+MARKETPLACE_BREVO_SMTP_REQUIRE_TLS=true
+MARKETPLACE_BREVO_FROM_EMAIL=<same verified sender address>
+```
+
+These are required configuration names, not verified production values. Use the existing Daraja credentials and settlement account in both server secret managers, with Kitz's existing order callback and MarketHub's separate Marketplace callback. Do not copy them into `VITE_` variables or replace Kitz's callback. Review the additive migrations `supabase/migrations/20261106000000_marketplace_administrator_roles.sql`, `20261106000001_marketplace_admin_approval_state.sql`, `20261106000002_payment_application_id.sql`, and MarketHub's `platform/server/src/database/marketplace-migrations/0005_central_admin_payments_seller_recovery.sql`; apply only after the controlled database backup/staging review and owner approval.
+
+The service-token API is a private backend channel, not browser SSO. Keep the token identical across the two servers, rotate it together, and verify health/readiness and staged administrator flows before production rollout.
+
 ## Stable Daraja callback
 
 Give the service a stable hostname on a domain you control, terminate TLS at Render or a trusted reverse proxy, and keep `/api/v1/orders/mpesa/callback/*` on that same service without rewriting the path. Do not use localhost, a temporary tunnel, or an expiring preview hostname for production callbacks.

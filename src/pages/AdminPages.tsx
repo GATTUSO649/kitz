@@ -341,10 +341,10 @@ export function AdminVerifyPage() {
     if (!token) return
     let active = true
     const request = invitation
-      ? api<{ loginPath: string }>('/api/v1/admin/verify-invitation', { method: 'POST', body: JSON.stringify({ token }) })
-      : verifyAdminToken(token).then(() => ({ loginPath: '/sales-admin/login' }))
-    void request.then(({ loginPath }) => {
-      if (active) navigate(`${loginPath}?verified=1`, { replace: true })
+      ? api<{ loginPath: string; approvalPending?: boolean }>('/api/v1/admin/verify-invitation', { method: 'POST', body: JSON.stringify({ token }) })
+      : verifyAdminToken(token).then(() => ({ loginPath: '/sales-admin/login', approvalPending: false }))
+    void request.then(({ loginPath, approvalPending }) => {
+      if (active) navigate(approvalPending ? loginPath : `${loginPath}?verified=1`, { replace: true })
     }).catch((issue: unknown) => {
       if (active) setError(issue instanceof Error ? issue.message : 'Administrator verification failed.')
     })

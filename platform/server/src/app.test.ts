@@ -29,6 +29,17 @@ test('readiness reports missing marketplace database configuration', async () =>
   assert.equal((await response.json()).database, 'not_configured')
 })
 
+test('worker health reports configured state without exposing secret values', async () => {
+  const response = await fetch(`${origin}/health/workers`)
+  const result = await response.json() as { workers?: Record<string, unknown>; emailProvider?: { provider: string; configured: boolean; code: string | null } }
+  assert.equal(response.status, 200)
+  assert.equal(result.emailProvider?.provider, 'disabled')
+  assert.equal(result.emailProvider?.configured, false)
+  assert.ok(result.workers?.marketplace_email)
+  assert.ok(result.workers?.marketplace_listing_expiry)
+  assert.doesNotMatch(JSON.stringify(result), /MARKETPLACE_DATABASE_URL|SMTP_PASSWORD|API_KEY/)
+})
+
 test('catalogue rejects invalid pagination before accessing the database', async () => {
   const response = await fetch(`${origin}/api/v1/marketplace/products?limit=999`)
   assert.equal(response.status, 400)
@@ -99,14 +110,84 @@ test('seller account management fails closed when the marketplace database is un
   assert.equal((await response.json()).error.code, 'MARKETPLACE_UNAVAILABLE')
 })
 
-test('second-hand admin assignment fails closed when the marketplace database is unavailable', async () => {
+test('second-hand admin assignment is managed by KitCulture Super Admin', async () => {
   const response = await fetch(`${origin}/api/v1/admin/marketplace/admins/invitations`, {
     method: 'POST',
     headers: { Origin: 'http://127.0.0.1:5173', 'Content-Type': 'application/json' },
     body: JSON.stringify({ fullName: 'Marketplace Admin', email: 'admin@example.test' }),
   })
+  assert.equal(response.status, 410)
+  assert.equal((await response.json()).error.code, 'CENTRAL_ADMIN_MANAGEMENT_REQUIRED')
+})
+
+test('email event recovery fails closed when the marketplace database is unavailable', async () => {
+  const response = await fetch(`${origin}/api/v1/admin/marketplace/email-events/00000000-0000-4000-8000-000000000001/retry`, {
+    method: 'POST',
+    headers: { Origin: 'http://127.0.0.1:5173', 'Content-Type': 'application/json' },
+    body: '{}',
+  })
   assert.equal(response.status, 503)
   assert.equal((await response.json()).error.code, 'MARKETPLACE_UNAVAILABLE')
+})
+
+test('MarketHub-local administrator provisioning and management are disabled', async () => {
+  const responses = await Promise.all([
+    fetch(`${origin}/api/v1/admin/marketplace/admins/invitations`, {
+      method: 'POST',
+      headers: { Origin: 'http://127.0.0.1:5173', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fullName: 'Local Admin', email: 'local-admin@example.com' }),
+    }),
+    fetch(`${origin}/api/v1/admin/marketplace/invitations/activate`, {
+      method: 'POST',
+      headers: { Origin: 'http://127.0.0.1:5173', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: 'x'.repeat(32), password: 'a-secure-passphrase-2026', confirmPassword: 'a-secure-passphrase-2026' }),
+    }),
+    fetch(`${origin}/api/v1/admin/marketplace/admins`),
+  ])
+
+  for (const response of responses) {
+    assert.equal(response.status, 410)
+    assert.equal((await response.json()).error.code, 'CENTRAL_ADMIN_MANAGEMENT_REQUIRED')
+  }
+})
+
+test('seller password recovery validates requests and fails closed without the marketplace database', async () => {
+  const invalidRequest = await fetch(`${origin}/api/v1/marketplace/seller/password/forgot`, {
+    method: 'POST',
+    headers: { Origin: 'http://127.0.0.1:5173', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'not-an-email' }),
+  })
+  assert.equal(invalidRequest.status, 400)
+
+  const forgot = await fetch(`${origin}/api/v1/marketplace/seller/password/forgot`, {
+    method: 'POST',
+    headers: { Origin: 'http://127.0.0.1:5173', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'seller@example.test' }),
+  })
+  assert.equal(forgot.status, 503)
+  assert.equal((await forgot.json()).error.code, 'MARKETPLACE_UNAVAILABLE')
+
+  const reset = await fetch(`${origin}/api/v1/marketplace/seller/password/reset`, {
+    method: 'POST',
+    headers: { Origin: 'http://127.0.0.1:5173', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: 'x'.repeat(32), password: 'a-secure-passphrase-2026', confirmPassword: 'a-secure-passphrase-2026' }),
+  })
+  assert.equal(reset.status, 503)
+  assert.equal((await reset.json()).error.code, 'MARKETPLACE_UNAVAILABLE')
+})
+
+test('seller account support routes fail closed without the marketplace database', async () => {
+  const list = await fetch(`${origin}/api/v1/admin/marketplace/seller-accounts`)
+  assert.equal(list.status, 503)
+  assert.equal((await list.json()).error.code, 'MARKETPLACE_UNAVAILABLE')
+
+  const update = await fetch(`${origin}/api/v1/admin/marketplace/seller-accounts/00000000-0000-4000-8000-000000000001/status`, {
+    method: 'PATCH',
+    headers: { Origin: 'http://127.0.0.1:5173', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'suspended' }),
+  })
+  assert.equal(update.status, 503)
+  assert.equal((await update.json()).error.code, 'MARKETPLACE_UNAVAILABLE')
 })
 
 test('seller contact endpoint rejects requests without an unlock token', async () => {

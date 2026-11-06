@@ -7,7 +7,7 @@ import { adminDb } from '../../config/database.js'
 import { verifyPassword } from '../../config/password-policy.js'
 import { adminSessionAbsoluteLifetimeMs, adminSessionIdleTimeoutMs, nextSessionExpiry } from '../../config/session-policy.js'
 import { adminAuditLogs, adminInvitations, adminLoginAttempts, adminSessions, adminUsers, adminVerificationTokens } from '../../database/admin-schema.js'
-import { administratorPortal, requiredAdministratorRole } from './administration.js'
+import { administratorPortal, marketplaceAdministratorRoles, requiredAdministratorRole } from './administration.js'
 import { authenticatedAdmin } from '../../middleware/authenticate.js'
 import { authenticateAdmin } from '../../middleware/authenticate.js'
 
@@ -18,7 +18,7 @@ export const adminLoginSchema = z.object({
   identity: z.string().trim().min(3).max(254).optional(),
   email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()).optional(),
   roleNumber: z.string().trim().min(4).max(40).optional(),
-  expectedRole: z.enum(['sales_admin', 'finance_admin', 'inventory_admin', 'marketing_admin', 'content_admin', 'it_admin', 'super_admin']).optional(),
+  expectedRole: z.enum(['sales_admin', 'finance_admin', 'inventory_admin', 'marketing_admin', 'content_admin', 'it_admin', 'super_admin', 'second_hand_admin', 'seller_support_admin', 'marketplace_finance_admin', 'marketplace_moderator']).optional(),
   password: z.string().min(1).max(128),
 }).strict().refine((value) => Boolean(value.identity || value.email || value.roleNumber), { message: 'Enter an administrator email or role number.' })
 export const invalidAdminCredentialsMessage = 'The email address or password is incorrect. Please try again.'
@@ -77,17 +77,18 @@ adminAuthRouter.post('/verify', async (request, response) => {
       id: adminVerificationTokens.id,
       adminUserId: adminVerificationTokens.adminUserId,
       consumedAt: adminVerificationTokens.consumedAt,
+      emailVerifiedAt: adminUsers.emailVerifiedAt,
+      role: adminUsers.role,
+      status: adminUsers.status,
     }).from(adminVerificationTokens)
+      .innerJoin(adminUsers, eq(adminUsers.id, adminVerificationTokens.adminUserId))
       .where(and(
         eq(adminVerificationTokens.tokenHash, hashToken(input.data.token)),
         gt(adminVerificationTokens.expiresAt, now),
       )).limit(1).for('update')
     if (!record) return false
-    if (record.consumedAt) {
-      const [admin] = await transaction.select({ emailVerifiedAt: adminUsers.emailVerifiedAt })
-        .from(adminUsers).where(eq(adminUsers.id, record.adminUserId)).limit(1)
-      return Boolean(admin?.emailVerifiedAt)
-    }
+    if (record.consumedAt) return Boolean(record.emailVerifiedAt)
+    if (['rejected', 'suspended', 'disabled'].includes(record.status)) return false
     const consumed = await transaction.update(adminVerificationTokens).set({ consumedAt: now })
       .where(and(
         eq(adminVerificationTokens.id, record.id),
@@ -95,7 +96,8 @@ adminAuthRouter.post('/verify', async (request, response) => {
         isNull(adminVerificationTokens.consumedAt),
       )).returning({ id: adminVerificationTokens.id })
     if (consumed.length !== 1) return false
-    await transaction.update(adminUsers).set({ emailVerifiedAt: now, status: 'active' })
+    const nextStatus = record.role && marketplaceAdministratorRoles.has(record.role) ? 'pending' : 'active'
+    await transaction.update(adminUsers).set({ emailVerifiedAt: now, status: nextStatus })
       .where(eq(adminUsers.id, record.adminUserId))
     return true
   })
@@ -138,6 +140,11 @@ const adminLoginHandler = async (request: Request, response: Response) => {
   if (admin.status === 'suspended' || admin.status === 'disabled') {
     await adminDb.insert(adminLoginAttempts).values({ identity: normalizedIdentity, adminUserId: admin.id, success: false, failureCode: 'ACCOUNT_SUSPENDED' })
     response.status(403).json({ error: { code: 'ADMIN_ACCOUNT_SUSPENDED', message: 'This administrator account is suspended or disabled.' } })
+    return
+  }
+  if (admin.status === 'rejected') {
+    await adminDb.insert(adminLoginAttempts).values({ identity: normalizedIdentity, adminUserId: admin.id, success: false, failureCode: 'ADMIN_APPLICATION_REJECTED' })
+    response.status(403).json({ error: { code: 'ADMIN_APPLICATION_REJECTED', message: 'This administrator application was not approved.' } })
     return
   }
   const requiredRole = requiredAdministratorRole(request.path, input.data.expectedRole)

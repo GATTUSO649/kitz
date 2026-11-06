@@ -2,7 +2,7 @@ import { and, asc, count, desc, eq, ilike, inArray, sql } from 'drizzle-orm'
 import { Router } from 'express'
 import { z } from 'zod'
 import { database } from '../../database/connection.js'
-import { marketplaceAdminSessions, marketplaceAdminUsers, marketplaceAuditLogs, marketplaceCategories, marketplaceContactUnlocks, marketplaceCounties, marketplacePaymentCallbacks, marketplacePayments, marketplaceProductReports, marketplaceProducts, marketplaceSettings, marketplaceSellers } from '../../database/schema.js'
+import { marketplaceAdminSessions, marketplaceAdminUsers, marketplaceAuditLogs, marketplaceCategories, marketplaceContactUnlocks, marketplaceCounties, marketplaceEmailEvents, marketplacePaymentCallbacks, marketplacePayments, marketplaceProductReports, marketplaceProducts, marketplaceSettings, marketplaceSellerAccounts, marketplaceSellerSessions, marketplaceSellers } from '../../database/schema.js'
 import { requireMarketplacePermission, type MarketplaceAdminSession } from './marketplace-auth.js'
 import { parseDarajaTimestamp, queryStkPayment } from '../payments/daraja.js'
 import { normalizeKenyanPhone } from '../marketplace/security.js'
@@ -11,7 +11,62 @@ import { parseMarketplaceSocialLinks } from '../marketplace/social-links.js'
 import { enqueueMarketplaceEmail } from '../email/outbox.js'
 
 export const marketplaceAdminDataRouter = Router()
+marketplaceAdminDataRouter.use('/admins', (_request, response) => {
+  response.status(410).json({ error: { code: 'CENTRAL_ADMIN_MANAGEMENT_REQUIRED', message: 'Marketplace administrator management is centralized in KitCulture Super Admin.' } })
+})
 const adminSession = (response: import('express').Response) => response.locals.marketplaceAdmin as MarketplaceAdminSession
+
+marketplaceAdminDataRouter.get('/email-events', requireMarketplacePermission('admins:manage'), async (request, response, next) => {
+  const parsed = z.object({ status: z.enum(['failed', 'uncertain']).optional() }).safeParse(request.query)
+  if (!parsed.success) {
+    response.status(400).json({ error: { code: 'INVALID_EMAIL_EVENT_FILTER', message: 'Choose a supported email event state.' } })
+    return
+  }
+  if (!database) {
+    response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Marketplace email records are temporarily unavailable.' } })
+    return
+  }
+  try {
+    const events = await database.select({ id: marketplaceEmailEvents.id, kind: marketplaceEmailEvents.kind, recipientEmail: marketplaceEmailEvents.recipientEmail, status: marketplaceEmailEvents.status, attempts: marketplaceEmailEvents.attempts, lastErrorCode: marketplaceEmailEvents.lastErrorCode, createdAt: marketplaceEmailEvents.createdAt })
+      .from(marketplaceEmailEvents).where(parsed.data.status ? eq(marketplaceEmailEvents.status, parsed.data.status) : inArray(marketplaceEmailEvents.status, ['failed', 'uncertain']))
+      .orderBy(desc(marketplaceEmailEvents.createdAt)).limit(100)
+    response.setHeader('Cache-Control', 'no-store')
+    response.json({ data: events })
+  } catch (error) {
+    next(error)
+  }
+})
+
+marketplaceAdminDataRouter.post('/email-events/:id/retry', requireMarketplacePermission('admins:manage'), async (request, response, next) => {
+  const id = z.string().uuid().safeParse(request.params.id)
+  if (!id.success) {
+    response.status(400).json({ error: { code: 'INVALID_EMAIL_EVENT_ID', message: 'The email event identifier is invalid.' } })
+    return
+  }
+  if (!database) {
+    response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Marketplace email records are temporarily unavailable.' } })
+    return
+  }
+  try {
+    const recovered = await database.transaction(async (transaction) => {
+      const [event] = await transaction.select({ status: marketplaceEmailEvents.status }).from(marketplaceEmailEvents)
+        .where(eq(marketplaceEmailEvents.id, id.data)).for('update').limit(1)
+      if (!event || event.status !== 'failed') return false
+      const [updated] = await transaction.update(marketplaceEmailEvents).set({ status: 'pending', attempts: 0, nextAttemptAt: new Date(), lockedAt: null, lastErrorCode: null })
+        .where(and(eq(marketplaceEmailEvents.id, id.data), eq(marketplaceEmailEvents.status, 'failed'))).returning({ id: marketplaceEmailEvents.id })
+      if (!updated) return false
+      await transaction.insert(marketplaceAuditLogs).values({ adminUserId: adminSession(response).id, action: 'email.failed_event_requeued', resourceType: 'marketplace_email_event', resourceId: id.data })
+      return true
+    })
+    if (!recovered) {
+      response.status(409).json({ error: { code: 'EMAIL_EVENT_NOT_RETRYABLE', message: 'Only definitively failed emails can be requeued. Uncertain outcomes are held to avoid duplicate delivery.' } })
+      return
+    }
+    response.json({ data: { id: id.data, status: 'pending' } })
+  } catch (error) {
+    next(error)
+  }
+})
 
 marketplaceAdminDataRouter.get('/admins', requireMarketplacePermission('admins:manage'), async (_request, response, next) => {
   if (!database) {
@@ -61,6 +116,72 @@ marketplaceAdminDataRouter.patch('/admins/:id/status', requireMarketplacePermiss
   }
 })
 
+marketplaceAdminDataRouter.get('/seller-accounts', requireMarketplacePermission('support:manage'), async (_request, response, next) => {
+  if (!database) {
+    response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Seller accounts are temporarily unavailable.' } })
+    return
+  }
+  try {
+    const accounts = await database.select({
+      id: marketplaceSellerAccounts.id,
+      email: marketplaceSellerAccounts.email,
+      status: marketplaceSellerAccounts.status,
+      emailVerifiedAt: marketplaceSellerAccounts.emailVerifiedAt,
+      createdAt: marketplaceSellerAccounts.createdAt,
+      sellerName: marketplaceSellers.name,
+      town: marketplaceSellers.town,
+      county: marketplaceCounties.name,
+    }).from(marketplaceSellerAccounts)
+      .leftJoin(marketplaceSellers, eq(marketplaceSellers.accountId, marketplaceSellerAccounts.id))
+      .leftJoin(marketplaceCounties, eq(marketplaceCounties.id, marketplaceSellers.countyId))
+      .orderBy(desc(marketplaceSellerAccounts.createdAt)).limit(100)
+    response.setHeader('Cache-Control', 'no-store')
+    response.json({ data: accounts })
+  } catch (error) {
+    next(error)
+  }
+})
+
+marketplaceAdminDataRouter.patch('/seller-accounts/:id/status', requireMarketplacePermission('support:manage'), async (request, response, next) => {
+  const id = z.string().uuid().safeParse(request.params.id)
+  const parsed = z.object({ status: z.enum(['active', 'suspended']) }).strict().safeParse(request.body)
+  if (!id.success || !parsed.success) {
+    response.status(400).json({ error: { code: 'INVALID_SELLER_STATUS', message: 'The seller status update is invalid.' } })
+    return
+  }
+  if (!database) {
+    response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Seller status is temporarily unavailable.' } })
+    return
+  }
+  const actor = adminSession(response)
+  try {
+    const [target] = await database.select({ status: marketplaceSellerAccounts.status, emailVerifiedAt: marketplaceSellerAccounts.emailVerifiedAt })
+      .from(marketplaceSellerAccounts).where(eq(marketplaceSellerAccounts.id, id.data)).limit(1)
+    if (!target) {
+      response.status(404).json({ error: { code: 'SELLER_ACCOUNT_NOT_FOUND', message: 'The seller account could not be found.' } })
+      return
+    }
+    if (!target.emailVerifiedAt || target.status === 'pending') {
+      response.status(409).json({ error: { code: 'SELLER_EMAIL_UNVERIFIED', message: 'Only email-verified seller accounts can be activated or suspended.' } })
+      return
+    }
+    await database.transaction(async (transaction) => {
+      await transaction.update(marketplaceSellerAccounts).set({ status: parsed.data.status, updatedAt: new Date() }).where(eq(marketplaceSellerAccounts.id, id.data))
+      if (parsed.data.status === 'suspended') await transaction.delete(marketplaceSellerSessions).where(eq(marketplaceSellerSessions.sellerAccountId, id.data))
+      await transaction.insert(marketplaceAuditLogs).values({
+        adminUserId: actor.id,
+        action: parsed.data.status === 'suspended' ? 'seller.account.suspended' : 'seller.account.reactivated',
+        resourceType: 'marketplace_seller_account',
+        resourceId: id.data,
+        metadata: { kitzAdminId: actor.kitzAdminId },
+      })
+    })
+    response.json({ data: { id: id.data, status: parsed.data.status, sessionsRevoked: parsed.data.status === 'suspended' } })
+  } catch (error) {
+    next(error)
+  }
+})
+
 marketplaceAdminDataRouter.get('/dashboard', requireMarketplacePermission('dashboard:read'), async (_request, response, next) => {
   if (!database) {
     response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Marketplace administration is temporarily unavailable.' } })
@@ -80,7 +201,7 @@ marketplaceAdminDataRouter.get('/dashboard', requireMarketplacePermission('dashb
     const listingCount = (status: string) => Number(listingStates.find((item) => item.status === status)?.total ?? 0)
     const paymentCount = (status: string) => Number(paymentStates.find((item) => item.status === status)?.total ?? 0)
     const admin = adminSession(response)
-    const canReadFinance = admin.role === 'super_admin' || admin.role === 'finance_admin'
+    const canReadFinance = admin.permissions.includes('finance:read')
     const revenueByPurpose = new Map(revenueRows.map(({ purpose, amount }) => [purpose, Number(amount)]))
     response.json({ data: {
       listings: {
@@ -101,7 +222,7 @@ marketplaceAdminDataRouter.get('/dashboard', requireMarketplacePermission('dashb
   }
 })
 
-marketplaceAdminDataRouter.get('/listings', requireMarketplacePermission('listings:manage'), async (request, response, next) => {
+marketplaceAdminDataRouter.get('/listings', requireMarketplacePermission('listings:read'), async (request, response, next) => {
   const query = z.object({ q: z.string().trim().max(120).optional(), status: z.string().max(24).optional(), page: z.coerce.number().int().min(1).default(1), limit: z.coerce.number().int().min(1).max(50).default(25) }).safeParse(request.query)
   if (!query.success) {
     response.status(400).json({ error: { code: 'INVALID_QUERY', message: 'Listing filters are invalid.' } })
@@ -128,7 +249,7 @@ marketplaceAdminDataRouter.get('/listings', requireMarketplacePermission('listin
   }
 })
 
-marketplaceAdminDataRouter.patch('/listings/:reference/status', requireMarketplacePermission('listings:manage'), async (request, response, next) => {
+marketplaceAdminDataRouter.patch('/listings/:reference/status', requireMarketplacePermission(['listings:manage', 'moderation:manage']), async (request, response, next) => {
   const parsed = z.object({ status: z.enum(['published', 'suspended', 'sold', 'removed']) }).safeParse(request.body)
   const reference = z.string().regex(/^MH-[A-F0-9]{16}$/).safeParse(request.params.reference)
   if (!parsed.success || !reference.success) {
@@ -442,7 +563,7 @@ marketplaceAdminDataRouter.post('/payments/:reference/reconcile', requireMarketp
         }
         if (payment.customerEmail) await enqueueMarketplaceEmail(transaction, { eventKey: `payment:${reference.data}:receipt`, to: payment.customerEmail, kind: 'payment_receipt', data: { title: product?.title, reference: reference.data, amountKes: payment.amountKes } })
         const financeAdmins = await transaction.select({ email: marketplaceAdminUsers.email }).from(marketplaceAdminUsers)
-          .where(and(eq(marketplaceAdminUsers.active, true), inArray(marketplaceAdminUsers.role, ['super_admin', 'finance_admin'])))
+          .where(and(eq(marketplaceAdminUsers.active, true), inArray(marketplaceAdminUsers.role, ['super_admin', 'marketplace_finance_admin'])))
         for (const recipient of financeAdmins) await enqueueMarketplaceEmail(transaction, { eventKey: `payment:${reference.data}:admin-success:${recipient.email}`, to: recipient.email, kind: 'admin_publication_success', data: { title: product?.title, reference: reference.data, amountKes: payment.amountKes } })
       } else if (payment.purpose === 'CONTACT_UNLOCK' && payment.accessTokenHash) {
         await transaction.insert(marketplaceContactUnlocks).values({ productId: payment.productId!, paymentId: payment.id, tokenHash: payment.accessTokenHash, expiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000) }).onConflictDoNothing()

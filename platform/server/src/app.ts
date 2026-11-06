@@ -6,12 +6,15 @@ import { fileURLToPath } from 'node:url'
 import { rateLimit } from 'express-rate-limit'
 import helmet from 'helmet'
 import { pool } from './database/connection.js'
-import { marketplaceAdminRouter } from './modules/admin/marketplace-auth.js'
+import { getMarketplaceEmailProviderStatus } from './modules/email/service.js'
+import { getKitzAdminServiceStatus, marketplaceAdminRouter } from './modules/admin/marketplace-auth.js'
 import { marketplaceAdminDataRouter } from './modules/admin/marketplace-routes.js'
+import { marketplaceSellerPasswordRecoveryRouter } from './modules/marketplace/seller-password-recovery.js'
 import { marketplaceSellerAuthRouter, marketplaceSellerDataRouter } from './modules/marketplace/seller-portal.js'
 import { submissionRouter } from './modules/marketplace/submission.js'
 import { marketplaceRouter } from './modules/marketplace/routes.js'
 import { paymentRouter } from './modules/payments/routes.js'
+import { safeWorkerError, workerHealthSnapshot } from './workers/health.js'
 
 export const app = express()
 app.disable('x-powered-by')
@@ -37,9 +40,16 @@ app.use((request, response, next) => {
 app.use('/api/v1', rateLimit({ windowMs: 60_000, limit: process.env.NODE_ENV === 'production' ? 120 : 600, standardHeaders: 'draft-8', legacyHeaders: false }))
 
 app.get('/health/live', (_request, response) => response.json({ status: 'ok', service: 'markethub-platform' }))
+app.get('/health/workers', (_request, response) => {
+  response.setHeader('Cache-Control', 'no-store')
+  response.json({ workers: workerHealthSnapshot(), emailProvider: getMarketplaceEmailProviderStatus(), centralAdminAuth: getKitzAdminServiceStatus() })
+})
 app.get('/health/ready', async (_request, response) => {
+  const workers = workerHealthSnapshot()
+  const emailProvider = getMarketplaceEmailProviderStatus()
+  const centralAdminAuth = getKitzAdminServiceStatus()
   if (!pool) {
-    response.status(503).json({ status: 'not_ready', database: 'not_configured' })
+    response.status(503).json({ status: 'not_ready', database: 'not_configured', workers, emailProvider, centralAdminAuth })
     return
   }
   try {
@@ -94,14 +104,18 @@ app.get('/health/ready', async (_request, response) => {
       ) AS required_tables_ready
     `)
     if (result.rows[0]?.schema_access !== true || result.rows[0]?.required_tables_ready !== true) throw new Error('Marketplace schema access is unavailable.')
-    response.json({ status: 'ready', database: 'ok' })
-  } catch {
-    response.status(503).json({ status: 'not_ready', database: 'unavailable' })
+    const workerFailure = Object.values(workers).some((worker) => worker.enabled && worker.consecutiveFailures > 0)
+    const status = emailProvider.configured && centralAdminAuth.configured && !workerFailure ? 'ready' : 'degraded'
+    response.json({ status, database: 'ok', workers, emailProvider, centralAdminAuth })
+  } catch (error) {
+    console.error('MarketHub readiness check failed', { operation: 'health.ready.database_check', ...safeWorkerError(error) })
+    response.status(503).json({ status: 'not_ready', database: 'unavailable', workers, emailProvider, centralAdminAuth })
   }
 })
 
 app.use('/api/v1/marketplace', marketplaceRouter)
 app.use('/api/v1/marketplace', marketplaceSellerAuthRouter)
+app.use('/api/v1/marketplace', marketplaceSellerPasswordRecoveryRouter)
 app.use('/api/v1/marketplace', marketplaceSellerDataRouter)
 app.use('/api/v1/marketplace', submissionRouter)
 app.use('/api/v1/marketplace/payments', paymentRouter)
