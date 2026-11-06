@@ -12,7 +12,7 @@ import { adminAuditLogs, adminInvitations, adminLoginAttempts, adminRolePermissi
 import { categories, expenses, homepageSlides, inventoryMovements, notificationCampaigns, orders, payments, productVariants, products, supportRequests, users } from '../../database/schema.js'
 import { authenticateAdmin, authenticatedAdmin } from '../../middleware/authenticate.js'
 import { allocateAdministratorRoleNumber } from './role-number.js'
-import { administratorPermissions as permissionKeys, administratorPortal, administratorRoles as roles, defaultAdministratorPermissions, hasAdministratorPermission, isMarketplaceRoleNumberActivation, marketplaceAdministratorRoles, type AdministratorPermission } from './administration.js'
+import { administratorPermissions as permissionKeys, administratorPortal, administratorRoles as roles, defaultAdministratorPermissions, hasAdministratorPermission, isMarketplaceAdminApprovalPending, isMarketplaceRoleNumberActivation, marketplaceAdministratorRoles, type AdministratorPermission } from './administration.js'
 import { administratorPortalPermission } from './permission-routes.js'
 import { loadAdministratorPermissions, permissionDescriptions, validatePermissionSelection } from './permissions.js'
 
@@ -108,8 +108,16 @@ adminEcosystemRouter.post('/marketplace/authenticate', marketplaceAuthentication
   }
 
   const passwordMatches = await verifyPassword(input.data.password, admin?.passwordHash)
-  if (!admin || !passwordMatches || admin.status !== 'active' || !admin.emailVerifiedAt || !roleAllowed) {
+  if (!admin || !passwordMatches || !roleAllowed) {
     await adminDb.insert(adminLoginAttempts).values({ identity: input.data.email, adminUserId: admin?.id, success: false, failureCode: 'MARKETPLACE_AUTH_REJECTED' })
+    return response.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'The email address or password is incorrect.' } })
+  }
+  if (isMarketplaceAdminApprovalPending(admin)) {
+    await adminDb.insert(adminLoginAttempts).values({ identity: input.data.email, adminUserId: admin.id, success: false, failureCode: 'MARKETPLACE_ADMIN_APPROVAL_PENDING' })
+    return response.status(403).json({ error: { code: 'MARKETPLACE_ADMIN_APPROVAL_PENDING', message: 'Email verified. Your MarketHub administrator access is waiting for Super Admin approval.' } })
+  }
+  if (admin.status !== 'active' || !admin.emailVerifiedAt) {
+    await adminDb.insert(adminLoginAttempts).values({ identity: input.data.email, adminUserId: admin.id, success: false, failureCode: 'MARKETPLACE_AUTH_REJECTED' })
     return response.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'The email address or password is incorrect.' } })
   }
 

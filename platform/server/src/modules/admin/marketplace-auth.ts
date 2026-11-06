@@ -48,6 +48,7 @@ const kitzActivationSchema = z.object({
 type KitzAuthenticationResult =
   | { kind: 'authenticated'; admin: KitzAdmin }
   | { kind: 'activation_required'; activationToken: string; roleNumber: string; email: string }
+  | { kind: 'approval_pending' }
 
 function getKitzServiceConfig() {
   const authValue = process.env.KITCULTURE_MARKETPLACE_AUTH_URL
@@ -91,13 +92,14 @@ async function postKitz(url: string, body: Record<string, unknown>) {
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(10_000),
   })
-  const payload = await response.json().catch(() => null) as { data?: unknown } | null
-  return { status: response.status, data: payload?.data }
+  const payload = await response.json().catch(() => null) as { data?: unknown; error?: { code?: string } } | null
+  return { status: response.status, data: payload?.data, errorCode: payload?.error?.code }
 }
 
 async function authenticateKitzAdmin(email: string, password: string): Promise<KitzAuthenticationResult | null> {
   const result = await postKitz(getKitzServiceConfig()?.authUrl ?? '', { email, password })
   if (result.status === 401) return null
+  if (result.status === 403 && result.errorCode === 'MARKETPLACE_ADMIN_APPROVAL_PENDING') return { kind: 'approval_pending' }
   if (result.status !== 200) throw new Error('Kitz administrator authentication is unavailable.')
   const activation = kitzActivationSchema.safeParse(result.data)
   if (activation.success) return { kind: 'activation_required', ...activation.data }
@@ -344,6 +346,10 @@ marketplaceAdminRouter.post('/login', loginLimiter, async (request, response, ne
         roleNumber: authentication.roleNumber,
         email: authentication.email,
       } })
+      return
+    }
+    if (authentication.kind === 'approval_pending') {
+      response.status(403).json({ error: { code: 'MARKETPLACE_ADMIN_APPROVAL_PENDING', message: 'Email verified. Your MarketHub administrator access is waiting for Super Admin approval.' } })
       return
     }
     const centralAdmin = authentication.admin
