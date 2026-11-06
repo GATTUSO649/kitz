@@ -5,7 +5,8 @@ import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { rateLimit } from 'express-rate-limit'
 import helmet from 'helmet'
-import { pool } from './database/connection.js'
+import { marketplaceDatabaseConnectionState, pool } from './database/connection.js'
+import { databaseErrorResponseCode } from './database/diagnostics.js'
 import { getMarketplaceEmailProviderStatus } from './modules/email/service.js'
 import { getKitzAdminServiceStatus, marketplaceAdminRouter } from './modules/admin/marketplace-auth.js'
 import { marketplaceAdminDataRouter } from './modules/admin/marketplace-routes.js'
@@ -54,56 +55,67 @@ app.get('/health/ready', async (_request, response) => {
   }
   try {
     const result = await pool.query(`
+      WITH required_tables(name) AS (VALUES
+        ('marketplace_admin_invitations'), ('marketplace_admin_sessions'), ('marketplace_admin_users'),
+        ('marketplace_admin_verification_tokens'), ('marketplace_audit_logs'), ('marketplace_categories'),
+        ('marketplace_contact_unlocks'), ('marketplace_counties'), ('marketplace_email_events'),
+        ('marketplace_featured_products'), ('marketplace_notifications'), ('marketplace_payment_callbacks'),
+        ('marketplace_payments'), ('marketplace_product_access'), ('marketplace_product_images'),
+        ('marketplace_product_reports'), ('marketplace_product_views'), ('marketplace_products'),
+        ('marketplace_seller_accounts'), ('marketplace_seller_password_reset_tokens'), ('marketplace_seller_sessions'),
+        ('marketplace_seller_verification_tokens'), ('marketplace_sellers'), ('marketplace_settings'),
+        ('marketplace_subcategories')
+      ), required_privileges(name, privilege) AS (VALUES
+        ('marketplace_admin_invitations', 'SELECT'), ('marketplace_admin_invitations', 'INSERT'), ('marketplace_admin_invitations', 'UPDATE'),
+        ('marketplace_admin_users', 'SELECT'), ('marketplace_admin_users', 'INSERT'), ('marketplace_admin_users', 'UPDATE'),
+        ('marketplace_admin_sessions', 'SELECT'), ('marketplace_admin_sessions', 'INSERT'), ('marketplace_admin_sessions', 'DELETE'),
+        ('marketplace_admin_verification_tokens', 'SELECT'), ('marketplace_admin_verification_tokens', 'INSERT'), ('marketplace_admin_verification_tokens', 'UPDATE'),
+        ('marketplace_audit_logs', 'SELECT'), ('marketplace_audit_logs', 'INSERT'),
+        ('marketplace_categories', 'SELECT'), ('marketplace_categories', 'INSERT'), ('marketplace_categories', 'UPDATE'),
+        ('marketplace_subcategories', 'SELECT'), ('marketplace_subcategories', 'INSERT'), ('marketplace_subcategories', 'UPDATE'),
+        ('marketplace_counties', 'SELECT'),
+        ('marketplace_contact_unlocks', 'SELECT'), ('marketplace_contact_unlocks', 'INSERT'),
+        ('marketplace_email_events', 'SELECT'), ('marketplace_email_events', 'INSERT'), ('marketplace_email_events', 'UPDATE'),
+        ('marketplace_featured_products', 'SELECT'), ('marketplace_featured_products', 'INSERT'), ('marketplace_featured_products', 'UPDATE'), ('marketplace_featured_products', 'DELETE'),
+        ('marketplace_notifications', 'SELECT'), ('marketplace_notifications', 'INSERT'), ('marketplace_notifications', 'UPDATE'),
+        ('marketplace_payments', 'SELECT'), ('marketplace_payments', 'INSERT'), ('marketplace_payments', 'UPDATE'),
+        ('marketplace_payment_callbacks', 'SELECT'), ('marketplace_payment_callbacks', 'INSERT'), ('marketplace_payment_callbacks', 'UPDATE'),
+        ('marketplace_product_access', 'SELECT'), ('marketplace_product_access', 'INSERT'), ('marketplace_product_access', 'DELETE'),
+        ('marketplace_product_images', 'SELECT'), ('marketplace_product_images', 'INSERT'), ('marketplace_product_images', 'DELETE'),
+        ('marketplace_product_reports', 'SELECT'), ('marketplace_product_reports', 'INSERT'), ('marketplace_product_reports', 'UPDATE'),
+        ('marketplace_product_views', 'INSERT'),
+        ('marketplace_products', 'SELECT'), ('marketplace_products', 'INSERT'), ('marketplace_products', 'UPDATE'),
+        ('marketplace_seller_accounts', 'SELECT'), ('marketplace_seller_accounts', 'INSERT'), ('marketplace_seller_accounts', 'UPDATE'),
+        ('marketplace_seller_sessions', 'SELECT'), ('marketplace_seller_sessions', 'INSERT'), ('marketplace_seller_sessions', 'DELETE'),
+        ('marketplace_seller_verification_tokens', 'SELECT'), ('marketplace_seller_verification_tokens', 'INSERT'), ('marketplace_seller_verification_tokens', 'UPDATE'),
+        ('marketplace_seller_password_reset_tokens', 'SELECT'), ('marketplace_seller_password_reset_tokens', 'INSERT'), ('marketplace_seller_password_reset_tokens', 'UPDATE'),
+        ('marketplace_sellers', 'SELECT'), ('marketplace_sellers', 'INSERT'), ('marketplace_sellers', 'UPDATE'),
+        ('marketplace_settings', 'SELECT'), ('marketplace_settings', 'INSERT'), ('marketplace_settings', 'UPDATE')
+      )
       SELECT EXISTS (
         SELECT 1
         FROM pg_namespace
         WHERE nspname = 'marketplace'
           AND has_schema_privilege(current_user, oid, 'USAGE')
       ) AS schema_access,
-      (
-        to_regclass('marketplace.marketplace_products') IS NOT NULL
-        AND to_regclass('marketplace.marketplace_categories') IS NOT NULL
-        AND to_regclass('marketplace.marketplace_counties') IS NOT NULL
-        AND to_regclass('marketplace.marketplace_payments') IS NOT NULL
-        AND to_regclass('marketplace.marketplace_email_events') IS NOT NULL
-        AND to_regclass('marketplace.marketplace_seller_accounts') IS NOT NULL
-        AND to_regclass('marketplace.marketplace_seller_sessions') IS NOT NULL
-        AND to_regclass('marketplace.marketplace_seller_verification_tokens') IS NOT NULL
-        AND to_regclass('marketplace.marketplace_admin_invitations') IS NOT NULL
-        AND to_regclass('marketplace.marketplace_admin_verification_tokens') IS NOT NULL
-        AND to_regclass('marketplace.marketplace_sellers') IS NOT NULL
-        AND to_regclass('marketplace.marketplace_admin_users') IS NOT NULL
-        AND has_table_privilege(current_user, 'marketplace.marketplace_products', 'SELECT')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_categories', 'SELECT')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_counties', 'SELECT')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_payments', 'SELECT')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_email_events', 'SELECT')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_email_events', 'INSERT')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_email_events', 'UPDATE')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_seller_accounts', 'SELECT')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_seller_accounts', 'INSERT')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_seller_accounts', 'UPDATE')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_seller_sessions', 'SELECT')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_seller_sessions', 'INSERT')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_seller_sessions', 'DELETE')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_seller_verification_tokens', 'SELECT')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_seller_verification_tokens', 'INSERT')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_seller_verification_tokens', 'UPDATE')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_sellers', 'SELECT')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_sellers', 'INSERT')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_sellers', 'UPDATE')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_admin_invitations', 'SELECT')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_admin_invitations', 'INSERT')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_admin_invitations', 'UPDATE')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_admin_verification_tokens', 'SELECT')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_admin_verification_tokens', 'INSERT')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_admin_verification_tokens', 'UPDATE')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_admin_users', 'SELECT')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_admin_users', 'INSERT')
-        AND has_table_privilege(current_user, 'marketplace.marketplace_admin_users', 'UPDATE')
-      ) AS required_tables_ready
+      ARRAY(
+        SELECT name FROM required_tables
+        WHERE to_regclass(format('%I.%I', 'marketplace', name)) IS NULL
+        ORDER BY name
+      ) AS missing_relations,
+      ARRAY(
+        SELECT name || ':' || privilege FROM required_privileges
+        WHERE to_regclass(format('%I.%I', 'marketplace', name)) IS NOT NULL
+          AND NOT has_table_privilege(current_user, format('%I.%I', 'marketplace', name), privilege)
+        ORDER BY name, privilege
+      ) AS missing_privileges
     `)
-    if (result.rows[0]?.schema_access !== true || result.rows[0]?.required_tables_ready !== true) throw new Error('Marketplace schema access is unavailable.')
+    const schemaState = result.rows[0]
+    if (schemaState?.schema_access !== true) throw Object.assign(new Error('Required marketplace schema is missing or not accessible.'), { code: '3F000', schema: 'marketplace' })
+    const missingRelations = schemaState?.missing_relations as string[] | undefined
+    if (missingRelations?.length) throw Object.assign(new Error(`Required marketplace relations are missing: ${missingRelations.join(', ')}.`), { code: '42P01', table: missingRelations.join(',') })
+    const missingPrivileges = schemaState?.missing_privileges as string[] | undefined
+    if (missingPrivileges?.length) throw Object.assign(new Error(`Required marketplace privileges are unavailable: ${missingPrivileges.join(', ')}.`), { code: '42501', table: missingPrivileges.join(',') })
     const workerFailure = Object.values(workers).some((worker) => worker.enabled && worker.consecutiveFailures > 0)
     const status = emailProvider.configured && centralAdminAuth.configured && !workerFailure ? 'ready' : 'degraded'
     response.json({ status, database: 'ok', workers, emailProvider, centralAdminAuth })
@@ -142,14 +154,18 @@ const errorHandler: ErrorRequestHandler = (error, request, response, _next) => {
     response.status(413).json({ error: { code: 'PAYLOAD_TOO_LARGE', message: 'The uploaded file exceeds the 8 MB limit.' } })
     return
   }
-  const errorCode = error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' && /^[A-Z0-9_]{1,16}$/.test(error.code)
-    ? error.code
-    : undefined
+  const diagnostics = safeWorkerError(error)
+  const databaseFailure = diagnostics.category === 'database'
   console.error('Unhandled MarketHub request error', {
     method: request.method,
     route: request.route?.path ?? 'unknown',
-    code: errorCode,
+    ...diagnostics,
+    databaseConnection: marketplaceDatabaseConnectionState(),
   })
+  if (databaseFailure) {
+    response.status(503).json({ error: { code: databaseErrorResponseCode(diagnostics.databaseError), message: 'Marketplace database is temporarily unavailable.' } })
+    return
+  }
   response.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Something went wrong. Please try again.' } })
 }
 app.use(errorHandler)

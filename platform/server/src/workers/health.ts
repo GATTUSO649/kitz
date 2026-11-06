@@ -1,3 +1,6 @@
+import { marketplaceDatabaseConnectionState } from '../database/connection.js'
+import { safeDatabaseError } from '../database/diagnostics.js'
+
 export type WorkerName = 'marketplace_email' | 'marketplace_listing_expiry'
 export type WorkerErrorCategory = 'database' | 'provider' | 'application'
 
@@ -51,6 +54,7 @@ export function workerHealthSnapshot(): Record<WorkerName, WorkerState> {
 
 export function classifyWorkerError(error: unknown): WorkerErrorCategory {
   if (!error || typeof error !== 'object') return 'application'
+  if (safeDatabaseError(error)) return 'database'
   const candidate = error as { code?: unknown; name?: unknown; category?: unknown; cause?: unknown }
   if (candidate.category === 'database' || candidate.category === 'provider' || candidate.category === 'application') return candidate.category
   if (candidate.cause && candidate.cause !== error) return classifyWorkerError(candidate.cause)
@@ -63,17 +67,19 @@ export function classifyWorkerError(error: unknown): WorkerErrorCategory {
 
 function redactSensitiveText(value: string, env: NodeJS.ProcessEnv): string {
   let result = value.replace(/\b(?:postgres(?:ql)?|mysql):\/\/[^\s"'<>]+/gi, '[DATABASE_URL_REDACTED]')
-  result = result.replace(/((?:password|passwd|pass|api[_-]?key|secret|token|authorization|smtp[_-]?(?:user|password)|database[_-]?url)\s*[:=]\s*)[^\s,;"']+/gi, '$1[REDACTED]')
+  result = result.replace(/((?:password|passwd|pass|api[_-]?key|secret|token|authorization|smtp[_-]?(?:user|password)|database[_-]?(?:url|ca|certificate))\s*[:=]\s*)[^\s,;"']+/gi, '$1[REDACTED]')
   for (const [name, secret] of Object.entries(env)) {
-    if (!secret || !/(?:PASSWORD|SECRET|TOKEN|API_KEY|DATABASE_URL|SMTP_USER|DATABASE_USER)/i.test(name)) continue
+    if (!secret || !/(?:PASSWORD|PASS|SECRET|TOKEN|API_KEY|DATABASE_URL|DATABASE_CA|CERTIFICATE|PRIVATE_KEY|SMTP_USER)/i.test(name)) continue
     result = result.replaceAll(secret, '[REDACTED]')
   }
   return result
 }
 
-export function safeWorkerError(error: unknown, env: NodeJS.ProcessEnv = process.env): { category: WorkerErrorCategory; name: string; message: string; code?: string; stack?: string } {
+export function safeWorkerError(error: unknown, env: NodeJS.ProcessEnv = process.env): { category: WorkerErrorCategory; name: string; message: string; code?: string; stack?: string; databaseError?: ReturnType<typeof safeDatabaseError>; databaseConnection: ReturnType<typeof marketplaceDatabaseConnectionState> } {
   const category = classifyWorkerError(error)
-  if (!(error instanceof Error)) return { category, name: 'UnknownError', message: redactSensitiveText(String(error), env) }
+  const databaseError = safeDatabaseError(error, env)
+  const databaseConnection = marketplaceDatabaseConnectionState()
+  if (!(error instanceof Error)) return { category, name: 'UnknownError', message: redactSensitiveText(String(error), env), ...(databaseError ? { databaseError } : {}), databaseConnection }
   const candidate = error as Error & { code?: unknown }
   const code = typeof candidate.code === 'string' && /^[A-Z0-9_]{1,32}$/.test(candidate.code) ? candidate.code : undefined
   return {
@@ -81,6 +87,8 @@ export function safeWorkerError(error: unknown, env: NodeJS.ProcessEnv = process
     name: redactSensitiveText(error.name, env),
     message: redactSensitiveText(error.message, env),
     ...(code ? { code } : {}),
+    ...(databaseError ? { databaseError } : {}),
+    databaseConnection,
     ...(error.stack ? { stack: redactSensitiveText(error.stack, env) } : {}),
   }
 }

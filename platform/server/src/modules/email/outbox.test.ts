@@ -53,3 +53,15 @@ test('uncertain provider outcomes are not automatically retried', async () => {
   assert.deepEqual(changes.at(-1), { operation: 'uncertain', eventId: 'event-1', errorCode: 'SMTP_OUTCOME_UNKNOWN' })
   assert.equal(changes.some((change) => change.operation === 'retry'), false)
 })
+
+test('stale delivery recovery errors propagate so the worker can retry the operation', async () => {
+  const failure = Object.assign(new Error('relation marketplace.marketplace_email_events does not exist'), { code: '42P01' })
+  const store: EmailOutboxStore = {
+    recoverStaleDeliveries: async () => { throw failure },
+    claimNext: async () => { throw new Error('claim should not run after recovery fails') },
+    markSent: async () => undefined,
+    scheduleRetry: async () => undefined,
+    markTerminal: async () => undefined,
+  }
+  await assert.rejects(dispatchNextMarketplaceEmail({ store, now }), (error) => error === failure)
+})

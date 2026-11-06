@@ -3,7 +3,7 @@ import { after, before, test } from 'node:test'
 
 delete process.env.MARKETPLACE_DATABASE_URL
 const { app } = await import('./app.js')
-const { getMarketplaceDatabaseConfig } = await import('./database/connection.js')
+const { getMarketplaceDatabaseConfig, marketplaceDatabaseStartupDiagnostic } = await import('./database/connection.js')
 const server = app.listen(0, '127.0.0.1')
 let origin = ''
 
@@ -21,6 +21,19 @@ test('public catalogue fails closed when the marketplace database is not configu
   const response = await fetch(`${origin}/api/v1/marketplace/products`)
   assert.equal(response.status, 503)
   assert.equal((await response.json()).error.code, 'MARKETPLACE_UNAVAILABLE')
+})
+
+test('marketplace public GET endpoints fail closed without a database', async () => {
+  const paths = [
+    '/api/v1/marketplace/settings/footer-social-links',
+    '/api/v1/marketplace/categories',
+    '/api/v1/marketplace/locations/counties',
+  ]
+  const responses = await Promise.all(paths.map((path) => fetch(`${origin}${path}`)))
+  for (const response of responses) {
+    assert.equal(response.status, 503)
+    assert.equal((await response.json()).error.code, 'MARKETPLACE_UNAVAILABLE')
+  }
 })
 
 test('readiness reports missing marketplace database configuration', async () => {
@@ -253,4 +266,29 @@ test('production database configuration requires verified TLS and its CA', () =>
     MARKETPLACE_DATABASE_SCHEMA: 'marketplace',
     NODE_ENV: 'production',
   }), /MARKETPLACE_DATABASE_CA/)
+})
+
+test('startup database diagnostic reports safe configuration and connection results', async () => {
+  const configuration = {
+    MARKETPLACE_DATABASE_URL: 'postgresql://private-user:private-password@db.example.supabase.co/postgres',
+    MARKETPLACE_DATABASE_NAME: 'postgres',
+    MARKETPLACE_DATABASE_SCHEMA: 'marketplace',
+    MARKETPLACE_DATABASE_CA: 'private-certificate',
+  }
+  const connected = await marketplaceDatabaseStartupDiagnostic({
+    query: async () => ({ rows: [{ database_name: 'postgres' }] }),
+  } as never, configuration)
+  assert.equal(connected.databaseUrlConfigured, true)
+  assert.equal(connected.configuredDatabaseName, 'postgres')
+  assert.equal(connected.configuredSchema, 'marketplace')
+  assert.equal(connected.databaseConnected, true)
+  assert.equal(connected.actualDatabaseName, 'postgres')
+  assert.doesNotMatch(JSON.stringify(connected), /private-user|private-password|private-certificate|postgresql:\/\//)
+
+  const failed = await marketplaceDatabaseStartupDiagnostic({
+    query: async () => { throw Object.assign(new Error('password authentication failed'), { code: '28P01' }) },
+  } as never, configuration)
+  assert.equal(failed.databaseConnected, false)
+  assert.equal(failed.databaseError?.code, '28P01')
+  assert.doesNotMatch(JSON.stringify(failed), /private-user|private-password|private-certificate|postgresql:\/\//)
 })

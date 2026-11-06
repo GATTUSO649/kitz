@@ -1,6 +1,6 @@
 import 'dotenv/config'
 import { app } from './app.js'
-import { pool } from './database/connection.js'
+import { marketplaceDatabaseStartupDiagnostic, pool } from './database/connection.js'
 import { startMarketplaceEmailWorker } from './modules/email/outbox.js'
 import { getMarketplaceEmailProviderStatus } from './modules/email/service.js'
 import { startMarketplaceExpiryWorker } from './modules/marketplace/expiry.js'
@@ -16,6 +16,10 @@ console.info('MarketHub background workers initialized', {
 })
 const server = app.listen(port, host, () => {
   console.log(`MarketHub platform API listening on ${port}`)
+  void marketplaceDatabaseStartupDiagnostic().then((diagnostic) => {
+    const log = diagnostic.databaseConnected ? console.info : console.error
+    log('MarketHub startup database diagnostic', diagnostic)
+  })
 })
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

@@ -16,7 +16,7 @@
     "db:migrate": "drizzle-kit migrate --config=server/drizzle.config.ts",
     "admin:provision": "tsx server/src/scripts/provision-marketplace-admin.ts",
     "lint": "oxlint src server/src",
-    "test": "tsx --test server/src/app.test.ts server/src/modules/marketplace/security.test.ts server/src/modules/marketplace/images.test.ts server/src/modules/marketplace/expiry.test.ts server/src/modules/email/service.test.ts server/src/modules/payments/daraja.test.ts"
+    "test": "tsx --test server/src/app.test.ts server/src/modules/marketplace/security.test.ts server/src/modules/marketplace/images.test.ts server/src/modules/marketplace/expiry.test.ts server/src/modules/email/service.test.ts server/src/modules/email/outbox.test.ts server/src/workers/health.test.ts server/src/workers/scheduler.test.ts server/src/modules/payments/daraja.test.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.21",
