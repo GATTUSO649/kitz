@@ -411,16 +411,20 @@ adminEcosystemRouter.patch('/ecosystem/administrators/:id/role', async (request,
   const adminId = Number(request.params.id)
   if (!Number.isInteger(adminId) || adminId < 1) return response.status(400).json({ error: { code: 'INVALID_ADMIN_ID', message: 'Administrator ID is invalid.' } })
   if (input.data.role === 'super_admin') return response.status(403).json({ error: { code: 'SUPER_ADMIN_ASSIGNMENT_PROTECTED', message: 'Super Administrator assignment requires the dedicated workflow.' } })
-  const [target] = await adminDb.select({ role: adminUsers.role }).from(adminUsers).where(eq(adminUsers.id, adminId)).limit(1)
-  if (!target) return response.status(404).json({ error: { code: 'ADMIN_NOT_FOUND', message: 'Administrator was not found.' } })
-  if (target.role === input.data.role) return response.json({ data: { updated: false } })
-  await adminDb.transaction(async (transaction) => {
-    await transaction.update(adminUsers).set({ role: input.data.role }).where(eq(adminUsers.id, adminId))
+  const result = await adminDb.transaction(async (transaction) => {
+    const [target] = await transaction.select({ role: adminUsers.role, roleNumber: adminUsers.roleNumber }).from(adminUsers).where(eq(adminUsers.id, adminId)).for('update').limit(1)
+    if (!target) return null
+    if (target.role === input.data.role) return { updated: false, roleNumber: target.roleNumber }
+    const roleNumber = await allocateAdministratorRoleNumber(transaction, input.data.role)
+    await transaction.update(adminUsers).set({ role: input.data.role, roleNumber }).where(eq(adminUsers.id, adminId))
+    await transaction.update(adminInvitations).set({ role: input.data.role }).where(and(eq(adminInvitations.adminUserId, adminId), isNull(adminInvitations.consumedAt)))
     await transaction.delete(adminUserPermissions).where(eq(adminUserPermissions.adminUserId, adminId))
     await transaction.delete(adminSessions).where(eq(adminSessions.adminUserId, adminId))
     await transaction.insert(adminAuditLogs).values({ adminUserId: authorization.actor.id, action: 'administrator.role_changed', targetType: 'admin_user', targetId: String(adminId) })
+    return { updated: true, roleNumber }
   })
-  response.json({ data: { updated: true, sessionsRevoked: true, permissionOverridesCleared: true } })
+  if (!result) return response.status(404).json({ error: { code: 'ADMIN_NOT_FOUND', message: 'Administrator was not found.' } })
+  response.json({ data: { ...result, sessionsRevoked: result.updated, permissionOverridesCleared: result.updated } })
 })
 
 const statusSchema = z.object({ action: z.enum(['activate', 'suspend', 'disable', 'reject']), reason: z.string().trim().max(500).optional() }).strict()
@@ -514,24 +518,22 @@ adminEcosystemRouter.post('/ecosystem/administrators/archive', async (request, r
 })
 
 adminEcosystemRouter.delete('/ecosystem/administrators/:id', async (request, response) => {
-
   const authorization = await requireSuperAdmin('administrators.manage', request, response)
   if (!authorization || !adminDb) return
   const adminId = Number(request.params.id)
   if (!Number.isInteger(adminId) || adminId < 1) return response.status(400).json({ error: { code: 'INVALID_ADMIN_ID', message: 'Administrator ID is invalid.' } })
   if (adminId === authorization.actor.id) return response.status(409).json({ error: { code: 'SELF_DELETE_FORBIDDEN', message: 'You cannot remove your own Super Administrator account.' } })
-  const [target] = await adminDb.select({ role: adminUsers.role, status: adminUsers.status }).from(adminUsers).where(eq(adminUsers.id, adminId)).limit(1)
-  if (!target) return response.status(404).json({ error: { code: 'ADMIN_NOT_FOUND', message: 'Administrator was not found.' } })
-  if (target.role === 'super_admin' && target.status === 'active') {
-    const [{ total }] = await adminDb.select({ total: count() }).from(adminUsers).where(and(eq(adminUsers.role, 'super_admin'), eq(adminUsers.status, 'active')))
-    if (Number(total) <= 1) return response.status(409).json({ error: { code: 'LAST_SUPER_ADMIN', message: 'The last active Super Administrator cannot be removed.' } })
-  }
-  await adminDb.transaction(async (transaction) => {
-    await transaction.update(adminUsers).set({ status: 'disabled', suspendedAt: new Date(), suspendedReason: 'Removed by Super Administrator' }).where(eq(adminUsers.id, adminId))
-    await transaction.delete(adminSessions).where(eq(adminSessions.adminUserId, adminId))
-    await transaction.insert(adminAuditLogs).values({ adminUserId: authorization.actor.id, action: 'administrator.removed', targetType: 'admin_user', targetId: String(adminId) })
+  const result = await adminDb.transaction(async (transaction) => {
+    const [target] = await transaction.select({ status: adminUsers.status }).from(adminUsers).where(eq(adminUsers.id, adminId)).for('update').limit(1)
+    if (!target) return 'not_found' as const
+    if (target.status !== 'disabled') return 'not_archived' as const
+    await transaction.insert(adminAuditLogs).values({ adminUserId: authorization.actor.id, action: 'administrator.permanently_deleted', targetType: 'admin_user', targetId: String(adminId) })
+    await transaction.delete(adminUsers).where(eq(adminUsers.id, adminId))
+    return 'deleted' as const
   })
-  response.json({ data: { removed: true } })
+  if (result === 'not_found') return response.status(404).json({ error: { code: 'ADMIN_NOT_FOUND', message: 'Administrator was not found.' } })
+  if (result === 'not_archived') return response.status(409).json({ error: { code: 'ADMIN_NOT_ARCHIVED', message: 'Only archived administrator accounts can be permanently deleted.' } })
+  response.json({ data: { deleted: true } })
 })
 
 adminEcosystemRouter.get('/portal/:role', authenticateAdmin, async (request, response) => {

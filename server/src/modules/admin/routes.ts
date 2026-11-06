@@ -1336,7 +1336,7 @@ adminRouter.get('/audit', async (_request, response) => {
   const rows = await adminDb.select({
     id: adminAuditLogs.id, action: adminAuditLogs.action, targetType: adminAuditLogs.targetType, targetId: adminAuditLogs.targetId,
     createdAt: adminAuditLogs.createdAt, actorName: adminUsers.fullName, actorEmail: adminUsers.email,
-  }).from(adminAuditLogs).innerJoin(adminUsers, eq(adminAuditLogs.adminUserId, adminUsers.id))
+  }).from(adminAuditLogs).leftJoin(adminUsers, eq(adminAuditLogs.adminUserId, adminUsers.id))
     .where(actor.role === 'super_admin' ? undefined : eq(adminAuditLogs.adminUserId, actor.id))
     .orderBy(desc(adminAuditLogs.createdAt)).limit(500)
   response.json({ data: rows })

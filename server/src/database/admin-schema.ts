@@ -51,7 +51,7 @@ export const adminVerificationTokens = mysqlTable('admin_verification_tokens', {
 
 export const adminAuditLogs = mysqlTable('admin_audit_logs', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
-  adminUserId: int('admin_user_id').notNull().references(() => adminUsers.id, { onDelete: 'restrict' }),
+  adminUserId: int('admin_user_id').references(() => adminUsers.id, { onDelete: 'set null' }),
   action: varchar('action', { length: 100 }).notNull(),
   targetType: varchar('target_type', { length: 80 }),
   targetId: varchar('target_id', { length: 80 }),

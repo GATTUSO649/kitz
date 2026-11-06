@@ -318,11 +318,24 @@ export function SuperAdminConsole() {
     } catch (issue) { reportFailure(issue, 'Administrator accounts could not be archived.') }
   }
   const removeAdministrator = (admin: Administrator) => archiveAdministrators([admin.id])
+  const deleteArchivedAdministrator = async (admin: Administrator) => {
+    if (admin.status !== 'disabled' || !window.confirm(`Permanently delete archived account ${admin.fullName} (${admin.email})? This cannot be undone. Audit events will be retained without the account identity.`)) return
+    try {
+      setError('')
+      await adminApi(`/api/v1/admin/ecosystem/administrators/${admin.id}`, { method: 'DELETE' })
+      setNotice(`Archived account for ${admin.fullName} was permanently deleted.`)
+      setSelectedId(null)
+      await Promise.all([queryClient.invalidateQueries({ queryKey: ['super-admin', 'administrators'] }), queryClient.invalidateQueries({ queryKey: ['super-admin', 'overview'] })])
+    } catch (issue) { reportFailure(issue, 'Archived administrator could not be deleted.') }
+  }
   const changeRole = async (id: number, role: string) => {
     try {
       setError('')
-      await adminApi(`/api/v1/admin/ecosystem/administrators/${id}/role`, { method: 'PATCH', body: JSON.stringify({ role }) })
-      setNotice('Administrator role updated. Previous individual permission overrides were cleared, and existing sessions were revoked. The administrator must sign in again.')
+      const result = await adminApi<{ updated: boolean; roleNumber: string | null }>(`/api/v1/admin/ecosystem/administrators/${id}/role`, { method: 'PATCH', body: JSON.stringify({ role }) })
+      const target = administrators.data?.find((admin) => admin.id === id)
+      setNotice(result.updated
+        ? `Administrator role updated to ${roleLabel(role)}. New role number: ${result.roleNumber ?? 'not assigned'}.${target?.status === 'pending' ? ' Resend the invitation to share the updated role number.' : ' Previous individual permission overrides were cleared, and existing sessions were revoked. The administrator must sign in again.'}`
+        : 'Administrator already has that role.')
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['super-admin', 'administrators'] }),
         queryClient.invalidateQueries({ queryKey: ['super-admin', 'administrator-permissions', id] }),
@@ -409,7 +422,8 @@ export function SuperAdminConsole() {
       {navGroups.map((group) => <div className="sa-nav-group" key={group.title}><span className="sa-nav-heading">{group.title}</span><nav aria-label={group.title}>{group.items.map((item) => { const Icon = item.icon; const active = section === item.id; return <button key={item.id} className={`sa-nav-item${active ? ' is-active' : ''}`} type="button" aria-current={active ? 'page' : undefined} onClick={() => { setSection(item.id); setError(''); setNotice('') }}><Icon size={16} /><span>{item.label}</span>{item.id === 'administrators' && overview.data?.pending ? <b>{overview.data.pending}</b> : null}</button> })}</nav></div>)}
       <div className="sa-sidebar-bottom"><div className="sa-access-card"><span className="sa-access-icon"><LockKeyhole size={15} /></span><span><strong>Protected workspace</strong><small>Role checks enforced by API</small></span></div><a className="sa-operations-link" href="/operations"><MonitorCog size={15} /><span>Operations console</span><ArrowRight size={14} /></a></div>
     </aside>
-    {selected && <button className="sa-global-remove-button" type="button" aria-label={`Remove administrator access for ${selected.fullName}`} disabled={selected.role === 'super_admin'} onClick={() => void removeAdministrator(selected)}>Remove access: {selected.fullName}</button>}
+    {selected && selected.status !== 'disabled' && <button className="sa-global-remove-button" type="button" aria-label={`Remove administrator access for ${selected.fullName}`} disabled={selected.role === 'super_admin'} onClick={() => void removeAdministrator(selected)}>Remove access: {selected.fullName}</button>}
+    {selected?.status === 'disabled' && <button className="sa-global-remove-button" type="button" aria-label={`Permanently delete archived account for ${selected.fullName}`} onClick={() => void deleteArchivedAdministrator(selected)}>Delete archived account: {selected.fullName}</button>}
     <section className="sa-main">
       <header className="sa-topbar"><div className="sa-crumb"><span>KitCulture</span><ChevronRight size={13} /><strong>Super Admin</strong></div><div className="sa-topbar-actions"><span className={`sa-health${overview.isFetching ? ' is-loading' : ''}`}><i />{overview.isFetching ? 'Refreshing' : 'Live data'}</span><button type="button" className="sa-icon-button" aria-label="Refresh data" title="Refresh data" onClick={() => void refresh()}><RefreshCw size={15} /></button><span className="sa-user-chip"><span>SA</span><strong>{adminProfile.data?.fullName ?? 'Super Admin'}</strong></span><button type="button" className="sa-icon-button" aria-label="Sign out" title="Sign out" onClick={() => void signOut()}><LogOut size={15} /></button></div></header>
       <div className="sa-content">
