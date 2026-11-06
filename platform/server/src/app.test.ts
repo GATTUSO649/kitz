@@ -93,6 +93,22 @@ test('marketplace administration never serves dashboard data without its isolate
   assert.equal((await response.json()).error.code, 'MARKETPLACE_UNAVAILABLE')
 })
 
+test('seller account management fails closed when the marketplace database is unavailable', async () => {
+  const response = await fetch(`${origin}/api/v1/marketplace/seller/products`)
+  assert.equal(response.status, 503)
+  assert.equal((await response.json()).error.code, 'MARKETPLACE_UNAVAILABLE')
+})
+
+test('second-hand admin assignment fails closed when the marketplace database is unavailable', async () => {
+  const response = await fetch(`${origin}/api/v1/admin/marketplace/admins/invitations`, {
+    method: 'POST',
+    headers: { Origin: 'http://127.0.0.1:5173', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fullName: 'Marketplace Admin', email: 'admin@example.test' }),
+  })
+  assert.equal(response.status, 503)
+  assert.equal((await response.json()).error.code, 'MARKETPLACE_UNAVAILABLE')
+})
+
 test('seller contact endpoint rejects requests without an unlock token', async () => {
   const response = await fetch(`${origin}/api/v1/marketplace/payments/products/private-listing/contact`, {
     method: 'POST',

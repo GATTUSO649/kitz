@@ -85,3 +85,28 @@ test('Brevo SMTP is not attempted when the required independent credentials are 
   assert.deepEqual(result, { status: 'failed', code: 'BREVO_SMTP_NOT_CONFIGURED' })
   assert.equal(called, false)
 })
+
+test('seller and admin verification emails include only safe HTTP action links', () => {
+  const verification = renderMarketplaceEmail({
+    to: 'seller@example.test',
+    kind: 'seller_account_verification',
+    data: { actionUrl: 'https://market.example.test/marketplace/seller/verify?token=abc' },
+  })
+  assert.match(verification.html, /href="https:\/\/market\.example\.test\/marketplace\/seller\/verify\?token=abc"/)
+  assert.match(verification.text, /Continue: https:\/\/market\.example\.test/)
+
+  const adminVerification = renderMarketplaceEmail({
+    to: 'admin@example.test',
+    kind: 'marketplace_admin_verification',
+    data: { actionUrl: 'https://market.example.test/admin/marketplace/verify?token=def' },
+  })
+  assert.match(adminVerification.html, /href="https:\/\/market\.example\.test\/admin\/marketplace\/verify\?token=def"/)
+
+  const unsafe = renderMarketplaceEmail({
+    to: 'admin@example.test',
+    kind: 'marketplace_admin_invitation',
+    data: { actionUrl: 'javascript:alert(1)' },
+  })
+  assert.doesNotMatch(unsafe.html, /href="javascript:/)
+  assert.doesNotMatch(unsafe.text, /Continue: javascript:/)
+})

@@ -31,8 +31,36 @@ export const marketplaceCounties = marketplaceSchema.table('marketplace_counties
   active: boolean('active').notNull().default(true),
 }, (table) => [uniqueIndex('marketplace_counties_code_uq').on(table.code), uniqueIndex('marketplace_counties_name_uq').on(table.name)])
 
+export const marketplaceSellerAccounts = marketplaceSchema.table('marketplace_seller_accounts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  email: varchar('email', { length: 254 }).notNull(),
+  passwordHash: varchar('password_hash', { length: 100 }).notNull(),
+  status: varchar('status', { length: 20 }).notNull().default('pending'),
+  emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
+  createdAt: createdAt(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [uniqueIndex('marketplace_seller_accounts_email_uq').on(table.email), check('marketplace_seller_accounts_status_ck', sql`${table.status} IN ('pending', 'active', 'suspended')`)])
+
+export const marketplaceSellerSessions = marketplaceSchema.table('marketplace_seller_sessions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  sellerAccountId: uuid('seller_account_id').notNull().references(() => marketplaceSellerAccounts.id, { onDelete: 'cascade' }),
+  tokenHash: varchar('token_hash', { length: 64 }).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: createdAt(),
+}, (table) => [uniqueIndex('marketplace_seller_sessions_token_uq').on(table.tokenHash), index('marketplace_seller_sessions_account_idx').on(table.sellerAccountId, table.expiresAt)])
+
+export const marketplaceSellerVerificationTokens = marketplaceSchema.table('marketplace_seller_verification_tokens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  sellerAccountId: uuid('seller_account_id').notNull().references(() => marketplaceSellerAccounts.id, { onDelete: 'cascade' }),
+  tokenHash: varchar('token_hash', { length: 64 }).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  consumedAt: timestamp('consumed_at', { withTimezone: true }),
+  createdAt: createdAt(),
+}, (table) => [uniqueIndex('marketplace_seller_verification_token_uq').on(table.tokenHash), index('marketplace_seller_verification_account_idx').on(table.sellerAccountId, table.expiresAt)])
+
 export const marketplaceSellers = marketplaceSchema.table('marketplace_sellers', {
   id: uuid('id').primaryKey().defaultRandom(),
+  accountId: uuid('account_id').references(() => marketplaceSellerAccounts.id, { onDelete: 'set null' }),
   name: varchar('name', { length: 120 }).notNull(),
   phone: varchar('phone', { length: 16 }).notNull(),
   whatsapp: varchar('whatsapp', { length: 16 }),
@@ -42,7 +70,7 @@ export const marketplaceSellers = marketplaceSchema.table('marketplace_sellers',
   town: varchar('town', { length: 100 }).notNull(),
   area: varchar('area', { length: 120 }),
   createdAt: createdAt(),
-}, (table) => [index('marketplace_sellers_county_idx').on(table.countyId), index('marketplace_sellers_subcounty_town_idx').on(table.subcounty, table.town)])
+}, (table) => [index('marketplace_sellers_account_idx').on(table.accountId), index('marketplace_sellers_county_idx').on(table.countyId), index('marketplace_sellers_subcounty_town_idx').on(table.subcounty, table.town)])
 
 export const marketplaceProducts = marketplaceSchema.table('marketplace_products', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -150,12 +178,32 @@ export const marketplaceProductAccess = marketplaceSchema.table('marketplace_pro
 export const marketplaceAdminUsers = marketplaceSchema.table('marketplace_admin_users', {
   id: uuid('id').primaryKey().defaultRandom(),
   email: varchar('email', { length: 254 }).notNull(),
+  fullName: varchar('full_name', { length: 120 }).notNull().default(''),
   passwordHash: varchar('password_hash', { length: 100 }).notNull(),
   role: varchar('role', { length: 32 }).notNull(),
   active: boolean('active').notNull().default(true),
+  emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [uniqueIndex('marketplace_admin_users_email_uq').on(table.email)])
+
+export const marketplaceAdminInvitations = marketplaceSchema.table('marketplace_admin_invitations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  adminUserId: uuid('admin_user_id').notNull().references(() => marketplaceAdminUsers.id, { onDelete: 'cascade' }),
+  tokenHash: varchar('token_hash', { length: 64 }).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  consumedAt: timestamp('consumed_at', { withTimezone: true }),
+  createdAt: createdAt(),
+}, (table) => [uniqueIndex('marketplace_admin_invitations_token_uq').on(table.tokenHash), index('marketplace_admin_invitations_admin_idx').on(table.adminUserId, table.expiresAt)])
+
+export const marketplaceAdminVerificationTokens = marketplaceSchema.table('marketplace_admin_verification_tokens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  adminUserId: uuid('admin_user_id').notNull().references(() => marketplaceAdminUsers.id, { onDelete: 'cascade' }),
+  tokenHash: varchar('token_hash', { length: 64 }).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  consumedAt: timestamp('consumed_at', { withTimezone: true }),
+  createdAt: createdAt(),
+}, (table) => [uniqueIndex('marketplace_admin_verification_token_uq').on(table.tokenHash), index('marketplace_admin_verification_user_idx').on(table.adminUserId, table.expiresAt)])
 
 export const marketplaceAdminSessions = marketplaceSchema.table('marketplace_admin_sessions', {
   id: uuid('id').primaryKey().defaultRandom(),

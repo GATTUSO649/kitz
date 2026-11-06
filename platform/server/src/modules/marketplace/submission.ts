@@ -6,6 +6,7 @@ import { database } from '../../database/connection.js'
 import { marketplaceAdminUsers, marketplaceCategories, marketplaceCounties, marketplaceProductAccess, marketplaceProductImages, marketplaceProducts, marketplaceSellers, marketplaceSettings, marketplaceSubcategories } from '../../database/schema.js'
 import { deleteMarketplaceImage, uploadMarketplaceImage } from './images.js'
 import { calculateFeeKes, createListingReference, createListingSlug, createSecret, hashSecret, normalizeKenyanPhone } from './security.js'
+import { optionalMarketplaceSeller, type MarketplaceSellerSession } from './seller-portal.js'
 import { enqueueMarketplaceEmail } from '../email/outbox.js'
 
 export const submissionRouter = Router()
@@ -29,7 +30,7 @@ const submissionSchema = z.object({
     subcounty: z.string().trim().min(2).max(100),
     town: z.string().trim().min(2).max(100),
     area: z.string().trim().max(120).optional(),
-  }),
+  }).optional(),
 })
 
 async function getFeeBasisPoints(key: string, fallback: number): Promise<number> {
@@ -54,7 +55,7 @@ submissionRouter.get('/locations/counties', async (_request, response, next) => 
   }
 })
 
-submissionRouter.post('/submissions', async (request, response, next) => {
+submissionRouter.post('/submissions', optionalMarketplaceSeller, async (request, response, next) => {
   const parsed = submissionSchema.safeParse(request.body)
   if (!parsed.success) {
     response.status(400).json({ error: { code: 'INVALID_SUBMISSION', message: 'Check the listing details and try again.', details: parsed.error.issues.map(({ path, message }) => ({ field: path.join('.'), message })) } })
@@ -66,13 +67,19 @@ submissionRouter.post('/submissions', async (request, response, next) => {
   }
   try {
     const submission = parsed.data
-    const sellerPhone = normalizeKenyanPhone(submission.seller.phone)
-    const whatsapp = submission.seller.whatsapp ? normalizeKenyanPhone(submission.seller.whatsapp) : null
+    const sellerSession = response.locals.marketplaceSeller as MarketplaceSellerSession | undefined
+    if (!sellerSession && !submission.seller) {
+      response.status(400).json({ error: { code: 'INVALID_SUBMISSION', message: 'Seller contact information is required.' } })
+      return
+    }
+    const sellerInput = submission.seller
+    const sellerPhone = sellerSession?.phone ?? normalizeKenyanPhone(sellerInput!.phone)
+    const whatsapp = sellerSession ? sellerSession.whatsapp : sellerInput?.whatsapp ? normalizeKenyanPhone(sellerInput.whatsapp) : null
     const [category] = await database.select({ id: marketplaceCategories.id }).from(marketplaceCategories)
       .where(and(eq(marketplaceCategories.id, submission.categoryId), eq(marketplaceCategories.active, true)))
       .limit(1)
     const [county] = await database.select({ id: marketplaceCounties.id }).from(marketplaceCounties)
-      .where(and(eq(marketplaceCounties.code, submission.seller.countyCode), eq(marketplaceCounties.active, true)))
+      .where(and(eq(marketplaceCounties.code, sellerSession?.countyCode ?? sellerInput!.countyCode), eq(marketplaceCounties.active, true)))
       .limit(1)
     if (!category || !county) {
       response.status(400).json({ error: { code: 'INVALID_LOCATION_OR_CATEGORY', message: 'Choose an active product category and county.' } })
@@ -94,18 +101,22 @@ submissionRouter.post('/submissions', async (request, response, next) => {
     const slug = createListingSlug(submission.title, reference)
     const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
     await database.transaction(async (transaction) => {
-      const sellerEmail = submission.seller.email?.trim().toLowerCase() || null
-      const [seller] = await transaction.insert(marketplaceSellers).values({
-        name: submission.seller.name,
-        phone: sellerPhone,
-        whatsapp,
-        email: sellerEmail,
-        countyId: county.id,
-        subcounty: submission.seller.subcounty,
-        town: submission.seller.town,
-        area: submission.seller.area || null,
-      }).returning({ id: marketplaceSellers.id })
-      if (!seller) throw new Error('Marketplace seller record was not created.')
+      const sellerEmail = sellerSession?.email ?? (sellerInput?.email?.trim().toLowerCase() || null)
+      let sellerId = sellerSession?.sellerId
+      if (!sellerSession) {
+        const [seller] = await transaction.insert(marketplaceSellers).values({
+          name: sellerInput!.name,
+          phone: sellerPhone,
+          whatsapp,
+          email: sellerEmail,
+          countyId: county.id,
+          subcounty: sellerInput!.subcounty,
+          town: sellerInput!.town,
+          area: sellerInput!.area || null,
+        }).returning({ id: marketplaceSellers.id })
+        sellerId = seller?.id
+      }
+      if (!sellerId) throw new Error('Marketplace seller profile was not found.')
       const [product] = await transaction.insert(marketplaceProducts).values({
         reference,
         slug,
@@ -113,7 +124,7 @@ submissionRouter.post('/submissions', async (request, response, next) => {
         description: submission.description,
         categoryId: category.id,
         subcategoryId: submission.subcategoryId ?? null,
-        sellerId: seller.id,
+        sellerId,
         condition: submission.condition,
         priceKes: submission.priceKes,
         negotiable: submission.negotiable,
@@ -125,7 +136,7 @@ submissionRouter.post('/submissions', async (request, response, next) => {
         eventKey: `listing:${reference}:submission-received:seller`,
         to: sellerEmail,
         kind: 'product_submission_received',
-        data: { name: submission.seller.name, title: submission.title, reference, amountKes: publicationFeeKes },
+        data: { name: sellerSession?.name ?? sellerInput?.name ?? '', title: submission.title, reference, amountKes: publicationFeeKes },
       })
       const adminEmails = await transaction.select({ email: marketplaceAdminUsers.email }).from(marketplaceAdminUsers)
         .where(and(eq(marketplaceAdminUsers.active, true), inArray(marketplaceAdminUsers.role, ['super_admin', 'product_admin'])))

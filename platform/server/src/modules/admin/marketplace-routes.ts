@@ -2,7 +2,7 @@ import { and, asc, count, desc, eq, ilike, inArray, sql } from 'drizzle-orm'
 import { Router } from 'express'
 import { z } from 'zod'
 import { database } from '../../database/connection.js'
-import { marketplaceAdminUsers, marketplaceAuditLogs, marketplaceCategories, marketplaceContactUnlocks, marketplaceCounties, marketplacePaymentCallbacks, marketplacePayments, marketplaceProductReports, marketplaceProducts, marketplaceSettings, marketplaceSellers } from '../../database/schema.js'
+import { marketplaceAdminSessions, marketplaceAdminUsers, marketplaceAuditLogs, marketplaceCategories, marketplaceContactUnlocks, marketplaceCounties, marketplacePaymentCallbacks, marketplacePayments, marketplaceProductReports, marketplaceProducts, marketplaceSettings, marketplaceSellers } from '../../database/schema.js'
 import { requireMarketplacePermission, type MarketplaceAdminSession } from './marketplace-auth.js'
 import { parseDarajaTimestamp, queryStkPayment } from '../payments/daraja.js'
 import { normalizeKenyanPhone } from '../marketplace/security.js'
@@ -12,6 +12,54 @@ import { enqueueMarketplaceEmail } from '../email/outbox.js'
 
 export const marketplaceAdminDataRouter = Router()
 const adminSession = (response: import('express').Response) => response.locals.marketplaceAdmin as MarketplaceAdminSession
+
+marketplaceAdminDataRouter.get('/admins', requireMarketplacePermission('admins:manage'), async (_request, response, next) => {
+  if (!database) {
+    response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Marketplace administration is temporarily unavailable.' } })
+    return
+  }
+  try {
+    const admins = await database.select({ id: marketplaceAdminUsers.id, fullName: marketplaceAdminUsers.fullName, email: marketplaceAdminUsers.email, role: marketplaceAdminUsers.role, active: marketplaceAdminUsers.active, emailVerifiedAt: marketplaceAdminUsers.emailVerifiedAt, createdAt: marketplaceAdminUsers.createdAt })
+      .from(marketplaceAdminUsers).orderBy(asc(marketplaceAdminUsers.createdAt))
+    response.setHeader('Cache-Control', 'no-store')
+    response.json({ data: admins })
+  } catch (error) {
+    next(error)
+  }
+})
+
+marketplaceAdminDataRouter.patch('/admins/:id/status', requireMarketplacePermission('admins:manage'), async (request, response, next) => {
+  const parsed = z.object({ active: z.boolean() }).strict().safeParse(request.body)
+  const id = z.string().uuid().safeParse(request.params.id)
+  if (!parsed.success || !id.success) {
+    response.status(400).json({ error: { code: 'INVALID_MARKETPLACE_ADMIN_STATUS', message: 'The administrator status update is invalid.' } })
+    return
+  }
+  if (!database) {
+    response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Marketplace administration is temporarily unavailable.' } })
+    return
+  }
+  const actor = adminSession(response)
+  try {
+    const [target] = await database.select({ role: marketplaceAdminUsers.role }).from(marketplaceAdminUsers).where(eq(marketplaceAdminUsers.id, id.data)).limit(1)
+    if (!target) {
+      response.status(404).json({ error: { code: 'MARKETPLACE_ADMIN_NOT_FOUND', message: 'The administrator could not be found.' } })
+      return
+    }
+    if (target.role === 'super_admin' || id.data === actor.id) {
+      response.status(403).json({ error: { code: 'MARKETPLACE_ADMIN_PROTECTED', message: 'Super Admin access cannot be changed here.' } })
+      return
+    }
+    await database.transaction(async (transaction) => {
+      await transaction.update(marketplaceAdminUsers).set({ active: parsed.data.active, updatedAt: new Date() }).where(eq(marketplaceAdminUsers.id, id.data))
+      if (!parsed.data.active) await transaction.delete(marketplaceAdminSessions).where(eq(marketplaceAdminSessions.adminUserId, id.data))
+      await transaction.insert(marketplaceAuditLogs).values({ adminUserId: actor.id, action: parsed.data.active ? 'admin.activated' : 'admin.suspended', resourceType: 'admin_user', resourceId: id.data })
+    })
+    response.json({ data: { id: id.data, active: parsed.data.active, sessionsRevoked: !parsed.data.active } })
+  } catch (error) {
+    next(error)
+  }
+})
 
 marketplaceAdminDataRouter.get('/dashboard', requireMarketplacePermission('dashboard:read'), async (_request, response, next) => {
   if (!database) {

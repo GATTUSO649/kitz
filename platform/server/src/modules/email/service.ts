@@ -17,6 +17,9 @@ export type MarketplaceEmailKind =
   | 'admin_payment_failure'
   | 'admin_product_report'
   | 'admin_marketplace_activity'
+  | 'seller_account_verification'
+  | 'marketplace_admin_invitation'
+  | 'marketplace_admin_verification'
 
 export type MarketplaceEmailInput = {
   to: string
@@ -54,6 +57,9 @@ const eventCopy: Record<MarketplaceEmailKind, { subject: string; intro: string }
   admin_payment_failure: { subject: 'MarketHub: payment not completed', intro: 'A marketplace payment did not complete successfully.' },
   admin_product_report: { subject: 'MarketHub: listing report received', intro: 'A buyer submitted a report for a marketplace listing.' },
   admin_marketplace_activity: { subject: 'MarketHub marketplace activity alert', intro: 'An important marketplace event requires attention.' },
+  seller_account_verification: { subject: 'Verify your MarketHub seller account', intro: 'Confirm your email address to activate your seller account.' },
+  marketplace_admin_invitation: { subject: 'MarketHub second-hand admin invitation', intro: 'A marketplace Super Admin invited you to manage second-hand listings.' },
+  marketplace_admin_verification: { subject: 'Verify your MarketHub administrator account', intro: 'Your password is set. Confirm your email address to activate Second-hand admin access.' },
 }
 
 function safeValue(value: unknown, maximum = 240): string {
@@ -73,6 +79,13 @@ export function renderMarketplaceEmail(input: MarketplaceEmailInput): { subject:
   const reference = safeValue(input.data.reference, 40)
   const amount = safeValue(input.data.amountKes, 20)
   const reason = safeValue(input.data.reason, 240)
+  const actionUrl = safeValue(input.data.actionUrl, 2048)
+  let safeActionUrl = ''
+  try {
+    const url = new URL(actionUrl)
+    if (['https:', 'http:'].includes(url.protocol) && !url.username && !url.password) safeActionUrl = url.toString()
+  } catch { /* An absent or invalid action URL is omitted. */ }
+  const actionLabel = input.kind === 'marketplace_admin_invitation' ? 'Complete administrator onboarding' : 'Verify email address'
   const details = [
     ...(name ? [`Hello ${name},`] : []),
     copy.intro,
@@ -80,12 +93,14 @@ export function renderMarketplaceEmail(input: MarketplaceEmailInput): { subject:
     ...(reference ? [`Reference: ${reference}`] : []),
     ...(amount ? [`Amount: KSh ${amount}`] : []),
     ...(reason ? [`Details: ${reason}`] : []),
+    ...(safeActionUrl ? [`Continue: ${safeActionUrl}`] : []),
   ]
   const htmlDetails = details.map((line) => `<p style="margin:0 0 14px;line-height:1.6;color:#25332d">${escapeMarketplaceHtml(line)}</p>`).join('')
+  const actionLink = safeActionUrl ? `<p style="margin:24px 0"><a href="${escapeMarketplaceHtml(safeActionUrl)}" style="display:inline-block;padding:12px 18px;background:#078e3b;color:#fff;text-decoration:none;font-weight:700">${actionLabel}</a></p>` : ''
   return {
     subject: copy.subject,
     text: `${details.join('\n\n')}\n\nMarketHub Kenya`,
-    html: `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeMarketplaceHtml(copy.subject)}</title></head><body style="margin:0;background:#f2f5f0;color:#25332d;font-family:Arial,Helvetica,sans-serif"><main style="max-width:600px;margin:32px auto;padding:32px;background:#fff;border:1px solid #dce5dc"><p style="margin:0 0 24px;color:#1c6b45;font-weight:700">MarketHub Kenya</p>${htmlDetails}<p style="margin:28px 0 0;color:#65736a;font-size:13px">This is an automated marketplace notification. Do not reply with payment credentials or one-time codes.</p></main></body></html>`,
+    html: `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeMarketplaceHtml(copy.subject)}</title></head><body style="margin:0;background:#f2f5f0;color:#25332d;font-family:Arial,Helvetica,sans-serif"><main style="max-width:600px;margin:32px auto;padding:32px;background:#fff;border:1px solid #dce5dc"><p style="margin:0 0 24px;color:#1c6b45;font-weight:700">MarketHub Kenya</p>${htmlDetails}${actionLink}<p style="margin:28px 0 0;color:#65736a;font-size:13px">This is an automated marketplace notification. Do not reply with payment credentials or one-time codes.</p></main></body></html>`,
   }
 }
 

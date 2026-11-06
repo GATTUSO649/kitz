@@ -1,12 +1,13 @@
 import { randomBytes } from 'node:crypto'
 import bcrypt from 'bcryptjs'
-import { and, eq, gt } from 'drizzle-orm'
+import { and, eq, gt, isNull } from 'drizzle-orm'
 import type { NextFunction, Request, Response } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import { Router } from 'express'
 import { z } from 'zod'
 import { database } from '../../database/connection.js'
-import { marketplaceAdminSessions, marketplaceAdminUsers, marketplaceAuditLogs } from '../../database/schema.js'
+import { marketplaceAdminInvitations, marketplaceAdminSessions, marketplaceAdminUsers, marketplaceAdminVerificationTokens, marketplaceAuditLogs } from '../../database/schema.js'
+import { enqueueMarketplaceEmail } from '../email/outbox.js'
 import { hashSecret } from '../marketplace/security.js'
 
 export type MarketplaceAdminRole = 'super_admin' | 'product_admin' | 'finance_admin' | 'support_admin'
@@ -24,7 +25,136 @@ export type MarketplaceAdminSession = { id: string; email: string; role: Marketp
 
 export const marketplaceAdminRouter = Router()
 const loginLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 8, standardHeaders: 'draft-8', legacyHeaders: false })
+const activationLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 8, standardHeaders: 'draft-8', legacyHeaders: false })
+const verificationLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 8, standardHeaders: 'draft-8', legacyHeaders: false })
 const loginSchema = z.object({ email: z.string().trim().email().max(254), password: z.string().min(1).max(128) })
+const tokenHash = (token: string) => hashSecret(token)
+
+marketplaceAdminRouter.post('/admins/invitations', requireMarketplacePermission('admins:manage'), async (request, response, next) => {
+  const parsed = z.object({ fullName: z.string().trim().min(2).max(120), email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()) }).strict().safeParse(request.body)
+  if (!parsed.success) {
+    response.status(400).json({ error: { code: 'INVALID_MARKETPLACE_ADMIN_INVITATION', message: 'Enter a valid name and email address.' } })
+    return
+  }
+  if (!database) {
+    response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Marketplace administration is temporarily unavailable.' } })
+    return
+  }
+  try {
+    const rawToken = randomBytes(32).toString('base64url')
+    const adminId = await database.transaction(async (transaction) => {
+      const [created] = await transaction.insert(marketplaceAdminUsers).values({
+        fullName: parsed.data.fullName,
+        email: parsed.data.email,
+        passwordHash: await bcrypt.hash(randomBytes(32).toString('base64url'), 12),
+        role: 'product_admin',
+        active: false,
+      }).returning({ id: marketplaceAdminUsers.id })
+      if (!created) throw new Error('Second-hand admin account was not created.')
+      await transaction.insert(marketplaceAdminInvitations).values({ adminUserId: created.id, tokenHash: tokenHash(rawToken), expiresAt: new Date(Date.now() + 72 * 60 * 60_000) })
+      const origin = process.env.PLATFORM_ORIGIN || 'http://127.0.0.1:5173'
+      const url = new URL('/admin/marketplace/activate', origin)
+      url.searchParams.set('token', rawToken)
+      await enqueueMarketplaceEmail(transaction, {
+        eventKey: `marketplace-admin:${created.id}:invitation`,
+        to: parsed.data.email,
+        kind: 'marketplace_admin_invitation',
+        data: { name: parsed.data.fullName, actionUrl: url.toString() },
+      })
+      return created.id
+    })
+    response.status(202).json({ data: { id: adminId, role: 'product_admin', verificationRequired: true } })
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === '23505') {
+      response.status(409).json({ error: { code: 'MARKETPLACE_ADMIN_EMAIL_EXISTS', message: 'A marketplace administrator already uses this email.' } })
+      return
+    }
+    next(error)
+  }
+})
+
+marketplaceAdminRouter.post('/invitations/activate', activationLimiter, async (request, response, next) => {
+  const parsed = z.object({ token: z.string().min(32).max(128), password: z.string().min(12).max(128), confirmPassword: z.string() })
+    .strict().refine((value) => value.password === value.confirmPassword, { path: ['confirmPassword'], message: 'Passwords do not match.' }).safeParse(request.body)
+  if (!parsed.success) {
+    response.status(400).json({ error: { code: 'INVALID_MARKETPLACE_ADMIN_ACTIVATION', message: 'Check the invitation and password details.' } })
+    return
+  }
+  if (!database) {
+    response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Marketplace administration is temporarily unavailable.' } })
+    return
+  }
+  try {
+    const passwordHash = await bcrypt.hash(parsed.data.password, 12)
+    const rawVerificationToken = randomBytes(32).toString('base64url')
+    const passwordSet = await database.transaction(async (transaction) => {
+      const [invitation] = await transaction.select({ id: marketplaceAdminInvitations.id, adminUserId: marketplaceAdminInvitations.adminUserId, expiresAt: marketplaceAdminInvitations.expiresAt, consumedAt: marketplaceAdminInvitations.consumedAt, role: marketplaceAdminUsers.role, active: marketplaceAdminUsers.active })
+        .from(marketplaceAdminInvitations).innerJoin(marketplaceAdminUsers, eq(marketplaceAdminInvitations.adminUserId, marketplaceAdminUsers.id))
+        .where(eq(marketplaceAdminInvitations.tokenHash, tokenHash(parsed.data.token))).for('update').limit(1)
+      if (!invitation || invitation.consumedAt || invitation.active || invitation.role !== 'product_admin' || invitation.expiresAt.getTime() <= Date.now()) return false
+      const [consumed] = await transaction.update(marketplaceAdminInvitations).set({ consumedAt: new Date() })
+        .where(and(eq(marketplaceAdminInvitations.id, invitation.id), isNull(marketplaceAdminInvitations.consumedAt))).returning({ id: marketplaceAdminInvitations.id })
+      if (!consumed) return false
+      const updatedAt = new Date()
+      await transaction.update(marketplaceAdminUsers).set({ passwordHash, updatedAt }).where(eq(marketplaceAdminUsers.id, invitation.adminUserId))
+      await transaction.insert(marketplaceAdminVerificationTokens).values({ adminUserId: invitation.adminUserId, tokenHash: tokenHash(rawVerificationToken), expiresAt: new Date(Date.now() + 60 * 60_000) })
+      const [admin] = await transaction.select({ email: marketplaceAdminUsers.email, fullName: marketplaceAdminUsers.fullName }).from(marketplaceAdminUsers).where(eq(marketplaceAdminUsers.id, invitation.adminUserId)).limit(1)
+      if (!admin) return false
+      const origin = process.env.PLATFORM_ORIGIN || 'http://127.0.0.1:5173'
+      const url = new URL('/admin/marketplace/verify', origin)
+      url.searchParams.set('token', rawVerificationToken)
+      await enqueueMarketplaceEmail(transaction, {
+        eventKey: `marketplace-admin:${invitation.adminUserId}:verify:${Date.now()}`,
+        to: admin.email,
+        kind: 'marketplace_admin_verification',
+        data: { name: admin.fullName, actionUrl: url.toString() },
+      })
+      await transaction.insert(marketplaceAuditLogs).values({ action: 'admin.invitation_password_set', resourceType: 'admin_user', resourceId: invitation.adminUserId })
+      return true
+    })
+    if (!passwordSet) {
+      response.status(400).json({ error: { code: 'INVALID_MARKETPLACE_ADMIN_ACTIVATION', message: 'The invitation is invalid, expired, or already used.' } })
+      return
+    }
+    response.json({ data: { passwordSet: true, verificationRequired: true } })
+  } catch (error) {
+    next(error)
+  }
+})
+
+marketplaceAdminRouter.post('/invitations/verify', verificationLimiter, async (request, response, next) => {
+  const parsed = z.object({ token: z.string().min(32).max(128) }).strict().safeParse(request.body)
+  if (!parsed.success) {
+    response.status(400).json({ error: { code: 'INVALID_MARKETPLACE_ADMIN_VERIFICATION', message: 'The verification link is invalid or expired.' } })
+    return
+  }
+  if (!database) {
+    response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Marketplace administration is temporarily unavailable.' } })
+    return
+  }
+  try {
+    const verified = await database.transaction(async (transaction) => {
+      const [verification] = await transaction.select({ id: marketplaceAdminVerificationTokens.id, adminUserId: marketplaceAdminVerificationTokens.adminUserId, expiresAt: marketplaceAdminVerificationTokens.expiresAt, consumedAt: marketplaceAdminVerificationTokens.consumedAt, role: marketplaceAdminUsers.role, active: marketplaceAdminUsers.active })
+        .from(marketplaceAdminVerificationTokens).innerJoin(marketplaceAdminUsers, eq(marketplaceAdminVerificationTokens.adminUserId, marketplaceAdminUsers.id))
+        .where(eq(marketplaceAdminVerificationTokens.tokenHash, tokenHash(parsed.data.token))).for('update').limit(1)
+      if (!verification || verification.consumedAt || verification.active || verification.role !== 'product_admin' || verification.expiresAt.getTime() <= Date.now()) return false
+      const [consumed] = await transaction.update(marketplaceAdminVerificationTokens).set({ consumedAt: new Date() })
+        .where(and(eq(marketplaceAdminVerificationTokens.id, verification.id), isNull(marketplaceAdminVerificationTokens.consumedAt))).returning({ id: marketplaceAdminVerificationTokens.id })
+      if (!consumed) return false
+      const verifiedAt = new Date()
+      await transaction.update(marketplaceAdminUsers).set({ active: true, emailVerifiedAt: verifiedAt, updatedAt: verifiedAt }).where(eq(marketplaceAdminUsers.id, verification.adminUserId))
+      await transaction.insert(marketplaceAuditLogs).values({ action: 'admin.invitation_verified', resourceType: 'admin_user', resourceId: verification.adminUserId })
+      return true
+    })
+    if (!verified) {
+      response.status(400).json({ error: { code: 'INVALID_MARKETPLACE_ADMIN_VERIFICATION', message: 'The verification link is invalid, expired, or already used.' } })
+      return
+    }
+    response.json({ data: { verified: true, loginPath: '/admin/marketplace/login' } })
+  } catch (error) {
+    next(error)
+  }
+})
 
 function readSessionToken(request: Request): string | null {
   const cookie = request.get('cookie')?.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${cookieName}=`))

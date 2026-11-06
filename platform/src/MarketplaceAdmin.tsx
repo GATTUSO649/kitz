@@ -1,8 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Activity, ArrowRight, BadgeDollarSign, Box, ChevronDown, CircleAlert, CreditCard, LayoutDashboard, LogOut, MapPin, Plus, Search, Settings, ShieldCheck, Tags } from 'lucide-react'
+import { Activity, ArrowRight, BadgeDollarSign, Box, ChevronDown, CircleAlert, CreditCard, Eye, EyeOff, LayoutDashboard, LockKeyhole, LogOut, Mail, MapPin, Plus, Search, Settings, ShieldCheck, Tag, Tags } from 'lucide-react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 type AdminUser = { id: string; email: string; role: string }
+type MarketplaceAdminAccount = { id: string; fullName: string; email: string; role: string; active: boolean; emailVerifiedAt: string | null; createdAt: string }
 type Listing = { reference: string; title: string; status: string; priceKes: number; category: string; county: string; town: string }
 type Category = { id: string; name: string; slug: string; active: boolean; sortOrder: number }
 type Payment = { reference: string; purpose: string; amountKes: number; status: string; createdAt: string; listingReference: string | null }
@@ -19,6 +20,8 @@ export function MarketplaceAdminPage() {
   const [searchParams] = useSearchParams()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [admin, setAdmin] = useState<AdminUser | null>(null)
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
   const [listings, setListings] = useState<Listing[]>([])
@@ -27,6 +30,10 @@ export function MarketplaceAdminPage() {
   const [feeSettings, setFeeSettings] = useState<FeeSettings>({ publicationFeeBasisPoints: 1_000, contactUnlockFeeBasisPoints: 500, listingExpiryDays: 7 })
   const [footerSocialSettings, setFooterSocialSettings] = useState<FooterSocialSettings>({ facebookUrl: '', xUrl: '', youtubeUrl: '', whatsappPhone: '' })
   const [categories, setCategories] = useState<Category[]>([])
+  const [marketplaceAdmins, setMarketplaceAdmins] = useState<MarketplaceAdminAccount[]>([])
+  const [adminInviteName, setAdminInviteName] = useState('')
+  const [adminInviteEmail, setAdminInviteEmail] = useState('')
+  const [notice, setNotice] = useState('')
   const [categoryName, setCategoryName] = useState('')
   const [categoryError, setCategoryError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -35,10 +42,13 @@ export function MarketplaceAdminPage() {
   const [listingSearchInput, setListingSearchInput] = useState('')
   const [listingSearch, setListingSearch] = useState('')
   const isLogin = window.location.pathname.endsWith('/login')
+  const isActivate = window.location.pathname.endsWith('/activate')
+  const isVerify = window.location.pathname.endsWith('/verify')
+  const verificationToken = searchParams.get('token') ?? ''
   const section = searchParams.get('section') ?? 'dashboard'
 
   useEffect(() => {
-    if (isLogin) return
+    if (isLogin || isActivate || isVerify) return
     const controller = new AbortController()
     setLoading(true)
     setError('')
@@ -54,9 +64,10 @@ export function MarketplaceAdminPage() {
           : section === 'reports' ? `${adminApi}/reports?status=open`
             : section === 'settings' ? `${adminApi}/settings/fees`
           : section === 'categories' ? `${adminApi}/categories`
+          : section === 'admins' ? `${adminApi}/admins`
             : `${adminApi}/dashboard`
       const response = await fetch(endpoint, { signal: controller.signal })
-      const result = await response.json() as { data?: Dashboard | Listing[] | Payment[] | ListingReport[] | Category[] | FeeSettings | FooterSocialSettings; error?: { message?: string } }
+      const result = await response.json() as { data?: Dashboard | Listing[] | Payment[] | ListingReport[] | Category[] | MarketplaceAdminAccount[] | FeeSettings | FooterSocialSettings; error?: { message?: string } }
       if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Marketplace data could not be loaded.')
       if (section === 'listings') setListings(result.data as Listing[])
       else if (section === 'payments') setPayments(result.data as Payment[])
@@ -74,6 +85,7 @@ export function MarketplaceAdminPage() {
         })
       }
       else if (section === 'categories') setCategories(result.data as Category[])
+      else if (section === 'admins') setMarketplaceAdmins(result.data as MarketplaceAdminAccount[])
       else setDashboard(result.data as Dashboard)
     }
     load().catch((reason: unknown) => {
@@ -83,7 +95,7 @@ export function MarketplaceAdminPage() {
       else setError(message)
     }).finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
-  }, [isLogin, listingSearch, navigate, section])
+  }, [isLogin, isActivate, isVerify, listingSearch, navigate, section])
 
   function searchListings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -103,6 +115,78 @@ export function MarketplaceAdminPage() {
       navigate('/admin/marketplace/dashboard', { replace: true })
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Sign in failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function activateAdminInvitation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      const response = await fetch(`${adminApi}/invitations/activate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: verificationToken, password, confirmPassword }) })
+      const result = await response.json() as { error?: { message?: string } }
+      if (!response.ok) throw new Error(result.error?.message ?? 'Invitation verification failed.')
+      setNotice('Password saved. Check your email and open the verification link to activate your account.')
+      setPassword('')
+      setConfirmPassword('')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Invitation verification failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function verifyAdminEmail() {
+    setBusy(true)
+    setError('')
+    try {
+      const response = await fetch(`${adminApi}/invitations/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: verificationToken }) })
+      const result = await response.json() as { error?: { message?: string } }
+      if (!response.ok) throw new Error(result.error?.message ?? 'Email verification failed.')
+      setNotice('Email verified. Your Second-hand admin account is active and ready to use.')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Email verification failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function inviteSecondHandAdmin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      const response = await fetch(`${adminApi}/admins/invitations`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fullName: adminInviteName, email: adminInviteEmail }) })
+      const result = await response.json() as { error?: { message?: string } }
+      if (!response.ok) throw new Error(result.error?.message ?? 'The invitation could not be created.')
+      setNotice(`Verification invitation queued for ${adminInviteEmail}.`)
+      setAdminInviteName('')
+      setAdminInviteEmail('')
+      const directoryResponse = await fetch(`${adminApi}/admins`)
+      const directory = await directoryResponse.json() as { data?: MarketplaceAdminAccount[] }
+      if (directoryResponse.ok && directory.data) setMarketplaceAdmins(directory.data)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'The invitation could not be created.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function updateMarketplaceAdmin(adminId: string, active: boolean) {
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      const response = await fetch(`${adminApi}/admins/${adminId}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active }) })
+      const result = await response.json() as { error?: { message?: string } }
+      if (!response.ok) throw new Error(result.error?.message ?? 'Administrator status could not be updated.')
+      setMarketplaceAdmins((current) => current.map((item) => item.id === adminId ? { ...item, active } : item))
+      setNotice(active ? 'Second-hand admin access restored.' : 'Second-hand admin access removed and sessions revoked.')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Administrator status could not be updated.')
     } finally {
       setBusy(false)
     }
@@ -224,12 +308,49 @@ export function MarketplaceAdminPage() {
   }
 
   if (isLogin) return <div className="admin-login-page">
-    <Link to="/" className="admin-login-brand"><span><Tags size={24} /></span><strong>MarketHub</strong></Link>
-    <main><span className="admin-eyebrow">MARKETPLACE ADMINISTRATION</span><h1>Welcome back</h1><p>Sign in to manage second-hand marketplace operations.</p>
+    <Link to="/" className="admin-login-brand"><Tag size={56} strokeWidth={2.2} /><span><strong><em>Market</em>Hub</strong><small>Buy · Sell · Reuse · Save</small></span></Link>
+    <main>
+      <span className="admin-eyebrow">MARKETPLACE ADMINISTRATION</span>
+      <h1>Welcome back</h1>
+      <p>Sign in to manage second-hand marketplace operations.</p>
       {error && <div className="admin-alert" role="alert"><CircleAlert size={16} />{error}</div>}
-      <form onSubmit={login}><label>Email<input type="email" autoComplete="username" required value={email} onChange={(event) => setEmail(event.target.value)} /></label><label>Password<input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} /></label><button disabled={busy}>{busy ? 'Signing in…' : <>Sign in <ArrowRight size={16} /></>}</button></form>
+      <form onSubmit={login}>
+        <label>Email<span className="admin-login-field"><Mail size={18} aria-hidden="true" /><input type="email" autoComplete="username" placeholder="Enter your email address" required value={email} onChange={(event) => setEmail(event.target.value)} /></span></label>
+        <label>Password<span className="admin-login-field"><LockKeyhole size={18} aria-hidden="true" /><input type={showPassword ? 'text' : 'password'} autoComplete="current-password" placeholder="Enter your password" required value={password} onChange={(event) => setPassword(event.target.value)} /><button className="admin-password-toggle" type="button" aria-label={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword((visible) => !visible)}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></span></label>
+        <button className="admin-login-submit" disabled={busy}>{busy ? 'Signing in…' : <>Sign in <ArrowRight size={16} /></>}</button>
+      </form>
       <Link to="/">Back to MarketHub</Link>
     </main>
+  </div>
+
+  if (isActivate) return <div className="admin-login-page admin-invitation-page">
+    <Link to="/" className="admin-login-brand"><Tag size={56} strokeWidth={2.2} /><span><strong><em>Market</em>Hub</strong><small>Buy · Sell · Reuse · Save</small></span></Link>
+    <main><span className="admin-eyebrow">SECOND-HAND ADMIN INVITATION</span><h1>Set your password</h1><p>Complete onboarding, then verify your email in the separate message we send.</p>
+      {error && <div className="admin-alert" role="alert"><CircleAlert size={16} />{error}</div>}
+      {notice ? <div className="admin-invite-success"><Mail size={18} /><span>{notice}</span><Link to="/admin/marketplace/login">Back to sign in</Link></div> : verificationToken ? <form onSubmit={activateAdminInvitation}>
+        <label>Password<span className="admin-login-field"><LockKeyhole size={18} /><input type="password" autoComplete="new-password" minLength={12} required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="At least 12 characters" /></span></label>
+        <label>Confirm password<span className="admin-login-field"><LockKeyhole size={18} /><input type="password" autoComplete="new-password" minLength={12} required value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Enter your password again" /></span></label>
+        <button className="admin-login-submit" disabled={busy}>{busy ? 'Saving…' : 'Set password'}</button>
+      </form> : <div className="admin-alert" role="alert"><CircleAlert size={16} />This invitation link is missing its verification token.</div>}
+      {!notice && <Link to="/admin/marketplace/login">Back to sign in</Link>}
+    </main>
+  </div>
+
+  if (isVerify) return <div className="admin-login-page admin-invitation-page">
+    <Link to="/" className="admin-login-brand"><Tag size={56} strokeWidth={2.2} /><span><strong><em>Market</em>Hub</strong><small>Buy · Sell · Reuse · Save</small></span></Link>
+    <main><span className="admin-eyebrow">SECOND-HAND ADMIN EMAIL VERIFICATION</span><h1>Verify your email</h1><p>Confirm this address to activate your administrator access.</p>
+      {error && <div className="admin-alert" role="alert"><CircleAlert size={16} />{error}</div>}
+      {notice ? <div className="admin-invite-success"><ShieldCheck size={18} /><span>{notice}</span><Link to="/admin/marketplace/login">Go to sign in</Link></div> : verificationToken ? <button className="admin-login-submit" type="button" disabled={busy} onClick={() => void verifyAdminEmail()}>{busy ? 'Verifying…' : 'Verify email and activate'}</button> : <div className="admin-alert" role="alert"><CircleAlert size={16} />This verification link is missing its token.</div>}
+      {!notice && <Link to="/admin/marketplace/login">Back to sign in</Link>}
+    </main>
+  </div>
+
+  if (section === 'admins') return <div className="admin-app">
+    <aside className="admin-sidebar"><Link to="/" className="admin-logo"><Tags /><span><b>MarketHub</b><small>Marketplace Admin</small></span></Link><nav aria-label="Marketplace administration"><Link to="/admin/marketplace/dashboard">Dashboard</Link>{admin?.role === 'super_admin' && <Link className="active" to="/admin/marketplace/dashboard?section=admins">Administrators</Link>}<Link to="/admin/marketplace/dashboard?section=listings">Listings</Link><Link to="/admin/marketplace/dashboard?section=payments">Payments</Link><Link to="/admin/marketplace/dashboard?section=reports">Reports</Link><Link to="/admin/marketplace/dashboard?section=categories">Categories</Link><Link to="/admin/marketplace/dashboard?section=settings">Settings</Link></nav><div className="admin-sidebar-bottom"><button type="button" onClick={() => void logout()}><LogOut />Sign out</button></div></aside>
+    <main className="admin-main"><header className="admin-topbar"><Link to="/admin/marketplace/dashboard">Marketplace dashboard</Link><span className="admin-user"><b>Super Admin</b><small>{admin?.email}</small></span></header><section className="admin-workspace"><div className="admin-page-title"><div><span>PEOPLE &amp; ACCESS</span><h1>Second-hand admins</h1></div></div>{error && <div className="admin-alert" role="alert"><CircleAlert size={16} />{error}</div>}{notice && <p className="admin-success-message" role="status">{notice}</p>}
+      <div className="admin-panel admin-settings-panel"><header><h2>Assign Second-hand admin</h2><span>Email verification required before access</span></header><form onSubmit={inviteSecondHandAdmin}><label>Full name<input required minLength={2} maxLength={120} value={adminInviteName} onChange={(event) => setAdminInviteName(event.target.value)} placeholder="Administrator name" /></label><label>Email address<input required type="email" maxLength={254} value={adminInviteEmail} onChange={(event) => setAdminInviteEmail(event.target.value)} placeholder="name@example.com" /></label><button disabled={busy}>{busy ? 'Sending…' : 'Send verification invitation'}</button></form></div>
+      <div className="admin-panel admin-admin-directory"><header><h2>Marketplace administrator access</h2><span>{marketplaceAdmins.length} accounts</span></header><div className="admin-table-wrap"><table><thead><tr><th>Administrator</th><th>Email</th><th>Role</th><th>Verification</th><th>Access</th><th>Action</th></tr></thead><tbody>{marketplaceAdmins.map((item) => <tr key={item.id}><td>{item.fullName || 'Marketplace administrator'}</td><td>{item.email}</td><td>{item.role === 'product_admin' ? 'Second-hand admin' : item.role.replaceAll('_', ' ')}</td><td>{item.emailVerifiedAt ? 'Verified' : 'Pending verification'}</td><td><span className={`status-pill status-${item.active ? 'published' : 'suspended'}`}>{item.active ? 'Active' : 'Inactive'}</span></td><td>{item.role !== 'super_admin' && item.emailVerifiedAt && <button className="admin-reconcile" type="button" disabled={busy} onClick={() => void updateMarketplaceAdmin(item.id, !item.active)}>{item.active ? 'Remove access' : 'Restore access'}</button>}</td></tr>)}{!marketplaceAdmins.length && !loading && <tr><td colSpan={6}>No marketplace administrators found.</td></tr>}</tbody></table></div></div>
+    </section></main>
   </div>
 
   if (section === 'categories') return <div className="admin-app">
@@ -252,6 +373,7 @@ export function MarketplaceAdminPage() {
         <Link className={section === 'payments' ? 'active' : ''} to="/admin/marketplace/dashboard?section=payments"><CreditCard />Payments</Link>
         <Link className={section === 'reports' ? 'active' : ''} to="/admin/marketplace/dashboard?section=reports"><CircleAlert />Reports</Link>
         <Link className={section === 'categories' ? 'active' : ''} to="/admin/marketplace/dashboard?section=categories"><Tags />Categories</Link>
+        {admin?.role === 'super_admin' && <Link className={section === 'admins' ? 'active' : ''} to="/admin/marketplace/dashboard?section=admins"><ShieldCheck />Second-hand admins</Link>}
         {admin?.role === 'super_admin' && <Link className={section === 'settings' ? 'active' : ''} to="/admin/marketplace/dashboard?section=settings"><Settings />Settings</Link>}
       </nav>
       <div className="admin-sidebar-bottom"><span><ShieldCheck /><span><b>Marketplace only</b><small>Kitz access is separate</small></span></span><button type="button" onClick={() => void logout()}><LogOut />Sign out</button></div>

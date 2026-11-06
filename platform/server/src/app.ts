@@ -8,6 +8,7 @@ import helmet from 'helmet'
 import { pool } from './database/connection.js'
 import { marketplaceAdminRouter } from './modules/admin/marketplace-auth.js'
 import { marketplaceAdminDataRouter } from './modules/admin/marketplace-routes.js'
+import { marketplaceSellerAuthRouter, marketplaceSellerDataRouter } from './modules/marketplace/seller-portal.js'
 import { submissionRouter } from './modules/marketplace/submission.js'
 import { marketplaceRouter } from './modules/marketplace/routes.js'
 import { paymentRouter } from './modules/payments/routes.js'
@@ -55,6 +56,13 @@ app.get('/health/ready', async (_request, response) => {
         AND to_regclass('marketplace.marketplace_counties') IS NOT NULL
         AND to_regclass('marketplace.marketplace_payments') IS NOT NULL
         AND to_regclass('marketplace.marketplace_email_events') IS NOT NULL
+        AND to_regclass('marketplace.marketplace_seller_accounts') IS NOT NULL
+        AND to_regclass('marketplace.marketplace_seller_sessions') IS NOT NULL
+        AND to_regclass('marketplace.marketplace_seller_verification_tokens') IS NOT NULL
+        AND to_regclass('marketplace.marketplace_admin_invitations') IS NOT NULL
+        AND to_regclass('marketplace.marketplace_admin_verification_tokens') IS NOT NULL
+        AND to_regclass('marketplace.marketplace_sellers') IS NOT NULL
+        AND to_regclass('marketplace.marketplace_admin_users') IS NOT NULL
         AND has_table_privilege(current_user, 'marketplace.marketplace_products', 'SELECT')
         AND has_table_privilege(current_user, 'marketplace.marketplace_categories', 'SELECT')
         AND has_table_privilege(current_user, 'marketplace.marketplace_counties', 'SELECT')
@@ -62,6 +70,27 @@ app.get('/health/ready', async (_request, response) => {
         AND has_table_privilege(current_user, 'marketplace.marketplace_email_events', 'SELECT')
         AND has_table_privilege(current_user, 'marketplace.marketplace_email_events', 'INSERT')
         AND has_table_privilege(current_user, 'marketplace.marketplace_email_events', 'UPDATE')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_seller_accounts', 'SELECT')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_seller_accounts', 'INSERT')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_seller_accounts', 'UPDATE')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_seller_sessions', 'SELECT')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_seller_sessions', 'INSERT')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_seller_sessions', 'DELETE')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_seller_verification_tokens', 'SELECT')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_seller_verification_tokens', 'INSERT')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_seller_verification_tokens', 'UPDATE')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_sellers', 'SELECT')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_sellers', 'INSERT')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_sellers', 'UPDATE')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_admin_invitations', 'SELECT')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_admin_invitations', 'INSERT')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_admin_invitations', 'UPDATE')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_admin_verification_tokens', 'SELECT')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_admin_verification_tokens', 'INSERT')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_admin_verification_tokens', 'UPDATE')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_admin_users', 'SELECT')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_admin_users', 'INSERT')
+        AND has_table_privilege(current_user, 'marketplace.marketplace_admin_users', 'UPDATE')
       ) AS required_tables_ready
     `)
     if (result.rows[0]?.schema_access !== true || result.rows[0]?.required_tables_ready !== true) throw new Error('Marketplace schema access is unavailable.')
@@ -72,6 +101,8 @@ app.get('/health/ready', async (_request, response) => {
 })
 
 app.use('/api/v1/marketplace', marketplaceRouter)
+app.use('/api/v1/marketplace', marketplaceSellerAuthRouter)
+app.use('/api/v1/marketplace', marketplaceSellerDataRouter)
 app.use('/api/v1/marketplace', submissionRouter)
 app.use('/api/v1/marketplace/payments', paymentRouter)
 app.use('/api/v1/admin/marketplace', marketplaceAdminRouter)
