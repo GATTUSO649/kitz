@@ -36,15 +36,15 @@ type DarajaDependencies = { env?: NodeJS.ProcessEnv; fetcher?: typeof fetch; now
 const cachedTokens = new Map<string, { value: string; expiresAt: number }>()
 
 function getConfig(env: NodeJS.ProcessEnv = process.env): DarajaConfig {
-  const mode = env.MARKETPLACE_DARAJA_ENVIRONMENT
+  const mode = env.MARKETPLACE_DARAJA_ENVIRONMENT?.trim()
   if (mode !== 'sandbox' && mode !== 'production') throw new DarajaUnavailableError()
-  const consumerKey = env.MARKETPLACE_DARAJA_CONSUMER_KEY
-  const consumerSecret = env.MARKETPLACE_DARAJA_CONSUMER_SECRET
-  const passkey = env.MARKETPLACE_DARAJA_PASSKEY
-  const shortcode = env.MARKETPLACE_DARAJA_SHORTCODE
-  const transactionType = env.MARKETPLACE_DARAJA_TRANSACTION_TYPE
-  const callbackUrl = env.MARKETPLACE_DARAJA_CALLBACK_URL
-  const callbackToken = env.MARKETPLACE_DARAJA_CALLBACK_TOKEN
+  const consumerKey = env.MARKETPLACE_DARAJA_CONSUMER_KEY?.trim()
+  const consumerSecret = env.MARKETPLACE_DARAJA_CONSUMER_SECRET?.trim()
+  const passkey = env.MARKETPLACE_DARAJA_PASSKEY?.trim()
+  const shortcode = env.MARKETPLACE_DARAJA_SHORTCODE?.trim()
+  const transactionType = env.MARKETPLACE_DARAJA_TRANSACTION_TYPE?.trim()
+  const callbackUrl = env.MARKETPLACE_DARAJA_CALLBACK_URL?.trim()
+  const callbackToken = env.MARKETPLACE_DARAJA_CALLBACK_TOKEN?.trim()
   if (!consumerKey || !consumerSecret || !passkey || !shortcode || !callbackUrl || !callbackToken
     || (transactionType !== 'CustomerPayBillOnline' && transactionType !== 'CustomerBuyGoodsOnline')) {
     throw new DarajaUnavailableError('Marketplace M-Pesa configuration is incomplete.')
@@ -73,14 +73,35 @@ export function assertDarajaConfigured(): void {
   getConfig()
 }
 
-export function getDarajaReadiness(env: NodeJS.ProcessEnv = process.env): { mode: 'sandbox' | 'production' | 'disabled'; status: 'ready' | 'misconfigured' | 'disabled' } {
-  const mode = env.MARKETPLACE_DARAJA_ENVIRONMENT
+export function getDarajaReadiness(env: NodeJS.ProcessEnv = process.env): {
+  mode: 'sandbox' | 'production' | 'disabled'
+  status: 'ready' | 'misconfigured' | 'disabled'
+  issue?: 'missing_variables' | 'invalid_shortcode_or_token' | 'callback_url_mismatch' | 'invalid_callback_url'
+  missingVariables?: string[]
+} {
+  const mode = env.MARKETPLACE_DARAJA_ENVIRONMENT?.trim()
   if (mode !== 'sandbox' && mode !== 'production') return { mode: 'disabled', status: 'disabled' }
+  const requiredVariables = [
+    'MARKETPLACE_DARAJA_CONSUMER_KEY',
+    'MARKETPLACE_DARAJA_CONSUMER_SECRET',
+    'MARKETPLACE_DARAJA_PASSKEY',
+    'MARKETPLACE_DARAJA_SHORTCODE',
+    'MARKETPLACE_DARAJA_TRANSACTION_TYPE',
+    'MARKETPLACE_DARAJA_CALLBACK_URL',
+    'MARKETPLACE_DARAJA_CALLBACK_TOKEN',
+  ] as const
+  const missingVariables = requiredVariables.filter((name) => !env[name]?.trim())
+  if (missingVariables.length) return { mode, status: 'misconfigured', issue: 'missing_variables', missingVariables }
   try {
     getConfig(env)
     return { mode, status: 'ready' }
-  } catch {
-    return { mode, status: 'misconfigured' }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ''
+    const issue = /callback URL/.test(message) ? 'callback_url_mismatch'
+      : /configuration is invalid/.test(message) ? 'invalid_shortcode_or_token'
+        : /Invalid URL/.test(message) ? 'invalid_callback_url'
+          : 'missing_variables'
+    return { mode, status: 'misconfigured', issue }
   }
 }
 

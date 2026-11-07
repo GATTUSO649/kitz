@@ -1,6 +1,19 @@
 import { createHash, randomUUID } from 'node:crypto'
 
 export type VerifiedImage = { contentType: 'image/jpeg' | 'image/png' | 'image/webp'; width: number; height: number }
+const cloudinaryVariables = ['MARKETPLACE_CLOUDINARY_CLOUD_NAME', 'MARKETPLACE_CLOUDINARY_API_KEY', 'MARKETPLACE_CLOUDINARY_API_SECRET'] as const
+
+export function getMarketplaceImageStorageReadiness(env: NodeJS.ProcessEnv = process.env): { status: 'ready' | 'misconfigured'; missingVariables: string[] } {
+  const missingVariables = cloudinaryVariables.filter((name) => !env[name]?.trim())
+  return { status: missingVariables.length ? 'misconfigured' : 'ready', missingVariables }
+}
+
+export class MarketplaceImageStorageError extends Error {
+  constructor(readonly reason: 'network' | 'cloud_name' | 'api_key' | 'signature' | 'provider_rejected' | 'invalid_response') {
+    super(`Marketplace image storage failed: ${reason}.`)
+    this.name = 'MarketplaceImageStorageError'
+  }
+}
 
 export function inspectImage(buffer: Buffer): VerifiedImage {
   let contentType: VerifiedImage['contentType'] | null = null
@@ -53,10 +66,11 @@ function cloudinarySignature(parameters: Record<string, string>, secret: string)
 }
 
 export async function uploadMarketplaceImage(input: { buffer: Buffer; reference: string; order: number }): Promise<{ storageKey: string; imageUrl: string; contentType: VerifiedImage['contentType']; byteSize: number; width: number; height: number }> {
-  const cloudName = process.env.MARKETPLACE_CLOUDINARY_CLOUD_NAME
-  const apiKey = process.env.MARKETPLACE_CLOUDINARY_API_KEY
-  const apiSecret = process.env.MARKETPLACE_CLOUDINARY_API_SECRET
-  if (!cloudName || !apiKey || !apiSecret) throw new Error('Marketplace persistent image storage is not configured.')
+  const readiness = getMarketplaceImageStorageReadiness()
+  if (readiness.status !== 'ready') throw new Error('Marketplace persistent image storage is not configured.')
+  const cloudName = process.env.MARKETPLACE_CLOUDINARY_CLOUD_NAME!.trim()
+  const apiKey = process.env.MARKETPLACE_CLOUDINARY_API_KEY!.trim()
+  const apiSecret = process.env.MARKETPLACE_CLOUDINARY_API_SECRET!.trim()
   const verified = inspectImage(input.buffer)
   const timestamp = String(Math.floor(Date.now() / 1000))
   const publicId = `${input.reference.toLowerCase()}-${input.order + 1}-${randomUUID()}`
@@ -74,15 +88,28 @@ export async function uploadMarketplaceImage(input: { buffer: Buffer; reference:
   form.append('api_key', apiKey)
   for (const [key, value] of Object.entries(parameters)) form.append(key, value)
   form.append('signature', cloudinarySignature(parameters, apiSecret))
-  const response = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudName)}/image/upload`, {
-    method: 'POST',
-    body: form,
-    signal: AbortSignal.timeout(20_000),
-  })
-  if (!response.ok) throw new Error('Marketplace image storage rejected the upload.')
+  let response: Response
+  try {
+    response = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudName)}/image/upload`, {
+      method: 'POST',
+      body: form,
+      signal: AbortSignal.timeout(20_000),
+    })
+  } catch {
+    throw new MarketplaceImageStorageError('network')
+  }
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { error?: { message?: string } } | null
+    const message = body?.error?.message ?? ''
+    const reason = /invalid cloud name|cloud name.*invalid/i.test(message) ? 'cloud_name'
+      : /unknown api key|api key.*invalid/i.test(message) ? 'api_key'
+        : /invalid signature|signature.*invalid/i.test(message) ? 'signature'
+          : 'provider_rejected'
+    throw new MarketplaceImageStorageError(reason)
+  }
   const stored = await response.json() as { public_id?: string; secure_url?: string; bytes?: number; width?: number; height?: number }
   if (!stored.public_id || !stored.secure_url?.startsWith('https://') || !stored.width || !stored.height) {
-    throw new Error('Marketplace image storage returned an invalid image record.')
+    throw new MarketplaceImageStorageError('invalid_response')
   }
   return {
     storageKey: stored.public_id,

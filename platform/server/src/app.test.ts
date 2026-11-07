@@ -50,7 +50,7 @@ test('readiness reports missing marketplace database configuration', async () =>
 
 test('worker health reports configured state without exposing secret values', async () => {
   const response = await fetch(`${origin}/health/workers`)
-  const result = await response.json() as { workers?: Record<string, unknown>; emailProvider?: { provider: string; configured: boolean; code: string | null }; marketplacePayments?: { mode: string; status: string } }
+  const result = await response.json() as { workers?: Record<string, unknown>; emailProvider?: { provider: string; configured: boolean; code: string | null }; marketplacePayments?: { mode: string; status: string; issue?: string; missingVariables?: string[] }; marketplaceImageStorage?: { status: string; missingVariables: string[] } }
   assert.equal(response.status, 200)
   assert.equal(result.emailProvider?.provider, 'disabled')
   assert.equal(result.emailProvider?.configured, false)
@@ -58,7 +58,9 @@ test('worker health reports configured state without exposing secret values', as
   assert.ok(result.workers?.marketplace_listing_expiry)
   assert.ok(['disabled', 'sandbox', 'production'].includes(result.marketplacePayments?.mode ?? ''))
   assert.ok(['disabled', 'misconfigured', 'ready'].includes(result.marketplacePayments?.status ?? ''))
-  assert.doesNotMatch(JSON.stringify(result), /MARKETPLACE_DATABASE_URL|SMTP_PASSWORD|API_KEY/)
+  assert.ok(['misconfigured', 'ready'].includes(result.marketplaceImageStorage?.status ?? ''))
+  assert.ok(Array.isArray(result.marketplaceImageStorage?.missingVariables))
+  assert.doesNotMatch(JSON.stringify(result), /"(?:consumerSecret|apiSecret|passkey|consumerKey|accessToken)"/i)
 })
 
 test('catalogue rejects invalid pagination before accessing the database', async () => {

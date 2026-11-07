@@ -50,7 +50,12 @@ test('production mode uses the Safaricom production API and reports readiness wi
   })
   assert.equal(new URL(urls[0]!).origin, 'https://api.safaricom.co.ke')
   assert.deepEqual(getDarajaReadiness(productionConfig), { mode: 'production', status: 'ready' })
-  assert.deepEqual(getDarajaReadiness({ ...productionConfig, MARKETPLACE_DARAJA_PASSKEY: '' }), { mode: 'production', status: 'misconfigured' })
+  assert.deepEqual(getDarajaReadiness({ ...productionConfig, MARKETPLACE_DARAJA_PASSKEY: '' }), {
+    mode: 'production', status: 'misconfigured', issue: 'missing_variables', missingVariables: ['MARKETPLACE_DARAJA_PASSKEY'],
+  })
+  assert.deepEqual(getDarajaReadiness({ ...productionConfig, MARKETPLACE_DARAJA_CALLBACK_URL: 'https://market.example/wrong-path' }), {
+    mode: 'production', status: 'misconfigured', issue: 'callback_url_mismatch',
+  })
   assert.deepEqual(getDarajaReadiness({}), { mode: 'disabled', status: 'disabled' })
 })
 

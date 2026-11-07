@@ -4,7 +4,7 @@ import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
 import { database } from '../../database/connection.js'
 import { marketplaceAdminUsers, marketplaceCategories, marketplaceCounties, marketplaceProductAccess, marketplaceProductImages, marketplaceProducts, marketplaceSellers, marketplaceSettings, marketplaceSubcategories } from '../../database/schema.js'
-import { deleteMarketplaceImage, uploadMarketplaceImage } from './images.js'
+import { deleteMarketplaceImage, getMarketplaceImageStorageReadiness, MarketplaceImageStorageError, uploadMarketplaceImage } from './images.js'
 import { calculateFeeKes, createListingReference, createListingSlug, createSecret, hashSecret, normalizeKenyanPhone } from './security.js'
 import { optionalMarketplaceSeller, type MarketplaceSellerSession } from './seller-portal.js'
 import { enqueueMarketplaceEmail } from '../email/outbox.js'
@@ -242,11 +242,21 @@ submissionRouter.post('/submissions/:reference/images', imageUploadLimiter, imag
       return
     }
     if (error instanceof Error && /persistent image storage is not configured/.test(error.message)) {
-      response.status(503).json({ error: { code: 'IMAGE_STORAGE_UNAVAILABLE', message: 'Product image storage is not configured. Contact marketplace support.' } })
+      const readiness = getMarketplaceImageStorageReadiness()
+      response.status(503).json({ error: { code: 'IMAGE_STORAGE_UNAVAILABLE', message: 'Product image storage is not configured. Contact marketplace support.', missingVariables: readiness.missingVariables } })
       return
     }
-    if (error instanceof Error && /storage rejected|storage returned/.test(error.message)) {
-      response.status(502).json({ error: { code: 'IMAGE_STORAGE_FAILED', message: 'Product image storage could not process this upload. Please try again.' } })
+    if (error instanceof MarketplaceImageStorageError) {
+      const details: Record<MarketplaceImageStorageError['reason'], { code: string; message: string }> = {
+        network: { code: 'IMAGE_STORAGE_NETWORK_ERROR', message: 'Cloudinary could not be reached. Check the API service network and retry.' },
+        cloud_name: { code: 'IMAGE_STORAGE_CLOUD_NAME_INVALID', message: 'Cloudinary rejected the cloud name. Verify MARKETPLACE_CLOUDINARY_CLOUD_NAME.' },
+        api_key: { code: 'IMAGE_STORAGE_API_KEY_INVALID', message: 'Cloudinary rejected the API key. Verify MARKETPLACE_CLOUDINARY_API_KEY.' },
+        signature: { code: 'IMAGE_STORAGE_SIGNATURE_INVALID', message: 'Cloudinary rejected the signature. Verify MARKETPLACE_CLOUDINARY_API_SECRET.' },
+        provider_rejected: { code: 'IMAGE_STORAGE_REJECTED', message: 'Cloudinary rejected the image upload. Check the image format, size, and Cloudinary upload settings.' },
+        invalid_response: { code: 'IMAGE_STORAGE_INVALID_RESPONSE', message: 'Cloudinary returned an incomplete image record. Please retry or contact support.' },
+      }
+      const detail = details[error.reason]
+      response.status(502).json({ error: detail })
       return
     }
     next(error)

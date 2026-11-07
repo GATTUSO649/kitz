@@ -13,6 +13,7 @@ import { getKitzAdminServiceStatus, marketplaceAdminRouter } from './modules/adm
 import { marketplaceAdminDataRouter } from './modules/admin/marketplace-routes.js'
 import { marketplaceSellerPasswordRecoveryRouter } from './modules/marketplace/seller-password-recovery.js'
 import { marketplaceSellerAuthRouter, marketplaceSellerDataRouter } from './modules/marketplace/seller-portal.js'
+import { getMarketplaceImageStorageReadiness } from './modules/marketplace/images.js'
 import { submissionRouter } from './modules/marketplace/submission.js'
 import { marketplaceRouter } from './modules/marketplace/routes.js'
 import { paymentRouter } from './modules/payments/routes.js'
@@ -44,7 +45,7 @@ app.use('/api/v1', rateLimit({ windowMs: 60_000, limit: process.env.NODE_ENV ===
 app.get('/health/live', (_request, response) => response.json({ status: 'ok', service: 'markethub-platform' }))
 app.get('/health/workers', (_request, response) => {
   response.setHeader('Cache-Control', 'no-store')
-  response.json({ workers: workerHealthSnapshot(), emailProvider: getMarketplaceEmailProviderStatus(), centralAdminAuth: getKitzAdminServiceStatus(), marketplacePayments: getDarajaReadiness() })
+  response.json({ workers: workerHealthSnapshot(), emailProvider: getMarketplaceEmailProviderStatus(), centralAdminAuth: getKitzAdminServiceStatus(), marketplacePayments: getDarajaReadiness(), marketplaceImageStorage: getMarketplaceImageStorageReadiness() })
 })
 app.get('/health/ready', async (_request, response) => {
   const workers = workerHealthSnapshot()
