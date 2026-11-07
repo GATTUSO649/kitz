@@ -23,10 +23,11 @@ test('public catalogue fails closed when the marketplace database is not configu
   assert.equal((await response.json()).error.code, 'MARKETPLACE_UNAVAILABLE')
 })
 
-test('content security policy allows local seller image previews', async () => {
+test('content security policy allows seller previews and Cloudinary product images', async () => {
   const response = await fetch(`${origin}/health/live`)
   const policy = response.headers.get('content-security-policy') ?? ''
   assert.match(policy, /img-src[^;]*'self'[^;]*data:[^;]*blob:/)
+  assert.match(policy, /img-src[^;]*https:\/\/res\.cloudinary\.com/)
 })
 
 test('marketplace public GET endpoints fail closed without a database', async () => {

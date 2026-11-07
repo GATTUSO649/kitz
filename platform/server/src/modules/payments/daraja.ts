@@ -20,6 +20,7 @@ type DarajaConfig = {
   consumerSecret: string
   passkey: string
   shortcode: string
+  partyB: string
   transactionType: 'CustomerPayBillOnline' | 'CustomerBuyGoodsOnline'
   callbackUrl: string
 }
@@ -42,14 +43,17 @@ function getConfig(env: NodeJS.ProcessEnv = process.env): DarajaConfig {
   const consumerSecret = env.MARKETPLACE_DARAJA_CONSUMER_SECRET?.trim()
   const passkey = env.MARKETPLACE_DARAJA_PASSKEY?.trim()
   const shortcode = env.MARKETPLACE_DARAJA_SHORTCODE?.trim()
+  const tillNumber = env.MARKETPLACE_DARAJA_TILL_NUMBER?.trim()
   const transactionType = env.MARKETPLACE_DARAJA_TRANSACTION_TYPE?.trim()
   const callbackUrl = env.MARKETPLACE_DARAJA_CALLBACK_URL?.trim()
   const callbackToken = env.MARKETPLACE_DARAJA_CALLBACK_TOKEN?.trim()
-  if (!consumerKey || !consumerSecret || !passkey || !shortcode || !callbackUrl || !callbackToken
+  const usesProductionBuyGoods = mode === 'production' && transactionType === 'CustomerBuyGoodsOnline'
+  if (!consumerKey || !consumerSecret || !passkey || !shortcode || !callbackUrl || !callbackToken || (usesProductionBuyGoods && !tillNumber)
     || (transactionType !== 'CustomerPayBillOnline' && transactionType !== 'CustomerBuyGoodsOnline')) {
     throw new DarajaUnavailableError('Marketplace M-Pesa configuration is incomplete.')
   }
-  if (!/^\d{5,20}$/.test(shortcode) || !/^[A-Za-z0-9_-]{32,128}$/.test(callbackToken)) {
+  const partyB = usesProductionBuyGoods ? tillNumber! : shortcode
+  if (!/^\d{5,20}$/.test(shortcode) || !/^\d{5,20}$/.test(partyB) || !/^[A-Za-z0-9_-]{32,128}$/.test(callbackToken)) {
     throw new DarajaUnavailableError('Marketplace M-Pesa configuration is invalid.')
   }
   const parsedCallbackUrl = new URL(callbackUrl)
@@ -64,6 +68,7 @@ function getConfig(env: NodeJS.ProcessEnv = process.env): DarajaConfig {
     consumerSecret,
     passkey,
     shortcode,
+    partyB,
     transactionType,
     callbackUrl,
   }
@@ -90,7 +95,10 @@ export function getDarajaReadiness(env: NodeJS.ProcessEnv = process.env): {
     'MARKETPLACE_DARAJA_CALLBACK_URL',
     'MARKETPLACE_DARAJA_CALLBACK_TOKEN',
   ] as const
-  const missingVariables = requiredVariables.filter((name) => !env[name]?.trim())
+  const transactionType = env.MARKETPLACE_DARAJA_TRANSACTION_TYPE?.trim()
+  const usesProductionBuyGoods = mode === 'production' && transactionType === 'CustomerBuyGoodsOnline'
+  const required = usesProductionBuyGoods ? [...requiredVariables, 'MARKETPLACE_DARAJA_TILL_NUMBER'] : requiredVariables
+  const missingVariables = required.filter((name) => !env[name]?.trim())
   if (missingVariables.length) return { mode, status: 'misconfigured', issue: 'missing_variables', missingVariables }
   try {
     getConfig(env)
@@ -215,7 +223,7 @@ export async function initiateStkPush(input: {
       TransactionType: config.transactionType,
       Amount: input.amountKes,
       PartyA: input.phone,
-      PartyB: config.shortcode,
+      PartyB: config.partyB,
       PhoneNumber: input.phone,
       CallBackURL: config.callbackUrl,
       AccountReference: input.paymentReference.slice(0, 12),

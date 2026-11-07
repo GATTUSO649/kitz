@@ -26,6 +26,8 @@ test('STK push authenticates, formats bounded reference fields, and stores provi
       assert.equal(String(body.TransactionDesc).length, 13)
       assert.equal(body.Amount, 150)
       assert.equal(body.PhoneNumber, '254712345678')
+      assert.equal(body.BusinessShortCode, configuration.MARKETPLACE_DARAJA_SHORTCODE)
+      assert.equal(body.PartyB, configuration.MARKETPLACE_DARAJA_SHORTCODE)
       assert.equal(init?.headers && new Headers(init.headers).get('Authorization'), 'Bearer unit-test-token')
       return new Response(JSON.stringify({ ResponseCode: '0', CheckoutRequestID: 'ws_CO_123', MerchantRequestID: 'merchant_123' }), { status: 200 })
     },
@@ -57,6 +59,30 @@ test('production mode uses the Safaricom production API and reports readiness wi
     mode: 'production', status: 'misconfigured', issue: 'callback_url_mismatch',
   })
   assert.deepEqual(getDarajaReadiness({}), { mode: 'disabled', status: 'disabled' })
+})
+
+test('production Buy Goods STK uses the configured receiving Till as PartyB', async () => {
+  const buyGoodsConfig = {
+    ...configuration,
+    MARKETPLACE_DARAJA_ENVIRONMENT: 'production',
+    MARKETPLACE_DARAJA_TRANSACTION_TYPE: 'CustomerBuyGoodsOnline',
+    MARKETPLACE_DARAJA_TILL_NUMBER: '6543210',
+  } as NodeJS.ProcessEnv
+  const stkBodies: Record<string, unknown>[] = []
+  await initiateStkPush({ phone: '254712345678', amountKes: 150, paymentReference: 'MP-BUYGOODS-123', description: 'Marketplace fee' }, {
+    env: buyGoodsConfig,
+    fetcher: async (input, init) => {
+      if (String(input).includes('/oauth/')) return new Response(JSON.stringify({ access_token: 'buy-goods-token', expires_in: '3600' }), { status: 200 })
+      stkBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+      return new Response(JSON.stringify({ ResponseCode: '0', CheckoutRequestID: 'ws_CO_TILL', MerchantRequestID: 'merchant_till' }), { status: 200 })
+    },
+  })
+  assert.equal(stkBodies[0]?.BusinessShortCode, configuration.MARKETPLACE_DARAJA_SHORTCODE)
+  assert.equal(stkBodies[0]?.PartyB, '6543210')
+  assert.deepEqual(getDarajaReadiness(buyGoodsConfig), { mode: 'production', status: 'ready' })
+  assert.deepEqual(getDarajaReadiness({ ...buyGoodsConfig, MARKETPLACE_DARAJA_TILL_NUMBER: '' }), {
+    mode: 'production', status: 'misconfigured', issue: 'missing_variables', missingVariables: ['MARKETPLACE_DARAJA_TILL_NUMBER'],
+  })
 })
 
 test('invalid STK amount is rejected before contacting Daraja', async () => {
