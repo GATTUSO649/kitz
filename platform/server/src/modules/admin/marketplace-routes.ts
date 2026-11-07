@@ -469,8 +469,12 @@ marketplaceAdminDataRouter.patch('/settings/fees', requireMarketplacePermission(
 })
 
 marketplaceAdminDataRouter.get('/payments', requireMarketplacePermission('finance:read'), async (request, response, next) => {
-  const page = z.coerce.number().int().min(1).default(1).safeParse(request.query.page)
-  if (!page.success) {
+  const query = z.object({
+    page: z.coerce.number().int().min(1).default(1),
+    status: z.enum(['initiated', 'pending', 'processing', 'ambiguous', 'succeeded', 'failed', 'cancelled', 'expired', 'reversed', 'refunded']).optional(),
+    purpose: z.enum(['PRODUCT_PUBLICATION', 'CONTACT_UNLOCK']).optional(),
+  }).safeParse(request.query)
+  if (!query.success) {
     response.status(400).json({ error: { code: 'INVALID_QUERY', message: 'Payment pagination is invalid.' } })
     return
   }
@@ -479,11 +483,28 @@ marketplaceAdminDataRouter.get('/payments', requireMarketplacePermission('financ
     return
   }
   try {
-    const rows = await database.select({ reference: marketplacePayments.paymentReference, purpose: marketplacePayments.purpose, amountKes: marketplacePayments.amountKes, status: marketplacePayments.status, createdAt: marketplacePayments.createdAt, listingReference: marketplaceProducts.reference })
-      .from(marketplacePayments).leftJoin(marketplaceProducts, eq(marketplacePayments.productId, marketplaceProducts.id))
-      .orderBy(desc(marketplacePayments.createdAt)).limit(50).offset((page.data - 1) * 50)
+    const conditions = []
+    if (query.data.status) conditions.push(eq(marketplacePayments.status, query.data.status))
+    if (query.data.purpose) conditions.push(eq(marketplacePayments.purpose, query.data.purpose))
+    const where = conditions.length ? and(...conditions) : undefined
+    const [rows, totals] = await Promise.all([
+      database.select({
+        reference: marketplacePayments.paymentReference,
+        purpose: marketplacePayments.purpose,
+        amountKes: marketplacePayments.amountKes,
+        status: marketplacePayments.status,
+        createdAt: marketplacePayments.createdAt,
+        providerReceipt: marketplacePayments.providerReceipt,
+        transactionAt: marketplacePayments.transactionAt,
+        verifiedAt: marketplacePayments.verifiedAt,
+        listingReference: marketplaceProducts.reference,
+      }).from(marketplacePayments).leftJoin(marketplaceProducts, eq(marketplacePayments.productId, marketplaceProducts.id))
+        .where(where).orderBy(desc(marketplacePayments.createdAt)).limit(50).offset((query.data.page - 1) * 50),
+      database.select({ total: count() }).from(marketplacePayments).where(where),
+    ])
     response.setHeader('Cache-Control', 'no-store')
-    response.json({ data: rows, pagination: { page: page.data, limit: 50 } })
+    const total = Number(totals[0]?.total ?? 0)
+    response.json({ data: rows, pagination: { page: query.data.page, limit: 50, total, hasMore: query.data.page * 50 < total } })
   } catch (error) {
     next(error)
   }

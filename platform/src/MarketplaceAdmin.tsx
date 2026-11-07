@@ -6,7 +6,8 @@ type AdminUser = { id: string; email: string; role: string; permissions: string[
 type Listing = { reference: string; title: string; status: string; priceKes: number; category: string; county: string; town: string }
 type MarketplaceSellerAccount = { id: string; email: string; status: 'pending' | 'active' | 'suspended'; emailVerifiedAt: string | null; createdAt: string; sellerName: string | null; town: string | null; county: string | null }
 type Category = { id: string; name: string; slug: string; active: boolean; sortOrder: number }
-type Payment = { reference: string; purpose: string; amountKes: number; status: string; createdAt: string; listingReference: string | null }
+type Payment = { reference: string; purpose: string; amountKes: number; status: string; createdAt: string; providerReceipt: string | null; transactionAt: string | null; verifiedAt: string | null; listingReference: string | null }
+type PaymentPagination = { page: number; limit: number; total: number; hasMore: boolean }
 type ListingReport = { id: string; reference: string; title: string; reason: string; details: string | null; reporterEmail: string | null; status: string; createdAt: string }
 type FeeSettings = { publicationFeeBasisPoints: number; contactUnlockFeeBasisPoints: number; listingExpiryDays: number }
 type FooterSocialSettings = { facebookUrl: string; xUrl: string; youtubeUrl: string; whatsappPhone: string }
@@ -27,6 +28,10 @@ export function MarketplaceAdminPage() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
   const [listings, setListings] = useState<Listing[]>([])
   const [payments, setPayments] = useState<Payment[]>([])
+  const [paymentPage, setPaymentPage] = useState(1)
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState('')
+  const [paymentPurposeFilter, setPaymentPurposeFilter] = useState('')
+  const [paymentPagination, setPaymentPagination] = useState<PaymentPagination | null>(null)
   const [reports, setReports] = useState<ListingReport[]>([])
     const [sellerAccounts, setSellerAccounts] = useState<MarketplaceSellerAccount[]>([])
   const [feeSettings, setFeeSettings] = useState<FeeSettings>({ publicationFeeBasisPoints: 1_000, contactUnlockFeeBasisPoints: 500, listingExpiryDays: 7 })
@@ -58,18 +63,21 @@ export function MarketplaceAdminPage() {
       setAdmin(session.data)
       const listingQuery = new URLSearchParams({ limit: '50' })
       if (listingSearch.trim()) listingQuery.set('q', listingSearch.trim())
+      const paymentQuery = new URLSearchParams({ page: String(paymentPage) })
+      if (paymentStatusFilter) paymentQuery.set('status', paymentStatusFilter)
+      if (paymentPurposeFilter) paymentQuery.set('purpose', paymentPurposeFilter)
       const endpoint = section === 'listings' ? `${adminApi}/listings?${listingQuery}`
-        : section === 'payments' ? `${adminApi}/payments?page=1`
+        : section === 'payments' ? `${adminApi}/payments?${paymentQuery}`
           : section === 'reports' ? `${adminApi}/reports?status=open`
             : section === 'sellers' ? `${adminApi}/seller-accounts`
               : section === 'settings' ? `${adminApi}/settings/fees`
                 : section === 'categories' ? `${adminApi}/categories`
                   : `${adminApi}/dashboard`
       const response = await fetch(endpoint, { signal: controller.signal })
-      const result = await response.json() as { data?: Dashboard | Listing[] | Payment[] | ListingReport[] | MarketplaceSellerAccount[] | Category[] | FeeSettings | FooterSocialSettings; error?: { message?: string } }
+      const result = await response.json() as { data?: Dashboard | Listing[] | Payment[] | ListingReport[] | MarketplaceSellerAccount[] | Category[] | FeeSettings | FooterSocialSettings; pagination?: PaymentPagination; error?: { message?: string } }
       if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Marketplace data could not be loaded.')
       if (section === 'listings') setListings(result.data as Listing[])
-      else if (section === 'payments') setPayments(result.data as Payment[])
+      else if (section === 'payments') { setPayments(result.data as Payment[]); setPaymentPagination(result.pagination ?? null) }
       else if (section === 'reports') setReports(result.data as ListingReport[])
       else if (section === 'sellers') setSellerAccounts(result.data as MarketplaceSellerAccount[])
       else if (section === 'settings') {
@@ -94,7 +102,7 @@ export function MarketplaceAdminPage() {
       else setError(message)
     }).finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
-  }, [isLogin, isActivate, isVerify, listingSearch, navigate, section])
+  }, [isLogin, isActivate, isVerify, listingSearch, navigate, paymentPage, paymentPurposeFilter, paymentStatusFilter, section])
 
   function searchListings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -211,6 +219,28 @@ export function MarketplaceAdminPage() {
     } finally {
       setBusy(false)
     }
+  }
+
+  function exportPaymentsCsv() {
+    const columns: { label: string; value: (payment: Payment) => string }[] = [
+      { label: 'Payment reference', value: (payment) => payment.reference },
+      { label: 'Purpose', value: (payment) => payment.purpose },
+      { label: 'Listing reference', value: (payment) => payment.listingReference ?? '' },
+      { label: 'Amount KES', value: (payment) => String(payment.amountKes) },
+      { label: 'Status', value: (payment) => payment.status },
+      { label: 'M-Pesa receipt', value: (payment) => payment.providerReceipt ?? '' },
+      { label: 'Transaction time', value: (payment) => payment.transactionAt ?? '' },
+      { label: 'Verified at', value: (payment) => payment.verifiedAt ?? '' },
+      { label: 'Created at', value: (payment) => payment.createdAt },
+    ]
+    const escape = (value: string) => `"${value.replaceAll('"', '""')}"`
+    const csv = [columns.map((column) => escape(column.label)).join(','), ...payments.map((payment) => columns.map((column) => escape(column.value(payment))).join(','))].join('\r\n')
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `markethub-payments-page-${paymentPage}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
   }
 
   async function updateReport(id: string, status: 'reviewed' | 'resolved' | 'dismissed') {
@@ -380,7 +410,7 @@ export function MarketplaceAdminPage() {
             <div className="admin-panel"><header><h2>Recent listings</h2><Link to="/admin/marketplace/dashboard?section=listings">View listings <ArrowRight size={14} /></Link></header><div className="admin-table-wrap"><table><thead><tr><th>Listing</th><th>Category</th><th>Location</th><th>Price</th><th>Status</th></tr></thead><tbody>{dashboard.recentListings.length ? dashboard.recentListings.map((item) => <tr key={item.reference}><td><b>{item.title}</b><small>{item.reference}</small></td><td>{item.category}</td><td>{item.county}</td><td>{kes(item.priceKes)}</td><td><span className={`status-pill status-${item.status}`}>{item.status.replaceAll('_', ' ')}</span></td></tr>) : <tr><td colSpan={5}>No listings have been submitted.</td></tr>}</tbody></table></div></div>
             <div className="admin-small-stats"><span><b>Pending payment</b>{dashboard.listings.pendingPayment}</span><span><b>Sold</b>{dashboard.listings.sold}</span><span><b>Suspended</b>{dashboard.listings.suspended}</span><span><b>Failed payments</b>{dashboard.payments.failed}</span><span><b>Ambiguous payments</b>{dashboard.payments.ambiguous}</span></div>
           </>}
-        </> : section === 'listings' ? <div className="admin-panel"><header><h2>Marketplace listings</h2><span>{listings.length} loaded</span></header><div className="admin-table-wrap"><table><thead><tr><th>Listing</th><th>Category</th><th>Location</th><th>Price</th><th>Status</th><th>Actions</th></tr></thead><tbody>{listings.length ? listings.map((item) => <tr key={item.reference}><td><b>{item.title}</b><small>{item.reference}</small></td><td>{item.category}</td><td>{item.town}, {item.county}</td><td>{kes(item.priceKes)}</td><td><span className={`status-pill status-${item.status}`}>{item.status.replaceAll('_', ' ')}</span></td><td className="admin-actions">{item.status === 'published' && <><button disabled={busy} onClick={() => void changeListingStatus(item.reference, 'suspended')}>Suspend</button><button disabled={busy} onClick={() => void changeListingStatus(item.reference, 'sold')}>Sold</button></>}{item.status === 'suspended' && <button disabled={busy} onClick={() => void changeListingStatus(item.reference, 'published')}>Restore</button>}</td></tr>) : <tr><td colSpan={6}>No listings found.</td></tr>}</tbody></table></div></div> : section === 'payments' ? <div className="admin-panel"><header><h2>Marketplace payments</h2><span>Publication and contact-unlock fees only</span></header><div className="admin-table-wrap"><table><thead><tr><th>Payment reference</th><th>Purpose</th><th>Listing</th><th>Amount</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>{payments.length ? payments.map((payment) => <tr key={payment.reference}><td>{payment.reference}</td><td>{payment.purpose.replaceAll('_', ' ')}</td><td>{payment.listingReference ?? '—'}</td><td>{kes(payment.amountKes)}</td><td><span className={`status-pill status-${payment.status}`}>{payment.status}</span></td><td>{new Date(payment.createdAt).toLocaleString('en-KE')}</td><td>{['pending', 'ambiguous'].includes(payment.status) && <button className="admin-reconcile" disabled={busy} onClick={() => void reconcilePayment(payment.reference)}>Reconcile</button>}</td></tr>) : <tr><td colSpan={7}>No marketplace payments recorded.</td></tr>}</tbody></table></div></div> : section === 'reports' ? <div className="admin-panel"><header><h2>Listing reports</h2><span>{reports.length} open reports</span></header><div className="admin-table-wrap"><table><thead><tr><th>Listing</th><th>Reason</th><th>Details</th><th>Reporter</th><th>Received</th><th>Actions</th></tr></thead><tbody>{reports.length ? reports.map((report) => <tr key={report.id}><td><b>{report.title}</b><small>{report.reference}</small></td><td>{report.reason}</td><td>{report.details || '—'}</td><td>{report.reporterEmail || '—'}</td><td>{new Date(report.createdAt).toLocaleString('en-KE')}</td><td className="admin-actions"><button disabled={busy} onClick={() => void updateReport(report.id, 'reviewed')}>Review</button><button disabled={busy} onClick={() => void updateReport(report.id, 'resolved')}>Resolve</button><button disabled={busy} onClick={() => void updateReport(report.id, 'dismissed')}>Dismiss</button></td></tr>) : <tr><td colSpan={6}>No open listing reports.</td></tr>}</tbody></table></div></div> : <div className="admin-panel"><header><h2>Marketplace categories</h2><span>Manage listing taxonomy</span></header><form className="admin-category-form" onSubmit={createCategory}><label>New category<input required value={categoryName} onChange={(event) => setCategoryName(event.target.value)} placeholder="Category name" /></label><button><Plus size={15} />Add category</button></form>{categoryError && <p className="admin-alert">{categoryError}</p>}<div className="admin-table-wrap"><table><thead><tr><th>Category</th><th>Slug</th><th>State</th></tr></thead><tbody>{categories.map((category) => <tr key={category.id}><td>{category.name}</td><td>{category.slug}</td><td>{category.active ? 'Active' : 'Disabled'}</td></tr>)}</tbody></table></div></div>}
+        </> : section === 'listings' ? <div className="admin-panel"><header><h2>Marketplace listings</h2><span>{listings.length} loaded</span></header><div className="admin-table-wrap"><table><thead><tr><th>Listing</th><th>Category</th><th>Location</th><th>Price</th><th>Status</th><th>Actions</th></tr></thead><tbody>{listings.length ? listings.map((item) => <tr key={item.reference}><td><b>{item.title}</b><small>{item.reference}</small></td><td>{item.category}</td><td>{item.town}, {item.county}</td><td>{kes(item.priceKes)}</td><td><span className={`status-pill status-${item.status}`}>{item.status.replaceAll('_', ' ')}</span></td><td className="admin-actions">{item.status === 'published' && <><button disabled={busy} onClick={() => void changeListingStatus(item.reference, 'suspended')}>Suspend</button><button disabled={busy} onClick={() => void changeListingStatus(item.reference, 'sold')}>Sold</button></>}{item.status === 'suspended' && <button disabled={busy} onClick={() => void changeListingStatus(item.reference, 'published')}>Restore</button>}</td></tr>) : <tr><td colSpan={6}>No listings found.</td></tr>}</tbody></table></div></div> : section === 'payments' ? <div className="admin-panel admin-payments-panel"><header><div><h2>Marketplace payments</h2><span>{paymentPagination?.total ?? payments.length} recorded payment entries</span></div><button className="admin-reconcile" type="button" disabled={!payments.length} onClick={exportPaymentsCsv}>Export CSV</button></header><div className="admin-payment-filters"><label>Status<select value={paymentStatusFilter} onChange={(event) => { setPaymentStatusFilter(event.target.value); setPaymentPage(1) }}><option value="">All statuses</option><option value="initiated">Initiated</option><option value="pending">Pending</option><option value="processing">Processing</option><option value="ambiguous">Needs review</option><option value="succeeded">Verified</option><option value="failed">Failed</option><option value="cancelled">Cancelled</option><option value="expired">Expired</option><option value="reversed">Reversed</option><option value="refunded">Refunded</option></select></label><label>Purpose<select value={paymentPurposeFilter} onChange={(event) => { setPaymentPurposeFilter(event.target.value); setPaymentPage(1) }}><option value="">All purposes</option><option value="PRODUCT_PUBLICATION">Publication</option><option value="CONTACT_UNLOCK">Contact unlock</option></select></label></div><div className="admin-table-wrap"><table><thead><tr><th>Payment reference</th><th>Purpose</th><th>Listing</th><th>Amount</th><th>Status</th><th>M-Pesa receipt</th><th>Transaction time</th><th>Verified at</th><th>Created</th><th>Action</th></tr></thead><tbody>{payments.length ? payments.map((payment) => <tr key={payment.reference}><td>{payment.reference}</td><td>{payment.purpose.replaceAll('_', ' ')}</td><td>{payment.listingReference ?? '—'}</td><td>{kes(payment.amountKes)}</td><td><span className={`status-pill status-${payment.status}`}>{payment.status}</span></td><td>{payment.providerReceipt ?? '—'}</td><td>{payment.transactionAt ? new Date(payment.transactionAt).toLocaleString('en-KE') : '—'}</td><td>{payment.verifiedAt ? new Date(payment.verifiedAt).toLocaleString('en-KE') : '—'}</td><td>{new Date(payment.createdAt).toLocaleString('en-KE')}</td><td>{['pending', 'ambiguous'].includes(payment.status) && <button className="admin-reconcile" disabled={busy} onClick={() => void reconcilePayment(payment.reference)}>Reconcile</button>}</td></tr>) : <tr><td colSpan={10}>No marketplace payments match these filters.</td></tr>}</tbody></table></div><footer className="admin-payment-pagination"><span>{paymentPagination ? `Page ${paymentPagination.page} · ${paymentPagination.total} payments` : 'Payment records'}</span><div><button className="admin-reconcile" type="button" disabled={busy || paymentPage <= 1} onClick={() => setPaymentPage((page) => Math.max(1, page - 1))}>Previous</button><button className="admin-reconcile" type="button" disabled={busy || !paymentPagination?.hasMore} onClick={() => setPaymentPage((page) => page + 1)}>Next</button></div></footer></div> : section === 'reports' ? <div className="admin-panel"><header><h2>Listing reports</h2><span>{reports.length} open reports</span></header><div className="admin-table-wrap"><table><thead><tr><th>Listing</th><th>Reason</th><th>Details</th><th>Reporter</th><th>Received</th><th>Actions</th></tr></thead><tbody>{reports.length ? reports.map((report) => <tr key={report.id}><td><b>{report.title}</b><small>{report.reference}</small></td><td>{report.reason}</td><td>{report.details || '—'}</td><td>{report.reporterEmail || '—'}</td><td>{new Date(report.createdAt).toLocaleString('en-KE')}</td><td className="admin-actions"><button disabled={busy} onClick={() => void updateReport(report.id, 'reviewed')}>Review</button><button disabled={busy} onClick={() => void updateReport(report.id, 'resolved')}>Resolve</button><button disabled={busy} onClick={() => void updateReport(report.id, 'dismissed')}>Dismiss</button></td></tr>) : <tr><td colSpan={6}>No open listing reports.</td></tr>}</tbody></table></div></div> : <div className="admin-panel"><header><h2>Marketplace categories</h2><span>Manage listing taxonomy</span></header><form className="admin-category-form" onSubmit={createCategory}><label>New category<input required value={categoryName} onChange={(event) => setCategoryName(event.target.value)} placeholder="Category name" /></label><button><Plus size={15} />Add category</button></form>{categoryError && <p className="admin-alert">{categoryError}</p>}<div className="admin-table-wrap"><table><thead><tr><th>Category</th><th>Slug</th><th>State</th></tr></thead><tbody>{categories.map((category) => <tr key={category.id}><td>{category.name}</td><td>{category.slug}</td><td>{category.active ? 'Active' : 'Disabled'}</td></tr>)}</tbody></table></div></div>}
       </section>
     </main>
   </div>

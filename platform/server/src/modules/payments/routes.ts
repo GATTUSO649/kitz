@@ -3,6 +3,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { database } from '../../database/connection.js'
 import { marketplaceAdminUsers, marketplaceContactUnlocks, marketplaceCounties, marketplacePaymentCallbacks, marketplacePayments, marketplaceProductAccess, marketplaceProducts, marketplaceSellers, marketplaceSettings } from '../../database/schema.js'
+import { optionalMarketplaceSeller, type MarketplaceSellerSession } from '../marketplace/seller-portal.js'
 import { calculateFeeKes, createListingReference, createSecret, hashSecret, normalizeKenyanPhone } from '../marketplace/security.js'
 import { enqueueMarketplaceEmail } from '../email/outbox.js'
 import { listingExpiryAt } from '../marketplace/expiry.js'
@@ -10,7 +11,7 @@ import { assertDarajaConfigured, callbackFailureStatus, DarajaRequestError, Dara
 
 export const paymentRouter = Router()
 
-const publicationInput = z.object({ reference: z.string().regex(/^MH-[A-F0-9]{16}$/), phone: z.string().max(24), submissionToken: z.string().min(20).max(100) })
+const publicationInput = z.object({ reference: z.string().regex(/^MH-[A-F0-9]{16}$/), phone: z.string().max(24), submissionToken: z.string().min(20).max(100).optional() })
 const unlockInput = z.object({ slug: z.string().min(1).max(180), phone: z.string().max(24), email: z.string().trim().email().max(254) })
 const callbackSchema = z.object({
   Body: z.object({ stkCallback: z.object({
@@ -115,7 +116,7 @@ async function startPayment(input: {
   }
 }
 
-paymentRouter.post('/publication', async (request, response, next) => {
+paymentRouter.post('/publication', optionalMarketplaceSeller, async (request, response, next) => {
   const parsed = publicationInput.safeParse(request.body)
   if (!parsed.success) {
     response.status(400).json({ error: { code: 'INVALID_PAYMENT_REQUEST', message: 'The payment request is invalid.' } })
@@ -128,14 +129,21 @@ paymentRouter.post('/publication', async (request, response, next) => {
   try {
     assertDarajaConfigured()
     const phone = normalizeKenyanPhone(parsed.data.phone)
-    const tokenHash = hashSecret(parsed.data.submissionToken)
-    const [product] = await database.select({ id: marketplaceProducts.id, reference: marketplaceProducts.reference, title: marketplaceProducts.title, status: marketplaceProducts.status, priceKes: marketplaceProducts.priceKes, sellerName: marketplaceSellers.name, sellerEmail: marketplaceSellers.email, tokenHash: marketplaceProductAccess.tokenHash })
+    const sellerSession = response.locals.marketplaceSeller as MarketplaceSellerSession | undefined
+    if (!sellerSession && !parsed.data.submissionToken) {
+      response.status(400).json({ error: { code: 'SUBMISSION_TOKEN_REQUIRED', message: 'The secure submission token is required to pay for this listing.' } })
+      return
+    }
+    const [product] = await database.select({ id: marketplaceProducts.id, reference: marketplaceProducts.reference, title: marketplaceProducts.title, status: marketplaceProducts.status, priceKes: marketplaceProducts.priceKes, sellerName: marketplaceSellers.name, sellerEmail: marketplaceSellers.email, sellerAccountId: marketplaceSellers.accountId, tokenHash: marketplaceProductAccess.tokenHash, tokenExpiresAt: marketplaceProductAccess.expiresAt })
       .from(marketplaceProducts)
-      .innerJoin(marketplaceProductAccess, eq(marketplaceProductAccess.productId, marketplaceProducts.id))
       .innerJoin(marketplaceSellers, eq(marketplaceProducts.sellerId, marketplaceSellers.id))
-      .where(and(eq(marketplaceProducts.reference, parsed.data.reference), gt(marketplaceProductAccess.expiresAt, new Date())))
+      .leftJoin(marketplaceProductAccess, eq(marketplaceProductAccess.productId, marketplaceProducts.id))
+      .where(eq(marketplaceProducts.reference, parsed.data.reference))
       .limit(1)
-    if (!product || product.tokenHash !== tokenHash) {
+    const authorized = product && (sellerSession
+      ? product.sellerAccountId === sellerSession.id
+      : product.tokenHash === hashSecret(parsed.data.submissionToken!) && Boolean(product.tokenExpiresAt && product.tokenExpiresAt > new Date()))
+    if (!authorized || !product) {
       response.status(404).json({ error: { code: 'SUBMISSION_NOT_FOUND', message: 'The submission could not be found.' } })
       return
     }
@@ -143,16 +151,17 @@ paymentRouter.post('/publication', async (request, response, next) => {
       response.status(409).json({ error: { code: 'SUBMISSION_NOT_PAYABLE', message: 'This listing is not awaiting publication payment.' } })
       return
     }
-    const [existingPayment] = await database.select({ paymentReference: marketplacePayments.paymentReference })
+    const [existingPayment] = await database.select({ paymentReference: marketplacePayments.paymentReference, status: marketplacePayments.status, amountKes: marketplacePayments.amountKes })
       .from(marketplacePayments)
       .where(and(eq(marketplacePayments.productId, product.id), eq(marketplacePayments.purpose, 'PRODUCT_PUBLICATION'), inArray(marketplacePayments.status, ['initiated', 'pending', 'ambiguous'])))
       .orderBy(desc(marketplacePayments.createdAt)).limit(1)
     if (existingPayment) {
-      response.status(409).json({ error: { code: 'PAYMENT_ALREADY_PENDING', message: 'A publication payment is already in progress.', paymentReference: existingPayment.paymentReference } })
+      response.json({ data: { paymentReference: existingPayment.paymentReference, status: existingPayment.status, amountKes: existingPayment.amountKes, currency: 'KES', paymentPurpose: 'PRODUCT_PUBLICATION', existing: true } })
       return
     }
     const fee = calculateFeeKes(product.priceKes, await getFeeBasisPoints('publication_fee_basis_points', 1_000))
-    const result = await startPayment({ purpose: 'PRODUCT_PUBLICATION', productId: product.id, phone, amountKes: fee, accessToken: parsed.data.submissionToken, customerEmail: product.sellerEmail, recipientName: product.sellerName })
+    const paymentStatusToken = parsed.data.submissionToken ?? createSecret()
+    const result = await startPayment({ purpose: 'PRODUCT_PUBLICATION', productId: product.id, phone, amountKes: fee, accessToken: paymentStatusToken, customerEmail: product.sellerEmail, recipientName: product.sellerName })
     response.status(202).json({ data: { ...result, amountKes: fee, currency: 'KES', paymentPurpose: 'PRODUCT_PUBLICATION' } })
   } catch (error) {
     if (error instanceof DarajaUnavailableError || (error instanceof Error && /valid Kenyan mobile number/.test(error.message))) {
@@ -209,10 +218,11 @@ paymentRouter.post('/contact-unlock', async (request, response, next) => {
   }
 })
 
-paymentRouter.get('/:reference/status', async (request, response) => {
+paymentRouter.get('/:reference/status', optionalMarketplaceSeller, async (request, response) => {
   const reference = z.string().regex(/^MP-[A-F0-9]{16}$/).safeParse(request.params.reference)
   const token = request.get('x-payment-token') ?? ''
-  if (!reference.success || token.length < 20) {
+  const sellerSession = response.locals.marketplaceSeller as MarketplaceSellerSession | undefined
+  if (!reference.success || (!sellerSession && token.length < 20)) {
     response.status(404).json({ error: { code: 'PAYMENT_NOT_FOUND', message: 'The payment could not be found.' } })
     return
   }
@@ -222,12 +232,15 @@ paymentRouter.get('/:reference/status', async (request, response) => {
   }
   const [payment] = await database.select({ reference: marketplacePayments.paymentReference, status: marketplacePayments.status, purpose: marketplacePayments.purpose, productId: marketplacePayments.productId, amountKes: marketplacePayments.amountKes, accessTokenHash: marketplacePayments.accessTokenHash })
     .from(marketplacePayments).where(eq(marketplacePayments.paymentReference, reference.data)).limit(1)
-  if (!payment || payment.accessTokenHash !== hashSecret(token)) {
+  const [product] = payment?.productId ? await database.select({ status: marketplaceProducts.status, reference: marketplaceProducts.reference, sellerAccountId: marketplaceSellers.accountId })
+    .from(marketplaceProducts).innerJoin(marketplaceSellers, eq(marketplaceProducts.sellerId, marketplaceSellers.id)).where(eq(marketplaceProducts.id, payment.productId)).limit(1) : []
+  const tokenAuthorized = Boolean(payment && token.length >= 20 && payment.accessTokenHash === hashSecret(token))
+  const sellerAuthorized = Boolean(payment && sellerSession && payment.purpose === 'PRODUCT_PUBLICATION' && product?.sellerAccountId === sellerSession.id)
+  const authorized = tokenAuthorized || sellerAuthorized
+  if (!authorized || !payment) {
     response.status(404).json({ error: { code: 'PAYMENT_NOT_FOUND', message: 'The payment could not be found.' } })
     return
   }
-  const [product] = payment.productId ? await database.select({ status: marketplaceProducts.status, reference: marketplaceProducts.reference })
-    .from(marketplaceProducts).where(eq(marketplaceProducts.id, payment.productId)).limit(1) : []
   response.json({ data: { reference: payment.reference, status: payment.status, purpose: payment.purpose, amountKes: payment.amountKes, listingStatus: product?.status ?? null, listingReference: product?.reference ?? null } })
 })
 
