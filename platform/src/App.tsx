@@ -1,4 +1,4 @@
-import { ArrowRight, BadgeCheck, CircleHelp, Compass, House, LayoutGrid, List as ListIcon, MapPin, Phone, Search, ShieldCheck, ShoppingBag, SlidersHorizontal, Sparkles, Zap } from 'lucide-react'
+import { ArrowRight, BadgeCheck, CircleHelp, Compass, House, LayoutGrid, List as ListIcon, MapPin, Phone, Search, ShieldCheck, ShoppingBag, SlidersHorizontal, Sparkles, X, Zap } from 'lucide-react'
 import { FaFacebookF, FaWhatsapp, FaXTwitter, FaYoutube } from 'react-icons/fa6'
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, Route, Routes, useParams, useSearchParams } from 'react-router-dom'
@@ -98,6 +98,7 @@ function MarketplaceProductPage() {
   const [unlockToken, setUnlockToken] = useState(() => sessionStorage.getItem(`mh_unlock_token_${slug}`) ?? '')
   const [unlockMessage, setUnlockMessage] = useState('')
   const [unlocking, setUnlocking] = useState(false)
+  const [paymentPanelOpen, setPaymentPanelOpen] = useState(whatsappIntent)
   const [reportOpen, setReportOpen] = useState(false)
   const [reportMessage, setReportMessage] = useState('')
   useEffect(() => {
@@ -143,7 +144,7 @@ function MarketplaceProductPage() {
       setUnlockToken(accessToken)
       sessionStorage.setItem(`mh_unlock_token_${slug}`, accessToken)
       sessionStorage.setItem(`mh_unlock_payment_${slug}`, paymentReference)
-      setUnlockMessage('Approve the M-Pesa prompt. Seller contact stays protected until the payment is verified.')
+      setUnlockMessage('Approve the M-Pesa prompt on your phone.')
       for (let attempt = 0; attempt < 36; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 2500))
         const statusResponse = await fetch(`/api/v1/marketplace/payments/${paymentReference}/status`, { headers: { 'X-Payment-Token': accessToken } })
@@ -154,15 +155,16 @@ function MarketplaceProductPage() {
           const contactResult = await contactResponse.json() as { data?: { name: string; phone: string; whatsapp: string | null; email: string | null }; error?: { message?: string } }
           if (!contactResponse.ok || !contactResult.data) throw new Error(contactResult.error?.message ?? 'Verified contact could not be retrieved.')
           setContact(contactResult.data)
-          setUnlockMessage('Payment verified. Seller contact is unlocked for seven days.')
+          setUnlockMessage('Payment verified. WhatsApp is ready.')
+          setPaymentPanelOpen(false)
           return
         }
         if (['failed', 'cancelled', 'expired', 'reversed', 'refunded'].includes(statusResult.data.status)) {
-          setUnlockMessage('Payment was not completed. Seller contact remains protected.')
+          setUnlockMessage('Payment was not completed.')
           return
         }
       }
-      setUnlockMessage('Payment is still being verified. Seller contact remains protected until confirmation.')
+      setUnlockMessage('Payment is still being verified.')
     } catch (reason) {
       setUnlockMessage(reason instanceof Error ? reason.message : 'Contact unlock could not be completed.')
     } finally {
@@ -179,14 +181,15 @@ function MarketplaceProductPage() {
       const result = await response.json() as { data?: { status: string }; error?: { message?: string } }
       if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Payment status could not be checked.')
       if (result.data.status !== 'succeeded') {
-        setUnlockMessage('Payment is not verified yet. Seller contact remains protected.')
+        setUnlockMessage('Payment is still being verified.')
         return
       }
       const contactResponse = await fetch(`/api/v1/marketplace/payments/products/${encodeURIComponent(slug)}/contact`, { method: 'POST', headers: { 'X-Unlock-Token': unlockToken } })
       const contactResult = await contactResponse.json() as { data?: { name: string; phone: string; whatsapp: string | null; email: string | null }; error?: { message?: string } }
       if (!contactResponse.ok || !contactResult.data) throw new Error(contactResult.error?.message ?? 'Verified contact could not be retrieved.')
       setContact(contactResult.data)
-      setUnlockMessage('Payment verified. Seller contact is unlocked for seven days.')
+      setUnlockMessage('Payment verified. WhatsApp is ready.')
+      setPaymentPanelOpen(false)
     } catch (reason) {
       setUnlockMessage(reason instanceof Error ? reason.message : 'Payment status could not be checked.')
     } finally {
@@ -240,19 +243,27 @@ function MarketplaceProductPage() {
             <div>
               <strong>{contact.name}</strong>
               <p><Phone size={14} /> <a href={`tel:${contact.phone}`}>{contact.phone}</a></p>
-              {(contact.whatsapp || contact.phone) && <a className="whatsapp-contact-button" href={`https://wa.me/${(contact.whatsapp || contact.phone).replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer"><FaWhatsapp size={17} /> Continue to seller on WhatsApp</a>}
-              <p className="whatsapp-retry-note">If WhatsApp does not open or the message fails, use the button again to retry.</p>
+              {(contact.whatsapp || contact.phone) && <a className="whatsapp-contact-button" href={`https://wa.me/${(contact.whatsapp || contact.phone).replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer"><FaWhatsapp size={17} /> Proceed to WhatsApp</a>}
               {contact.email && <p><a href={`mailto:${contact.email}`}>{contact.email}</a></p>}
             </div>
           </aside> : <>
-            <aside className="contact-protection"><ShieldCheck /><div><strong>Seller contact is protected</strong><p>Unlock for {formatKes(listing.contactUnlockFeeKes)}. Contact remains private until M-Pesa payment is verified.</p></div></aside>
-            <form className="unlock-form" onSubmit={unlockSellerContact}>
-              <label>M-Pesa phone number<input required inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="0712 345 678" /></label>
-              <label>Email for payment receipt<input required type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-              <button className="pay-button" type="submit" disabled={unlocking}>{unlocking ? 'Checking payment…' : whatsappIntent ? <>Pay and unlock WhatsApp · {formatKes(listing.contactUnlockFeeKes)}</> : <>Unlock seller contact · {formatKes(listing.contactUnlockFeeKes)}</>}</button>
+            <div className="contact-unlock-actions">
+              <button className="whatsapp-contact-button" type="button" onClick={() => setPaymentPanelOpen(true)}><FaWhatsapp size={17} /> Proceed to WhatsApp</button>
               {unlockMessage && <p role="status">{unlockMessage}</p>}
-            </form>
-            {unlockToken && <button className="sell-secondary check-unlock" type="button" onClick={() => void checkExistingUnlock()} disabled={unlocking}>Check payment status</button>}
+              {unlockToken && <button className="check-unlock" type="button" onClick={() => { setPaymentPanelOpen(true); void checkExistingUnlock() }} disabled={unlocking}>Check payment status</button>}
+            </div>
+            {paymentPanelOpen && <div className="payment-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !unlocking) setPaymentPanelOpen(false) }}>
+              <section className="payment-dialog" role="dialog" aria-modal="true" aria-labelledby="contact-payment-title">
+                <header><div><span className="seller-eyebrow">M-PESA CHECKOUT</span><h2 id="contact-payment-title">Continue to WhatsApp</h2></div><button className="payment-dialog-close" type="button" aria-label="Close payment" disabled={unlocking} onClick={() => setPaymentPanelOpen(false)}><X size={18} /></button></header>
+                <p className="payment-dialog-amount">{formatKes(listing.contactUnlockFeeKes)} <span>one-time contact unlock</span></p>
+                <form className="unlock-form" onSubmit={unlockSellerContact}>
+                  <label>M-Pesa phone number<input required inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="0712 345 678" /></label>
+                  <label>Email for payment receipt<input required type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+                  <button className="pay-button" type="submit" disabled={unlocking}>{unlocking ? 'Waiting for verification…' : `Pay ${formatKes(listing.contactUnlockFeeKes)} with M-Pesa`}</button>
+                  {unlockMessage && <p className="payment-message" role="status">{unlockMessage}</p>}
+                </form>
+              </section>
+            </div>}
           </>}
           <button type="button" className="report-listing-toggle" onClick={() => setReportOpen((open) => !open)}>{reportOpen ? 'Cancel report' : 'Report this listing'}</button>
           {reportOpen && <form className="report-listing-form" onSubmit={reportListing}><label>Reason<select name="reason" required><option value="">Select a reason</option><option value="fraud">Suspected fraud</option><option value="prohibited">Prohibited item</option><option value="misleading">Misleading description</option><option value="duplicate">Duplicate listing</option><option value="other">Other concern</option></select></label><label>Details (optional)<textarea name="details" maxLength={1000} rows={3} /></label><label>Email for follow-up (optional)<input name="email" type="email" maxLength={254} /></label><button type="submit">Send report</button></form>}

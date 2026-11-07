@@ -233,6 +233,21 @@ button, input { font: inherit; }
 .unlock-form input { width: 100%; min-height: 39px; padding: 9px 11px; border: 1px solid #cad7ce; border-radius: 6px; color: #183527; font-size: 12px; }
 .unlock-form > p, .check-unlock { color: #496657; font-size: 10px; line-height: 1.4; }
 .check-unlock { margin-top: 8px; }
+.contact-unlock-actions { margin-top: 12px; display: grid; justify-items: start; gap: 8px; }
+.contact-unlock-actions > p { margin: 0; color: #536983; font-size: 10px; line-height: 1.45; }
+.contact-unlock-actions .check-unlock { padding: 0; border: 0; color: #52657e; background: transparent; text-decoration: underline; cursor: pointer; }
+.payment-dialog-backdrop { position: fixed; z-index: 100; inset: 0; padding: 18px; display: grid; place-items: center; background: #10274788; backdrop-filter: blur(3px); }
+.payment-dialog { width: min(440px, 100%); padding: 20px; border: 1px solid #e8edf4; border-radius: 12px; color: #142746; background: #fff; box-shadow: 0 18px 55px #10274740; animation: payment-dialog-enter .16s ease-out; }
+.payment-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; }
+.payment-dialog > header h2 { margin: 4px 0 0; color: #142746; font: 700 20px/1.2 'Space Grotesk', sans-serif; }
+.payment-dialog-close { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid #e1e8f0; border-radius: 6px; color: #52657e; background: #fff; cursor: pointer; }
+.payment-dialog-close:disabled { opacity: .5; cursor: wait; }
+.payment-dialog-amount { margin: 18px 0 14px; padding: 12px; display: flex; align-items: baseline; gap: 8px; border-radius: 7px; color: #176f40; background: #effaf2; font: 700 21px 'Space Grotesk', sans-serif; }
+.payment-dialog-amount span { color: #64748b; font: 400 10px 'DM Sans', sans-serif; }
+.payment-dialog .unlock-form { margin-top: 0; }
+.payment-dialog .unlock-form > p { margin: 9px 0 0; }
+@keyframes payment-dialog-enter { from { opacity: 0; transform: translateY(8px) scale(.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@media (max-width: 560px) { .payment-dialog-backdrop { padding: 12px; align-items: end; } .payment-dialog { padding: 17px; border-radius: 12px 12px 8px 8px; } .payment-dialog > header h2 { font-size: 18px; } .payment-dialog-amount { font-size: 19px; } }
 .report-listing-toggle { margin-top: 13px; padding: 5px 0; border: 0; color: #64746a; background: transparent; font-size: 10px; text-decoration: underline; cursor: pointer; }
 .report-listing-form { margin-top: 8px; padding: 12px; display: grid; gap: 8px; border: 1px solid #e1e9e3; border-radius: 7px; background: #fafcfb; }
 .report-listing-form label { display: grid; gap: 4px; color: #455b4d; font-size: 9px; font-weight: 700; }
