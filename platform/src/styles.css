@@ -778,6 +778,65 @@ button, input { font: inherit; }
 .seller-account-dropdown button:hover { color: #176f40; background: #eff8f1; }
 .seller-settings-form > .seller-form-pair:first-of-type label:nth-child(2), .seller-settings-form > .seller-form-pair:nth-of-type(2) { display: none; }
 .sell-form section:not(.seller-profile-confirmation) > .sell-two-col:nth-of-type(2) label:nth-child(2), .sell-form section:not(.seller-profile-confirmation) > .sell-two-col:nth-of-type(3) { display: none; }
+
+.matrix-intro { --matrix-gold: #f5bc16; position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; overflow: hidden; padding: 24px; color: #f8faff; background: #02091e url('/images/Electric%20Blue%20Diagonal%20Techscape.png') center / cover no-repeat; isolation: isolate; }
+.matrix-intro::before { position: absolute; z-index: -1; inset: 0; background: radial-gradient(ellipse at 50% 42%, #135b9942, transparent 53%), linear-gradient(180deg, #02091e38, #02091e7d); content: ''; }
+.matrix-intro-content { width: min(960px, 100%); display: grid; justify-items: center; text-align: center; animation: matrix-logo-arrive 1.15s .68s both; }
+.matrix-intro-eyebrow { color: #dae8ff; font-size: 10px; font-weight: 700; letter-spacing: 7px; animation: matrix-content-in .55s .45s both; }
+.matrix-intro-logo-wrap { width: min(940px, 94vw); position: relative; margin-top: 14px; filter: drop-shadow(0 0 22px #087eff6b); }
+.matrix-intro-logo-wrap::after { position: absolute; inset: 0; background: linear-gradient(112deg, transparent 35%, #ffffffa8 49%, transparent 62%); content: ''; mix-blend-mode: screen; transform: translateX(-140%) skewX(-17deg); animation: matrix-light-sweep 1.15s 1.45s ease-out both; pointer-events: none; }
+.matrix-intro-logo-wrap img { width: 100%; height: auto; display: block; object-fit: contain; }
+.matrix-intro-tagline { margin: 7px 0 0; color: #f8faff; font: italic 600 21px/1.2 'DM Sans', sans-serif; animation: matrix-content-in .65s 1.35s both; }
+.matrix-intro-tagline i { width: 6px; height: 6px; display: inline-block; margin: 0 9px 3px; border-radius: 50%; background: var(--matrix-gold); }
+.matrix-intro-statement { margin-top: 37px; animation: matrix-content-in .7s 1.9s both; }
+.matrix-intro-statement h1 { margin: 0; color: #fff; font: 700 26px/1.2 'Space Grotesk', sans-serif; }
+.matrix-intro-statement p { margin: 10px 0 0; color: #d2def2; font-size: 14px; }
+.matrix-intro-skip { position: absolute; right: 24px; bottom: 22px; min-height: 38px; display: inline-flex; align-items: center; gap: 8px; padding: 0 13px; border: 1px solid #8cc9ff70; border-radius: 4px; color: #f5f8ff; background: #06152fbd; font-size: 11px; cursor: pointer; transition: color .2s, border-color .2s; }
+.matrix-intro-skip:hover { border-color: var(--matrix-gold); color: var(--matrix-gold); }
+.matrix-intro.is-exiting { animation: matrix-intro-exit .55s ease-in both; pointer-events: none; }
+.landing-shell.matrix-intro-playing .brand-lockup { animation: matrix-header-logo-in .7s 2.55s both; }
+.landing-shell.matrix-intro-playing .landing-nav > * { animation: matrix-content-in .42s 2.78s both; }
+.landing-shell.matrix-intro-playing .landing-nav > *:nth-child(2) { animation-delay: 2.9s; }
+.landing-shell.matrix-intro-playing .landing-nav > *:nth-child(3) { animation-delay: 3.02s; }
+.landing-shell.matrix-intro-playing .landing-nav > *:nth-child(4) { animation-delay: 3.14s; }
+.landing-shell.matrix-intro-playing .landing-intro { animation: matrix-content-in .7s 2.5s both; }
+.landing-shell.matrix-intro-playing .destination-grid .destination-card { opacity: 0; animation: matrix-card-in .65s 2.65s both; }
+.landing-shell.matrix-intro-playing .destination-grid .destination-card:nth-child(2) { animation-delay: 2.82s; }
+.landing-shell.matrix-intro-playing .trust-strip { animation: matrix-content-in .55s 3.05s both; }
+@keyframes matrix-logo-arrive { from { opacity: 0; clip-path: inset(0 100% 0 0); transform: translateY(18px) scale(.86); } to { opacity: 1; clip-path: inset(0); transform: translateY(0) scale(1); } }
+@keyframes matrix-light-sweep { 0% { transform: translateX(-140%) skewX(-17deg); } 100% { transform: translateX(140%) skewX(-17deg); } }
+@keyframes matrix-content-in { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes matrix-card-in { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes matrix-header-logo-in { from { opacity: 0; transform: translateY(5px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes matrix-intro-exit { to { opacity: 0; visibility: hidden; } }
+@media (max-width: 600px) {
+  .matrix-intro { padding: 20px 16px; }
+  .matrix-intro-content { animation-duration: .7s; }
+  .matrix-intro-eyebrow { font-size: 8px; letter-spacing: 4px; }
+  .matrix-intro-logo-wrap { width: min(620px, 96vw); margin-top: 11px; }
+  .matrix-intro-tagline { margin-top: 0; font-size: 17px; }
+  .matrix-intro-statement { margin-top: 24px; }
+  .matrix-intro-statement h1 { font-size: 18px; }
+  .matrix-intro-statement p { max-width: 300px; font-size: 12px; line-height: 1.45; }
+  .matrix-intro-skip { right: 12px; bottom: 12px; min-height: 34px; }
+  .landing-shell.matrix-intro-playing .brand-lockup { animation-delay: 1.75s; }
+  .landing-shell.matrix-intro-playing .landing-nav > * { animation-duration: .35s; animation-delay: 1.82s; }
+  .landing-shell.matrix-intro-playing .landing-nav > *:nth-child(2) { animation-delay: 1.9s; }
+  .landing-shell.matrix-intro-playing .landing-nav > *:nth-child(3) { animation-delay: 1.98s; }
+  .landing-shell.matrix-intro-playing .landing-nav > *:nth-child(4) { animation-delay: 2.06s; }
+  .landing-shell.matrix-intro-playing .landing-intro { animation-delay: 1.8s; }
+  .landing-shell.matrix-intro-playing .destination-grid .destination-card { animation-duration: .5s; animation-delay: 1.95s; }
+  .landing-shell.matrix-intro-playing .destination-grid .destination-card:nth-child(2) { animation-delay: 2.08s; }
+  .landing-shell.matrix-intro-playing .trust-strip { animation-delay: 2.2s; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .matrix-intro { display: none !important; }
+  .landing-shell.matrix-intro-playing .brand-lockup,
+  .landing-shell.matrix-intro-playing .landing-nav > *,
+  .landing-shell.matrix-intro-playing .landing-intro,
+  .landing-shell.matrix-intro-playing .destination-grid .destination-card,
+  .landing-shell.matrix-intro-playing .trust-strip { opacity: 1; animation: none; transform: none; }
+}
 .seller-profile-confirmation .seller-profile-summary small { display: none; }
 .seller-posting-menu-button { display: none; }
 @media (max-width: 1050px) { .seller-dashboard-sidebar { width: 210px; } }

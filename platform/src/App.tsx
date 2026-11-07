@@ -7,6 +7,8 @@ import { MarketplaceAdminPage } from './MarketplaceAdmin'
 import { SellerForgotPasswordPage, SellerLoginPage, SellerPortalPage, SellerResetPasswordPage, SellerSignupPage, SellerVerifyPage } from './SellerPortal'
 
 const kitzOrigin = import.meta.env.VITE_KITZ_ORIGIN || 'https://kitz.onrender.com'
+const matrixIntroStorageKey = 'matrix-intro-seen'
+const matrixLogoPath = '/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png'
 const formatKes = (value: number) => `KSh ${new Intl.NumberFormat('en-KE').format(value)}`
 
 type Listing = {
@@ -274,8 +276,28 @@ function MarketplaceProductPage() {
   </div>
 }
 
+function MatrixIntro({ onSkip, exiting }: { onSkip: () => void; exiting: boolean }) {
+  return <div className={`matrix-intro${exiting ? ' is-exiting' : ''}`} role="dialog" aria-modal="true" aria-label="MATRIX introduction" onKeyDown={(event) => { if (event.key === 'Escape') onSkip() }}>
+    <div className="matrix-intro-content">
+      <span className="matrix-intro-eyebrow">KITCULTURE + MARKETHUB</span>
+      <div className="matrix-intro-logo-wrap"><img src={matrixLogoPath} alt="MATRIX" /></div>
+      <p className="matrix-intro-tagline">Shop <i /> Connect <i /> Trade</p>
+      <div className="matrix-intro-statement">
+        <h1>ONE DESTINATION. TWO WORLDS.</h1>
+        <p>Discover football culture and second-hand finds with Matrix.</p>
+      </div>
+    </div>
+    <button className="matrix-intro-skip" type="button" autoFocus onClick={onSkip}>Skip intro <ArrowRight size={15} /></button>
+  </div>
+}
+
 function LandingPage() {
   const [footerSocial, setFooterSocial] = useState<FooterSocialLinks>({ facebookUrl: null, xUrl: null, youtubeUrl: null, whatsappUrl: null })
+  const [introActive, setIntroActive] = useState(() => {
+    if (typeof window === 'undefined' || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false
+    try { return window.sessionStorage.getItem(matrixIntroStorageKey) !== 'true' } catch { return false }
+  })
+  const [introExiting, setIntroExiting] = useState(false)
   useEffect(() => {
     const controller = new AbortController()
     fetch('/api/v1/marketplace/settings/footer-social-links', { signal: controller.signal })
@@ -287,8 +309,26 @@ function LandingPage() {
       .catch(() => undefined)
     return () => controller.abort()
   }, [])
+  useEffect(() => {
+    if (!introActive) return
+    try { window.sessionStorage.setItem(matrixIntroStorageKey, 'true') } catch { /* session storage is optional */ }
+    setIntroExiting(false)
+    const duration = window.matchMedia('(max-width: 600px)').matches ? 2800 : 3600
+    const exitTimer = window.setTimeout(() => setIntroExiting(true), duration - 550)
+    const finishTimer = window.setTimeout(() => setIntroActive(false), duration)
+    return () => {
+      window.clearTimeout(exitTimer)
+      window.clearTimeout(finishTimer)
+    }
+  }, [introActive])
+
+  function skipIntro() {
+    setIntroExiting(true)
+    window.setTimeout(() => setIntroActive(false), 350)
+  }
+
   return <div className="platform-shell landing-shell">
-    <header className="platform-header">
+    <header className="platform-header" inert={introActive} aria-hidden={introActive}>
       <Link to="/" className="brand-lockup" aria-label="MarketHub home">
         <span className="brand-bag"><ShoppingBag size={30} strokeWidth={2.6} /></span>
         <span><strong>Market<span>Hub</span></strong><small>Shop. Discover. More.</small></span>
@@ -301,7 +341,7 @@ function LandingPage() {
       </nav>
     </header>
 
-    <main id="home" className="landing-main">
+    <main id="home" className="landing-main" inert={introActive} aria-hidden={introActive}>
       <div className="landscape-backdrop" aria-hidden="true" />
       <section className="landing-intro" aria-labelledby="landing-title">
         <p className="intro-kicker">YOUR NEXT GREAT FIND STARTS HERE</p>
@@ -347,7 +387,7 @@ function LandingPage() {
       </section>
     </main>
 
-    <footer id="about" className="landing-footer">
+    <footer id="about" className="landing-footer" inert={introActive} aria-hidden={introActive}>
       <Link to="/" className="footer-brand"><span className="brand-bag"><ShoppingBag size={28} /></span><span><strong>Market<span>Hub</span></strong><small>Shop. Discover. More.</small></span></Link>
       <p><i />Two Amazing Shopping Experiences.<br />One Powerful Platform.<i /></p>
       <div className="footer-right">
@@ -361,6 +401,7 @@ function LandingPage() {
         <div className="footer-meta"><span className="kenya-flag" role="img" aria-label="Flag of Kenya"><span className="kenya-shield" /></span><span>Kenya</span></div>
       </div>
     </footer>
+    {introActive && <MatrixIntro onSkip={skipIntro} exiting={introExiting} />}
   </div>
 }
 
