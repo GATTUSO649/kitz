@@ -9,6 +9,7 @@ import { database } from '../../database/connection.js'
 import { marketplaceAuditLogs, marketplaceCategories, marketplaceCounties, marketplaceProductImages, marketplaceProductViews, marketplaceProducts, marketplaceSellerAccounts, marketplaceSellerSessions, marketplaceSellers, marketplaceSellerVerificationTokens, marketplaceSubcategories } from '../../database/schema.js'
 import { enqueueMarketplaceEmail } from '../email/outbox.js'
 import { hashSecret, normalizeKenyanPhone } from './security.js'
+import { marketplaceImageDeliveryUrl } from './images.js'
 
 const cookieName = 'mh_marketplace_seller'
 const sessionLifetimeMs = 7 * 24 * 60 * 60 * 1000
@@ -383,7 +384,7 @@ marketplaceSellerDataRouter.get('/seller/products', requireMarketplaceSeller, as
       data: products.map((product) => ({
         ...product,
         publicAvailable: product.status === 'published' && product.categoryActive && Boolean(product.expiresAt && product.expiresAt > new Date()),
-        images: imagesByProduct.get(product.id) ?? [],
+        images: (imagesByProduct.get(product.id) ?? []).map((image) => ({ ...image, imageUrl: marketplaceImageDeliveryUrl(image.imageUrl, 640) })),
       })),
       analytics: {
         listingViews: [...viewCountByProduct].reduce((total, [, views]) => total + views, 0),

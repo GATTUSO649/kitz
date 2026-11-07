@@ -8,7 +8,13 @@ export class DarajaUnavailableError extends Error {
 }
 
 export class DarajaRequestError extends DarajaUnavailableError {
-  constructor(readonly stage: 'oauth' | 'stk_push' | 'stk_query', readonly outcome: 'rejected' | 'unknown') {
+  constructor(
+    readonly stage: 'oauth' | 'stk_push' | 'stk_query',
+    readonly outcome: 'rejected' | 'unknown',
+    readonly providerCode?: string,
+    readonly providerDescription?: string,
+    readonly httpStatus?: number,
+  ) {
     super('Marketplace M-Pesa request could not be verified.')
     this.name = 'DarajaRequestError'
   }
@@ -32,7 +38,13 @@ type StkResult = {
   ResponseDescription?: string
   CustomerMessage?: string
 }
-type DarajaDependencies = { env?: NodeJS.ProcessEnv; fetcher?: typeof fetch; now?: () => number }
+type DarajaDependencies = {
+  env?: NodeJS.ProcessEnv
+  fetcher?: typeof fetch
+  now?: () => number
+  onStkPushSubmitted?: (at: Date) => void
+  onStkPushResponse?: (at: Date, response: { code?: string; description?: string }) => void
+}
 
 const cachedTokens = new Map<string, { value: string; expiresAt: number }>()
 
@@ -199,6 +211,13 @@ function darajaPassword(config: DarajaConfig, timestamp: string): string {
   return Buffer.from(`${config.shortcode}${config.passkey}${timestamp}`).toString('base64')
 }
 
+function safeProviderDescription(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const normalized = value.replace(/[\r\n\t]/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!normalized || /consumer[\s_-]*(?:key|secret)|passkey|password|authorization|access[\s_-]*token/i.test(normalized)) return undefined
+  return normalized.replace(/(?:\+?254|0)[17]\d{8}/g, '[phone redacted]').slice(0, 240)
+}
+
 export async function initiateStkPush(input: {
   phone: string
   amountKes: number
@@ -213,6 +232,8 @@ export async function initiateStkPush(input: {
   const now = dependencies.now ?? Date.now
   const accessToken = await getAccessToken(config, fetcher, now)
   const timestamp = darajaTimestamp(new Date(now()))
+  const submittedAt = new Date(now())
+  dependencies.onStkPushSubmitted?.(submittedAt)
   const response = await fetcher(`${config.baseUrl}/mpesa/stkpush/v1/processrequest`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
@@ -231,11 +252,15 @@ export async function initiateStkPush(input: {
     }),
     signal: AbortSignal.timeout(15_000),
   }).catch(() => { throw new DarajaRequestError('stk_push', 'unknown') })
-  if (!response.ok) throw new DarajaRequestError('stk_push', response.status >= 500 || response.status === 408 ? 'unknown' : 'rejected')
+  const responseReceivedAt = new Date(now())
   const result = await response.json().catch(() => null) as Partial<StkResult> | null
-  if (!result) throw new DarajaRequestError('stk_push', 'unknown')
+  const responseCode = typeof result?.ResponseCode === 'string' ? result.ResponseCode : undefined
+  const responseDescription = safeProviderDescription(result?.ResponseDescription ?? result?.CustomerMessage)
+  dependencies.onStkPushResponse?.(responseReceivedAt, { code: responseCode, description: responseDescription })
+  if (!response.ok) throw new DarajaRequestError('stk_push', response.status >= 500 || response.status === 408 ? 'unknown' : 'rejected', responseCode, responseDescription, response.status)
+  if (!result) throw new DarajaRequestError('stk_push', 'unknown', undefined, undefined, response.status)
   if (result.ResponseCode !== '0' || !result.CheckoutRequestID || !result.MerchantRequestID) {
-    throw new DarajaRequestError('stk_push', 'rejected')
+    throw new DarajaRequestError('stk_push', 'rejected', responseCode, responseDescription, response.status)
   }
   return result as StkResult
 }

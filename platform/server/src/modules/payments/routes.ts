@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, gte, inArray } from 'drizzle-orm'
+import { and, desc, eq, gt, gte, inArray, sql } from 'drizzle-orm'
 import { Router } from 'express'
 import { z } from 'zod'
 import { database } from '../../database/connection.js'
@@ -43,6 +43,13 @@ function sendPaymentError(response: import('express').Response, error: unknown):
   response.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Payment could not be initiated.' } })
 }
 
+function safeCallbackDescription(value: string | undefined): string | null {
+  if (!value) return null
+  const description = value.replace(/[\r\n\t]/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!description || /consumer[\s_-]*(?:key|secret)|passkey|password|authorization|access[\s_-]*token/i.test(description)) return null
+  return description.replace(/(?:\+?254|0)[17]\d{8}/g, '[phone redacted]').slice(0, 240)
+}
+
 async function startPayment(input: {
   purpose: 'PRODUCT_PUBLICATION' | 'CONTACT_UNLOCK'
   productId: string
@@ -68,12 +75,23 @@ async function startPayment(input: {
     status: 'initiated',
   }).returning({ id: marketplacePayments.id })
   if (!payment) throw new Error('Marketplace payment record was not created.')
+  let stkPushSubmittedAt: Date | null = null
+  let stkPushResponseAt: Date | null = null
+  let providerResponseCode: string | null = null
+  let providerResponseDescription: string | null = null
   try {
     const provider = await initiateStkPush({
       phone: input.phone,
       amountKes: input.amountKes,
       paymentReference,
       description: input.purpose === 'PRODUCT_PUBLICATION' ? 'Marketplace listing fee' : 'Marketplace contact fee',
+    }, {
+      onStkPushSubmitted: (at) => { stkPushSubmittedAt = at },
+      onStkPushResponse: (at, result) => {
+        stkPushResponseAt = at
+        providerResponseCode = result.code ?? null
+        providerResponseDescription = result.description ?? null
+      },
     })
     await database.transaction(async (transaction) => {
       await transaction.update(marketplacePayments).set({
@@ -81,6 +99,12 @@ async function startPayment(input: {
         merchantRequestId: provider.MerchantRequestID,
         providerDetails: { merchantRequestId: provider.MerchantRequestID },
         status: 'pending',
+        stkPushSubmittedAt,
+        stkPushResponseAt,
+        providerResponseCode,
+        providerResponseDescription,
+        failureCategory: null,
+        failureReason: null,
         updatedAt: new Date(),
       }).where(eq(marketplacePayments.id, payment.id))
       if (input.customerEmail) await enqueueMarketplaceEmail(transaction, {
@@ -94,8 +118,21 @@ async function startPayment(input: {
   } catch (error) {
     const rejected = error instanceof DarajaRequestError && error.outcome === 'rejected'
     const status = rejected ? 'failed' : 'ambiguous'
+    const failureCategory = error instanceof DarajaRequestError ? `${error.stage}_${error.outcome}` : 'local_persistence_error'
+    const failureReason = error instanceof DarajaRequestError ? error.providerDescription ?? 'Safaricom did not confirm the STK request.' : 'Payment initiation could not be fully recorded.'
     await database.transaction(async (transaction) => {
-      await transaction.update(marketplacePayments).set({ status, updatedAt: new Date(), providerDetails: { initiationOutcome: status } }).where(eq(marketplacePayments.id, payment.id))
+      await transaction.update(marketplacePayments).set({
+        status,
+        stkPushSubmittedAt,
+        stkPushResponseAt,
+        providerResponseCode: error instanceof DarajaRequestError ? error.providerCode ?? providerResponseCode : providerResponseCode,
+        providerResponseDescription: error instanceof DarajaRequestError ? error.providerDescription ?? providerResponseDescription : providerResponseDescription,
+        failureCategory,
+        failureReason,
+        finalizedAt: rejected ? new Date() : null,
+        updatedAt: new Date(),
+        providerDetails: { initiationOutcome: status, ...(error instanceof DarajaRequestError && error.httpStatus ? { httpStatus: error.httpStatus } : {}) },
+      }).where(eq(marketplacePayments.id, payment.id))
       if (!rejected) return
       if (input.customerEmail) await enqueueMarketplaceEmail(transaction, {
         eventKey: `payment:${paymentReference}:initiation-failed`,
@@ -291,8 +328,14 @@ paymentRouter.post('/callback/:token', async (request, response) => {
     response.status(503).json({ ResultCode: 1, ResultDesc: 'Callback could not be recorded; retry.' })
     return
   }
+  const callbackReceivedAt = new Date()
+  await database.update(marketplacePayments).set({
+    callbackReceivedAt: sql`coalesce(${marketplacePayments.callbackReceivedAt}, ${callbackReceivedAt})`,
+    updatedAt: callbackReceivedAt,
+  }).where(eq(marketplacePayments.id, payment.id))
   let callbackOutcome = 'verified_failure'
   let shouldSettle = false
+  let verificationCompletedAt: Date | null = null
   let failureStatus: 'failed' | 'cancelled' | 'expired' | 'ambiguous' = 'failed'
   if (resultCode === '0') {
     const values = new Map((callback.CallbackMetadata?.Item ?? []).map(({ Name, Value }) => [Name, Value]))
@@ -303,6 +346,7 @@ paymentRouter.post('/callback/:token', async (request, response) => {
     const transactionAt = parseDarajaTimestamp(values.get('TransactionDate'))
     try {
       const verified = await queryStkPayment(callback.CheckoutRequestID)
+      verificationCompletedAt = new Date()
       const callbackMatches = verifyMarketplaceStkCallback({
         callbackResultCode: resultCode,
         callbackCheckoutRequestId: callback.CheckoutRequestID,
@@ -336,6 +380,8 @@ paymentRouter.post('/callback/:token', async (request, response) => {
         const updated = await transaction.update(marketplacePayments).set({
           status: 'succeeded',
           callbackProcessedAt: now,
+          verificationCompletedAt,
+          finalizedAt: now,
           providerReceipt: receipt,
           transactionAt,
           verifiedAt: now,
@@ -374,7 +420,17 @@ paymentRouter.post('/callback/:token', async (request, response) => {
   const now = new Date()
   await database.transaction(async (transaction) => {
     await transaction.update(marketplacePaymentCallbacks).set({ outcome: callbackOutcome, processedAt: now }).where(eq(marketplacePaymentCallbacks.id, callbackEvent.id))
-    const updated = await transaction.update(marketplacePayments).set({ status: failureStatus, callbackProcessedAt: now, updatedAt: now })
+    const updated = await transaction.update(marketplacePayments).set({
+      status: failureStatus,
+      callbackProcessedAt: now,
+      verificationCompletedAt,
+      ...(failureStatus === 'ambiguous' ? {} : { finalizedAt: now }),
+      failureCategory: failureStatus === 'ambiguous' ? 'callback_verification_mismatch' : `callback_${failureStatus}`,
+      failureReason: failureStatus === 'ambiguous' ? 'Callback details did not match Daraja verification.' : safeCallbackDescription(callback.ResultDesc) ?? `Daraja reported ${failureStatus}.`,
+      providerResponseCode: resultCode,
+      providerResponseDescription: safeCallbackDescription(callback.ResultDesc),
+      updatedAt: now,
+    })
       .where(and(eq(marketplacePayments.id, payment.id), inArray(marketplacePayments.status, ['initiated', 'pending', 'processing', 'ambiguous'])))
       .returning({ id: marketplacePayments.id })
     if (!updated.length) return

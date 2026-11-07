@@ -1,20 +1,31 @@
-import { and, asc, count, desc, eq, ilike, inArray, sql } from 'drizzle-orm'
+import { randomUUID } from 'node:crypto'
+import { and, asc, count, desc, eq, gte, ilike, inArray, lte, or, sql } from 'drizzle-orm'
+import { rateLimit } from 'express-rate-limit'
 import { Router } from 'express'
 import { z } from 'zod'
 import { database } from '../../database/connection.js'
-import { marketplaceAdminSessions, marketplaceAdminUsers, marketplaceAuditLogs, marketplaceCategories, marketplaceContactUnlocks, marketplaceCounties, marketplaceEmailEvents, marketplacePaymentCallbacks, marketplacePayments, marketplaceProductReports, marketplaceProducts, marketplaceSettings, marketplaceSellerAccounts, marketplaceSellerSessions, marketplaceSellers } from '../../database/schema.js'
+import { marketplaceAdminSessions, marketplaceAdminUsers, marketplaceAuditLogs, marketplaceCategories, marketplaceContactUnlocks, marketplaceCounties, marketplaceEmailEvents, marketplaceNotifications, marketplacePaymentCallbacks, marketplacePayments, marketplaceProductReports, marketplaceProductViews, marketplaceProducts, marketplaceSettings, marketplaceSellerAccounts, marketplaceSellerSessions, marketplaceSellers } from '../../database/schema.js'
 import { requireMarketplacePermission, type MarketplaceAdminSession } from './marketplace-auth.js'
 import { parseDarajaTimestamp, queryStkPayment } from '../payments/daraja.js'
 import { normalizeKenyanPhone } from '../marketplace/security.js'
 import { listingExpiryAt, resolveListingExpiryDays } from '../marketplace/expiry.js'
 import { parseMarketplaceSocialLinks } from '../marketplace/social-links.js'
 import { enqueueMarketplaceEmail } from '../email/outbox.js'
+import { getMarketplaceEmailProviderStatus } from '../email/service.js'
 
 export const marketplaceAdminDataRouter = Router()
 marketplaceAdminDataRouter.use('/admins', (_request, response) => {
   response.status(410).json({ error: { code: 'CENTRAL_ADMIN_MANAGEMENT_REQUIRED', message: 'Marketplace administrator management is centralized in KitCulture Super Admin.' } })
 })
 const adminSession = (response: import('express').Response) => response.locals.marketplaceAdmin as MarketplaceAdminSession
+const adminEmailSendLimiter = rateLimit({ windowMs: 60_000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false })
+const marketplacePaymentStatus = z.enum(['initiated', 'pending', 'processing', 'ambiguous', 'succeeded', 'failed', 'cancelled', 'expired', 'reversed', 'refunded'])
+const marketplacePaymentPurpose = z.enum(['PRODUCT_PUBLICATION', 'CONTACT_UNLOCK'])
+
+function maskMarketplacePhone(phone: string): string {
+  if (phone.length < 7) return '••••'
+  return `${phone.slice(0, 3)}${'•'.repeat(Math.max(2, phone.length - 6))}${phone.slice(-3)}`
+}
 
 marketplaceAdminDataRouter.get('/email-events', requireMarketplacePermission('admins:manage'), async (request, response, next) => {
   const parsed = z.object({ status: z.enum(['failed', 'uncertain']).optional() }).safeParse(request.query)
@@ -32,6 +43,138 @@ marketplaceAdminDataRouter.get('/email-events', requireMarketplacePermission('ad
       .orderBy(desc(marketplaceEmailEvents.createdAt)).limit(100)
     response.setHeader('Cache-Control', 'no-store')
     response.json({ data: events })
+  } catch (error) {
+    next(error)
+  }
+})
+
+marketplaceAdminDataRouter.get('/emails', requireMarketplacePermission('admins:manage'), async (request, response, next) => {
+  const parsed = z.object({
+    status: z.enum(['pending', 'sending', 'sent', 'failed', 'uncertain', 'queued']).optional(),
+    q: z.string().trim().max(120).optional(),
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+  }).safeParse(request.query)
+  if (!parsed.success) {
+    response.status(400).json({ error: { code: 'INVALID_EMAIL_QUERY', message: 'Email filters are invalid.' } })
+    return
+  }
+  if (!database) {
+    response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Marketplace email records are temporarily unavailable.' } })
+    return
+  }
+  try {
+    const conditions = []
+    if (parsed.data.status === 'queued') conditions.push(inArray(marketplaceEmailEvents.status, ['pending', 'sending']))
+    else if (parsed.data.status === 'failed') conditions.push(inArray(marketplaceEmailEvents.status, ['failed', 'uncertain']))
+    else if (parsed.data.status) conditions.push(eq(marketplaceEmailEvents.status, parsed.data.status))
+    if (parsed.data.q) {
+      const term = `%${parsed.data.q}%`
+      conditions.push(or(ilike(marketplaceEmailEvents.recipientEmail, term), ilike(marketplaceEmailEvents.kind, term), ilike(marketplaceEmailEvents.eventKey, term))!)
+    }
+    const where = conditions.length ? and(...conditions) : undefined
+    const [emails, totals, statusCounts, kindCounts] = await Promise.all([
+      database.select({
+        id: marketplaceEmailEvents.id,
+        eventKey: marketplaceEmailEvents.eventKey,
+        kind: marketplaceEmailEvents.kind,
+        recipientEmail: marketplaceEmailEvents.recipientEmail,
+        status: marketplaceEmailEvents.status,
+        attempts: marketplaceEmailEvents.attempts,
+        nextAttemptAt: marketplaceEmailEvents.nextAttemptAt,
+        providerMessageId: marketplaceEmailEvents.providerMessageId,
+        lastErrorCode: marketplaceEmailEvents.lastErrorCode,
+        createdAt: marketplaceEmailEvents.createdAt,
+        sentAt: marketplaceEmailEvents.sentAt,
+      }).from(marketplaceEmailEvents).where(where)
+        .orderBy(desc(marketplaceEmailEvents.createdAt)).limit(parsed.data.limit).offset((parsed.data.page - 1) * parsed.data.limit),
+      database.select({ total: count() }).from(marketplaceEmailEvents).where(where),
+      database.select({ status: marketplaceEmailEvents.status, total: count() }).from(marketplaceEmailEvents).groupBy(marketplaceEmailEvents.status),
+      database.select({ kind: marketplaceEmailEvents.kind, total: count() }).from(marketplaceEmailEvents).groupBy(marketplaceEmailEvents.kind).orderBy(desc(count())).limit(10),
+    ])
+    const total = Number(totals[0]?.total ?? 0)
+    response.setHeader('Cache-Control', 'no-store')
+    response.json({ data: {
+      emails,
+      summary: {
+        total,
+        statuses: statusCounts.map((row) => ({ status: row.status, total: Number(row.total) })),
+        frequentKinds: kindCounts.map((row) => ({ kind: row.kind, total: Number(row.total) })),
+      },
+      provider: getMarketplaceEmailProviderStatus(),
+    }, pagination: {
+      page: parsed.data.page,
+      limit: parsed.data.limit,
+      total,
+      hasMore: parsed.data.page * parsed.data.limit < total,
+    } })
+  } catch (error) {
+    next(error)
+  }
+})
+
+const composeEmailSchema = z.object({
+  to: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
+  subject: z.string().trim().min(2).max(180),
+  body: z.string().trim().min(2).max(5000),
+}).strict()
+
+marketplaceAdminDataRouter.post('/emails/send', adminEmailSendLimiter, requireMarketplacePermission('admins:manage'), async (request, response, next) => {
+  const parsed = composeEmailSchema.safeParse(request.body)
+  if (!parsed.success) {
+    response.status(400).json({ error: { code: 'INVALID_EMAIL_MESSAGE', message: 'Enter a valid recipient, subject, and message.' } })
+    return
+  }
+  if (!database) {
+    response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Marketplace email delivery is temporarily unavailable.' } })
+    return
+  }
+  const actor = adminSession(response)
+  const eventKey = `admin-compose:${randomUUID()}`
+  try {
+    await database.transaction(async (transaction) => {
+      await enqueueMarketplaceEmail(transaction, {
+        eventKey,
+        to: parsed.data.to,
+        kind: 'admin_custom_message',
+        data: { subject: parsed.data.subject, body: parsed.data.body },
+      })
+      await transaction.insert(marketplaceAuditLogs).values({
+        adminUserId: actor.id,
+        action: 'email.admin_composed',
+        resourceType: 'marketplace_email_event',
+        metadata: { eventKey, recipientDomain: parsed.data.to.split('@')[1], subjectLength: parsed.data.subject.length },
+      })
+    })
+    response.status(202).json({ data: { eventKey, status: 'pending' } })
+  } catch (error) {
+    next(error)
+  }
+})
+
+marketplaceAdminDataRouter.post('/emails/test', adminEmailSendLimiter, requireMarketplacePermission('admins:manage'), async (request, response, next) => {
+  const parsed = z.object({ subject: z.string().trim().min(2).max(180), body: z.string().trim().min(2).max(5000) }).strict().safeParse(request.body)
+  if (!parsed.success) {
+    response.status(400).json({ error: { code: 'INVALID_EMAIL_TEST', message: 'Enter a valid test subject and message.' } })
+    return
+  }
+  if (!database) {
+    response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Marketplace email delivery is temporarily unavailable.' } })
+    return
+  }
+  const actor = adminSession(response)
+  const eventKey = `admin-email-test:${randomUUID()}`
+  try {
+    await database.transaction(async (transaction) => {
+      await enqueueMarketplaceEmail(transaction, { eventKey, to: actor.email, kind: 'admin_custom_message', data: parsed.data })
+      await transaction.insert(marketplaceAuditLogs).values({
+        adminUserId: actor.id,
+        action: 'email.admin_test_queued',
+        resourceType: 'marketplace_email_event',
+        metadata: { eventKey },
+      })
+    })
+    response.status(202).json({ data: { eventKey, status: 'pending' } })
   } catch (error) {
     next(error)
   }
@@ -177,6 +320,133 @@ marketplaceAdminDataRouter.patch('/seller-accounts/:id/status', requireMarketpla
       })
     })
     response.json({ data: { id: id.data, status: parsed.data.status, sessionsRevoked: parsed.data.status === 'suspended' } })
+  } catch (error) {
+    next(error)
+  }
+})
+
+const adminPageQuery = z.object({ page: z.coerce.number().int().min(1).default(1), from: z.string().datetime({ offset: true }).optional(), to: z.string().datetime({ offset: true }).optional() })
+
+marketplaceAdminDataRouter.get('/buyers', requireMarketplacePermission('support:manage'), async (request, response, next) => {
+  const parsed = adminPageQuery.safeParse(request.query)
+  if (!parsed.success || (parsed.data.from && parsed.data.to && parsed.data.from > parsed.data.to)) {
+    response.status(400).json({ error: { code: 'INVALID_QUERY', message: 'Buyer date filters are invalid.' } })
+    return
+  }
+  if (!database) {
+    response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Marketplace buyer records are temporarily unavailable.' } })
+    return
+  }
+  try {
+    const conditions = [eq(marketplacePayments.purpose, 'CONTACT_UNLOCK'), eq(marketplacePayments.status, 'succeeded')]
+    if (parsed.data.from) conditions.push(gte(marketplacePayments.verifiedAt, new Date(parsed.data.from)))
+    if (parsed.data.to) conditions.push(lte(marketplacePayments.verifiedAt, new Date(parsed.data.to)))
+    const rows = await database.select({ phone: marketplacePayments.phone, email: marketplacePayments.customerEmail, lastPaymentAt: sql<Date>`max(${marketplacePayments.verifiedAt})`, unlockCount: count() })
+      .from(marketplacePayments).where(and(...conditions))
+      .groupBy(marketplacePayments.phone, marketplacePayments.customerEmail)
+      .orderBy(desc(sql`max(${marketplacePayments.verifiedAt})`)).limit(50).offset((parsed.data.page - 1) * 50)
+    response.setHeader('Cache-Control', 'no-store')
+    response.json({ data: rows.map((row) => ({ ...row, phone: maskMarketplacePhone(row.phone) })), pagination: { page: parsed.data.page, limit: 50 } })
+  } catch (error) {
+    next(error)
+  }
+})
+
+marketplaceAdminDataRouter.get('/activity', requireMarketplacePermission('admins:manage'), async (request, response, next) => {
+  const parsed = z.object({ page: z.coerce.number().int().min(1).default(1) }).safeParse(request.query)
+  if (!parsed.success) {
+    response.status(400).json({ error: { code: 'INVALID_QUERY', message: 'Activity pagination is invalid.' } })
+    return
+  }
+  if (!database) {
+    response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Marketplace activity is temporarily unavailable.' } })
+    return
+  }
+  try {
+    const events = await database.select({ id: marketplaceAuditLogs.id, action: marketplaceAuditLogs.action, resourceType: marketplaceAuditLogs.resourceType, resourceId: marketplaceAuditLogs.resourceId, adminEmail: marketplaceAdminUsers.email, createdAt: marketplaceAuditLogs.createdAt })
+      .from(marketplaceAuditLogs).leftJoin(marketplaceAdminUsers, eq(marketplaceAdminUsers.id, marketplaceAuditLogs.adminUserId))
+      .orderBy(desc(marketplaceAuditLogs.createdAt)).limit(100).offset((parsed.data.page - 1) * 100)
+    response.setHeader('Cache-Control', 'no-store')
+    response.json({ data: events, pagination: { page: parsed.data.page, limit: 100 } })
+  } catch (error) {
+    next(error)
+  }
+})
+
+marketplaceAdminDataRouter.get('/notifications', requireMarketplacePermission('admins:manage'), async (request, response, next) => {
+  const parsed = z.object({ page: z.coerce.number().int().min(1).default(1) }).safeParse(request.query)
+  if (!parsed.success) {
+    response.status(400).json({ error: { code: 'INVALID_QUERY', message: 'Notification pagination is invalid.' } })
+    return
+  }
+  if (!database) {
+    response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Marketplace notifications are temporarily unavailable.' } })
+    return
+  }
+  try {
+    const rows = await database.select({ id: marketplaceNotifications.id, kind: marketplaceNotifications.kind, status: marketplaceNotifications.status, providerReference: marketplaceNotifications.providerReference, sellerName: marketplaceSellers.name, createdAt: marketplaceNotifications.createdAt, sentAt: marketplaceNotifications.sentAt })
+      .from(marketplaceNotifications).leftJoin(marketplaceSellers, eq(marketplaceSellers.id, marketplaceNotifications.sellerId))
+      .orderBy(desc(marketplaceNotifications.createdAt)).limit(100).offset((parsed.data.page - 1) * 100)
+    response.setHeader('Cache-Control', 'no-store')
+    response.json({ data: rows, pagination: { page: parsed.data.page, limit: 100 } })
+  } catch (error) {
+    next(error)
+  }
+})
+
+marketplaceAdminDataRouter.get('/revenue', requireMarketplacePermission('finance:read'), async (request, response, next) => {
+  const parsed = adminPageQuery.safeParse(request.query)
+  if (!parsed.success || (parsed.data.from && parsed.data.to && parsed.data.from > parsed.data.to)) {
+    response.status(400).json({ error: { code: 'INVALID_QUERY', message: 'Revenue date filters are invalid.' } })
+    return
+  }
+  if (!database) {
+    response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Marketplace revenue is temporarily unavailable.' } })
+    return
+  }
+  try {
+    const conditions = [eq(marketplacePayments.status, 'succeeded')]
+    if (parsed.data.from) conditions.push(gte(marketplacePayments.verifiedAt, new Date(parsed.data.from)))
+    if (parsed.data.to) conditions.push(lte(marketplacePayments.verifiedAt, new Date(parsed.data.to)))
+    const rows = await database.select({
+      day: sql<string>`to_char(date_trunc('day', ${marketplacePayments.verifiedAt} AT TIME ZONE 'Africa/Nairobi'), 'YYYY-MM-DD')`,
+      purpose: marketplacePayments.purpose,
+      transactionCount: count(),
+      revenueKes: sql<string>`coalesce(sum(${marketplacePayments.amountKes}), 0)`,
+    }).from(marketplacePayments).where(and(...conditions))
+      .groupBy(sql`date_trunc('day', ${marketplacePayments.verifiedAt} AT TIME ZONE 'Africa/Nairobi')`, marketplacePayments.purpose)
+      .orderBy(sql`date_trunc('day', ${marketplacePayments.verifiedAt} AT TIME ZONE 'Africa/Nairobi')`)
+    response.json({ data: rows.map((row) => ({ ...row, transactionCount: Number(row.transactionCount), revenueKes: Number(row.revenueKes) })) })
+  } catch (error) {
+    next(error)
+  }
+})
+
+marketplaceAdminDataRouter.get('/analytics', requireMarketplacePermission('dashboard:read'), async (request, response, next) => {
+  const parsed = adminPageQuery.safeParse(request.query)
+  if (!parsed.success || (parsed.data.from && parsed.data.to && parsed.data.from > parsed.data.to)) {
+    response.status(400).json({ error: { code: 'INVALID_QUERY', message: 'Analytics date filters are invalid.' } })
+    return
+  }
+  if (!database) {
+    response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Marketplace analytics are temporarily unavailable.' } })
+    return
+  }
+  try {
+    const conditions = []
+    if (parsed.data.from) conditions.push(gte(marketplaceProductViews.viewedAt, new Date(parsed.data.from)))
+    if (parsed.data.to) conditions.push(lte(marketplaceProductViews.viewedAt, new Date(parsed.data.to)))
+    const [dailyViews, topListings] = await Promise.all([
+      database.select({ day: sql<string>`to_char(date_trunc('day', ${marketplaceProductViews.viewedAt} AT TIME ZONE 'Africa/Nairobi'), 'YYYY-MM-DD')`, views: count() })
+        .from(marketplaceProductViews).where(conditions.length ? and(...conditions) : undefined)
+        .groupBy(sql`date_trunc('day', ${marketplaceProductViews.viewedAt} AT TIME ZONE 'Africa/Nairobi')`)
+        .orderBy(sql`date_trunc('day', ${marketplaceProductViews.viewedAt} AT TIME ZONE 'Africa/Nairobi')`),
+      database.select({ reference: marketplaceProducts.reference, title: marketplaceProducts.title, status: marketplaceProducts.status, views: count() })
+        .from(marketplaceProductViews).innerJoin(marketplaceProducts, eq(marketplaceProducts.id, marketplaceProductViews.productId))
+        .where(conditions.length ? and(...conditions) : undefined).groupBy(marketplaceProducts.id)
+        .orderBy(desc(count())).limit(20),
+    ])
+    response.json({ data: { dailyViews: dailyViews.map((row) => ({ ...row, views: Number(row.views) })), topListings: topListings.map((row) => ({ ...row, views: Number(row.views) })) } })
   } catch (error) {
     next(error)
   }
@@ -471,10 +741,16 @@ marketplaceAdminDataRouter.patch('/settings/fees', requireMarketplacePermission(
 marketplaceAdminDataRouter.get('/payments', requireMarketplacePermission('finance:read'), async (request, response, next) => {
   const query = z.object({
     page: z.coerce.number().int().min(1).default(1),
-    status: z.enum(['initiated', 'pending', 'processing', 'ambiguous', 'succeeded', 'failed', 'cancelled', 'expired', 'reversed', 'refunded']).optional(),
-    purpose: z.enum(['PRODUCT_PUBLICATION', 'CONTACT_UNLOCK']).optional(),
+    status: marketplacePaymentStatus.optional(),
+    purpose: marketplacePaymentPurpose.optional(),
+    q: z.string().trim().max(120).optional(),
+    from: z.string().datetime({ offset: true }).optional(),
+    to: z.string().datetime({ offset: true }).optional(),
+    minAmount: z.coerce.number().int().min(0).optional(),
+    maxAmount: z.coerce.number().int().min(0).optional(),
   }).safeParse(request.query)
-  if (!query.success) {
+  if (!query.success || (query.data.from && query.data.to && query.data.from > query.data.to)
+    || (query.data.minAmount !== undefined && query.data.maxAmount !== undefined && query.data.minAmount > query.data.maxAmount)) {
     response.status(400).json({ error: { code: 'INVALID_QUERY', message: 'Payment pagination is invalid.' } })
     return
   }
@@ -486,14 +762,37 @@ marketplaceAdminDataRouter.get('/payments', requireMarketplacePermission('financ
     const conditions = []
     if (query.data.status) conditions.push(eq(marketplacePayments.status, query.data.status))
     if (query.data.purpose) conditions.push(eq(marketplacePayments.purpose, query.data.purpose))
+    if (query.data.from) conditions.push(gte(marketplacePayments.createdAt, new Date(query.data.from)))
+    if (query.data.to) conditions.push(lte(marketplacePayments.createdAt, new Date(query.data.to)))
+    if (query.data.minAmount !== undefined) conditions.push(gte(marketplacePayments.amountKes, query.data.minAmount))
+    if (query.data.maxAmount !== undefined) conditions.push(lte(marketplacePayments.amountKes, query.data.maxAmount))
+    if (query.data.q) {
+      const term = `%${query.data.q}%`
+      conditions.push(or(ilike(marketplacePayments.paymentReference, term), ilike(marketplacePayments.providerReceipt, term), ilike(marketplacePayments.phone, term))!)
+    }
     const where = conditions.length ? and(...conditions) : undefined
     const [rows, totals] = await Promise.all([
       database.select({
         reference: marketplacePayments.paymentReference,
+        transactionId: marketplacePayments.id,
+        merchantRequestId: marketplacePayments.merchantRequestId,
+        checkoutRequestId: marketplacePayments.checkoutRequestId,
         purpose: marketplacePayments.purpose,
         amountKes: marketplacePayments.amountKes,
+        currency: sql<string>`'KES'`,
+        phone: marketplacePayments.phone,
         status: marketplacePayments.status,
         createdAt: marketplacePayments.createdAt,
+        updatedAt: marketplacePayments.updatedAt,
+        stkPushSubmittedAt: marketplacePayments.stkPushSubmittedAt,
+        stkPushResponseAt: marketplacePayments.stkPushResponseAt,
+        callbackReceivedAt: marketplacePayments.callbackReceivedAt,
+        verificationCompletedAt: marketplacePayments.verificationCompletedAt,
+        finalizedAt: marketplacePayments.finalizedAt,
+        providerResponseCode: marketplacePayments.providerResponseCode,
+        providerResponseDescription: marketplacePayments.providerResponseDescription,
+        failureCategory: marketplacePayments.failureCategory,
+        failureReason: marketplacePayments.failureReason,
         providerReceipt: marketplacePayments.providerReceipt,
         transactionAt: marketplacePayments.transactionAt,
         verifiedAt: marketplacePayments.verifiedAt,
@@ -504,7 +803,117 @@ marketplaceAdminDataRouter.get('/payments', requireMarketplacePermission('financ
     ])
     response.setHeader('Cache-Control', 'no-store')
     const total = Number(totals[0]?.total ?? 0)
-    response.json({ data: rows, pagination: { page: query.data.page, limit: 50, total, hasMore: query.data.page * 50 < total } })
+    response.json({ data: rows.map((row) => ({ ...row, phone: maskMarketplacePhone(row.phone) })), pagination: { page: query.data.page, limit: 50, total, hasMore: query.data.page * 50 < total } })
+  } catch (error) {
+    next(error)
+  }
+})
+
+marketplaceAdminDataRouter.get('/payments/summary', requireMarketplacePermission('finance:read'), async (request, response, next) => {
+  const parsed = z.object({ from: z.string().datetime({ offset: true }).optional(), to: z.string().datetime({ offset: true }).optional() }).safeParse(request.query)
+  if (!parsed.success || (parsed.data.from && parsed.data.to && parsed.data.from > parsed.data.to)) {
+    response.status(400).json({ error: { code: 'INVALID_QUERY', message: 'Payment report date filters are invalid.' } })
+    return
+  }
+  if (!database) {
+    response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Marketplace payment reports are temporarily unavailable.' } })
+    return
+  }
+  try {
+    const activityConditions = []
+    if (parsed.data.from) activityConditions.push(gte(marketplacePayments.createdAt, new Date(parsed.data.from)))
+    if (parsed.data.to) activityConditions.push(lte(marketplacePayments.createdAt, new Date(parsed.data.to)))
+    const verifiedConditions = [eq(marketplacePayments.status, 'succeeded')]
+    if (parsed.data.from) verifiedConditions.push(gte(marketplacePayments.verifiedAt, new Date(parsed.data.from)))
+    if (parsed.data.to) verifiedConditions.push(lte(marketplacePayments.verifiedAt, new Date(parsed.data.to)))
+    const [states, revenue, totalRows] = await Promise.all([
+      database.select({ status: marketplacePayments.status, transactions: count() }).from(marketplacePayments)
+        .where(activityConditions.length ? and(...activityConditions) : undefined).groupBy(marketplacePayments.status),
+      database.select({ purpose: marketplacePayments.purpose, transactions: count(), revenueKes: sql<string>`coalesce(sum(${marketplacePayments.amountKes}), 0)` })
+        .from(marketplacePayments).where(and(...verifiedConditions)).groupBy(marketplacePayments.purpose),
+      database.select({ transactions: count() }).from(marketplacePayments)
+        .where(activityConditions.length ? and(...activityConditions) : undefined),
+    ])
+    const confirmedRevenueKes = revenue.reduce((total, row) => total + Number(row.revenueKes), 0)
+    response.setHeader('Cache-Control', 'no-store')
+    response.json({ data: {
+      transactions: Number(totalRows[0]?.transactions ?? 0),
+      states: states.map((row) => ({ status: row.status, transactions: Number(row.transactions) })),
+      confirmedRevenueKes,
+      revenueByPurpose: revenue.map((row) => ({ purpose: row.purpose, transactions: Number(row.transactions), revenueKes: Number(row.revenueKes) })),
+    } })
+  } catch (error) {
+    next(error)
+  }
+})
+
+marketplaceAdminDataRouter.get('/payments/:reference', requireMarketplacePermission('finance:read'), async (request, response, next) => {
+  const identifier = z.string().min(1).max(64).safeParse(request.params.reference)
+  if (!identifier.success || !database) {
+    response.status(identifier.success ? 503 : 400).json({ error: { code: identifier.success ? 'MARKETPLACE_UNAVAILABLE' : 'INVALID_PAYMENT_REFERENCE', message: 'Payment details could not be loaded.' } })
+    return
+  }
+  try {
+    const [payment] = await database.select({
+      id: marketplacePayments.id,
+      reference: marketplacePayments.paymentReference,
+      merchantRequestId: marketplacePayments.merchantRequestId,
+      checkoutRequestId: marketplacePayments.checkoutRequestId,
+      purpose: marketplacePayments.purpose,
+      amountKes: marketplacePayments.amountKes,
+      status: marketplacePayments.status,
+      phone: marketplacePayments.phone,
+      customerEmail: marketplacePayments.customerEmail,
+      providerReceipt: marketplacePayments.providerReceipt,
+      transactionAt: marketplacePayments.transactionAt,
+      verifiedAt: marketplacePayments.verifiedAt,
+      stkPushSubmittedAt: marketplacePayments.stkPushSubmittedAt,
+      stkPushResponseAt: marketplacePayments.stkPushResponseAt,
+      callbackReceivedAt: marketplacePayments.callbackReceivedAt,
+      verificationCompletedAt: marketplacePayments.verificationCompletedAt,
+      finalizedAt: marketplacePayments.finalizedAt,
+      providerResponseCode: marketplacePayments.providerResponseCode,
+      providerResponseDescription: marketplacePayments.providerResponseDescription,
+      failureCategory: marketplacePayments.failureCategory,
+      failureReason: marketplacePayments.failureReason,
+      createdAt: marketplacePayments.createdAt,
+      updatedAt: marketplacePayments.updatedAt,
+      lastReconciliationAt: marketplacePayments.lastReconciliationAt,
+      reconciliationAttempts: marketplacePayments.reconciliationAttempts,
+      listingReference: marketplaceProducts.reference,
+      listingTitle: marketplaceProducts.title,
+    }).from(marketplacePayments).leftJoin(marketplaceProducts, eq(marketplacePayments.productId, marketplaceProducts.id))
+      .where(identifier.data.startsWith('MP-') ? eq(marketplacePayments.paymentReference, identifier.data) : eq(marketplacePayments.id, identifier.data)).limit(1)
+    if (!payment) {
+      response.status(404).json({ error: { code: 'PAYMENT_NOT_FOUND', message: 'The marketplace payment could not be found.' } })
+      return
+    }
+    const [callbacks, reconciliationEvents] = await Promise.all([
+      database.select({ outcome: marketplacePaymentCallbacks.outcome, receivedAt: marketplacePaymentCallbacks.receivedAt, processedAt: marketplacePaymentCallbacks.processedAt })
+        .from(marketplacePaymentCallbacks).where(eq(marketplacePaymentCallbacks.paymentId, payment.id)).orderBy(asc(marketplacePaymentCallbacks.receivedAt)),
+      database.select({ action: marketplaceAuditLogs.action, createdAt: marketplaceAuditLogs.createdAt, metadata: marketplaceAuditLogs.metadata })
+        .from(marketplaceAuditLogs).where(and(eq(marketplaceAuditLogs.resourceType, 'marketplace_payment'), eq(marketplaceAuditLogs.resourceId, payment.id))).orderBy(asc(marketplaceAuditLogs.createdAt)),
+    ])
+    const events = [
+      { kind: 'transaction_initiated', at: payment.createdAt },
+      ...(payment.stkPushSubmittedAt ? [{ kind: 'stk_push_submitted', at: payment.stkPushSubmittedAt }] : []),
+      ...(payment.stkPushResponseAt ? [{ kind: 'stk_push_response_received', at: payment.stkPushResponseAt }] : []),
+      ...callbacks.flatMap((callback) => [
+        { kind: 'callback_received', at: callback.receivedAt, outcome: callback.outcome },
+        ...(callback.processedAt ? [{ kind: 'callback_processed', at: callback.processedAt, outcome: callback.outcome }] : []),
+      ]),
+      ...(payment.verificationCompletedAt ? [{ kind: 'verification_completed', at: payment.verificationCompletedAt }] : []),
+      ...reconciliationEvents.map((event) => ({ kind: event.action, at: event.createdAt, metadata: event.metadata })),
+      ...(payment.finalizedAt ? [{ kind: 'final_status_recorded', at: payment.finalizedAt, status: payment.status }] : []),
+    ].sort((left, right) => left.at.getTime() - right.at.getTime())
+    response.setHeader('Cache-Control', 'no-store')
+    response.json({ data: {
+      ...payment,
+      phone: maskMarketplacePhone(payment.phone),
+      callbackReceived: callbacks.length > 0,
+      reconciliationRequired: ['pending', 'processing', 'ambiguous'].includes(payment.status) && callbacks.length === 0,
+      events,
+    } })
   } catch (error) {
     next(error)
   }

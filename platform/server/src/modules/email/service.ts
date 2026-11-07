@@ -22,6 +22,7 @@ export type MarketplaceEmailKind =
   | 'seller_password_reset_completed'
   | 'marketplace_admin_invitation'
   | 'marketplace_admin_verification'
+  | 'admin_custom_message'
 
 export type MarketplaceEmailInput = {
   to: string
@@ -66,6 +67,7 @@ const eventCopy: Record<MarketplaceEmailKind, { subject: string; intro: string }
   seller_password_reset_completed: { subject: 'Your MarketHub seller password was changed', intro: 'Your seller account password was changed. All existing seller sessions have been signed out.' },
   marketplace_admin_invitation: { subject: 'MarketHub second-hand admin invitation', intro: 'A marketplace Super Admin invited you to manage second-hand listings.' },
   marketplace_admin_verification: { subject: 'Verify your MarketHub administrator account', intro: 'Your password is set. Confirm your email address to activate Second-hand admin access.' },
+  admin_custom_message: { subject: 'A message from MarketHub', intro: '' },
 }
 
 function safeValue(value: unknown, maximum = 240): string {
@@ -80,6 +82,18 @@ export function escapeMarketplaceHtml(value: string): string {
 
 export function renderMarketplaceEmail(input: MarketplaceEmailInput): { subject: string; text: string; html: string } {
   const copy = eventCopy[input.kind]
+  if (input.kind === 'admin_custom_message') {
+    const subject = safeValue(input.data.subject, 180) || copy.subject
+    const body = typeof input.data.body === 'string'
+      ? input.data.body.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').slice(0, 5000).trim()
+      : ''
+    const htmlBody = body.split('\n').map((line) => `<p style="margin:0 0 14px;line-height:1.6;color:#25332d">${escapeMarketplaceHtml(line) || '&nbsp;'}</p>`).join('')
+    return {
+      subject,
+      text: `${body}\n\nMarketHub Kenya`,
+      html: `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeMarketplaceHtml(subject)}</title></head><body style="margin:0;background:#f2f5f0;color:#25332d;font-family:Arial,Helvetica,sans-serif"><main style="max-width:600px;margin:32px auto;padding:32px;background:#fff;border:1px solid #dce5dc"><p style="margin:0 0 24px;color:#1c6b45;font-weight:700">MarketHub Kenya</p>${htmlBody}<p style="margin:28px 0 0;color:#65736a;font-size:13px">This message was sent by an authorized MarketHub administrator.</p></main></body></html>`,
+    }
+  }
   const name = safeValue(input.data.name, 120)
   const title = safeValue(input.data.title, 160)
   const reference = safeValue(input.data.reference, 40)

@@ -30,6 +30,18 @@ test('marketplace email templates escape user-provided HTML', () => {
   assert.doesNotMatch(rendered.html, /<script>|<img src=x/)
 })
 
+test('administrator composed messages escape HTML and preserve a plain-text alternative', () => {
+  const rendered = renderMarketplaceEmail({
+    to: 'buyer@example.test',
+    kind: 'admin_custom_message',
+    data: { subject: 'MarketHub update', body: 'Hello <script>alert(1)</script>\nSecond line' },
+  })
+  assert.equal(rendered.subject, 'MarketHub update')
+  assert.match(rendered.text, /Hello <script>alert\(1\)<\/script>/)
+  assert.match(rendered.html, /Hello &lt;script&gt;alert\(1\)&lt;\/script&gt;/)
+  assert.doesNotMatch(rendered.html, /<script>/)
+})
+
 test('marketplace email dispatch reports accepted SMTP delivery', async () => {
   let deliveredTo = ''
   let sender = ''

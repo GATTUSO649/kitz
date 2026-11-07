@@ -388,7 +388,7 @@ function MarketplaceHome() {
     publishedBefore: searchParams.get('publishedBefore') ?? '',
     negotiable: searchParams.get('negotiable') ?? '',
     sort: searchParams.get('sort') ?? 'newest',
-    featured: searchParams.get('featured') ?? (search || category ? '' : 'true'),
+    featured: searchParams.get('featured') ?? (search || category ? 'all' : 'true'),
   }
   const filterQuery = new URLSearchParams(Object.entries(filters).filter(([key, value]) => value !== '' && (value !== 'false' || key === 'featured'))).toString()
   useEffect(() => {
@@ -429,7 +429,7 @@ function MarketplaceHome() {
     event.preventDefault()
     const formData = new FormData(event.currentTarget)
     const values = Object.fromEntries(['county', 'subcounty', 'town', 'condition', 'minPrice', 'maxPrice', 'publishedAfter', 'publishedBefore', 'negotiable', 'sort'].map((key) => [key, String(formData.get(key) ?? '')]))
-    values.featured = formData.has('featuredOnly') ? 'true' : searchParams.get('featured') === 'false' ? 'false' : ''
+    values.featured = formData.has('featuredOnly') ? 'true' : searchParams.get('featured') === 'false' ? 'false' : 'all'
     setQuery(values)
   }
   return <div className="marketplace-shell">
@@ -455,8 +455,8 @@ function MarketplaceHome() {
       </section>
       <section className="market-content">
         <div className="listing-area">
-          <div className="section-title"><span /> <h2>{search ? 'Search Results' : filters.featured === 'false' ? 'Recently Published' : 'Featured Listings'}</h2></div>
-          <div className="listing-tabs" role="group" aria-label="Listing collection"><button type="button" aria-pressed={filters.featured !== 'false'} onClick={() => setQuery({ featured: 'true' })}>Featured</button><button type="button" aria-pressed={filters.featured === 'false'} onClick={() => setQuery({ featured: 'false' })}>Recently Published</button></div>
+          <div className="section-title"><span /> <h2>{search ? 'Search Results' : filters.featured === 'false' ? 'Recently Published' : filters.featured === 'true' ? 'Featured Listings' : 'All Listings'}</h2></div>
+          <div className="listing-tabs" role="group" aria-label="Listing collection"><button type="button" aria-pressed={filters.featured === 'all'} onClick={() => setQuery({ featured: 'all' })}>All</button><button type="button" aria-pressed={filters.featured === 'true'} onClick={() => setQuery({ featured: 'true' })}>Featured</button><button type="button" aria-pressed={filters.featured === 'false'} onClick={() => setQuery({ featured: 'false' })}>Recently Published</button></div>
           <div className="listing-tools"><button type="button" className={filtersOpen ? 'filter-button is-open' : 'filter-button'} aria-expanded={filtersOpen} onClick={() => setFiltersOpen((open) => !open)}><SlidersHorizontal size={14} /> Filters</button><span>{counties.length ? `${counties.length} counties` : 'Kenya'}</span><div className="view-toggle" role="group" aria-label="Listing view"><button type="button" aria-label="Grid view" aria-pressed={view === 'grid'} onClick={() => setView('grid')}><LayoutGrid size={15} /></button><button type="button" aria-label="List view" aria-pressed={view === 'list'} onClick={() => setView('list')}><ListIcon size={15} /></button></div></div>
           <form className={`filter-panel${filtersOpen ? ' is-open' : ''}`} onSubmit={submitFilters}>
             <label>County<select name="county" defaultValue={filters.county}><option value="">All counties</option>{counties.map((county) => <option value={county.name} key={county.code}>{county.name}</option>)}</select></label>

@@ -8,6 +8,25 @@ export function getMarketplaceImageStorageReadiness(env: NodeJS.ProcessEnv = pro
   return { status: missingVariables.length ? 'misconfigured' : 'ready', missingVariables }
 }
 
+export function marketplaceImageDeliveryUrl(source: string, width: number): string {
+  try {
+    const url = new URL(source)
+    if (url.protocol !== 'https:' || url.hostname !== 'res.cloudinary.com') return source
+    const segments = url.pathname.split('/')
+    const uploadIndex = segments.indexOf('upload')
+    if (uploadIndex < 0) return source
+    const requestedWidth = Math.max(200, Math.min(2000, Math.round(width)))
+    const transform = `f_auto,q_auto:good,w_${requestedWidth},c_limit`
+    const nextSegment = segments[uploadIndex + 1] ?? ''
+    if (/^(?:f_|q_|w_|c_)/.test(nextSegment)) segments[uploadIndex + 1] = transform
+    else segments.splice(uploadIndex + 1, 0, transform)
+    url.pathname = segments.join('/')
+    return url.toString()
+  } catch {
+    return source
+  }
+}
+
 export class MarketplaceImageStorageError extends Error {
   constructor(readonly reason: 'network' | 'cloud_name' | 'api_key' | 'signature' | 'provider_rejected' | 'invalid_response') {
     super(`Marketplace image storage failed: ${reason}.`)

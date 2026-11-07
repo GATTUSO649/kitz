@@ -7,6 +7,7 @@ import { marketplaceAdminUsers, marketplaceCategories, marketplaceCounties, mark
 import { calculateFeeKes } from './security.js'
 import { parseMarketplaceSocialLinks } from './social-links.js'
 import { enqueueMarketplaceEmail } from '../email/outbox.js'
+import { marketplaceImageDeliveryUrl } from './images.js'
 
 export const marketplaceRouter = Router()
 const productViewLimiter = rateLimit({ windowMs: 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false })
@@ -40,7 +41,7 @@ const listingQuery = z.object({
   publishedAfter: z.coerce.date().optional(),
   publishedBefore: z.coerce.date().optional(),
   negotiable: z.enum(['true', 'false']).optional(),
-  featured: z.enum(['true', 'false']).optional(),
+  featured: z.enum(['true', 'false', 'all']).optional(),
   sort: z.enum(['newest', 'oldest', 'price_low', 'price_high', 'updated']).default('newest'),
   page: z.coerce.number().int().min(1).max(100_000).default(1),
   limit: z.coerce.number().int().min(1).max(48).default(24),
@@ -100,7 +101,7 @@ marketplaceRouter.get('/products', async (request, response, next) => {
     if (filters.publishedAfter) conditions.push(gt(marketplaceProducts.publishedAt, filters.publishedAfter))
     if (filters.publishedBefore) conditions.push(lt(marketplaceProducts.publishedAt, filters.publishedBefore))
     if (filters.negotiable !== undefined) conditions.push(eq(marketplaceProducts.negotiable, filters.negotiable === 'true'))
-    if (filters.featured !== undefined) conditions.push(eq(marketplaceProducts.featured, filters.featured === 'true'))
+    if (filters.featured !== undefined && filters.featured !== 'all') conditions.push(eq(marketplaceProducts.featured, filters.featured === 'true'))
     const orderBy = filters.sort === 'oldest' ? asc(marketplaceProducts.publishedAt)
       : filters.sort === 'price_low' ? asc(marketplaceProducts.priceKes)
         : filters.sort === 'price_high' ? desc(marketplaceProducts.priceKes)
@@ -147,7 +148,7 @@ marketplaceRouter.get('/products', async (request, response, next) => {
         .orderBy(desc(marketplaceProductImages.isPrimary), asc(marketplaceProductImages.sortOrder))
       : []
     const primaryImageByProduct = new Map<string, string>()
-    for (const image of images) if (!primaryImageByProduct.has(image.productId)) primaryImageByProduct.set(image.productId, image.imageUrl)
+    for (const image of images) if (!primaryImageByProduct.has(image.productId)) primaryImageByProduct.set(image.productId, marketplaceImageDeliveryUrl(image.imageUrl, 640))
     const total = Number(countRows[0]?.total ?? 0)
     response.json({
       data: rows.map(({ id, ...row }) => ({ ...row, imageUrl: primaryImageByProduct.get(id) ?? null })),
@@ -217,7 +218,7 @@ marketplaceRouter.get('/products/:slug', async (request, response, next) => {
       subcounty: product.subcounty,
       town: product.town,
     }
-    response.json({ data: { ...publicProduct, contactUnlockFeeKes, images: images.map(({ imageUrl }) => imageUrl) } })
+    response.json({ data: { ...publicProduct, contactUnlockFeeKes, images: images.map(({ imageUrl }) => marketplaceImageDeliveryUrl(imageUrl, 1200)) } })
   } catch (error) {
     next(error)
   }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { getMarketplaceImageStorageReadiness, inspectImage } from './images.js'
+import { getMarketplaceImageStorageReadiness, inspectImage, marketplaceImageDeliveryUrl } from './images.js'
 
 function pngHeader(width: number, height: number) {
   const buffer = Buffer.alloc(24)
@@ -28,4 +28,19 @@ test('image storage readiness reports missing variable names without values', ()
     MARKETPLACE_CLOUDINARY_API_KEY: 'api-key',
     MARKETPLACE_CLOUDINARY_API_SECRET: 'api-secret',
   }), { status: 'ready', missingVariables: [] })
+})
+
+test('Cloudinary delivery URLs request responsive automatic-format images only for owned assets', () => {
+  assert.equal(
+    marketplaceImageDeliveryUrl('https://res.cloudinary.com/demo/image/upload/v123/marketplace/item.jpg', 640),
+    'https://res.cloudinary.com/demo/image/upload/f_auto,q_auto:good,w_640,c_limit/v123/marketplace/item.jpg',
+  )
+  assert.equal(
+    marketplaceImageDeliveryUrl('https://example.com/item.jpg', 640),
+    'https://example.com/item.jpg',
+  )
+  assert.equal(
+    marketplaceImageDeliveryUrl('https://res.cloudinary.com/demo/image/upload/v123/item.jpg', 9000),
+    'https://res.cloudinary.com/demo/image/upload/f_auto,q_auto:good,w_2000,c_limit/v123/item.jpg',
+  )
 })

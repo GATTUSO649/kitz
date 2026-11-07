@@ -70,6 +70,12 @@ test('catalogue rejects invalid pagination before accessing the database', async
   assert.equal((await response.json()).error.code, 'INVALID_QUERY')
 })
 
+test('catalogue accepts the all-listings collection without applying a featured filter', async () => {
+  const response = await fetch(`${origin}/api/v1/marketplace/products?featured=all`)
+  assert.equal(response.status, 503)
+  assert.equal((await response.json()).error.code, 'MARKETPLACE_UNAVAILABLE')
+})
+
 test('catalogue rejects an inverted price range before accessing the database', async () => {
   const response = await fetch(`${origin}/api/v1/marketplace/products?minPrice=20000&maxPrice=10000`)
   assert.equal(response.status, 400)

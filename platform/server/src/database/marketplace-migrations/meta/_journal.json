@@ -43,6 +43,13 @@
       "when": 1793958048256,
       "tag": "0005_central_admin_payments_seller_recovery",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794050339271,
+      "tag": "0006_secret_garia",
+      "breakpoints": true
     }
   ]
 }
