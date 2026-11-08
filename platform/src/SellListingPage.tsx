@@ -208,7 +208,7 @@ export function SellListingPage() {
     <SellerPortalSidebar activeSection="add" menuOpen={menuOpen} onClose={() => setMenuOpen(false)} />
     <div className="seller-dashboard-body">
     <div className="sell-page">
-    <header><button className="seller-menu-button seller-posting-menu-button" type="button" aria-label="Open seller navigation" onClick={() => setMenuOpen((open) => !open)}><Menu size={19} /></button><Link className="market-brand" to="/marketplace" aria-label="MATRIX marketplace"><img src="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /></Link>{sellerProfile ? <Link to="/marketplace/seller">Seller dashboard</Link> : <Link to="/marketplace/seller/login">Seller sign in</Link>}</header>
+    <header><button className="seller-menu-button seller-posting-menu-button" type="button" aria-label="Open seller navigation" onClick={() => setMenuOpen((open) => !open)}><Menu size={19} /></button><Link className="market-brand" to="/marketplace" aria-label="MATRIX marketplace"><img src="/images/matrix-logo-optimized.png" alt="MATRIX" /></Link>{sellerProfile ? <Link to="/marketplace/seller">Seller dashboard</Link> : <Link to="/marketplace/seller/login">Seller sign in</Link>}</header>
     <main className="sell-main">
       <Link to="/marketplace" className="back-link"><ArrowLeft size={15} /> Marketplace</Link>
       <div className="sell-heading"><div><span>MARKETPLACE LISTING</span><h1>{published ? 'Your listing is live' : 'Sell an item'}</h1></div><p>Machakos County · Kenya</p></div>
@@ -263,7 +263,7 @@ export function SubmissionStatusPage() {
     setSearchParams(normalized ? { reference: normalized } : {})
   }
   return <div className="sell-page">
-    <header><Link className="market-brand" to="/marketplace" aria-label="MATRIX marketplace"><img src="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /></Link><Link to="/">Platform home</Link></header>
+    <header><Link className="market-brand" to="/marketplace" aria-label="MATRIX marketplace"><img src="/images/matrix-logo-optimized.png" alt="MATRIX" /></Link><Link to="/">Platform home</Link></header>
     <main className="sell-main"><Link to="/marketplace" className="back-link"><ArrowLeft size={15} /> Marketplace</Link><div className="sell-heading"><div><span>PRIVATE LISTING STATUS</span><h1>Check your listing</h1></div></div>
       <form className="sell-form status-lookup" onSubmit={checkStatus}><label>Listing reference<input required value={reference} onChange={(event) => setReference(event.target.value)} placeholder="MH-0123456789ABCDEF" /></label><button className="sell-primary" type="submit" disabled={loading}>{loading ? <LoaderCircle /> : <>Check status <ArrowRight size={15} /></>}</button>{error && <p className="sell-error" role="alert">{error}</p>}{status && <div className="payment-summary"><div><span>Status</span><strong>{status.status.replaceAll('_', ' ')}</strong></div><div><span>Last updated</span><strong>{new Date(status.updatedAt).toLocaleString('en-KE')}</strong></div>{status.status === 'published' && <Link to={`/marketplace/products/${status.slug}`}>View published listing <ArrowRight size={15} /></Link>}<button type="button" className="sell-secondary" onClick={() => setRetry((value) => value + 1)}>Refresh status</button></div>}</form>
     </main>

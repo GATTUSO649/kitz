@@ -40,7 +40,7 @@ function MarketplaceAdminSidebar({ section, permissions, onLogout }: { section: 
   const link = (target: string, label: string, Icon: typeof LayoutDashboard, href?: string) => <Link className={section === target ? 'active' : ''} to={href ?? `/admin/marketplace/dashboard?section=${target}`} key={`${target}-${label}`}><Icon /><span>{label}</span></Link>
   const group = (title: string, items: ReactNode[]) => <div className="admin-nav-group" key={title}><button type="button" aria-expanded={!collapsedGroups.includes(title)} onClick={() => setCollapsedGroups((current) => current.includes(title) ? current.filter((value) => value !== title) : [...current, title])}><span>{title}</span><ChevronDown aria-hidden="true" /></button>{!collapsedGroups.includes(title) && <div>{items}</div>}</div>
   return <aside className="admin-sidebar">
-    <Link to="/admin/marketplace/dashboard" className="admin-logo" aria-label="MATRIX marketplace administration"><Tags /><img src="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /><span><small>Marketplace Admin</small></span></Link>
+    <Link to="/admin/marketplace/dashboard" className="admin-logo" aria-label="MATRIX marketplace administration"><Tags /><img src="/images/matrix-logo-optimized.png" alt="MATRIX" /><span><small>Marketplace Admin</small></span></Link>
     <nav aria-label="Marketplace administration">
       {group('OVERVIEW', [link('dashboard', 'Dashboard', LayoutDashboard)])}
       {group('MARKETPLACE', [

@@ -9,7 +9,7 @@ import { SellerForgotPasswordPage, SellerLoginPage, SellerPortalPage, SellerRese
 
 const kitzOrigin = import.meta.env.VITE_KITZ_ORIGIN || 'https://kitz.onrender.com'
 const matrixIntroStorageKey = 'matrix-intro-seen'
-const matrixLogoPath = '/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png'
+const matrixLogoPath = '/images/matrix-logo-optimized.png'
 const formatKes = (value: number) => `KSh ${new Intl.NumberFormat('en-KE').format(value)}`
 const normalizeWhatsAppNumber = (value: string) => {
   const digits = value.replace(/\D/g, '')
