@@ -279,7 +279,7 @@ function MarketplaceProductPage() {
 function MatrixIntro({ exiting }: { exiting: boolean }) {
   return <div className={`matrix-intro${exiting ? ' is-exiting' : ''}`} role="dialog" aria-modal="true" aria-label="MATRIX introduction">
     <div className="matrix-intro-content">
-      <span className="matrix-intro-eyebrow">KITCULTURE + MARKETHUB</span>
+      <span className="matrix-intro-eyebrow">KITCULTURE + MATRIX</span>
       <div className="matrix-intro-logo-wrap"><img src={matrixLogoPath} alt="MATRIX" /></div>
       <p className="matrix-intro-tagline">Shop <i /> Connect <i /> Trade</p>
       <div className="matrix-intro-statement">
@@ -323,9 +323,9 @@ function LandingPage() {
 
   return <div className="platform-shell landing-shell">
     <header className="platform-header" inert={introActive} aria-hidden={introActive}>
-      <Link to="/" className="brand-lockup" aria-label="MarketHub home">
+      <Link to="/" className="brand-lockup" aria-label="MATRIX home">
         <span className="brand-bag"><ShoppingBag size={30} strokeWidth={2.6} /></span>
-        <span><strong>Market<span>Hub</span></strong><small>Shop. Discover. More.</small></span>
+        <span><strong>MATRIX</strong><small>Shop. Discover. Trade.</small></span>
       </Link>
       <nav className="landing-nav" aria-label="Main navigation">
         <a className="nav-current" href="#home"><House size={15} />Home</a>
@@ -382,14 +382,14 @@ function LandingPage() {
     </main>
 
     <footer id="about" className="landing-footer" inert={introActive} aria-hidden={introActive}>
-      <Link to="/" className="footer-brand"><span className="brand-bag"><ShoppingBag size={28} /></span><span><strong>Market<span>Hub</span></strong><small>Shop. Discover. More.</small></span></Link>
+      <Link to="/" className="footer-brand"><span className="brand-bag"><ShoppingBag size={28} /></span><span><strong>MATRIX</strong><small>Shop. Discover. Trade.</small></span></Link>
       <p><i />Two Amazing Shopping Experiences.<br />One Powerful Platform.<i /></p>
       <div className="footer-right">
-        <div className="footer-social" role="group" aria-label="MarketHub social networks">
-          {footerSocial.facebookUrl ? <a className="social-facebook" href={footerSocial.facebookUrl} target="_blank" rel="noreferrer" aria-label="MarketHub on Facebook"><FaFacebookF /></a> : <span className="social-facebook" role="img" aria-label="Facebook link not configured"><FaFacebookF /></span>}
-          {footerSocial.xUrl ? <a className="social-x" href={footerSocial.xUrl} target="_blank" rel="noreferrer" aria-label="MarketHub on X"><FaXTwitter /></a> : <span className="social-x" role="img" aria-label="X link not configured"><FaXTwitter /></span>}
-          {footerSocial.youtubeUrl ? <a className="social-youtube" href={footerSocial.youtubeUrl} target="_blank" rel="noreferrer" aria-label="MarketHub on YouTube"><FaYoutube /></a> : <span className="social-youtube" role="img" aria-label="YouTube link not configured"><FaYoutube /></span>}
-          {footerSocial.whatsappUrl ? <a className="social-whatsapp" href={footerSocial.whatsappUrl} target="_blank" rel="noreferrer" aria-label="Message MarketHub on WhatsApp"><FaWhatsapp /></a> : <span className="social-whatsapp" role="img" aria-label="Kenyan WhatsApp number not configured"><FaWhatsapp /></span>}
+        <div className="footer-social" role="group" aria-label="MATRIX social networks">
+          {footerSocial.facebookUrl ? <a className="social-facebook" href={footerSocial.facebookUrl} target="_blank" rel="noreferrer" aria-label="MATRIX on Facebook"><FaFacebookF /></a> : <span className="social-facebook" role="img" aria-label="Facebook link not configured"><FaFacebookF /></span>}
+          {footerSocial.xUrl ? <a className="social-x" href={footerSocial.xUrl} target="_blank" rel="noreferrer" aria-label="MATRIX on X"><FaXTwitter /></a> : <span className="social-x" role="img" aria-label="X link not configured"><FaXTwitter /></span>}
+          {footerSocial.youtubeUrl ? <a className="social-youtube" href={footerSocial.youtubeUrl} target="_blank" rel="noreferrer" aria-label="MATRIX on YouTube"><FaYoutube /></a> : <span className="social-youtube" role="img" aria-label="YouTube link not configured"><FaYoutube /></span>}
+          {footerSocial.whatsappUrl ? <a className="social-whatsapp" href={footerSocial.whatsappUrl} target="_blank" rel="noreferrer" aria-label="Message MATRIX on WhatsApp"><FaWhatsapp /></a> : <span className="social-whatsapp" role="img" aria-label="Kenyan WhatsApp number not configured"><FaWhatsapp /></span>}
         </div>
         <span className="footer-divider" aria-hidden="true" />
         <div className="footer-meta"><span className="kenya-flag" role="img" aria-label="Flag of Kenya"><span className="kenya-shield" /></span><span>Kenya</span></div>
