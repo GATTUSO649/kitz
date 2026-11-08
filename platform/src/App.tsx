@@ -3,13 +3,13 @@ import { FaFacebookF, FaWhatsapp, FaXTwitter, FaYoutube } from 'react-icons/fa6'
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { marketplaceFetch, marketplaceUnavailableEvent } from './api'
+import { SiteImage } from './SiteImages'
 import { SellListingPage, SubmissionStatusPage } from './SellListingPage'
 import { MarketplaceAdminPage } from './MarketplaceAdmin'
 import { SellerForgotPasswordPage, SellerLoginPage, SellerPortalPage, SellerResetPasswordPage, SellerSignupPage, SellerVerifyPage } from './SellerPortal'
 
 const kitzOrigin = import.meta.env.VITE_KITZ_ORIGIN || 'https://kitz.onrender.com'
 const matrixIntroStorageKey = 'matrix-intro-seen'
-const matrixLogoPath = '/images/logo1-optimized.jpg'
 const formatKes = (value: number) => `KSh ${new Intl.NumberFormat('en-KE').format(value)}`
 const normalizeWhatsAppNumber = (value: string) => {
   const digits = value.replace(/\D/g, '')
@@ -219,7 +219,7 @@ function MarketplaceProductPage() {
   }
 
   const productHeader = <header>
-    <Link className="market-brand" to="/marketplace" aria-label="MATRIX marketplace"><img src={matrixLogoPath} alt="MATRIX" /></Link>
+    <Link className="market-brand" to="/marketplace" aria-label="MATRIX marketplace"><SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /></Link>
     <Link to="/">Platform home</Link>
   </header>
   if (loading) return <div className="product-page">{productHeader}<main><div className="catalogue-message">Loading listing…</div></main></div>
@@ -286,7 +286,7 @@ function MatrixIntro({ exiting }: { exiting: boolean }) {
           <path className="matrix-logo-m-trace" d="M160 500 300 145 465 425 675 145 810 500" />
           <ellipse className="matrix-logo-ring-trace" cx="480" cy="320" rx="438" ry="170" transform="rotate(-17 480 320)" />
         </svg>
-        <img src={matrixLogoPath} alt="MATRIX" />
+        <SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" />
       </div>
       <p className="matrix-intro-tagline">Shop <i /> Connect <i /> Trade</p>
       <div className="matrix-intro-statement">
@@ -331,7 +331,7 @@ function LandingPage() {
   return <div className="platform-shell landing-shell">
     <header className="platform-header" inert={introActive} aria-hidden={introActive}>
       <Link to="/" className="brand-lockup" aria-label="MATRIX home">
-        <img src={matrixLogoPath} alt="MATRIX" />
+        <SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" />
       </Link>
       <nav className="landing-nav" aria-label="Main navigation">
         <a className="nav-current" href="#home"><House size={15} />Home</a>
@@ -351,7 +351,7 @@ function LandingPage() {
 
       <section className="destination-grid" aria-label="Choose a website">
         <article className="destination-card kits-card">
-          <img src="/images/the%20kits.png" alt="Football shirts in a stadium under match lights" loading="eager" decoding="async" fetchPriority="high" width="640" height="480" />
+          <SiteImage slot="platform-kits-card" fallback="/images/the%20kits.png" alt="Football shirts in a stadium under match lights" loading="eager" decoding="async" fetchPriority="high" width="640" height="480" />
           <div className="card-shade" />
           <div className="destination-content">
             <span className="destination-tag"><span className="football-mark">●</span> Football Kits</span>
@@ -365,7 +365,7 @@ function LandingPage() {
         </article>
 
         <article className="destination-card market-card">
-          <img src="/images/second%20hand.png" alt="A collection of second-hand products for sale" loading="eager" decoding="async" fetchPriority="high" width="640" height="480" />
+          <SiteImage slot="platform-marketplace-card" fallback="/images/second%20hand.png" alt="A collection of second-hand products for sale" loading="eager" decoding="async" fetchPriority="high" width="640" height="480" />
           <div className="card-shade" />
           <div className="destination-content">
             <span className="destination-tag"><ShoppingBag size={14} /> Second-Hand</span>
@@ -388,7 +388,7 @@ function LandingPage() {
     </main>
 
     <footer id="about" className="landing-footer" inert={introActive} aria-hidden={introActive}>
-      <Link to="/" className="footer-brand" aria-label="MATRIX home"><img src={matrixLogoPath} alt="MATRIX" /></Link>
+      <Link to="/" className="footer-brand" aria-label="MATRIX home"><SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /></Link>
       <p><i />Two Amazing Shopping Experiences.<br />One Powerful Platform.<i /></p>
       <div className="footer-right">
         <div className="footer-social" role="group" aria-label="MATRIX social networks">
@@ -501,7 +501,7 @@ function MarketplaceHome() {
   }
   return <div className="marketplace-shell">
     <header className="marketplace-header">
-      <Link to="/" className="market-brand" aria-label="MATRIX home"><img src={matrixLogoPath} alt="MATRIX" /></Link>
+      <Link to="/" className="market-brand" aria-label="MATRIX home"><SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /></Link>
       <nav aria-label="Marketplace navigation"><Link className="market-home" to="/marketplace#top"><House size={15} />Home</Link><Link to="/marketplace?featured=all#products" aria-current={!search && filters.featured === 'all' ? 'page' : undefined}>All Products</Link><Link to="/marketplace?featured=false&sort=newest#products" aria-current={filters.featured === 'false' ? 'page' : undefined}>Recently Published</Link><Link to="/marketplace?featured=true#products" aria-current={filters.featured === 'true' ? 'page' : undefined}>Featured</Link></nav>
       <div className="market-actions"><Link className="sell-link" to="/marketplace/seller/login">+ <span>Sell item</span></Link></div>
     </header>
@@ -556,14 +556,14 @@ function MarketplaceHome() {
       </section>
       <section id="locations" className="market-trust"><span><ShieldCheck /><b>Secure &amp; Trusted</b><small>Your safety comes first</small></span><span><Zap /><b>Fast &amp; Easy</b><small>List or find items quickly</small></span><span><MapPin /><b>Across Kenya</b><small>From Machakos to all counties</small></span><span><BadgeCheck /><b>Direct Connections</b><small>Connect with confidence</small></span></section>
     </main>
-    <footer className="market-footer"><Link to="/" className="market-footer-brand" aria-label="MATRIX home"><img src={matrixLogoPath} alt="MATRIX" /></Link><span className="market-footer-links"><Link to="/privacy">Privacy</Link><Link to="/terms">Terms</Link><a href="mailto:hello@markethub.co.ke"><Mail size={14} /> Email</a>{footerSocial.whatsappPhone && <a href={`tel:${footerSocial.whatsappPhone}`}><Phone size={14} /> {footerSocial.whatsappPhone}</a>}</span><span className="market-footer-social" aria-label="MarketHub social accounts">{footerSocial.facebookUrl && <a href={footerSocial.facebookUrl} target="_blank" rel="noreferrer" aria-label="Facebook"><FaFacebookF /></a>}{footerSocial.xUrl && <a href={footerSocial.xUrl} target="_blank" rel="noreferrer" aria-label="X"><FaXTwitter /></a>}{footerSocial.youtubeUrl && <a href={footerSocial.youtubeUrl} target="_blank" rel="noreferrer" aria-label="YouTube"><FaYoutube /></a>}{footerSocial.whatsappUrl && <a href={footerSocial.whatsappUrl} target="_blank" rel="noreferrer" aria-label="WhatsApp"><FaWhatsapp /></a>}</span><small>© {new Date().getFullYear()} MarketHub Kenya</small></footer>
+    <footer className="market-footer"><Link to="/" className="market-footer-brand" aria-label="MATRIX home"><SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /></Link><span className="market-footer-links"><Link to="/privacy">Privacy</Link><Link to="/terms">Terms</Link><a href="mailto:hello@markethub.co.ke"><Mail size={14} /> Email</a>{footerSocial.whatsappPhone && <a href={`tel:${footerSocial.whatsappPhone}`}><Phone size={14} /> {footerSocial.whatsappPhone}</a>}</span><span className="market-footer-social" aria-label="MarketHub social accounts">{footerSocial.facebookUrl && <a href={footerSocial.facebookUrl} target="_blank" rel="noreferrer" aria-label="Facebook"><FaFacebookF /></a>}{footerSocial.xUrl && <a href={footerSocial.xUrl} target="_blank" rel="noreferrer" aria-label="X"><FaXTwitter /></a>}{footerSocial.youtubeUrl && <a href={footerSocial.youtubeUrl} target="_blank" rel="noreferrer" aria-label="YouTube"><FaYoutube /></a>}{footerSocial.whatsappUrl && <a href={footerSocial.whatsappUrl} target="_blank" rel="noreferrer" aria-label="WhatsApp"><FaWhatsapp /></a>}</span><small>© {new Date().getFullYear()} MarketHub Kenya</small></footer>
   </div>
 }
 
 function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
   const isTerms = kind === 'terms'
   return <main className="marketplace-shell legal-page">
-    <header className="marketplace-header"><Link to="/marketplace" className="market-brand" aria-label="MATRIX marketplace"><img src={matrixLogoPath} alt="MATRIX" /></Link><Link to="/marketplace">Back to marketplace</Link></header>
+    <header className="marketplace-header"><Link to="/marketplace" className="market-brand" aria-label="MATRIX marketplace"><SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /></Link><Link to="/marketplace">Back to marketplace</Link></header>
     <article>
       <p className="hero-eyebrow">MARKETHUB KENYA</p>
       <h1>{isTerms ? 'Terms & Conditions' : 'Privacy Statement'}</h1>

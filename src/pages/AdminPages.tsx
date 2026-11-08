@@ -7,6 +7,7 @@ import { Activity, AlertTriangle, ArrowRight, ArrowUpDown, BarChart3, Bell, Chec
 import { GoogleMapView } from '../components/GoogleMapView'
 import '../role-portal-theme.css'
 import { matchesNationalTeam, NATIONAL_TEAM_NAMES } from '../nationalTeams'
+import { siteImageSlots, siteImagesQueryKey, type SiteImageSlotKey } from '../siteImages'
 
 type AdminRecord = Record<string, unknown>
 type AdminPayload<T> = { data?: T; error?: { code?: string; message?: string }; pagination?: { limit: number; nextCursor: number | null; hasMore: boolean } }
@@ -1254,6 +1255,83 @@ const homepageSlideDestinations = [
   { label: 'Shopping bag', value: '/cart' },
 ]
 
+function SiteImagesManager() {
+  const queryClient = useQueryClient()
+  const imagesQuery = useQuery({
+    queryKey: ['admin', 'homepage', 'site-images'],
+    queryFn: () => api<Record<string, string>>('/api/v1/admin/homepage/site-images'),
+    retry: false,
+  })
+  const [busySlot, setBusySlot] = useState<SiteImageSlotKey | null>(null)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+
+  async function upload(slot: SiteImageSlotKey, file: File | undefined) {
+    if (!file) return
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 8 * 1024 * 1024) {
+      setError('Choose a JPEG, PNG, or WebP image no larger than 8 MB.')
+      setNotice('')
+      return
+    }
+    setBusySlot(slot)
+    setError('')
+    setNotice('')
+    try {
+      await api(`/api/v1/admin/homepage/site-images/${slot}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: file,
+      })
+      await Promise.all([
+        imagesQuery.refetch(),
+        queryClient.invalidateQueries({ queryKey: siteImagesQueryKey }),
+      ])
+      setNotice('Image updated and optimized for delivery.')
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Image upload failed.')
+    } finally {
+      setBusySlot(null)
+    }
+  }
+
+  async function reset(slot: SiteImageSlotKey) {
+    setBusySlot(slot)
+    setError('')
+    setNotice('')
+    try {
+      await api(`/api/v1/admin/homepage/site-images/${slot}`, { method: 'DELETE' })
+      await Promise.all([
+        imagesQuery.refetch(),
+        queryClient.invalidateQueries({ queryKey: siteImagesQueryKey }),
+      ])
+      setNotice('Bundled default restored.')
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Default image could not be restored.')
+    } finally {
+      setBusySlot(null)
+    }
+  }
+
+  return <section className="admin-site-images" aria-labelledby="admin-site-images-title">
+    <header><div><span className="admin-kicker">SITE IMAGE LIBRARY</span><h2 id="admin-site-images-title">Static site images</h2><p>Replace hardcoded marketing and portal images. Uploads are optimized and served from the image CDN.</p></div><span>{siteImageSlots.length} image slots</span></header>
+    {imagesQuery.isError && <p className="admin-error" role="alert">{imagesQuery.error.message}</p>}
+    <div className="admin-site-image-list">
+      {siteImageSlots.map((slot) => {
+        const imageUrl = imagesQuery.data?.[slot.key]
+        const busy = busySlot === slot.key
+        return <article key={slot.key}>
+          <div className="admin-site-image-preview">{imageUrl ? <img src={imageUrl} alt={`${slot.label} preview`} /> : <span>Bundled default</span>}</div>
+          <div className="admin-site-image-copy"><strong>{slot.label}</strong><small>{slot.description}</small><small>{imageUrl ? 'Custom image active' : 'Using the bundled image'}</small></div>
+          <label className="admin-icon-action"><Upload size={15} />{busy ? 'Uploading…' : 'Upload'}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} onChange={(event) => { void upload(slot.key, event.currentTarget.files?.[0]); event.currentTarget.value = '' }} /></label>
+          {imageUrl && <button className="admin-icon-action is-danger" type="button" disabled={busy} onClick={() => void reset(slot.key)} aria-label={`Restore bundled ${slot.label}`}><Trash2 size={15} />Restore default</button>}
+        </article>
+      })}
+    </div>
+    {error && <p className="admin-error" role="alert">{error}</p>}
+    {notice && <p className="admin-success" role="status">{notice}</p>}
+  </section>
+}
+
 function HomepageSlidesManager({ slides, onDone }: { slides: HomepageSlide[]; onDone: () => Promise<void> }) {
   const queryClient = useQueryClient()
   const brandLogoQuery = useQuery({
@@ -1449,6 +1527,7 @@ function HomepageSlidesManager({ slides, onDone }: { slides: HomepageSlide[]; on
       {logoStatus && <p className="admin-success" role="status">{logoStatus}</p>}
       {logoBusy && <p className="admin-form-note" role="status">Uploading logo…</p>}
     </section>
+    <SiteImagesManager />
     <div className="admin-slideshow-intro"><div><span className="admin-kicker">HOMEPAGE CREATIVE</span><h2>Build the hero slideshow</h2><p>Published slides appear automatically on the home page. The button destination only controls where each call to action leads.</p></div><span className="admin-slideshow-count">{imageUrls.length} / 20 selected</span></div>
     <form key={editing?.id ?? 'new'} className="admin-create-form admin-slideshow-form" onSubmit={(event) => void save(event)}>
       <h2>{editing ? 'Edit slide' : 'Slide content'}</h2>

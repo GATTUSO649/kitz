@@ -446,6 +446,21 @@
 .admin-icon-action:hover,.admin-icon-action.is-primary{border-color:#8cb79b;color:var(--green-dark)}
 .admin-icon-action.is-danger{color:#9c3528}
 .admin-homepage-manager{display:grid;gap:18px}
+.admin-site-images{border:1px solid var(--dark-border);background:var(--dark-surface);padding:16px;color:var(--dark-text)}
+.admin-site-images>header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:12px}
+.admin-site-images>header h2{margin:5px 0;color:var(--dark-text);font-family:var(--display);font-size:17px}
+.admin-site-images>header p{max-width:680px;margin:4px 0;color:var(--dark-muted);font-size:10px;line-height:1.55}
+.admin-site-images>header>span{color:var(--dark-muted);font-size:10px;white-space:nowrap}
+.admin-site-image-list{display:grid}
+.admin-site-image-list>article{display:grid;grid-template-columns:92px minmax(0,1fr) auto auto;align-items:center;gap:12px;border-top:1px solid var(--dark-border);padding:9px 0}
+.admin-site-image-preview{display:grid;width:92px;height:58px;place-items:center;overflow:hidden;border:1px solid var(--dark-border);background:#101d2d;color:var(--dark-muted);font-size:9px}
+.admin-site-image-preview img{width:100%;height:100%;object-fit:cover}
+.admin-site-image-copy{display:grid;min-width:0;gap:4px}
+.admin-site-image-copy strong{font-size:11px}
+.admin-site-image-copy small{color:var(--dark-muted);font-size:9px;line-height:1.4}
+.admin-site-image-list .admin-icon-action{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:32px;padding:5px 8px;white-space:nowrap}
+.admin-site-image-list input[type=file]{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;clip-path:inset(50%)}
+@media(max-width:700px){.admin-site-images{padding:12px}.admin-site-image-list>article{grid-template-columns:72px minmax(0,1fr) auto;gap:8px}.admin-site-image-preview{width:72px;height:50px}.admin-site-image-list>article>.admin-icon-action:last-child:not(:nth-child(3)){grid-column:3;grid-row:2}.admin-site-images>header{flex-direction:column}}
 .admin-homepage-manager>.admin-create-form{margin-top:0}
 .admin-brand-logo-manager{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(180px,250px);align-items:center;gap:14px;padding:15px 18px;border:1px solid var(--dark-border);background:var(--dark-surface);color:var(--dark-text)}
 .admin-brand-logo-manager h2{margin:4px 0;color:var(--dark-text);font-family:var(--display);font-size:16px}

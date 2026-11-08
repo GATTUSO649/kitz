@@ -7,7 +7,7 @@ process.env.CLIENT_ORIGIN = 'http://localhost:5173'
 
 const { mysqlSslOptions, supabaseSslOptions } = await import('../../config/database.js')
 const { normalizeCaPem } = await import('../../config/postgres-ssl.mjs')
-const { isAllowedClientOrigin, productionDatabaseTlsConfigurationErrors, productionDarajaConfigurationErrors, resolveDarajaEnvironment, resolveDarajaTransactionType } = await import('../../config/env.js')
+const { env, isAllowedClientOrigin, isAllowedSiteImageOrigin, productionDatabaseTlsConfigurationErrors, productionDarajaConfigurationErrors, resolveDarajaEnvironment, resolveDarajaTransactionType } = await import('../../config/env.js')
 const { bcryptPasswordSchema, verifyPassword } = await import('../../config/password-policy.js')
 const { adminIdleTimeoutMs, adminLoginSchema, invalidAdminCredentialsMessage, matchesAdminSignupSecret } = await import('../admin/auth.js')
 const { classifyOperationsDatabaseFailure, probeDatabase } = await import('../operations/routes.js')
@@ -20,6 +20,7 @@ const { createAddressSchema, passwordSchema, productReviewSchema, profileSchema,
 const { adminNotificationSchema, canTransitionOrderStatus, createProductSchema, homepageSlideBatchSchema, homepageSlideSchema, isDuplicateKeyError, settingsSchema, supportUpdateSchema } = await import('../admin/routes.js')
 const { hasItPermission, hasOperationsRoutePermission, operationsPermissionForRoute } = await import('../admin/it-access.js')
 const { detectImageFormat } = await import('../admin/image-storage.js')
+const { isSiteImageUrl, siteImageSlotKeys } = await import('../site-images.js')
 
 test('registration normalizes email and accepts a long password', () => {
   const result = registerSchema.safeParse({
@@ -76,6 +77,26 @@ test('bcrypt password validation accepts long passphrases but rejects inputs ove
 test('development accepts the configured Vite fallback port 5175', () => {
   assert.equal(isAllowedClientOrigin('http://localhost:5175'), true)
   assert.equal(isAllowedClientOrigin('http://localhost:5176'), false)
+})
+
+test('only the configured MarketHub origin can read public site-image settings', () => {
+  const previousOrigin = env.MARKETHUB_PUBLIC_URL
+  env.MARKETHUB_PUBLIC_URL = 'https://market.example.test'
+  try {
+    assert.equal(isAllowedClientOrigin('https://market.example.test'), false)
+    assert.equal(isAllowedSiteImageOrigin('https://market.example.test'), true)
+    assert.equal(isAllowedSiteImageOrigin('https://market.example.test.attacker.invalid'), false)
+  } finally {
+    env.MARKETHUB_PUBLIC_URL = previousOrigin
+  }
+})
+
+test('site image overrides accept only HTTPS Cloudinary assets and known image slots', () => {
+  assert.ok(siteImageSlotKeys.includes('platform-brand-logo'))
+  assert.equal(isSiteImageUrl('https://res.cloudinary.com/demo/image/upload/logo.png'), true)
+  assert.equal(isSiteImageUrl('http://res.cloudinary.com/demo/image/upload/logo.png'), false)
+  assert.equal(isSiteImageUrl('https://res.cloudinary.com.attacker.invalid/demo/logo.png'), false)
+  assert.equal(isSiteImageUrl('https://user:pass@res.cloudinary.com/demo/logo.png'), false)
 })
 
 test('database sessions use bounded customer, administrator, and operations idle policies', () => {

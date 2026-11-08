@@ -7,6 +7,7 @@ import { inspectDatabaseError } from '../../config/database-diagnostics.js'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { applicationSettings, categories, homepageSlides, jerseyCategories, leagues, orderItems, orders, productImages, productRatings, productReviews, productVariants, products, productVideos, teams } from '../../database/schema.js'
 import { isDarajaConfigured, resolveDarajaShortcodes } from '../orders/daraja.js'
+import { isSiteImageUrl, siteImageSlotKeys } from '../site-images.js'
 
 export const catalogueRouter = Router()
 const productRatingLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false })
@@ -90,7 +91,19 @@ catalogueRouter.get('/store/branding', async (_request, response) => {
   response.json({ data: { logoUrl } })
 })
 
-catalogueRouter.get('/store/payment-options', async (_request, response) => {
+  catalogueRouter.get('/store/site-images', async (_request, response) => {
+    if (!db) return response.status(503).json({ error: { code: 'SITE_IMAGES_UNAVAILABLE', message: 'Site images are unavailable.' } })
+    const settings = await db.select({ key: applicationSettings.key, value: applicationSettings.value }).from(applicationSettings)
+      .where(inArray(applicationSettings.key, siteImageSlotKeys.map((slot) => `siteImage:${slot}`)))
+    const images = Object.fromEntries(settings.flatMap(({ key, value }) => {
+      const slot = key.replace(/^siteImage:/, '')
+      return siteImageSlotKeys.includes(slot as typeof siteImageSlotKeys[number]) && isSiteImageUrl(value) ? [[slot, value]] : []
+    }))
+    response.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=300')
+    response.json({ data: images })
+  })
+
+  catalogueRouter.get('/store/payment-options', async (_request, response) => {
   if (!db) return response.status(503).json({ error: { code: 'PAYMENT_OPTIONS_UNAVAILABLE', message: 'Payment options are unavailable.' } })
   const settings = await db.select({ key: applicationSettings.key, value: applicationSettings.value }).from(applicationSettings)
     .where(inArray(applicationSettings.key, ['mpesaTillName', 'mpesaTillNumber', 'mpesaMobileNumber']))

@@ -11,7 +11,8 @@ import { applicationSettings, categories, deliveryZones, expenseCategories, expe
 import { authenticateAdmin, authenticatedAdmin } from '../../middleware/authenticate.js'
 import { isCustomerOnline, publishChatMessage, publishMessageReceipt, registerAdminStream } from '../../realtime/chat-events.js'
 import { recordAdminAudit } from './auth.js'
-import { deleteProductImage, ImageStorageError, uploadBrandLogoImage, uploadHomepageSlideImage, uploadProductImage } from './image-storage.js'
+import { deleteProductImage, ImageStorageError, uploadBrandLogoImage, uploadHomepageSlideImage, uploadProductImage, uploadSiteImage } from './image-storage.js'
+import { isSiteImageUrl, siteImageSlotKeys } from '../site-images.js'
 import { buildAdminDashboardReport, reportPeriods, resolveOptionalDateRange, resolveReportingRange } from './reporting.js'
 import { hasItPermission, itPermissions, type ItPermission } from './it-access.js'
 import { getRequestMetrics } from '../../middleware/request-metrics.js'
@@ -544,7 +545,45 @@ adminRouter.post('/homepage/logo', express.raw({ type: 'application/octet-stream
   }
 })
 
-adminRouter.post('/homepage/slides/image', express.raw({ type: 'application/octet-stream', limit: '8mb' }), async (request, response) => {
+  adminRouter.get('/homepage/site-images', async (_request, response) => {
+    if (!db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Homepage image settings are unavailable.' } })
+    const settings = await db.select({ key: applicationSettings.key, value: applicationSettings.value }).from(applicationSettings)
+      .where(inArray(applicationSettings.key, siteImageSlotKeys.map((slot) => `siteImage:${slot}`)))
+    const images = Object.fromEntries(settings.flatMap(({ key, value }) => {
+      const slot = key.replace(/^siteImage:/, '')
+      return siteImageSlotKeys.includes(slot as typeof siteImageSlotKeys[number]) && isSiteImageUrl(value) ? [[slot, value]] : []
+    }))
+    response.json({ data: images })
+  })
+
+  adminRouter.post('/homepage/site-images/:slot', express.raw({ type: 'application/octet-stream', limit: '8mb' }), async (request, response) => {
+    const slot = z.enum(siteImageSlotKeys).safeParse(request.params.slot)
+    if (!slot.success || !Buffer.isBuffer(request.body)) return response.status(400).json({ error: { code: 'INVALID_SITE_IMAGE', message: 'Choose a supported site image and a JPEG, PNG, or WebP file.' } })
+    if (!db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Homepage image settings are unavailable.' } })
+    try {
+      const asset = await uploadSiteImage(slot.data, request.body)
+      await db.insert(applicationSettings).values({ key: `siteImage:${slot.data}`, value: asset.secure_url, updatedBy: null })
+        .onConflictDoUpdate({ target: applicationSettings.key, set: { value: asset.secure_url, updatedBy: null } })
+      const actor = authenticatedAdmin(request)
+      if (actor) await recordAdminAudit(actor.id, 'homepage.site_image_updated', 'site_image', slot.data)
+      response.status(201).json({ data: { slot: slot.data, imageUrl: asset.secure_url } })
+    } catch (error) {
+      if (!(error instanceof ImageStorageError)) throw error
+      response.status(error.statusCode).json({ error: { code: 'IMAGE_UPLOAD_FAILED', message: error.message } })
+    }
+  })
+
+  adminRouter.delete('/homepage/site-images/:slot', async (request, response) => {
+    const slot = z.enum(siteImageSlotKeys).safeParse(request.params.slot)
+    if (!slot.success) return response.status(400).json({ error: { code: 'INVALID_SITE_IMAGE', message: 'Choose a supported site image.' } })
+    if (!db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Homepage image settings are unavailable.' } })
+    await db.delete(applicationSettings).where(eq(applicationSettings.key, `siteImage:${slot.data}`))
+    const actor = authenticatedAdmin(request)
+    if (actor) await recordAdminAudit(actor.id, 'homepage.site_image_reset', 'site_image', slot.data)
+    response.status(204).end()
+  })
+
+  adminRouter.post('/homepage/slides/image', express.raw({ type: 'application/octet-stream', limit: '8mb' }), async (request, response) => {
   if (!Buffer.isBuffer(request.body)) return response.status(400).json({ error: { code: 'INVALID_IMAGE_UPLOAD', message: 'Choose a JPEG, PNG, or WebP image.' } })
   try {
     const asset = await uploadHomepageSlideImage(request.body)

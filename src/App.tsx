@@ -13,6 +13,7 @@ import './public-theme.css'
 import './admin-theme.css'
 import './customer-portal-theme.css'
 import './kitculture-visual-theme.css'
+import './site-images.css'
 import type { BuyNowCheckoutDetails, ShopProduct, ShopPurchaseSelection, ShopVariant } from './pages/ShopPages'
 import { ProductCategoryLine } from './components/ProductCategoryLine'
 import { GoogleMapView } from './components/GoogleMapView'
@@ -23,6 +24,7 @@ import { AuthLayout } from './layouts/AuthLayout'
 import { DelayedBrandLoader } from './components/BrandLoader'
 import { useNotifications, userFacingErrorMessage } from './components/notification-api'
 import { StoreImage } from './components/StoreImage'
+import { SiteImage } from './components/SiteImages'
 import { WhatsAppProductLink } from './components/WhatsAppProductLink'
 import { useStoreWhatsAppNumber } from './components/whatsapp-product'
 
@@ -1017,7 +1019,7 @@ function App() {
             <div className="hero-footnote"><span className="live-dot" /> Machakos-born. Matchday-ready.</div>
           </div>
           <div className="hero-image hero-kit-image" role="img" aria-label="Featured football kit from the KitCulture catalogue">
-            <img className="hero-stadium-photo" src="https://www.fanzonett.com/cdn/shop/files/football_jerseys_560x438.jpg?v=1650496524" alt="Football jerseys" />
+            <SiteImage className="hero-stadium-photo" slot="kitz-home-hero" fallback="https://www.fanzonett.com/cdn/shop/files/football_jerseys_560x438.jpg?v=1650496524" alt="Football jerseys" />
             <div className="hero-image-shade" />
             <div className="hero-image-caption"><span>01 / THE KIT</span><span>Wear your colours</span></div>
           </div>

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { env } from '../../config/env.js'
+import type { SiteImageSlot } from '../site-images.js'
 import { recordProviderMeasurement } from '../operations/monitoring-recorder.js'
 
 const maxImageBytes = 8 * 1024 * 1024
@@ -102,6 +103,14 @@ export function uploadHomepageSlideImage(bytes: Buffer): Promise<CloudinaryAsset
 
 export function uploadBrandLogoImage(bytes: Buffer): Promise<CloudinaryAsset> {
   return uploadImage('kitculture/branding', `brand-logo-${crypto.randomUUID()}`, bytes)
+}
+
+export async function uploadSiteImage(slot: SiteImageSlot, bytes: Buffer): Promise<CloudinaryAsset> {
+  const asset = await uploadImage('kitculture/site-images', `site-${slot}-${crypto.randomUUID()}`, bytes)
+  return {
+    ...asset,
+    secure_url: asset.secure_url.replace('/image/upload/', '/image/upload/f_auto,q_auto:good,w_1920,c_limit/'),
+  }
 }
 
 export async function deleteProductImage(publicId: string): Promise<void> {

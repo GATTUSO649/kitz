@@ -222,3 +222,13 @@ export function isAllowedClientOrigin(origin: string | undefined): boolean {
     return false
   }
 }
+
+export function isAllowedSiteImageOrigin(origin: string | undefined): boolean {
+  if (isAllowedClientOrigin(origin)) return true
+  if (!origin || !env.MARKETHUB_PUBLIC_URL) return false
+  try {
+    return new URL(origin).origin === new URL(env.MARKETHUB_PUBLIC_URL).origin
+  } catch {
+    return false
+  }
+}

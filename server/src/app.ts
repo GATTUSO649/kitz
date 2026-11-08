@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { rateLimit } from 'express-rate-limit'
 import helmet from 'helmet'
 import { pinoHttp } from 'pino-http'
-import { env, isAllowedClientOrigin } from './config/env.js'
+import { env, isAllowedClientOrigin, isAllowedSiteImageOrigin } from './config/env.js'
 import { adminPool, pool } from './config/database.js'
 import { inspectDatabaseError } from './config/database-diagnostics.js'
 import { logger } from './config/logger.js'
@@ -55,6 +55,14 @@ app.use(cors({
   credentials: true,
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
 }))
+app.use('/api/v1/store/site-images', (request, response, next) => {
+  const origin = request.get('origin')
+  if (request.method === 'GET' && origin && isAllowedSiteImageOrigin(origin)) {
+    response.setHeader('Access-Control-Allow-Origin', origin)
+    response.vary('Origin')
+  }
+  next()
+})
 app.use(express.json({ limit: '100kb', strict: true }))
 app.use(pinoHttp({ logger, autoLogging: { ignore: (request) => request.url.startsWith('/health/') || request.url === '/health' } }))
 app.use(requestMetrics)

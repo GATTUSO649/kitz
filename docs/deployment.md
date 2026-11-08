@@ -45,6 +45,8 @@ SMTP_REQUIRE_TLS=true
 EMAIL_FROM=<verified sender used by Kitz and MarketHub>
 ```
 
+For Content Admin's static site-image library, set `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` on the Kitz server. Set Kitz `MARKETHUB_PUBLIC_URL` to the exact HTTPS MarketHub origin and the platform build-time `VITE_KITZ_ORIGIN` to the Kitz origin. This allows MarketHub to read only the public image map; uploads and resets remain authenticated Kitz Content Admin actions. Uploaded images use Cloudinary automatic format/quality delivery with a 1920-pixel maximum width. The existing homepage slide, product, marketplace listing, and logo managers remain separate.
+
 Set Kitz build-time `VITE_MARKETHUB_ORIGIN=https://<markethub-host>` so `/admin/access` links to the separate service.
 
 MarketHub server environment:

@@ -6,6 +6,7 @@ import { after, before, test } from 'node:test'
 process.env.NODE_ENV = 'development'
 process.env.PORT = '4000'
 process.env.CLIENT_ORIGIN = 'http://localhost:5173'
+process.env.MARKETHUB_PUBLIC_URL = 'https://market.example.test'
 process.env.DATABASE_URL = 'postgresql://test:test@127.0.0.1:1/kitculture'
 process.env.ADMIN_DATABASE_URL = 'postgresql://test:test@127.0.0.1:1/kitculture_admin'
 process.env.MARKETHUB_SERVICE_TOKEN = 'a'.repeat(48)
@@ -262,6 +263,21 @@ test('administrator ecosystem mutations reject cross-origin requests before auth
   })
   assert.equal(response.status, 403)
   assert.equal((await response.json() as { error: { code: string } }).error.code, 'ORIGIN_REJECTED')
+})
+
+test('MarketHub can read public site images but cannot use Kitz admin writes', async () => {
+  const origin = 'https://market.example.test'
+  const read = await fetch(`${baseUrl}/api/v1/store/site-images`, { headers: { origin } })
+  assert.equal(read.headers.get('access-control-allow-origin'), origin)
+
+  const write = await fetch(`${baseUrl}/api/v1/admin/homepage/site-images/platform-brand-logo`, {
+    method: 'POST',
+    headers: { origin, 'content-type': 'application/octet-stream' },
+    body: Buffer.from('not-an-image'),
+  })
+  assert.equal(write.status, 403)
+  assert.equal(write.headers.get('access-control-allow-origin'), null)
+  assert.equal((await write.json() as { error: { code: string } }).error.code, 'ORIGIN_REJECTED')
 })
 
 test('MarketHub service authentication endpoints reject ordinary browser requests', async () => {

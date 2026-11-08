@@ -1,0 +1,31 @@
+.portal-shell {
+  background-image: var(--site-image-kitz-portal-background, url('https://i.pinimg.com/736x/81/13/c2/8113c26c3d058b2beef401b32e1d3bde.jpg'));
+}
+
+.hero-jersey img {
+  content: var(--site-image-kitz-home-jersey-lineup, url('./assets/football_jerseys_560x438.jpg'));
+}
+
+.admin-login-page .admin-auth-content {
+  background-image: linear-gradient(135deg, #071521bb, #071521a6), var(--site-image-kitz-admin-background, url('https://resizer.ladbiblegroup.com/unsafe/rs:fit:3840:0:0:0/g:sm/q:70/aHR0cHM6Ly9ldS1pbWFnZXMuY29udGVudHN0YWNrLmNvbS92My9hc3NldHMvYmx0Y2Q3NGFjYzFkMGE5OWYzYS9ibHQ5MTRjNDBkZmU5YzQ5NjVlLzZhNTYxMzI4NTllN2IxN2JhZTg5OTA1Ny93b3djaGVyX215c3RlcnlfZm9vdGJhbGxfc2hpcnRzLndlYnA.webp'));
+}
+
+.auth-layout > .auth-brand-panel {
+  background-image: var(--site-image-kitz-auth-background, url('https://resizer.ladbiblegroup.com/unsafe/rs:fit:3840:0:0:0/g:sm/q:70/aHR0cHM6Ly9ldS1pbWFnZXMuY29udGVudHN0YWNrLmNvbS92My9hc3NldHMvYmx0Y2Q3NGFjYzFkMGE5OWYzYS9ibHQ5MTRjNDBkZmU5YzQ5NjVlLzZhNTYxMzI4NTllN2IxN2JhZTg5OTA1Ny93b3djaGVyX215c3RlcnlfZm9vdGJhbGxfc2hpcnRzLndlYnA.webp'));
+}
+
+.auth-content {
+  background-image: linear-gradient(135deg, rgb(9 16 12 / 88%), rgb(12 22 15 / 66%)), var(--site-image-kitz-auth-form-background, url('https://www.soccerbible.com/media/148938/prem-kits-1-min.jpg'));
+}
+
+.collection-image {
+  background-image: var(--site-image-kitz-collection-background, url('https://images.unsplash.com/photo-1574629810360-7efbbe195018?auto=format&fit=crop&w=1300&q=85'));
+}
+
+.portal-shell .customer-portal-content:has(.portal-metrics) > .portal-page-header {
+  background-image: linear-gradient(90deg, #04132bf7 0%, #061b3ad9 50%, #061b3a26 100%), var(--site-image-kitz-story-background, url('./assets/ghjkhgfds.png'));
+}
+
+.auth-layout .auth-card-side {
+  background-image: linear-gradient(180deg, #04132b50, #04132be8), var(--site-image-kitz-story-background, url('./assets/ghjkhgfds.png'));
+}

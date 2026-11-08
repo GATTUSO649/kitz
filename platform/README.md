@@ -12,6 +12,8 @@ This application is intentionally independent from the protected KitCulture/Kitz
 - `/marketplace/products/:slug` is a public listing detail page. Seller contact is returned only by the protected entitlement endpoint after verified contact payment.
 - `/admin/marketplace/login` and `/admin/marketplace/dashboard` use a MarketHub session bound to a verified Kitz administrator identity; Kitz remains authoritative for credentials, status, roles, approvals, and permissions.
 
+Static platform images are managed in Kitz Content Admin under Homepage. The platform reads the public site-image map from `VITE_KITZ_ORIGIN` (defaults to the Kitz production origin); Kitz must set `MARKETHUB_PUBLIC_URL` to the exact platform HTTPS origin. Image uploads are authenticated by Kitz and use its Cloudinary configuration; the platform service does not receive Cloudinary secrets.
+
 ## Local Development
 
 Use Node.js 22 or newer and install from this directory so the Kitz package/dependency tree is not changed:

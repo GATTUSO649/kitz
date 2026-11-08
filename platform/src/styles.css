@@ -28,7 +28,7 @@ button, input { font: inherit; }
 .landing-nav a.nav-current { border-color: var(--orange); }
 .nav-cta { display: inline-flex; gap: 9px; align-items: center; border: 1.5px solid var(--orange); color: white; border-radius: 999px; padding: 10px 16px; }
 .landing-main { position: relative; padding: 0 clamp(18px, 3vw, 34px); overflow: hidden; }
-.landscape-backdrop { position: absolute; z-index: 0; inset: 0 0 auto; height: 445px; background: linear-gradient(180deg, #0d509258 0%, #dceaff44 59%, #e8f2ff 100%), url('/images/mainimage.png') center 46% / cover; mask-image: linear-gradient(#000 0%, #000 65%, transparent 100%); }
+.landscape-backdrop { position: absolute; z-index: 0; inset: 0 0 auto; height: 445px; background: linear-gradient(180deg, #0d509258 0%, #dceaff44 59%, #e8f2ff 100%), var(--site-image-platform-home-background, url('/images/mainimage.png')) center 46% / cover; mask-image: linear-gradient(#000 0%, #000 65%, transparent 100%); }
 .landing-intro { position: relative; z-index: 1; text-align: center; padding: 28px 10px 24px; animation: rise-in .7s both; }
 .intro-kicker { display: none; }
 .landing-intro h1 { margin: 0; color: #071b3e; font: italic 700 clamp(40px, 5vw, 58px)/.9 'Space Grotesk', sans-serif; }
@@ -97,7 +97,7 @@ button, input { font: inherit; }
 .sell-link { padding: 8px 13px; border-radius: 22px; color: white; background: #079842; font-size: 12px; font-weight: 700; }
 .market-login { padding: 7px 12px; border: 1px solid #d5ddd8; border-radius: 22px; font-size: 12px; font-weight: 700; }
 .market-hero { position: relative; min-height: 270px; overflow: hidden; color: white; background: #00452b; }
-.market-hero-photo { position: absolute; inset: 0 0 0 37%; background: linear-gradient(90deg, #003920 0%, #00452212 45%), url('/images/second%20hand.png') center 56% / cover; clip-path: ellipse(78% 145% at 75% 50%); }
+.market-hero-photo { position: absolute; inset: 0 0 0 37%; background: linear-gradient(90deg, #003920 0%, #00452212 45%), var(--site-image-platform-marketplace-card, url('/images/second%20hand.png')) center 56% / cover; clip-path: ellipse(78% 145% at 75% 50%); }
 .market-hero::after { content: ''; position: absolute; width: 50%; height: 70px; right: -7%; bottom: -42px; border-radius: 50%; background: #7edb13; transform: rotate(-5deg); }
 .market-hero-copy { position: relative; z-index: 1; width: min(57%, 660px); padding: 27px clamp(28px, 6vw, 86px); }
 .hero-eyebrow { color: #a8f05d; display: flex; align-items: center; gap: 7px; font-size: 9px; font-weight: 800; letter-spacing: 1.4px; }
@@ -343,7 +343,7 @@ button, input { font: inherit; }
 .sell-success h2 { margin: 8px 0 4px; font: 700 24px 'Space Grotesk', sans-serif; }
 .sell-success p { color: #5c7163; font-size: 12px; }
 .sell-success a { display: inline-flex; align-items: center; gap: 6px; color: #078e3b; font-weight: 700; font-size: 12px; }
-.admin-login-page { min-height: 100vh; position: relative; display: flex; align-items: center; justify-content: flex-end; padding: 24px 16px; overflow: hidden; color: #14251b; background: #f7faf8 url('/images/new.png') center / cover no-repeat; }
+.admin-login-page { min-height: 100vh; position: relative; display: flex; align-items: center; justify-content: flex-end; padding: 24px 16px; overflow: hidden; color: #14251b; background: #f7faf8 var(--site-image-platform-auth-background, url('/images/new.png')) center / cover no-repeat; }
 .admin-login-brand { position: absolute; z-index: 1; top: 28px; left: 38px; display: flex; align-items: center; gap: 10px; color: #14251b; }
 .admin-login-brand > svg { flex: 0 0 auto; color: #078e3b; }
 .admin-login-brand strong { display: block; font: 700 36px/.95 'Space Grotesk', sans-serif; }
@@ -496,7 +496,7 @@ button, input { font: inherit; }
 .seller-portal-page { min-height: 100vh; color: #172a20; background: #f4f8f5; }
 .seller-portal-header { min-height: 62px; padding: 0 clamp(16px, 4vw, 58px); display: flex; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid #e1e9e3; background: #fff; }
 .seller-portal-header nav { display: flex; align-items: center; gap: 20px; color: #28603e; font-size: 12px; font-weight: 700; }
-.seller-auth-page { min-height: 100vh; position: relative; display: flex; align-items: center; justify-content: flex-end; padding: 24px clamp(16px, 4vw, 58px); color: #14251b; background: #f7faf8 url('/images/new.png') center / cover no-repeat fixed; }
+.seller-auth-page { min-height: 100vh; position: relative; display: flex; align-items: center; justify-content: flex-end; padding: 24px clamp(16px, 4vw, 58px); color: #14251b; background: #f7faf8 var(--site-image-platform-auth-background, url('/images/new.png')) center / cover no-repeat fixed; }
 .seller-auth-brand { position: absolute; z-index: 1; top: 28px; left: 38px; display: flex; align-items: center; gap: 10px; color: #14251b; }
 .seller-auth-brand > svg { flex: 0 0 auto; color: #078e3b; }
 .seller-auth-brand strong { display: block; font: 700 36px/.95 'Space Grotesk', sans-serif; }
@@ -816,7 +816,7 @@ button, input { font: inherit; }
 .seller-settings-form > .seller-form-pair:first-of-type label:nth-child(2), .seller-settings-form > .seller-form-pair:nth-of-type(2) { display: none; }
 .sell-form section:not(.seller-profile-confirmation) > .sell-two-col:nth-of-type(2) label:nth-child(2), .sell-form section:not(.seller-profile-confirmation) > .sell-two-col:nth-of-type(3) { display: none; }
 
-.matrix-intro { --matrix-gold: #f5bc16; position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; overflow: hidden; padding: 24px; color: #f8faff; background: #02091e url('/images/Electric%20Blue%20Diagonal%20Techscape.png') center / cover no-repeat; isolation: isolate; }
+.matrix-intro { --matrix-gold: #f5bc16; position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; overflow: hidden; padding: 24px; color: #f8faff; background: #02091e var(--site-image-platform-intro-background, url('/images/Electric%20Blue%20Diagonal%20Techscape.png')) center / cover no-repeat; isolation: isolate; }
 .matrix-intro::before { position: absolute; z-index: -1; inset: 0; background: radial-gradient(ellipse at 50% 42%, #135b9942, transparent 53%), linear-gradient(180deg, #02091e38, #02091e7d); content: ''; }
 .matrix-intro-content { width: min(960px, 100%); display: grid; justify-items: center; text-align: center; animation: matrix-logo-arrive 1.15s .68s both; }
 .matrix-intro-eyebrow { color: #dae8ff; font-size: 10px; font-weight: 700; letter-spacing: 7px; animation: matrix-content-in .55s .45s both; }

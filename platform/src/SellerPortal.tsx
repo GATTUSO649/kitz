@@ -1,6 +1,7 @@
 import { useEffect, useEffectEvent, useState, type FormEvent } from 'react'
 import { Activity, ArrowLeft, ArrowRight, BadgeCheck, BarChart3, Bell, Box, CalendarDays, Check, ChevronDown, CircleAlert, CircleHelp, Clock3, Eye, EyeOff, LayoutDashboard, Leaf, ListChecks, LogOut, MapPin, Megaphone, Menu, MessageSquareText, Pencil, Plus, Search, Settings, ShieldCheck, ShoppingBag, Store, Tag, Trash2, UserRound, WalletCards, X } from 'lucide-react'
 import { marketplaceFetch } from './api'
+import { SiteImage } from './SiteImages'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 type County = { code: string; name: string }
@@ -55,7 +56,7 @@ export function SellerPortalSidebar({ activeSection, menuOpen, onClose, onSelect
     return <Link className={className} to={`/marketplace/seller?section=${item.id}`} key={item.id} onClick={onClose}><Icon /><span>{item.label}</span></Link>
   }
   return <aside className={`seller-dashboard-sidebar${menuOpen ? ' is-open' : ''}`}>
-    <Link to="/marketplace" className="seller-sidebar-brand" aria-label="MATRIX marketplace" onClick={onClose}><img src="/images/matrix-logo-optimized.png" alt="MATRIX" /></Link>
+    <Link to="/marketplace" className="seller-sidebar-brand" aria-label="MATRIX marketplace" onClick={onClose}><SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /></Link>
     <nav aria-label="Seller portal">{sellerNavigation.map(renderItem)}</nav>
     <div className="seller-sidebar-bottom"><div className="seller-green-promo"><Leaf /><strong>GROW YOUR BUSINESS</strong><span>Reach more local buyers with MarketHub.</span>{onSelectSection ? <button type="button" onClick={() => { onSelectSection('help'); onClose() }}>Learn More <ArrowRight size={13} /></button> : <Link to="/marketplace/seller?section=help" onClick={onClose}>Learn More <ArrowRight size={13} /></Link>}</div></div>
   </aside>
@@ -74,7 +75,7 @@ function SellerAuthBrand() {
 }
 
 function SellerHeader({ profile }: { profile?: SellerProfile | null }) {
-  return <header className="seller-portal-header"><Link className="market-brand" to="/marketplace" aria-label="MATRIX marketplace"><img src="/images/matrix-logo-optimized.png" alt="MATRIX" /></Link><nav><Link to="/marketplace">Marketplace</Link>{profile ? <Link to="/marketplace/seller">My account</Link> : <Link to="/marketplace/seller/login">Seller sign in</Link>}</nav></header>
+  return <header className="seller-portal-header"><Link className="market-brand" to="/marketplace" aria-label="MATRIX marketplace"><SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /></Link><nav><Link to="/marketplace">Marketplace</Link>{profile ? <Link to="/marketplace/seller">My account</Link> : <Link to="/marketplace/seller/login">Seller sign in</Link>}</nav></header>
 }
 
 export function SellerSignupPage() {
