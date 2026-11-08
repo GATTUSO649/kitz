@@ -269,6 +269,8 @@ test('MarketHub can read public site images but cannot use Kitz admin writes', a
   const origin = 'https://market.example.test'
   const read = await fetch(`${baseUrl}/api/v1/store/site-images`, { headers: { origin } })
   assert.equal(read.headers.get('access-control-allow-origin'), origin)
+  const contentRead = await fetch(`${baseUrl}/api/v1/store/site-content`, { headers: { origin } })
+  assert.equal(contentRead.headers.get('access-control-allow-origin'), origin)
 
   const write = await fetch(`${baseUrl}/api/v1/admin/homepage/site-images/platform-brand-logo`, {
     method: 'POST',
@@ -278,6 +280,14 @@ test('MarketHub can read public site images but cannot use Kitz admin writes', a
   assert.equal(write.status, 403)
   assert.equal(write.headers.get('access-control-allow-origin'), null)
   assert.equal((await write.json() as { error: { code: string } }).error.code, 'ORIGIN_REJECTED')
+
+  const contentWrite = await fetch(`${baseUrl}/api/v1/admin/homepage/site-content`, {
+    method: 'PUT',
+    headers: { origin, 'content-type': 'application/json' },
+    body: JSON.stringify({}),
+  })
+  assert.equal(contentWrite.status, 403)
+  assert.equal((await contentWrite.json() as { error: { code: string } }).error.code, 'ORIGIN_REJECTED')
 })
 
 test('MarketHub service authentication endpoints reject ordinary browser requests', async () => {

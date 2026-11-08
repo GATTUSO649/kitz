@@ -8,11 +8,13 @@ export const siteImageSlots = [
   { key: 'kitz-collection-background', label: 'Collection background', description: 'Background image behind the collection feature.' },
   { key: 'kitz-story-background', label: 'Story background', description: 'Background image used in the KitCulture story sections.' },
   { key: 'platform-brand-logo', label: 'Platform MATRIX logo', description: 'Visible MATRIX logo across the marketplace platform.' },
+  { key: 'platform-favicon', label: 'Platform favicon', description: 'Browser tab icon for MarketHub.' },
   { key: 'platform-home-background', label: 'Platform home backdrop', description: 'Backdrop behind the platform destination cards.' },
   { key: 'platform-kits-card', label: 'Football kits card', description: 'Image for the football kits destination card.' },
   { key: 'platform-marketplace-card', label: 'Second-hand marketplace card', description: 'Image for the second-hand destination card and marketplace hero.' },
   { key: 'platform-auth-background', label: 'Platform sign-in background', description: 'Background image on marketplace admin and seller sign-in.' },
   { key: 'platform-intro-background', label: 'Platform intro background', description: 'Background image for the platform intro animation.' },
+  { key: 'kitz-favicon', label: 'KitCulture favicon', description: 'Browser tab icon for the KitCulture storefront.' },
 ] as const
 
 export type SiteImageSlotKey = typeof siteImageSlots[number]['key']

@@ -8,11 +8,13 @@ export const siteImageSlotKeys = [
   'kitz-collection-background',
   'kitz-story-background',
   'platform-brand-logo',
+  'platform-favicon',
   'platform-home-background',
   'platform-kits-card',
   'platform-marketplace-card',
   'platform-auth-background',
   'platform-intro-background',
+  'kitz-favicon',
 ] as const
 
 export type SiteImageSlot = typeof siteImageSlotKeys[number]

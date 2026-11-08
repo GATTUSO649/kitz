@@ -8,6 +8,7 @@ import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { applicationSettings, categories, homepageSlides, jerseyCategories, leagues, orderItems, orders, productImages, productRatings, productReviews, productVariants, products, productVideos, teams } from '../../database/schema.js'
 import { isDarajaConfigured, resolveDarajaShortcodes } from '../orders/daraja.js'
 import { isSiteImageUrl, siteImageSlotKeys } from '../site-images.js'
+import { isSiteContentField } from '../site-content.js'
 
 export const catalogueRouter = Router()
 const productRatingLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false })
@@ -90,6 +91,19 @@ catalogueRouter.get('/store/branding', async (_request, response) => {
     : null
   response.json({ data: { logoUrl } })
 })
+
+  catalogueRouter.get('/store/site-content', async (_request, response) => {
+    if (!db) return response.status(503).json({ error: { code: 'SITE_CONTENT_UNAVAILABLE', message: 'Site content is unavailable.' } })
+    const keys = ['terms', 'privacy', 'kitzFooterDescription', 'kitzFooterCopyright', 'platformFooterNotice'].map((field) => `siteContent:${field}`)
+    const settings = await db.select({ key: applicationSettings.key, value: applicationSettings.value }).from(applicationSettings)
+      .where(inArray(applicationSettings.key, keys))
+    const content = Object.fromEntries(settings.flatMap(({ key, value }) => {
+      const field = key.replace(/^siteContent:/, '')
+      return isSiteContentField(field) && typeof value === 'string' ? [[field, value]] : []
+    }))
+    response.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=300')
+    response.json({ data: content })
+  })
 
   catalogueRouter.get('/store/site-images', async (_request, response) => {
     if (!db) return response.status(503).json({ error: { code: 'SITE_IMAGES_UNAVAILABLE', message: 'Site images are unavailable.' } })

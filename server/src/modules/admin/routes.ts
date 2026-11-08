@@ -13,6 +13,7 @@ import { isCustomerOnline, publishChatMessage, publishMessageReceipt, registerAd
 import { recordAdminAudit } from './auth.js'
 import { deleteProductImage, ImageStorageError, uploadBrandLogoImage, uploadHomepageSlideImage, uploadProductImage, uploadSiteImage } from './image-storage.js'
 import { isSiteImageUrl, siteImageSlotKeys } from '../site-images.js'
+import { isSiteContentField, siteContentSchema } from '../site-content.js'
 import { buildAdminDashboardReport, reportPeriods, resolveOptionalDateRange, resolveReportingRange } from './reporting.js'
 import { hasItPermission, itPermissions, type ItPermission } from './it-access.js'
 import { getRequestMetrics } from '../../middleware/request-metrics.js'
@@ -544,6 +545,35 @@ adminRouter.post('/homepage/logo', express.raw({ type: 'application/octet-stream
     response.status(error.statusCode).json({ error: { code: 'IMAGE_UPLOAD_FAILED', message: error.message } })
   }
 })
+
+  adminRouter.get('/homepage/site-content', async (_request, response) => {
+    if (!db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Site content is unavailable.' } })
+    const keys = ['terms', 'privacy', 'kitzFooterDescription', 'kitzFooterCopyright', 'platformFooterNotice'].map((field) => `siteContent:${field}`)
+    const settings = await db.select({ key: applicationSettings.key, value: applicationSettings.value }).from(applicationSettings)
+      .where(inArray(applicationSettings.key, keys))
+    const content = Object.fromEntries(settings.flatMap(({ key, value }) => {
+      const field = key.replace(/^siteContent:/, '')
+      return isSiteContentField(field) && typeof value === 'string' ? [[field, value]] : []
+    }))
+    response.json({ data: content })
+  })
+
+  adminRouter.put('/homepage/site-content', async (request, response) => {
+    const input = siteContentSchema.safeParse(request.body)
+    if (!input.success) return response.status(400).json({ error: { code: 'INVALID_SITE_CONTENT', message: 'Site content fields exceed their allowed lengths or contain unsupported fields.' } })
+    const database = db
+    if (!database) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Site content is unavailable.' } })
+    await database.transaction(async (transaction) => {
+      for (const [field, value] of Object.entries(input.data)) {
+        await transaction.insert(applicationSettings)
+          .values({ key: `siteContent:${field}`, value, updatedBy: null })
+          .onConflictDoUpdate({ target: applicationSettings.key, set: { value, updatedBy: null } })
+      }
+    })
+    const actor = authenticatedAdmin(request)
+    if (actor) await recordAdminAudit(actor.id, 'site.content_updated', 'site_content', 'legal_and_footer')
+    response.json({ data: { updated: true } })
+  })
 
   adminRouter.get('/homepage/site-images', async (_request, response) => {
     if (!db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Homepage image settings are unavailable.' } })

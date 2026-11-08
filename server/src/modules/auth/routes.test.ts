@@ -21,6 +21,7 @@ const { adminNotificationSchema, canTransitionOrderStatus, createProductSchema, 
 const { hasItPermission, hasOperationsRoutePermission, operationsPermissionForRoute } = await import('../admin/it-access.js')
 const { detectImageFormat } = await import('../admin/image-storage.js')
 const { isSiteImageUrl, siteImageSlotKeys } = await import('../site-images.js')
+const { siteContentSchema } = await import('../site-content.js')
 
 test('registration normalizes email and accepts a long password', () => {
   const result = registerSchema.safeParse({
@@ -97,6 +98,13 @@ test('site image overrides accept only HTTPS Cloudinary assets and known image s
   assert.equal(isSiteImageUrl('http://res.cloudinary.com/demo/image/upload/logo.png'), false)
   assert.equal(isSiteImageUrl('https://res.cloudinary.com.attacker.invalid/demo/logo.png'), false)
   assert.equal(isSiteImageUrl('https://user:pass@res.cloudinary.com/demo/logo.png'), false)
+})
+
+test('editable site content is bounded plain text with a strict field allowlist', () => {
+  const content = { terms: 'Terms\n\nSecond paragraph', privacy: 'Privacy', kitzFooterDescription: 'Store copy', kitzFooterCopyright: '© KitCulture', platformFooterNotice: '© MarketHub' }
+  assert.equal(siteContentSchema.safeParse(content).success, true)
+  assert.equal(siteContentSchema.safeParse({ ...content, injectedField: 'ignored' }).success, false)
+  assert.equal(siteContentSchema.safeParse({ ...content, terms: 'x'.repeat(20_001) }).success, false)
 })
 
 test('database sessions use bounded customer, administrator, and operations idle policies', () => {

@@ -24,7 +24,7 @@ import { AuthLayout } from './layouts/AuthLayout'
 import { DelayedBrandLoader } from './components/BrandLoader'
 import { useNotifications, userFacingErrorMessage } from './components/notification-api'
 import { StoreImage } from './components/StoreImage'
-import { SiteImage } from './components/SiteImages'
+import { SiteContentValue, SiteImage } from './components/SiteImages'
 import { WhatsAppProductLink } from './components/WhatsAppProductLink'
 import { useStoreWhatsAppNumber } from './components/whatsapp-product'
 
@@ -87,6 +87,7 @@ type MpesaPaymentOptions = { mpesaTillName: string; mpesaTillNumber: string; mpe
 type CustomerOrder = { orderNumber: string; status: string; paymentMethod: 'pay_on_delivery' | 'mpesa'; currency: string; total: string; createdAt: string }
 
 const money = new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES', maximumFractionDigits: 0 })
+const currentYear = new Date().getFullYear()
 const categories = ['All kits', 'Club kits', 'National teams', 'Retro', 'Training']
 const homepageTrendingClubBadges: Record<string, number> = {
   arsenal: 57,
@@ -1129,11 +1130,11 @@ function App() {
       </main>
 
       <footer className="site-footer" id="contact"><div className="footer-top">
-        <div className="footer-brand"><Link className="wordmark footer-wordmark" to="/" aria-label="MATRIX home"><img src={cultureLogo} alt="MATRIX" /></Link><p>Your one-stop shop for authentic football jerseys. From the global giants to local favourites, we bring the colours you live in.</p></div>
+        <div className="footer-brand"><Link className="wordmark footer-wordmark" to="/" aria-label="MATRIX home"><img src={cultureLogo} alt="MATRIX" /></Link><p><SiteContentValue field="kitzFooterDescription" fallback="Your one-stop shop for authentic football jerseys. From the global giants to local favourites, we bring the colours you live in." /></p></div>
         <nav className="footer-links" aria-label="Shop links"><strong>Shop</strong><Link to="/shop">All Jerseys</Link><Link to="/marketplace">Club Jerseys</Link><Link to="/categories/national-team-kits">National Teams</Link><Link to="/new-arrivals">New Arrivals</Link></nav>
         <nav className="footer-links" aria-label="Customer links"><strong>Customer Support</strong><Link to="/account/orders">My Orders</Link><Link to="/account/profile">My Account</Link><Link to="/cart">Shopping Bag</Link><Link to="/login">Sign In</Link></nav>
         <nav className="footer-links" aria-label="KitCulture links"><strong>About KitCulture</strong><Link to="/marketplace">Our Marketplace</Link><Link to="/shop">Football Culture</Link><span>Machakos, Kenya</span></nav>
-      </div><div className="footer-bottom"><span>© 2026 KitCulture. All rights reserved.</span><div><span>Powered by KitCulture</span></div></div></footer>
+      </div><div className="footer-bottom"><span><SiteContentValue field="kitzFooterCopyright" fallback={`© ${currentYear} KitCulture. All rights reserved.`} /></span><div><span>Powered by KitCulture</span></div></div></footer>
 
       {cartOpen && <div className="drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCartOpen(false) }}><aside className="cart-drawer" aria-label={checkoutOpen ? 'Checkout' : 'Shopping bag'} aria-modal="true" role="dialog">
         <div className="drawer-heading"><div><span className="eyebrow">{checkoutOpen ? 'DELIVERY DETAILS' : 'YOUR LINEUP'}</span><h2>{checkoutOpen ? 'Where to?' : <>Matchday bag <span>({itemCount})</span></>}</h2></div><button className="icon-button" type="button" aria-label="Close bag" onClick={() => { setCartOpen(false); setCheckoutOpen(false) }}><X /></button></div>

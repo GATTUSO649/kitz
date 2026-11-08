@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, BarChart3, Boxes, CircleDollarSign, FileText, Megaphone, Package, Receipt, Search, ShoppingBag } from 'lucide-react'
+import { AlertTriangle, BarChart3, Boxes, Check, CircleDollarSign, FileText, Mail, Megaphone, Package, Receipt, Search, ShoppingBag, Users } from 'lucide-react'
 import '../admin-theme.css'
 import '../role-portal-theme.css'
 
@@ -9,7 +9,7 @@ const roleConfig = {
   'finance-admin': { role: 'finance_admin', title: 'Finance Operations', modules: ['Dashboard', 'Payments', 'M-Pesa', 'Reconciliation', 'Refunds', 'Revenue', 'Outstanding Payments', 'Expenses', 'Financial Reports', 'Analytics', 'Audit Logs', 'Notifications', 'Settings'], endpoints: { Payments: '/api/v1/admin/payments', Expenses: '/api/v1/admin/expenses', 'Financial Reports': '/api/v1/admin/reports/financial', 'Audit Logs': '/api/v1/admin/audit', Notifications: '/api/v1/admin/notifications' }, icon: CircleDollarSign },
   'inventory-admin': { role: 'inventory_admin', title: 'Inventory and Logistics', modules: ['Dashboard', 'Stock Management', 'Stock Movements', 'Low Stock', 'Out of Stock', 'Suppliers', 'Purchase Orders', 'Goods Receiving', 'Fulfillment', 'Returns', 'Analytics', 'Reports', 'Audit Logs', 'Notifications', 'Settings'], endpoints: { 'Stock Management': '/api/v1/admin/products', 'Stock Movements': '/api/v1/admin/inventory/movements', Fulfillment: '/api/v1/admin/orders', 'Audit Logs': '/api/v1/admin/audit' }, icon: Boxes },
   'marketing-admin': { role: 'marketing_admin', title: 'Marketing Operations', modules: ['Dashboard', 'Campaigns', 'Promotions', 'Coupons', 'Audiences', 'Email Marketing', 'Notifications', 'Content Promotion', 'Analytics', 'Reports', 'Audit Logs', 'Settings'], endpoints: { Campaigns: '/api/v1/admin/notifications', Notifications: '/api/v1/admin/notifications', 'Audit Logs': '/api/v1/admin/audit' }, icon: Megaphone },
-  'content-admin': { role: 'content_admin', title: 'Products and Content', modules: ['Overview', 'Products', 'Categories', 'Homepage'], endpoints: { Products: '/api/v1/admin/products', Categories: '/api/v1/admin/categories', Homepage: '/api/v1/admin/homepage' }, icon: Package },
+  'content-admin': { role: 'content_admin', title: 'Products and Content', modules: ['Overview', 'Products', 'Categories', 'Homepage', 'Site Pages'], endpoints: { Products: '/api/v1/admin/products', Categories: '/api/v1/admin/categories', Homepage: '/api/v1/admin/homepage', 'Site Pages': '/api/v1/admin/homepage/site-content' }, icon: Package },
 } as const
 
 const portalByRole: Record<string, string> = {
@@ -21,6 +21,7 @@ const portalByRole: Record<string, string> = {
   marketing_admin: '/marketing-admin/dashboard',
   content_admin: '/content-admin/dashboard',
 }
+const financeDefaultSettlementDate = new Date().toISOString().slice(0, 10)
 
 type PortalData = {
   role: string
@@ -94,8 +95,108 @@ type FinanceDashboard = {
 }
 type FinanceReport = { grossSales: string; discounts: string; collectedPayments: string; operatingExpenses: string; costOfGoodsSold: string | null; profitAvailable: boolean }
 
+type FinanceRefund = { id: number; paymentId: number; orderNumber: string; amount: string; reason: string; status: string; providerReference: string | null; resolutionNote: string | null; createdAt: string }
+
+function FinanceRefundsPanel() {
+  const queryClient = useQueryClient()
+  const refunds = useQuery({ queryKey: ['finance-refunds'], queryFn: () => roleApi<FinanceRefund[]>('/api/v1/admin/finance/refunds'), retry: false })
+  const payments = useQuery({ queryKey: ['finance-payments'], queryFn: () => roleApi<Record<string, unknown>[]>('/api/v1/admin/payments'), retry: false })
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+
+  async function createRefund(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      await roleApi('/api/v1/admin/finance/refunds', { method: 'POST', body: JSON.stringify({ paymentId: Number(form.get('paymentId')), amount: form.get('amount'), reason: form.get('reason') }) })
+      formElement.reset()
+      setNotice('Refund request recorded for review.')
+      await Promise.all([refunds.refetch(), queryClient.invalidateQueries({ queryKey: ['finance-dashboard'] })])
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Refund request could not be recorded.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function updateRefund(id: number, action: 'approve' | 'reject' | 'mark_paid', form?: HTMLFormElement) {
+    const values = form ? new FormData(form) : null
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      await roleApi(`/api/v1/admin/finance/refunds/${id}`, { method: 'PATCH', body: JSON.stringify({ action, note: values?.get('note') || undefined, providerReference: values?.get('providerReference') || undefined }) })
+      setNotice(`Refund ${id} updated.`)
+      await Promise.all([refunds.refetch(), queryClient.invalidateQueries({ queryKey: ['finance-dashboard'] })])
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Refund could not be updated.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const refundablePayments = (payments.data ?? []).filter((payment) => ['succeeded', 'refunded'].includes(String(payment.status)))
+  return <>
+    <section className="finance-panel"><header><div><span className="admin-kicker">CONTROLLED PAYOUT WORKFLOW</span><h2>Request a refund</h2></div><Receipt size={19} /></header>
+      <p className="finance-panel-copy">Requests are checked against the payment’s remaining balance. Payout is manual; record the external provider reference before marking it paid.</p>
+      <form className="finance-settings-form" onSubmit={(event) => void createRefund(event)}><label>Successful payment<select name="paymentId" required defaultValue=""><option value="" disabled>Select payment</option>{refundablePayments.map((payment) => <option key={String(payment.id)} value={String(payment.id)}>{String(payment.orderNumber ?? `Payment ${payment.id}`)} · KES {String(payment.amount)} · {String(payment.status)}</option>)}</select></label><label>Amount (KES)<input name="amount" type="number" min="0.01" step="0.01" required /></label><label>Reason<input name="reason" minLength={3} maxLength={500} required /></label>{error && <p className="activation-error" role="alert">{error}</p>}{notice && <p className="activation-success" role="status">{notice}</p>}<button className="role-portal-button" type="submit" disabled={busy || !refundablePayments.length}>{busy ? 'Saving…' : 'Request refund'}</button></form>
+    </section>
+    <section className="finance-panel"><header><div><span className="admin-kicker">REVIEW AND PAYOUT TRACKING</span><h2>Refund requests</h2></div><FileText size={19} /></header>{refunds.isError ? <div className="admin-empty admin-error">Refund requests unavailable: {refunds.error.message}</div> : <div className="finance-refund-list">{(refunds.data ?? []).map((refund) => <article key={refund.id}><div><strong>{refund.orderNumber} · KES {refund.amount}</strong><small>{refund.reason}</small><small>{refund.status}{refund.providerReference ? ` · ${refund.providerReference}` : ''}</small></div>{refund.status === 'requested' && <div><button className="admin-it-button" type="button" disabled={busy} onClick={() => void updateRefund(refund.id, 'approve')}>Approve</button><button className="admin-it-button is-danger" type="button" disabled={busy} onClick={() => void updateRefund(refund.id, 'reject')}>Reject</button></div>}{refund.status === 'approved' && <form onSubmit={(event) => { event.preventDefault(); void updateRefund(refund.id, 'mark_paid', event.currentTarget) }}><label>External payout reference<input name="providerReference" required minLength={2} maxLength={120} /></label><label>Note<input name="note" maxLength={500} /></label><button className="admin-it-button" type="submit" disabled={busy}>Record payout</button></form>}</article>)}{refunds.isPending && <div className="admin-empty">Loading refund requests…</div>}{!refunds.isPending && !refunds.data?.length && <div className="admin-empty">No refund requests have been recorded.</div>}</div>}</section>
+  </>
+}
+
+function FinanceReconciliationPanel() {
+  const reconciliation = useQuery({ queryKey: ['finance-reconciliation'], queryFn: () => roleApi<Record<string, unknown>[]>('/api/v1/admin/finance/reconciliation'), retry: false })
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  async function reconcile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      await roleApi('/api/v1/admin/finance/reconciliation', { method: 'POST', body: JSON.stringify({ settlementDate: form.get('settlementDate'), providerAmount: form.get('providerAmount'), note: form.get('note') || undefined }) })
+      setNotice('Settlement reconciliation saved.')
+      await reconciliation.refetch()
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Settlement could not be reconciled.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return <>
+    <section className="finance-panel"><header><div><span className="admin-kicker">SETTLEMENT REVIEW</span><h2>Record provider settlement</h2></div><Receipt size={19} /></header><p className="finance-panel-copy">Internal totals are calculated from successful payments for the selected date. Compare with the provider statement before saving.</p><form className="finance-settings-form" onSubmit={(event) => void reconcile(event)}><label>Settlement date<input name="settlementDate" type="date" required defaultValue={financeDefaultSettlementDate} /></label><label>Provider amount (KES)<input name="providerAmount" type="number" min="0" step="0.01" required /></label><label>Reconciliation note<input name="note" maxLength={500} /></label>{error && <p className="activation-error" role="alert">{error}</p>}{notice && <p className="activation-success" role="status">{notice}</p>}<button className="role-portal-button" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save reconciliation'}</button></form></section>
+    <section className="finance-panel"><header><div><span className="admin-kicker">SETTLEMENT HISTORY</span><h2>Reconciliations</h2></div><FileText size={19} /></header>{reconciliation.isError ? <div className="admin-empty admin-error">Reconciliation data unavailable: {reconciliation.error.message}</div> : <FinanceTable rows={reconciliation.data ?? []} />}</section>
+  </>
+}
+
+function FinanceOutstandingPanel() {
+  const payments = useQuery({ queryKey: ['finance-payments'], queryFn: () => roleApi<Record<string, unknown>[]>('/api/v1/admin/payments'), retry: false })
+  const outstanding = (payments.data ?? []).filter((payment) => ['pending', 'processing', 'created'].includes(String(payment.status)))
+  return <section className="finance-panel"><header><div><span className="admin-kicker">PAYMENT FOLLOW-UP</span><h2>Outstanding payments</h2></div><Receipt size={19} /></header><p className="finance-panel-copy">Only server-recorded pending payments are shown. Do not mark a payment as settled based on a customer screenshot.</p>{payments.isError ? <div className="admin-empty admin-error">Outstanding payments unavailable: {payments.error.message}</div> : <FinanceTable rows={outstanding} />}</section>
+}
+
+function FinanceAnalyticsPanel() {
+  const dashboard = useQuery({ queryKey: ['finance-dashboard'], queryFn: () => roleApi<FinanceDashboard>('/api/v1/admin/dashboard?period=last30days'), retry: false })
+  const report = useQuery({ queryKey: ['finance-report'], queryFn: () => roleApi<FinanceReport>('/api/v1/admin/reports/financial'), retry: false })
+  if (dashboard.isError || report.isError) return <div className="admin-empty admin-error">Finance analytics unavailable: {(dashboard.error ?? report.error)?.message}</div>
+  return <section className="finance-panel"><header><div><span className="admin-kicker">PAYMENTS AND REVENUE</span><h2>Financial analytics</h2></div><BarChart3 size={19} /></header><div className="finance-report-grid">{[['Paid revenue', currency(dashboard.data?.paidRevenue ?? 0)], ['Paid payments', String(dashboard.data?.paidPayments ?? 0)], ['Pending orders', String(dashboard.data?.pendingOrders ?? 0)], ['Collected payments', currency(report.data?.collectedPayments ?? 0)], ['Discounts', currency(report.data?.discounts ?? 0)], ['Cost data', report.data?.profitAvailable ? 'Available' : 'Not configured']].map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</div><p className="finance-panel-copy">Figures reflect recorded payments and configured product costs; this view does not estimate untracked cash settlements.</p></section>
+}
+
 function FinanceUnavailable({ title, detail }: { title: string; detail: string }) {
   if (title === 'Settings is not connected') return <FinanceSettingsPanel />
+  if (title.startsWith('Refunds')) return <FinanceRefundsPanel />
+  if (title.startsWith('Reconciliation')) return <FinanceReconciliationPanel />
+  if (title.startsWith('Outstanding Payments')) return <FinanceOutstandingPanel />
+  if (title.startsWith('Analytics')) return <FinanceAnalyticsPanel />
   return <section className="finance-panel finance-unavailable"><AlertTriangle size={22} /><span className="admin-kicker">CONTROL NOT CONNECTED</span><h2>{title}</h2><p>{detail}</p></section>
 }
 
@@ -151,7 +252,8 @@ function FinanceWorkspace({ prefix }: { prefix: keyof typeof roleConfig }) {
   const portal = useQuery({ queryKey: ['finance-portal'], queryFn: () => roleApi<PortalData>('/api/v1/admin/portal/finance_admin'), retry: false })
   const dashboard = useQuery({ queryKey: ['finance-dashboard'], queryFn: () => roleApi<FinanceDashboard>('/api/v1/admin/dashboard?period=last30days'), retry: false })
   const report = useQuery({ queryKey: ['finance-report'], queryFn: () => roleApi<FinanceReport>('/api/v1/admin/reports/financial'), enabled: activeModule === 'Revenue' || activeModule === 'Financial Reports', retry: false })
-  const payments = useQuery({ queryKey: ['finance-payments'], queryFn: () => roleApi<Record<string, unknown>[]>('/api/v1/admin/payments'), enabled: activeModule === 'Payments' || activeModule === 'M-Pesa', retry: false })
+  const payments = useQuery({ queryKey: ['finance-payments'], queryFn: () => roleApi<Record<string, unknown>[]>('/api/v1/admin/payments'), enabled: ['Dashboard', 'Payments', 'M-Pesa', 'Outstanding Payments'].includes(activeModule), retry: false })
+  const refunds = useQuery({ queryKey: ['finance-refunds'], queryFn: () => roleApi<FinanceRefund[]>('/api/v1/admin/finance/refunds'), enabled: activeModule === 'Dashboard' || activeModule === 'Refunds', retry: false })
   const expenses = useQuery({ queryKey: ['finance-expenses'], queryFn: () => roleApi<Record<string, unknown>[]>('/api/v1/admin/expenses'), enabled: activeModule === 'Expenses', retry: false })
   const audit = useQuery({ queryKey: ['finance-audit'], queryFn: () => roleApi<Record<string, unknown>[]>('/api/v1/admin/audit'), enabled: activeModule === 'Audit Logs', retry: false })
   const notifications = useQuery({ queryKey: ['finance-notifications'], queryFn: () => roleApi<Record<string, unknown>[]>('/api/v1/admin/notifications'), enabled: activeModule === 'Notifications', retry: false })
@@ -160,8 +262,8 @@ function FinanceWorkspace({ prefix }: { prefix: keyof typeof roleConfig }) {
   const reportData = report.data
   const metricCards = [
     ['Total revenue', currency(data?.paidRevenue ?? 0)], ['Payments received', String(data?.paidPayments ?? 0)],
-    ['Pending payments', String(data?.pendingOrders ?? 0)], ['Outstanding balance', 'Not calculated'],
-    ['Refunds', 'Not connected'], ['Net revenue', reportData ? currency(Number(reportData.collectedPayments) - Number(reportData.discounts)) : 'Loading'],
+    ['Pending payments', String(data?.pendingOrders ?? 0)], ['Outstanding balance', payments.isError ? 'Unavailable' : payments.isPending ? 'Loading' : currency((payments.data ?? []).filter((payment) => ['pending', 'processing', 'created'].includes(String(payment.status))).reduce((total, payment) => total + Number(payment.amount ?? 0), 0))],
+    ['Refund requests', refunds.isError ? 'Unavailable' : refunds.isPending ? 'Loading' : String(refunds.data?.length ?? 0)], ['Net revenue', reportData ? currency(Number(reportData.collectedPayments) - Number(reportData.discounts)) : 'Loading'],
   ]
   const panel = activeModule === 'Dashboard' ? <>
     <div className="finance-kpi-grid">{metricCards.map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</div>
@@ -173,6 +275,11 @@ function FinanceWorkspace({ prefix }: { prefix: keyof typeof roleConfig }) {
 
 type InventoryVariant = { id: number; size: string; sku: string; stock: number }
 type InventoryProduct = { id: number; name: string; variants?: InventoryVariant[] }
+type InventorySupplier = { id: number; name: string; contactName: string | null; email: string | null; phone: string | null; active: boolean; notes: string | null }
+type PurchaseOrderLine = { id: number; variantId: number; productName: string; size: string; sku: string; quantityOrdered: number; quantityReceived: number; unitCost: string }
+type InventoryPurchaseOrder = { id: number; status: string; note: string | null; expectedAt: string | null; createdAt: string; receivedAt: string | null; supplierId: number; supplierName: string; lines: PurchaseOrderLine[] }
+type EligibleReturnItem = { id: number; orderNumber: string; productName: string; size: string; quantity: number; remainingQuantity: number; createdAt: string }
+type InventoryReturn = { id: number; orderId: number; orderNumber: string; orderItemId: number; productName: string; size: string; quantity: number; reason: string; status: string; resolutionNote: string | null; createdAt: string }
 
 function InventoryTable({ rows }: { rows: Record<string, unknown>[] }) {
   if (!rows.length) return <div className="admin-empty">No inventory records are available.</div>
@@ -180,7 +287,202 @@ function InventoryTable({ rows }: { rows: Record<string, unknown>[] }) {
   return <div className="admin-it-table-wrap"><table className="admin-it-table"><thead><tr>{columns.map((column) => <th key={column}>{column.replace(/([A-Z])/g, ' $1')}</th>)}</tr></thead><tbody>{rows.slice(0, 50).map((row, index) => <tr key={String(row.id ?? row.sku ?? index)}>{columns.map((column) => <td key={column}>{row[column] === null || row[column] === undefined ? '—' : typeof row[column] === 'object' ? JSON.stringify(row[column]) : String(row[column])}</td>)}</tr>)}</tbody></table></div>
 }
 
+function InventorySuppliersPanel() {
+  const suppliers = useQuery({ queryKey: ['inventory-suppliers'], queryFn: () => roleApi<InventorySupplier[]>('/api/v1/admin/inventory/suppliers'), retry: false })
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  async function createSupplier(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      await roleApi('/api/v1/admin/inventory/suppliers', { method: 'POST', body: JSON.stringify({ name: form.get('name'), contactName: form.get('contactName') || undefined, email: form.get('email') || undefined, phone: form.get('phone') || undefined, notes: form.get('notes') || undefined }) })
+      formElement.reset()
+      setNotice('Supplier added.')
+      await suppliers.refetch()
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Supplier could not be added.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function toggleSupplier(supplier: InventorySupplier) {
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      await roleApi(`/api/v1/admin/inventory/suppliers/${supplier.id}`, { method: 'PATCH', body: JSON.stringify({ active: !supplier.active }) })
+      setNotice(`${supplier.name} ${supplier.active ? 'deactivated' : 'activated'}.`)
+      await suppliers.refetch()
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Supplier status could not be changed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return <>
+    <section className="inventory-panel"><header><div><span className="admin-kicker">PURCHASING DIRECTORY</span><h2>Add supplier</h2></div><Boxes size={19} /></header><form className="inventory-adjust-form" onSubmit={(event) => void createSupplier(event)}><label>Supplier name<input name="name" minLength={2} maxLength={160} required /></label><label>Contact name<input name="contactName" maxLength={160} /></label><label>Email<input name="email" type="email" maxLength={254} /></label><label>Phone<input name="phone" maxLength={32} /></label><label>Notes<input name="notes" maxLength={1000} /></label>{error && <p className="inventory-error" role="alert">{error}</p>}{notice && <p className="inventory-notice" role="status">{notice}</p>}<button className="admin-it-button" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Add supplier'}</button></form></section>
+    <section className="inventory-panel"><header><div><span className="admin-kicker">ACTIVE PURCHASING SOURCES</span><h2>Suppliers</h2></div><FileText size={19} /></header>{suppliers.isError ? <div className="admin-empty admin-error">Suppliers unavailable: {suppliers.error.message}</div> : <div className="inventory-supplier-list">{(suppliers.data ?? []).map((supplier) => <article key={supplier.id}><div><strong>{supplier.name}</strong><small>{[supplier.contactName, supplier.email, supplier.phone].filter(Boolean).join(' · ') || 'No contact details'}</small></div><span>{supplier.active ? 'Active' : 'Inactive'}</span><button className="admin-it-button" type="button" disabled={busy} onClick={() => void toggleSupplier(supplier)}>{supplier.active ? 'Deactivate' : 'Activate'}</button></article>)}{!suppliers.isPending && !suppliers.data?.length && <div className="admin-empty">No suppliers have been added.</div>}</div>}</section>
+  </>
+}
+
+function InventoryPurchaseOrdersPanel({ mode = 'orders' }: { mode?: 'orders' | 'receiving' }) {
+  const queryClient = useQueryClient()
+  const orders = useQuery({ queryKey: ['inventory-purchase-orders'], queryFn: () => roleApi<InventoryPurchaseOrder[]>('/api/v1/admin/inventory/purchase-orders'), retry: false })
+  const suppliers = useQuery({ queryKey: ['inventory-suppliers'], queryFn: () => roleApi<InventorySupplier[]>('/api/v1/admin/inventory/suppliers'), retry: false })
+  const products = useQuery({ queryKey: ['inventory-products'], queryFn: () => roleApi<InventoryProduct[]>('/api/v1/admin/products'), retry: false })
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const variants = (products.data ?? []).flatMap((product) => (product.variants ?? []).map((variant) => ({ ...variant, productName: product.name })))
+
+  async function createPurchaseOrder(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    const expectedAt = String(form.get('expectedAt') ?? '').trim()
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      await roleApi('/api/v1/admin/inventory/purchase-orders', { method: 'POST', body: JSON.stringify({ supplierId: Number(form.get('supplierId')), note: form.get('note') || undefined, expectedAt: expectedAt ? new Date(expectedAt).toISOString() : undefined, lines: [{ variantId: Number(form.get('variantId')), quantity: Number(form.get('quantity')), unitCost: form.get('unitCost') }] }) })
+      formElement.reset()
+      setNotice('Purchase order created in draft status.')
+      await orders.refetch()
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Purchase order could not be created.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function transition(order: InventoryPurchaseOrder, action: 'approve' | 'order' | 'cancel') {
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      await roleApi(`/api/v1/admin/inventory/purchase-orders/${order.id}`, { method: 'PATCH', body: JSON.stringify({ action }) })
+      setNotice(`Purchase order ${order.id} updated.`)
+      await Promise.all([orders.refetch(), queryClient.invalidateQueries({ queryKey: ['inventory-portal'] })])
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Purchase order could not be updated.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function receive(event: FormEvent<HTMLFormElement>, order: InventoryPurchaseOrder) {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    const lines = order.lines.flatMap((line) => {
+      const quantity = Number(form.get(`line-${line.id}`) ?? 0)
+      return quantity > 0 ? [{ lineId: line.id, quantity }] : []
+    })
+    if (!lines.length) {
+      setError('Enter at least one received quantity.')
+      return
+    }
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      const result = await roleApi<{ complete: boolean }>(`/api/v1/admin/inventory/purchase-orders/${order.id}/receive`, { method: 'POST', body: JSON.stringify({ lines }) })
+      setNotice(result.complete ? `Purchase order ${order.id} received in full.` : `Partial receipt recorded for purchase order ${order.id}.`)
+      await Promise.all([orders.refetch(), products.refetch(), queryClient.invalidateQueries({ queryKey: ['inventory-movements'] })])
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Goods receipt could not be recorded.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const visibleOrders = (orders.data ?? []).filter((order) => mode === 'receiving' ? order.status === 'ordered' : true)
+  return <>
+    {mode === 'orders' && <section className="inventory-panel"><header><div><span className="admin-kicker">REPLENISHMENT WORKFLOW</span><h2>Create purchase order</h2></div><Boxes size={19} /></header><form className="inventory-adjust-form" onSubmit={(event) => void createPurchaseOrder(event)}><label>Active supplier<select name="supplierId" required defaultValue=""><option value="" disabled>Select supplier</option>{(suppliers.data ?? []).filter((supplier) => supplier.active).map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label><label>Product variant<select name="variantId" required defaultValue=""><option value="" disabled>Select variant</option>{variants.map((variant) => <option key={variant.id} value={variant.id}>{variant.productName} · {variant.size} · {variant.sku}</option>)}</select></label><label>Quantity<input name="quantity" type="number" min="1" max="100000" step="1" required /></label><label>Unit cost (KES)<input name="unitCost" type="number" min="0" step="0.01" required /></label><label>Expected delivery<input name="expectedAt" type="datetime-local" /></label><label>Note<input name="note" maxLength={1000} /></label>{error && <p className="inventory-error" role="alert">{error}</p>}{notice && <p className="inventory-notice" role="status">{notice}</p>}<button className="admin-it-button" type="submit" disabled={busy || !suppliers.data?.some((supplier) => supplier.active) || !variants.length}>{busy ? 'Saving…' : 'Create draft order'}</button></form></section>}
+    <section className="inventory-panel"><header><div><span className="admin-kicker">{mode === 'receiving' ? 'ORDERED GOODS' : 'PURCHASING WORKFLOW'}</span><h2>{mode === 'receiving' ? 'Goods receiving' : 'Purchase orders'}</h2></div><Receipt size={19} /></header>{orders.isError ? <div className="admin-empty admin-error">Purchase orders unavailable: {orders.error.message}</div> : <div className="inventory-purchase-list">{visibleOrders.map((order) => <article key={order.id}><header><div><strong>PO-{order.id} · {order.supplierName}</strong><small>{order.status} · {order.expectedAt ? `Expected ${new Date(order.expectedAt).toLocaleDateString()}` : 'No expected date'}</small></div><span>{order.lines.length} line{order.lines.length === 1 ? '' : 's'}</span></header><div className="inventory-purchase-lines">{order.lines.map((line) => <p key={line.id}>{line.productName} · {line.size} · {line.sku} · {line.quantityReceived}/{line.quantityOrdered} received</p>)}</div>{mode === 'orders' && <div className="inventory-row-actions">{order.status === 'draft' && <button className="admin-it-button" type="button" disabled={busy} onClick={() => void transition(order, 'approve')}>Approve</button>}{order.status === 'approved' && <button className="admin-it-button" type="button" disabled={busy} onClick={() => void transition(order, 'order')}>Mark ordered</button>}{['draft', 'approved', 'ordered'].includes(order.status) && <button className="admin-it-button is-danger" type="button" disabled={busy} onClick={() => void transition(order, 'cancel')}>Cancel</button>}</div>}{order.status === 'ordered' && <form className="inventory-receipt-form" onSubmit={(event) => void receive(event, order)}><strong>Record received quantities</strong><div>{order.lines.filter((line) => line.quantityReceived < line.quantityOrdered).map((line) => <label key={line.id}>{line.productName} · {line.size} ({line.quantityOrdered - line.quantityReceived} remaining)<input name={`line-${line.id}`} type="number" min="0" max={line.quantityOrdered - line.quantityReceived} step="1" defaultValue="0" /></label>)}</div><button className="admin-it-button" type="submit" disabled={busy}>Receive goods</button></form>}</article>)}{orders.isPending && <div className="admin-empty">Loading purchase orders…</div>}{!orders.isPending && !visibleOrders.length && <div className="admin-empty">{mode === 'receiving' ? 'No ordered goods are waiting to be received.' : 'No purchase orders have been created.'}</div>}</div>}</section>
+  </>
+}
+
+function InventoryReturnsPanel() {
+  const queryClient = useQueryClient()
+  const returns = useQuery({ queryKey: ['inventory-returns'], queryFn: () => roleApi<InventoryReturn[]>('/api/v1/admin/inventory/returns'), retry: false })
+  const eligible = useQuery({ queryKey: ['inventory-return-eligible-items'], queryFn: () => roleApi<EligibleReturnItem[]>('/api/v1/admin/inventory/returns/eligible-items'), retry: false })
+  const [busy, setBusy] = useState(false)
+  const [selectedItemId, setSelectedItemId] = useState('')
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  async function createReturn(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      await roleApi('/api/v1/admin/inventory/returns', { method: 'POST', body: JSON.stringify({ orderItemId: Number(form.get('orderItemId')), quantity: Number(form.get('quantity')), reason: form.get('reason') }) })
+      formElement.reset()
+      setSelectedItemId('')
+      setNotice('Return request recorded.')
+      await Promise.all([returns.refetch(), eligible.refetch()])
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Return request could not be recorded.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function updateReturn(item: InventoryReturn, action: 'approve' | 'reject' | 'receive', form?: HTMLFormElement) {
+    const note = form ? String(new FormData(form).get('note') ?? '') : ''
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      await roleApi(`/api/v1/admin/inventory/returns/${item.id}`, { method: 'PATCH', body: JSON.stringify({ action, note: note || undefined }) })
+      setNotice(`Return ${item.id} updated.`)
+      await Promise.all([returns.refetch(), eligible.refetch(), queryClient.invalidateQueries({ queryKey: ['inventory-products'] }), queryClient.invalidateQueries({ queryKey: ['inventory-movements'] })])
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Return status could not be changed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return <>
+    <section className="inventory-panel"><header><div><span className="admin-kicker">DELIVERED ORDERS · 30 DAY WINDOW</span><h2>Record return request</h2></div><Receipt size={19} /></header><form className="inventory-adjust-form" onSubmit={(event) => void createReturn(event)}><label>Eligible order item<select name="orderItemId" required value={selectedItemId} onChange={(event) => setSelectedItemId(event.target.value)}><option value="" disabled>Select item</option>{(eligible.data ?? []).map((item) => <option key={item.id} value={item.id}>{item.orderNumber} · {item.productName} · {item.size} · {item.remainingQuantity} returnable</option>)}</select></label><label>Quantity<input name="quantity" type="number" min="1" max={eligible.data?.find((item) => String(item.id) === selectedItemId)?.remainingQuantity ?? 1} defaultValue="1" required /></label><label>Reason<input name="reason" minLength={3} maxLength={500} required /></label>{error && <p className="inventory-error" role="alert">{error}</p>}{notice && <p className="inventory-notice" role="status">{notice}</p>}<button className="admin-it-button" type="submit" disabled={busy || !eligible.data?.length}>Create return request</button></form></section>
+    <section className="inventory-panel"><header><div><span className="admin-kicker">REVIEW AND RESTOCK</span><h2>Return requests</h2></div><FileText size={19} /></header>{returns.isError ? <div className="admin-empty admin-error">Returns unavailable: {returns.error.message}</div> : <div className="inventory-purchase-list">{(returns.data ?? []).map((item) => <article key={item.id}><header><div><strong>{item.orderNumber} · {item.productName} · {item.size}</strong><small>{item.quantity} unit(s) · {item.status} · {item.reason}</small></div></header>{['requested', 'approved'].includes(item.status) && <form className="inventory-return-actions" onSubmit={(event) => { event.preventDefault(); void updateReturn(item, 'receive', event.currentTarget) }}><label>Resolution note<input name="note" maxLength={500} /></label>{item.status === 'requested' && <><button className="admin-it-button" type="button" disabled={busy} onClick={(event) => void updateReturn(item, 'approve', event.currentTarget.form ?? undefined)}>Approve</button><button className="admin-it-button is-danger" type="button" disabled={busy} onClick={(event) => void updateReturn(item, 'reject', event.currentTarget.form ?? undefined)}>Reject</button></>}{item.status === 'approved' && <button className="admin-it-button" type="submit" disabled={busy}>Receive and restock</button>}</form>}</article>)}{returns.isPending && <div className="admin-empty">Loading return requests…</div>}{!returns.isPending && !returns.data?.length && <div className="admin-empty">No return requests have been recorded.</div>}</div>}</section>
+  </>
+}
+
+function InventoryAnalyticsPanel() {
+  const products = useQuery({ queryKey: ['inventory-products'], queryFn: () => roleApi<InventoryProduct[]>('/api/v1/admin/products'), retry: false })
+  const movements = useQuery({ queryKey: ['inventory-movements'], queryFn: () => roleApi<Record<string, unknown>[]>('/api/v1/admin/inventory/movements'), retry: false })
+  const stockRows = (products.data ?? []).flatMap((product) => (product.variants ?? []).map((variant) => ({ product: product.name, stock: variant.stock })))
+  const low = stockRows.filter((row) => row.stock > 0 && row.stock <= 5).length
+  const out = stockRows.filter((row) => row.stock === 0).length
+  return <section className="inventory-panel"><header><div><span className="admin-kicker">STOCK AND MOVEMENT SUMMARY</span><h2>Inventory analytics</h2></div><BarChart3 size={19} /></header><div className="inventory-report-grid">{[['Products', products.data?.length ?? '—'], ['Tracked variants', stockRows.length], ['Units in stock', stockRows.reduce((total, row) => total + row.stock, 0)], ['Low stock', low], ['Out of stock', out], ['Movement records', movements.data?.length ?? '—']].map(([label, value]) => <article key={String(label)}><span>{label}</span><strong>{String(value)}</strong></article>)}</div><p className="inventory-panel-copy">Cost valuation is not shown because product cost data is not consistently configured.</p></section>
+}
+
+function InventorySettingsPanel() {
+  return <section className="inventory-panel"><header><div><span className="admin-kicker">SERVER-ENFORCED OPERATIONS</span><h2>Inventory settings</h2></div><Boxes size={19} /></header><div className="inventory-alert-list"><p>Low stock is reported at five units or fewer.</p><p>Return requests are limited to delivered orders within 30 days.</p><p>Stock changes, purchase-order receipts, and accepted returns are recorded as movements.</p><p>Supplier purchasing and return eligibility are validated by the server.</p></div></section>
+}
+
+function InventoryAlertsPanel() {
+  const products = useQuery({ queryKey: ['inventory-products'], queryFn: () => roleApi<InventoryProduct[]>('/api/v1/admin/products'), retry: false })
+  const rows = (products.data ?? []).flatMap((product) => (product.variants ?? []).map((variant) => ({ product: product.name, size: variant.size, sku: variant.sku, stock: variant.stock })))
+  const alerts = rows.filter((row) => row.stock <= 5).sort((left, right) => left.stock - right.stock)
+  return <section className="inventory-panel"><header><div><span className="admin-kicker">STOCK EXCEPTIONS</span><h2>Inventory notifications</h2></div><AlertTriangle size={19} /></header><p className="inventory-panel-copy">Alerts are derived from current variant stock. No notification is sent externally by this view.</p><InventoryTable rows={alerts} /></section>
+}
+
 function InventoryUnavailable({ title, detail }: { title: string; detail: string }) {
+  if (title.startsWith('Suppliers')) return <InventorySuppliersPanel />
+  if (title.startsWith('Purchase Orders')) return <InventoryPurchaseOrdersPanel />
+  if (title.startsWith('Goods Receiving')) return <InventoryPurchaseOrdersPanel mode="receiving" />
+  if (title.startsWith('Returns')) return <InventoryReturnsPanel />
+  if (title.startsWith('Analytics') || title.startsWith('Reports')) return <InventoryAnalyticsPanel />
+  if (title.startsWith('Settings')) return <InventorySettingsPanel />
+  if (title.startsWith('Notifications')) return <InventoryAlertsPanel />
   return <section className="inventory-panel inventory-unavailable"><AlertTriangle size={22} /><span className="admin-kicker">CONTROL NOT CONNECTED</span><h2>{title}</h2><p>{detail}</p></section>
 }
 
@@ -230,6 +532,9 @@ function InventoryWorkspace({ prefix }: { prefix: keyof typeof roleConfig }) {
 }
 
 type MarketingCampaign = { id: number; type: string; title: string; body: string; href: string | null; audienceType: string; createdAt: string; recipientCount: number; unreadCount: number | null }
+type MarketingCoupon = { id: number; code: string; discountType: 'percent' | 'fixed'; value: string; minimumSubtotal: string; maxRedemptions: number | null; redemptionCount: number; active: boolean; startsAt: string | null; endsAt: string | null; createdAt: string }
+type MarketingAudience = { totalCustomers: number; eligibleEmailSubscribers: number; consentRequired: boolean }
+type MarketingEmailCampaign = { id: number; subject: string; body: string; status: string; recipientCount: number; acceptedCount: number; failedCount: number; createdAt: string }
 
 function MarketingTable({ rows }: { rows: Record<string, unknown>[] }) {
   if (!rows.length) return <div className="admin-empty">No marketing records are available.</div>
@@ -241,6 +546,119 @@ function MarketingUnavailable({ title, detail }: { title: string; detail: string
   return <section className="marketing-panel marketing-unavailable"><AlertTriangle size={22} /><span className="admin-kicker">CONTROL NOT CONNECTED</span><h2>{title}</h2><p>{detail}</p></section>
 }
 
+function MarketingCouponsPanel() {
+  const coupons = useQuery({ queryKey: ['marketing-coupons'], queryFn: () => roleApi<MarketingCoupon[]>('/api/v1/admin/marketing/coupons'), retry: false })
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+
+  async function createCoupon(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      const maxRedemptions = String(form.get('maxRedemptions') ?? '').trim()
+      const startsAt = String(form.get('startsAt') ?? '').trim()
+      const endsAt = String(form.get('endsAt') ?? '').trim()
+      await roleApi('/api/v1/admin/marketing/coupons', { method: 'POST', body: JSON.stringify({
+        code: form.get('code'), discountType: form.get('discountType'), value: form.get('value'),
+        minimumSubtotal: form.get('minimumSubtotal') || '0.00',
+        maxRedemptions: maxRedemptions ? Number(maxRedemptions) : null,
+        startsAt: startsAt ? new Date(startsAt).toISOString() : null,
+        endsAt: endsAt ? new Date(endsAt).toISOString() : null,
+      }) })
+      formElement.reset()
+      setNotice('Coupon created and available for checkout.')
+      await coupons.refetch()
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Coupon could not be created.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function setActive(coupon: MarketingCoupon) {
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      await roleApi(`/api/v1/admin/marketing/coupons/${coupon.id}`, { method: 'PATCH', body: JSON.stringify({ active: !coupon.active }) })
+      setNotice(`Coupon ${coupon.code} ${coupon.active ? 'deactivated' : 'activated'}.`)
+      await coupons.refetch()
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Coupon status could not be changed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return <>
+    <section className="marketing-panel"><header><div><span className="admin-kicker">CHECKOUT DISCOUNTS</span><h2>Create coupon</h2></div><Receipt size={19} /></header>
+      <form className="marketing-campaign-form" onSubmit={(event) => void createCoupon(event)}>
+        <label>Coupon code<input name="code" required minLength={3} maxLength={40} pattern="[A-Za-z0-9_-]+" autoCapitalize="characters" /></label>
+        <label>Discount type<select name="discountType" defaultValue="percent"><option value="percent">Percentage</option><option value="fixed">Fixed amount (KES)</option></select></label>
+        <label>Discount value<input name="value" type="number" min="0.01" max="100" step="0.01" required /></label>
+        <label>Minimum subtotal (KES)<input name="minimumSubtotal" type="number" min="0" step="0.01" defaultValue="0" required /></label>
+        <label>Maximum redemptions<input name="maxRedemptions" type="number" min="1" step="1" placeholder="No limit" /></label>
+        <label>Starts at<input name="startsAt" type="datetime-local" /></label>
+        <label>Ends at<input name="endsAt" type="datetime-local" /></label>
+        {error && <p className="marketing-error" role="alert">{error}</p>}{notice && <p className="marketing-notice" role="status">{notice}</p>}
+        <button className="role-portal-button" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Create coupon'}</button>
+      </form>
+    </section>
+    <section className="marketing-panel"><header><div><span className="admin-kicker">LIVE CHECKOUT CODES</span><h2>Coupons</h2></div><ShoppingBag size={19} /></header>
+      {coupons.isError ? <div className="admin-empty admin-error">Coupons unavailable: {coupons.error.message}</div> : <div className="marketing-coupon-list">{(coupons.data ?? []).map((coupon) => <article key={coupon.id}><div><strong>{coupon.code}</strong><small>{coupon.discountType === 'percent' ? `${coupon.value}%` : `KES ${coupon.value}`} · {coupon.redemptionCount}{coupon.maxRedemptions ? ` / ${coupon.maxRedemptions}` : ''} redeemed</small><small>{coupon.endsAt ? `Ends ${new Date(coupon.endsAt).toLocaleString()}` : 'No expiry set'}</small></div><span className={coupon.active ? 'is-active' : ''}>{coupon.active ? 'Active' : 'Inactive'}</span><button type="button" className="admin-it-button" disabled={busy} onClick={() => void setActive(coupon)}>{coupon.active ? 'Deactivate' : 'Activate'}</button></article>)}{coupons.isPending && <div className="admin-empty">Loading coupons…</div>}{!coupons.isPending && !coupons.data?.length && <div className="admin-empty">No coupons have been created.</div>}</div>}
+    </section>
+  </>
+}
+
+function MarketingAudiencesPanel() {
+  const audience = useQuery({ queryKey: ['marketing-audiences'], queryFn: () => roleApi<MarketingAudience>('/api/v1/admin/marketing/audiences'), retry: false })
+  if (audience.isPending) return <div className="admin-empty">Loading consent-qualified audience totals…</div>
+  if (audience.isError || !audience.data) return <div className="admin-empty admin-error">Audience data unavailable: {audience.error?.message}</div>
+  return <section className="marketing-panel"><header><div><span className="admin-kicker">CONSENT-AWARE REACH</span><h2>Audience overview</h2></div><Users size={19} /></header><div className="marketing-kpi-grid"><article><span>Customer accounts</span><strong>{audience.data.totalCustomers.toLocaleString()}</strong></article><article><span>Verified email subscribers</span><strong>{audience.data.eligibleEmailSubscribers.toLocaleString()}</strong></article></div><p className="marketing-panel-copy">Email campaigns include only verified customers with an active marketing-consent record. Individual subscriber details are not exposed in this view.</p></section>
+}
+
+function MarketingEmailPanel() {
+  const queryClient = useQueryClient()
+  const emails = useQuery({ queryKey: ['marketing-email-campaigns'], queryFn: () => roleApi<MarketingEmailCampaign[]>('/api/v1/admin/marketing/email-campaigns'), retry: false })
+  const audience = useQuery({ queryKey: ['marketing-audiences'], queryFn: () => roleApi<MarketingAudience>('/api/v1/admin/marketing/audiences'), retry: false })
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+
+  async function sendEmailCampaign(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      const result = await roleApi<{ recipientCount: number; acceptedCount: number; failedCount: number; status: string }>('/api/v1/admin/marketing/email-campaigns', { method: 'POST', body: JSON.stringify({ subject: form.get('subject'), body: form.get('body') }) })
+      formElement.reset()
+      setNotice(`Delivery ${result.status}: ${result.acceptedCount} accepted, ${result.failedCount} failed of ${result.recipientCount} opted-in subscribers.`)
+      await Promise.all([emails.refetch(), queryClient.invalidateQueries({ queryKey: ['marketing-portal'] })])
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Email campaign could not be sent.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return <>
+    <section className="marketing-panel"><header><div><span className="admin-kicker">OPTED-IN CUSTOMERS ONLY</span><h2>Create email campaign</h2></div><Mail size={19} /></header>
+      <p className="marketing-panel-copy">The backend sends only to verified customers with marketing consent, includes a preferences link, and limits each send to 250 recipients.</p>
+      {audience.data && <p className="marketing-panel-copy">Current eligible audience: {audience.data.eligibleEmailSubscribers.toLocaleString()} subscribers. Sending is available only when the configured email provider is ready.</p>}
+      <form className="marketing-campaign-form" onSubmit={(event) => void sendEmailCampaign(event)}><label>Subject<input name="subject" required minLength={3} maxLength={160} /></label><label>Email body<textarea name="body" required minLength={10} maxLength={6000} rows={7} /></label>{error && <p className="marketing-error" role="alert">{error}</p>}{notice && <p className="marketing-notice" role="status">{notice}</p>}<button className="role-portal-button" type="submit" disabled={busy || !audience.data?.eligibleEmailSubscribers}>{busy ? 'Sending…' : 'Send to opted-in subscribers'}</button></form>
+    </section>
+    <section className="marketing-panel"><header><div><span className="admin-kicker">CAMPAIGN OUTCOMES</span><h2>Email history</h2></div><FileText size={19} /></header>{emails.isError ? <div className="admin-empty admin-error">Email campaign history unavailable: {emails.error.message}</div> : <MarketingTable rows={(emails.data ?? []) as unknown as Record<string, unknown>[]} />}</section>
+  </>
+}
+
 function MarketingWorkspace({ prefix }: { prefix: keyof typeof roleConfig }) {
   const navigate = useNavigate()
   const [activeModule, setActiveModule] = useState('Dashboard')
@@ -248,8 +666,11 @@ function MarketingWorkspace({ prefix }: { prefix: keyof typeof roleConfig }) {
   const [error, setError] = useState('')
   const config = roleConfig[prefix]
   const portal = useQuery({ queryKey: ['marketing-portal'], queryFn: () => roleApi<PortalData>('/api/v1/admin/portal/marketing_admin'), retry: false })
-  const campaigns = useQuery({ queryKey: ['marketing-campaigns'], queryFn: () => roleApi<MarketingCampaign[]>('/api/v1/admin/notifications'), enabled: ['Dashboard', 'Campaigns', 'Notifications'].includes(activeModule), retry: false })
+  const campaigns = useQuery({ queryKey: ['marketing-campaigns'], queryFn: () => roleApi<MarketingCampaign[]>('/api/v1/admin/notifications'), enabled: ['Dashboard', 'Campaigns', 'Notifications', 'Content Promotion', 'Analytics', 'Reports'].includes(activeModule), retry: false })
   const audit = useQuery({ queryKey: ['marketing-audit'], queryFn: () => roleApi<Record<string, unknown>[]>('/api/v1/admin/audit'), enabled: activeModule === 'Audit Logs', retry: false })
+  const dashboardCoupons = useQuery({ queryKey: ['marketing-coupons'], queryFn: () => roleApi<MarketingCoupon[]>('/api/v1/admin/marketing/coupons'), enabled: activeModule === 'Dashboard' || activeModule === 'Analytics' || activeModule === 'Reports', retry: false })
+  const dashboardAudience = useQuery({ queryKey: ['marketing-audiences'], queryFn: () => roleApi<MarketingAudience>('/api/v1/admin/marketing/audiences'), enabled: activeModule === 'Dashboard' || activeModule === 'Analytics' || activeModule === 'Reports', retry: false })
+  const dashboardEmails = useQuery({ queryKey: ['marketing-email-campaigns'], queryFn: () => roleApi<MarketingEmailCampaign[]>('/api/v1/admin/marketing/email-campaigns'), enabled: activeModule === 'Dashboard' || activeModule === 'Analytics' || activeModule === 'Reports', retry: false })
   const campaignRows = (campaigns.data ?? []).filter((campaign) => campaign.type === 'announcement')
   const totalRecipients = campaignRows.reduce((total, campaign) => total + Number(campaign.recipientCount || 0), 0)
   const totalUnread = campaignRows.reduce((total, campaign) => total + Number(campaign.unreadCount || 0), 0)
@@ -269,11 +690,19 @@ function MarketingWorkspace({ prefix }: { prefix: keyof typeof roleConfig }) {
     }
   }
 
+  const acceptedEmails = (dashboardEmails.data ?? []).reduce((total, campaign) => total + campaign.acceptedCount, 0)
   const panel = activeModule === 'Dashboard' ? <>
-    <div className="marketing-kpi-grid">{[['Campaigns', campaignRows.length], ['Recipients reached', totalRecipients], ['Unread responses', totalUnread], ['Active promotions', 'Unavailable'], ['Email delivery', 'Unavailable'], ['Attributed revenue', 'Unavailable']].map(([label, value]) => <article key={String(label)}><span>{label}</span><strong>{String(value)}</strong></article>)}</div>
+    <div className="marketing-kpi-grid">{[['Campaigns', campaignRows.length], ['Recipients reached', totalRecipients], ['Unread responses', totalUnread], ['Active coupons', (dashboardCoupons.data ?? []).filter((coupon) => coupon.active).length], ['Email deliveries accepted', acceptedEmails], ['Opted-in subscribers', dashboardAudience.data?.eligibleEmailSubscribers ?? '—']].map(([label, value]) => <article key={String(label)}><span>{label}</span><strong>{String(value)}</strong></article>)}</div>
     <div className="marketing-panel-grid"><section className="marketing-panel"><header><div><span className="admin-kicker">CAMPAIGN ACTIVITY</span><h2>Recent campaign reach</h2></div><Megaphone size={19} /></header><div className="marketing-bars">{campaignRows.slice(0, 6).map((campaign) => <div key={campaign.id}><span>{campaign.title}</span><i><b style={{ width: `${Math.max(4, Number(campaign.recipientCount) / Math.max(1, totalRecipients) * 100)}%` }} /></i><strong>{campaign.recipientCount}</strong></div>)}</div>{!campaignRows.length && <div className="admin-empty">No notification campaigns have been sent.</div>}</section><section className="marketing-panel"><header><div><span className="admin-kicker">ANALYTICS COVERAGE</span><h2>What is measurable</h2></div><BarChart3 size={19} /></header><div className="marketing-coverage"><p>Customer delivery and unread counts are available.</p><p>Open, click, conversion, and revenue attribution tracking is unavailable.</p></div></section></div>
     <section className="marketing-panel"><header><div><span className="admin-kicker">RECENT CAMPAIGNS</span><h2>Campaign history</h2></div><ShoppingBag size={19} /></header><MarketingTable rows={campaignRows as unknown as Record<string, unknown>[]} /></section>
-  </> : activeModule === 'Campaigns' || activeModule === 'Notifications' ? <><section className="marketing-panel"><header><div><span className="admin-kicker">CUSTOMER NOTIFICATION CAMPAIGN</span><h2>{activeModule === 'Campaigns' ? 'Create campaign' : 'Compose notification'}</h2></div><Megaphone size={19} /></header><p className="marketing-panel-copy">This uses the existing in-app customer notification service and sends immediately to all customers. Scheduling, consent suppression, and email delivery are not represented by the current backend.</p><form className="marketing-campaign-form" onSubmit={(event) => void createCampaign(event)}><label>Campaign title<input name="title" required minLength={2} maxLength={160} /></label><label>Message<textarea name="body" required minLength={2} maxLength={2000} rows={4} /></label><label>In-app destination (optional)<input name="href" maxLength={320} placeholder="/account/marketplace" /></label>{error && <p className="marketing-error" role="alert">{error}</p>}{notice && <p className="marketing-notice" role="status">{notice}</p>}<button className="role-portal-button" type="submit">Send campaign</button></form></section><section className="marketing-panel"><header><div><span className="admin-kicker">DELIVERY HISTORY</span><h2>Sent campaigns</h2></div><FileText size={19} /></header><MarketingTable rows={campaignRows as unknown as Record<string, unknown>[]} /></section></> : activeModule === 'Audit Logs' ? <section className="marketing-panel"><header><div><span className="admin-kicker">MARKETING ACCOUNTABILITY</span><h2>Audit logs</h2></div><FileText size={19} /></header><MarketingTable rows={audit.data ?? []} /></section> : <MarketingUnavailable title={`${activeModule} is not connected`} detail="This workflow requires an additive marketing schema, consent-aware backend contract, and audited server operation before it can be enabled." />
+  </> : activeModule === 'Campaigns' || activeModule === 'Notifications' || activeModule === 'Content Promotion' ? <><section className="marketing-panel"><header><div><span className="admin-kicker">IN-APP CUSTOMER COMMUNICATION</span><h2>{activeModule === 'Content Promotion' ? 'Promote a page or offer' : activeModule === 'Campaigns' ? 'Create campaign' : 'Compose notification'}</h2></div><Megaphone size={19} /></header><p className="marketing-panel-copy">Notifications are sent immediately to all customer accounts. Use a same-site destination for the page or offer. Email consent and scheduling are handled separately.</p><form className="marketing-campaign-form" onSubmit={(event) => void createCampaign(event)}><label>Campaign title<input name="title" required minLength={2} maxLength={160} /></label><label>Message<textarea name="body" required minLength={2} maxLength={2000} rows={4} /></label><label>In-app destination (optional)<input name="href" maxLength={320} placeholder="/account/marketplace" /></label>{error && <p className="marketing-error" role="alert">{error}</p>}{notice && <p className="marketing-notice" role="status">{notice}</p>}<button className="role-portal-button" type="submit">Send to customers</button></form></section><section className="marketing-panel"><header><div><span className="admin-kicker">DELIVERY HISTORY</span><h2>Sent campaigns</h2></div><FileText size={19} /></header><MarketingTable rows={campaignRows as unknown as Record<string, unknown>[]} /></section></>
+    : activeModule === 'Promotions' || activeModule === 'Coupons' ? <MarketingCouponsPanel />
+      : activeModule === 'Audiences' ? <MarketingAudiencesPanel />
+        : activeModule === 'Email Marketing' ? <MarketingEmailPanel />
+          : activeModule === 'Analytics' ? <><div className="marketing-kpi-grid">{[['In-app campaigns', campaignRows.length], ['Notification recipients', totalRecipients], ['Unread notifications', totalUnread], ['Active coupons', (dashboardCoupons.data ?? []).filter((coupon) => coupon.active).length], ['Accepted email deliveries', acceptedEmails], ['Verified opted-in subscribers', dashboardAudience.data?.eligibleEmailSubscribers ?? '—']].map(([label, value]) => <article key={String(label)}><span>{label}</span><strong>{String(value)}</strong></article>)}</div><section className="marketing-panel"><header><div><span className="admin-kicker">MEASUREMENT LIMITS</span><h2>Available analytics</h2></div><BarChart3 size={19} /></header><p className="marketing-panel-copy">Delivery acceptance and in-app unread counts are recorded. Open rates, clicks, coupon-attributed orders, and revenue attribution are not tracked by the current backend.</p><MarketingTable rows={campaignRows as unknown as Record<string, unknown>[]} /></section></>
+            : activeModule === 'Reports' ? <><section className="marketing-panel"><header><div><span className="admin-kicker">CAMPAIGN REPORT</span><h2>Notification outcomes</h2></div><FileText size={19} /></header><MarketingTable rows={campaignRows as unknown as Record<string, unknown>[]} /></section><section className="marketing-panel"><header><div><span className="admin-kicker">EMAIL REPORT</span><h2>Accepted and failed deliveries</h2></div><Mail size={19} /></header><MarketingTable rows={(dashboardEmails.data ?? []) as unknown as Record<string, unknown>[]} /></section></>
+              : activeModule === 'Settings' ? <section className="marketing-panel"><header><div><span className="admin-kicker">SERVER-ENFORCED POLICY</span><h2>Marketing settings</h2></div><Check size={19} /></header><div className="marketing-coverage"><p>Email sends require a verified address and recorded marketing consent.</p><p>Each email send is limited to 250 recipients and includes a preferences link.</p><p>In-app notifications send immediately to all customer accounts; they are not scheduled.</p><p>Email provider credentials and sender configuration are managed in the server environment, not this browser.</p></div></section>
+                : activeModule === 'Audit Logs' ? <section className="marketing-panel"><header><div><span className="admin-kicker">MARKETING ACCOUNTABILITY</span><h2>Audit logs</h2></div><FileText size={19} /></header><MarketingTable rows={audit.data ?? []} /></section> : <MarketingUnavailable title={`${activeModule} is not available`} detail="This module is not exposed by the current server contract." />
   return <main className="admin-it-page super-admin-page role-portal-shell marketing-portal-shell"><aside className="super-admin-sidebar role-portal-sidebar"><Link to="/" className="admin-brand" aria-label="MATRIX home"><img src="/matrix-logo.png" alt="MATRIX" /></Link><strong>{config.title}</strong><nav>{config.modules.map((module) => <button type="button" key={module} className={activeModule === module ? 'active' : ''} onClick={() => { setActiveModule(module); setError(''); setNotice('') }}>{module}</button>)}</nav><button type="button" className="admin-it-button role-portal-signout" onClick={() => void signOutRolePortal(navigate, prefix)}>Sign out</button></aside><section className="super-admin-main role-portal-main marketing-portal-main"><header><div><span className="admin-kicker">MARKETING MANAGEMENT CENTRE</span><h1>{activeModule}</h1><p className="marketing-header-copy">Campaign communication and measurable customer engagement for KitCulture.</p></div><Megaphone size={24} /></header>{portal.isError ? <div className="admin-empty admin-error">Marketing data is unavailable: {portal.error.message}</div> : panel}</section></main>
 }
 
@@ -384,9 +813,9 @@ function RolePortalDashboard() {
       <strong>{config.title}</strong>
       <nav>{config.modules.map((module) => <button type="button" key={module} className={activeModule === module ? 'active' : ''} onClick={() => {
         if (prefix === 'content-admin') {
-          const adminSection = ({ Products: 'products', Categories: 'categories', Homepage: 'homepage' } as const)[module as 'Products' | 'Categories' | 'Homepage']
+          const adminSection = ({ Products: 'products', Categories: 'categories', Homepage: 'homepage', 'Site Pages': 'site-pages' } as const)[module as 'Products' | 'Categories' | 'Homepage' | 'Site Pages']
           if (adminSection) {
-            navigate(`/admin/${adminSection}`)
+            navigate(`/sales-admin/${adminSection}`)
             return
           }
         }

@@ -12,7 +12,7 @@ This application is intentionally independent from the protected KitCulture/Kitz
 - `/marketplace/products/:slug` is a public listing detail page. Seller contact is returned only by the protected entitlement endpoint after verified contact payment.
 - `/admin/marketplace/login` and `/admin/marketplace/dashboard` use a MarketHub session bound to a verified Kitz administrator identity; Kitz remains authoritative for credentials, status, roles, approvals, and permissions.
 
-Static platform images are managed in Kitz Content Admin under Homepage. The platform reads the public site-image map from `VITE_KITZ_ORIGIN` (defaults to the Kitz production origin); Kitz must set `MARKETHUB_PUBLIC_URL` to the exact platform HTTPS origin. Image uploads are authenticated by Kitz and use its Cloudinary configuration; the platform service does not receive Cloudinary secrets.
+Static platform images, favicon, legal copy, and footer notice are managed in Kitz Content Admin under Site Pages. The platform reads public image/content maps from `VITE_KITZ_ORIGIN` (defaults to the Kitz production origin); Kitz must set `MARKETHUB_PUBLIC_URL` to the exact platform HTTPS origin. `KITCULTURE_MARKETPLACE_AUTH_URL` on the platform server must target that Kitz origin so CSP allows the content fetch. Uploads and edits are authenticated by Kitz and use its Cloudinary/application-settings configuration; the platform service does not receive Cloudinary secrets. Email campaigns are consent-gated and limited to 250 recipients per send; open/click and revenue attribution are not implemented.
 
 ## Local Development
 

@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, sql } from 'drizzle-orm'
 import { Router } from 'express'
 import { z } from 'zod'
 import { buildAbsoluteUrl, renderHtmlEmail, sendTransactionalEmail } from '../../config/email.js'
@@ -273,6 +273,24 @@ adminWorkflowsRouter.get('/inventory/returns', async (_request, response) => {
   const rows = await db.select({ id: inventoryReturns.id, orderId: inventoryReturns.orderId, orderNumber: orders.orderNumber, orderItemId: inventoryReturns.orderItemId, productName: orderItems.productNameSnapshot, size: orderItems.sizeSnapshot, quantity: inventoryReturns.quantity, reason: inventoryReturns.reason, status: inventoryReturns.status, resolutionNote: inventoryReturns.resolutionNote, createdAt: inventoryReturns.createdAt })
     .from(inventoryReturns).innerJoin(orders, eq(inventoryReturns.orderId, orders.id)).innerJoin(orderItems, eq(inventoryReturns.orderItemId, orderItems.id)).orderBy(desc(inventoryReturns.createdAt)).limit(250)
   response.json({ data: rows })
+})
+
+adminWorkflowsRouter.get('/inventory/returns/eligible-items', async (_request, response) => {
+  if (!db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Eligible return items are unavailable.' } })
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60_000)
+  const items = await db.select({ id: orderItems.id, orderNumber: orders.orderNumber, productName: orderItems.productNameSnapshot, size: orderItems.sizeSnapshot, quantity: orderItems.quantity, createdAt: orders.createdAt })
+    .from(orderItems).innerJoin(orders, eq(orderItems.orderId, orders.id))
+    .where(and(eq(orders.status, 'delivered'), gte(orders.createdAt, cutoff)))
+    .orderBy(desc(orders.createdAt)).limit(250)
+  const itemIds = items.map((item) => item.id)
+  const priorReturns = itemIds.length ? await db.select({ orderItemId: inventoryReturns.orderItemId, quantity: inventoryReturns.quantity })
+    .from(inventoryReturns).where(and(inArray(inventoryReturns.orderItemId, itemIds), inArray(inventoryReturns.status, ['requested', 'approved', 'received']))) : []
+  const returnedByItem = new Map<number, number>()
+  for (const item of priorReturns) returnedByItem.set(item.orderItemId, (returnedByItem.get(item.orderItemId) ?? 0) + item.quantity)
+  response.json({ data: items.flatMap((item) => {
+    const remainingQuantity = item.quantity - (returnedByItem.get(item.id) ?? 0)
+    return remainingQuantity > 0 ? [{ ...item, remainingQuantity }] : []
+  }) })
 })
 
 adminWorkflowsRouter.post('/inventory/returns', async (request, response) => {

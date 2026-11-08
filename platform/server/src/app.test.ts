@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
 
 delete process.env.MARKETPLACE_DATABASE_URL
+process.env.KITCULTURE_MARKETPLACE_AUTH_URL = 'https://kitz.example.test/api/v1/admin/marketplace/authenticate'
 const { app } = await import('./app.js')
 const { getMarketplaceDatabaseConfig, marketplaceDatabaseStartupDiagnostic } = await import('./database/connection.js')
 const server = app.listen(0, '127.0.0.1')
@@ -28,6 +29,7 @@ test('content security policy allows seller previews and Cloudinary product imag
   const policy = response.headers.get('content-security-policy') ?? ''
   assert.match(policy, /img-src[^;]*'self'[^;]*data:[^;]*blob:/)
   assert.match(policy, /img-src[^;]*https:\/\/res\.cloudinary\.com/)
+  assert.match(policy, /connect-src[^;]*'self'[^;]*https:\/\/kitz\.example\.test/)
 })
 
 test('marketplace public GET endpoints fail closed without a database', async () => {

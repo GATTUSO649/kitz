@@ -3,11 +3,12 @@ import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { userFacingErrorMessage } from '../components/notification-api'
 import { AdminApiError, formatAdminOrderNumber, isAdminSessionExpired } from './admin-tools'
-import { Activity, AlertTriangle, ArrowRight, ArrowUpDown, BarChart3, Bell, Check, CircleHelp, Copy, Database, Filter, Image as ImageIcon, LayoutDashboard, LogOut, MapPin, Menu, MessageCircle, Package, Search, Send, Shield, Star, Trash2, Trophy, Upload, Users, X } from 'lucide-react'
+import { Activity, AlertTriangle, ArrowRight, ArrowUpDown, BarChart3, Bell, Check, CircleHelp, Copy, Database, FileText, Filter, Image as ImageIcon, LayoutDashboard, LogOut, MapPin, Menu, MessageCircle, Package, Search, Send, Shield, Star, Trash2, Trophy, Upload, Users, X } from 'lucide-react'
 import { GoogleMapView } from '../components/GoogleMapView'
 import '../role-portal-theme.css'
 import { matchesNationalTeam, NATIONAL_TEAM_NAMES } from '../nationalTeams'
 import { siteImageSlots, siteImagesQueryKey, type SiteImageSlotKey } from '../siteImages'
+import { siteContentFields, siteContentQueryKey, type SiteContentData, type SiteContentField } from '../siteContent'
 
 type AdminRecord = Record<string, unknown>
 type AdminPayload<T> = { data?: T; error?: { code?: string; message?: string }; pagination?: { limit: number; nextCursor: number | null; hasMore: boolean } }
@@ -72,6 +73,7 @@ const sections = [
   ['products', 'Products', '/sales-admin/products', Package],
   ['football', 'Leagues & teams', '/sales-admin/football', Trophy],
   ['homepage', 'Homepage', '/sales-admin/homepage', ImageIcon],
+  ['site-pages', 'Site Pages', '/sales-admin/site-pages', FileText],
   ['categories', 'Kit collections', '/sales-admin/categories', Package],
   ['orders', 'Orders', '/sales-admin/orders', Package],
   ['guest-orders', 'Guest management', '/sales-admin/guest-orders', Users],
@@ -1332,6 +1334,67 @@ function SiteImagesManager() {
   </section>
 }
 
+function SitePagesManager() {
+  const queryClient = useQueryClient()
+  const contentQuery = useQuery({
+    queryKey: ['admin', 'homepage', 'site-content'],
+    queryFn: () => api<SiteContentData>('/api/v1/admin/homepage/site-content'),
+    retry: false,
+  })
+
+  if (contentQuery.isPending) return <div className="admin-empty">Loading site pages…</div>
+  if (contentQuery.isError) return <div className="admin-empty admin-error">{contentQuery.error.message}<button type="button" onClick={() => void contentQuery.refetch()}>Retry</button></div>
+
+  return <SitePagesEditor key={JSON.stringify(contentQuery.data)} initialContent={contentQuery.data ?? {}} onSaved={async () => {
+    await Promise.all([
+      contentQuery.refetch(),
+      queryClient.invalidateQueries({ queryKey: siteContentQueryKey }),
+    ])
+  }} />
+}
+
+function SitePagesEditor({ initialContent, onSaved }: { initialContent: SiteContentData; onSaved: () => Promise<void> }) {
+  const [draft, setDraft] = useState<Record<SiteContentField, string>>(() => Object.fromEntries(siteContentFields.map(({ key }) => [key, initialContent[key] ?? ''])) as Record<SiteContentField, string>)
+  const [previewField, setPreviewField] = useState<'terms' | 'privacy'>('terms')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      await api('/api/v1/admin/homepage/site-content', { method: 'PUT', body: JSON.stringify(draft) })
+      await onSaved()
+      setNotice('Site pages and footer text saved.')
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Site content could not be saved.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const previewText = draft[previewField].trim()
+  return <div className="admin-site-pages">
+    <header className="admin-site-pages-heading"><div><span className="admin-kicker">PUBLISHED COPY</span><h2>Site Pages</h2><p>Edit the marketplace terms, privacy statement, and both site footers. Content is plain text; HTML is never executed.</p></div></header>
+    <div className="admin-site-pages-layout">
+      <form className="admin-site-copy-form" onSubmit={(event) => void save(event)}>
+        {siteContentFields.map((field) => <label key={field.key}>{field.label}<textarea rows={field.maxLength > 1_000 ? 10 : 3} maxLength={field.maxLength} value={draft[field.key]} onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))} placeholder={field.key === 'terms' || field.key === 'privacy' ? 'Leave blank to keep the current built-in copy.' : 'Leave blank to keep the current footer copy.'} /><small>{draft[field.key].length.toLocaleString()} / {field.maxLength.toLocaleString()} characters. Use a blank line to separate paragraphs.</small></label>)}
+        {error && <p className="admin-error" role="alert">{error}</p>}
+        {notice && <p className="admin-success" role="status">{notice}</p>}
+        <button className="button button-green" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save Site Pages'}</button>
+      </form>
+      <section className="admin-site-page-preview" aria-label="Legal page preview">
+        <label>Preview<select value={previewField} onChange={(event) => setPreviewField(event.target.value as 'terms' | 'privacy')}><option value="terms">Terms and conditions</option><option value="privacy">Privacy statement</option></select></label>
+        <article><span className="admin-kicker">LIVE PREVIEW</span><h2>{previewField === 'terms' ? 'Terms & Conditions' : 'Privacy Statement'}</h2>{previewText ? previewText.split(/\n\s*\n/).map((paragraph, index) => <p key={`${index}-${paragraph.slice(0, 20)}`}>{paragraph}</p>) : <p>The existing built-in {previewField === 'terms' ? 'terms and conditions' : 'privacy statement'} remains published until replacement text is saved.</p>}</article>
+      </section>
+    </div>
+    <SiteImagesManager />
+  </div>
+}
+
 function HomepageSlidesManager({ slides, onDone }: { slides: HomepageSlide[]; onDone: () => Promise<void> }) {
   const queryClient = useQueryClient()
   const brandLogoQuery = useQuery({
@@ -1527,7 +1590,6 @@ function HomepageSlidesManager({ slides, onDone }: { slides: HomepageSlide[]; on
       {logoStatus && <p className="admin-success" role="status">{logoStatus}</p>}
       {logoBusy && <p className="admin-form-note" role="status">Uploading logo…</p>}
     </section>
-    <SiteImagesManager />
     <div className="admin-slideshow-intro"><div><span className="admin-kicker">HOMEPAGE CREATIVE</span><h2>Build the hero slideshow</h2><p>Published slides appear automatically on the home page. The button destination only controls where each call to action leads.</p></div><span className="admin-slideshow-count">{imageUrls.length} / 20 selected</span></div>
     <form key={editing?.id ?? 'new'} className="admin-create-form admin-slideshow-form" onSubmit={(event) => void save(event)}>
       <h2>{editing ? 'Edit slide' : 'Slide content'}</h2>
@@ -2090,8 +2152,9 @@ export function AdminConsole({ role }: { role: string | null }) {
   const [customFrom, setCustomFrom] = useState(() => new Date().toISOString().slice(0, 10))
   const [customTo, setCustomTo] = useState(() => new Date().toISOString().slice(0, 10))
   const current = sections.find(([, , path]) => path === location.pathname) ?? sections[0]
+  const adminLoginPath = role === 'content_admin' ? '/content-admin/login' : '/admin/login'
   const visibleSections = role === 'content_admin'
-    ? sections.filter(([id]) => ['products', 'football', 'homepage', 'categories'].includes(id))
+    ? sections.filter(([id]) => ['products', 'football', 'homepage', 'site-pages', 'categories'].includes(id))
     : role === 'finance_admin'
       ? sections.filter(([id]) => ['dashboard', 'payments', 'reports', 'expenses', 'audit'].includes(id))
       : sections
@@ -2100,7 +2163,8 @@ export function AdminConsole({ role }: { role: string | null }) {
     : current[0] === 'inventory' ? 'inventory/movements'
       : current[0] === 'delivery' ? 'delivery/zones'
         : current[0] === 'reports' ? 'reports/financial'
-          : current[0] === 'audit' ? 'audit' : current[0]
+            : current[0] === 'audit' ? 'audit'
+              : current[0] === 'site-pages' ? 'homepage/site-content' : current[0]
   const sectionQuery = useQuery({
     queryKey: ['admin', endpoint, ...(current[0] === 'dashboard' ? [reportPeriod, customFrom, customTo] : [])],
     queryFn: () => {
@@ -2119,19 +2183,19 @@ export function AdminConsole({ role }: { role: string | null }) {
 
   useEffect(() => {
     if (isAdminSessionExpired(sectionQuery.error)) {
-      navigate('/admin/login?reason=expired', { replace: true })
+      navigate(`${adminLoginPath}?reason=expired`, { replace: true })
     }
-  }, [sectionQuery.error, navigate])
+  }, [adminLoginPath, sectionQuery.error, navigate])
 
   useEffect(() => {
     const expireSession = () => {
       queryClient.removeQueries({ queryKey: ['admin'] })
       queryClient.removeQueries({ queryKey: ['admin-session'] })
-      navigate('/admin/login', { replace: true })
+      navigate(adminLoginPath, { replace: true })
     }
     window.addEventListener(adminSessionExpiredEvent, expireSession)
     return () => window.removeEventListener(adminSessionExpiredEvent, expireSession)
-  }, [navigate, queryClient])
+  }, [adminLoginPath, navigate, queryClient])
 
   useEffect(() => {
     const idleTimeoutMs = 20 * 60_000
@@ -2150,7 +2214,7 @@ export function AdminConsole({ role }: { role: string | null }) {
         .catch(() => undefined)
         .finally(() => {
           clearAdminQueries()
-          navigate('/admin/login', { replace: true })
+          navigate(adminLoginPath, { replace: true })
         })
     }
     const resetIdleTimer = () => {
@@ -2171,13 +2235,13 @@ export function AdminConsole({ role }: { role: string | null }) {
       window.clearTimeout(idleTimer)
       events.forEach((eventName) => window.removeEventListener(eventName, resetIdleTimer))
     }
-  }, [navigate, queryClient])
+  }, [adminLoginPath, navigate, queryClient])
 
   async function logout() {
     try { await api('/api/v1/admin/logout', { method: 'POST' }) } finally {
       queryClient.removeQueries({ queryKey: ['admin'] })
       queryClient.removeQueries({ queryKey: ['admin-session'] })
-      navigate('/admin/login', { replace: true })
+      navigate(adminLoginPath, { replace: true })
     }
   }
   async function patchOrder(order: AdminRecord, status: string) {
@@ -2214,7 +2278,7 @@ export function AdminConsole({ role }: { role: string | null }) {
   return <div className="admin-app">
     <aside className={menuOpen ? 'admin-sidebar is-open' : 'admin-sidebar'}><Link to="/" className="admin-brand" aria-label="MATRIX home"><img src="/matrix-logo.png" alt="MATRIX" /><span>ADMIN</span></Link><nav aria-label="Admin modules">{visibleSections.map(([id, title, path, Icon]) => <Link key={id} to={path} onClick={() => setMenuOpen(false)} className={current[0] === id ? 'active' : ''}><Icon size={17} />{title}</Link>)}</nav><button className="admin-logout" type="button" onClick={() => void logout()}><LogOut size={17} /> Sign out</button></aside>
     {menuOpen && <button className="admin-nav-scrim" aria-label="Close admin menu" onClick={() => setMenuOpen(false)} />}
-    <main className={current[0] === 'products' ? 'admin-main admin-products-page' : current[0] === 'football' ? 'admin-main admin-football-page' : current[0] === 'homepage' ? 'admin-main admin-homepage-page' : current[0] === 'settings' ? 'admin-main admin-settings-page' : 'admin-main'}><header className="admin-topbar"><button type="button" className="admin-menu-toggle" aria-label={menuOpen ? 'Close menu' : 'Open menu'} onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X /> : <Menu />}</button><div><span className="admin-kicker">KITCULTURE OPERATIONS</span><h1>{current[1]}</h1></div><Link to="/" className="admin-store-link">View storefront ↗</Link></header>
+    <main className={current[0] === 'products' ? 'admin-main admin-products-page' : current[0] === 'football' ? 'admin-main admin-football-page' : current[0] === 'homepage' || current[0] === 'site-pages' ? 'admin-main admin-homepage-page' : current[0] === 'settings' ? 'admin-main admin-settings-page' : 'admin-main'}><header className="admin-topbar"><button type="button" className="admin-menu-toggle" aria-label={menuOpen ? 'Close menu' : 'Open menu'} onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X /> : <Menu />}</button><div><span className="admin-kicker">KITCULTURE OPERATIONS</span><h1>{current[1]}</h1></div><Link to="/" className="admin-store-link">View storefront ↗</Link></header>
       {current[0] === 'dashboard' && <div className="admin-report-toolbar"><label>Reporting period<select value={reportPeriod} onChange={(event) => setReportPeriod(event.target.value as typeof reportPeriod)}><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="last7days">Last 7 days</option><option value="last30days">Last 30 days</option><option value="thisMonth">This month</option><option value="lastMonth">Last month</option><option value="thisYear">This year</option><option value="custom">Custom range</option></select></label>{reportPeriod === 'custom' && <><label>From<input type="date" value={customFrom} max={customTo} onChange={(event) => setCustomFrom(event.target.value)} /></label><label>To<input type="date" value={customTo} min={customFrom} onChange={(event) => setCustomTo(event.target.value)} /></label></>}</div>}
       {current[0] === 'it' ? <ItOperationsPanel /> : sectionQuery.isPending ? <div className="admin-empty">Loading live database records…</div> : sectionQuery.isError ? <div className="admin-empty admin-error"><strong>Admin data unavailable</strong><span>{sectionQuery.error.message}. Confirm the database is configured and your account has the administrator role.</span></div> : <>
         {current[0] === 'dashboard' && <div className="admin-metrics">{dashboardMetrics.map(([key, value]) => <article key={key}><span>{key}</span><strong>{value}</strong></article>)}</div>}
@@ -2223,6 +2287,8 @@ export function AdminConsole({ role }: { role: string | null }) {
           ? <FootballCatalogueManager onDone={async () => { await sectionQuery.refetch() }} />
           : current[0] === 'inventory'
           ? <InventoryAdjustmentForm onDone={async () => { await sectionQuery.refetch() }} />
+          : current[0] === 'site-pages'
+            ? <SitePagesManager />
           : current[0] === 'homepage'
             ? <HomepageSlidesManager slides={records.filter(isHomepageSlide)} onDone={async () => { await sectionQuery.refetch() }} />
           : <SectionForm section={current[0]} onDone={async (createdProductId) => {
@@ -2252,7 +2318,7 @@ export function AdminConsole({ role }: { role: string | null }) {
           return <article key={String(order.id)}><span><strong>{displayOrderNumber}</strong> · {pretty(status)}</span><select aria-label={`Update ${displayOrderNumber} status`} defaultValue="" disabled={nextStatuses.length === 0} onChange={(event) => { if (event.target.value) void patchOrder(order, event.target.value) }}><option value="" disabled>{nextStatuses.length ? 'Update status' : 'No further updates'}</option>{nextStatuses.map((nextStatus) => <option key={nextStatus} value={nextStatus}>{pretty(nextStatus)}</option>)}</select></article>
         })}</section>}
         {actionError && <p className="admin-error">{actionError}</p>}
-        {!['dashboard', 'it', 'homepage', 'support', 'football', 'notifications', 'guest-orders', 'orders'].includes(current[0]) && <DataTable rows={current[0] === 'products' ? records.map(({ images: _images, variants: _variants, ...record }) => record) : records} empty="No records are available for this section yet." />}
+        {!['dashboard', 'it', 'homepage', 'site-pages', 'support', 'football', 'notifications', 'guest-orders', 'orders'].includes(current[0]) && <DataTable rows={current[0] === 'products' ? records.map(({ images: _images, variants: _variants, ...record }) => record) : records} empty="No records are available for this section yet." />}
         {current[0] === 'dashboard' && data && !Array.isArray(data) && <section className="admin-dashboard-orders"><div className="admin-analytics-heading"><div><span className="admin-kicker">LATEST ACTIVITY</span><h2>Recent orders</h2></div></div><DataTable rows={Array.isArray(data.recentOrders) ? data.recentOrders as AdminRecord[] : []} empty="No orders have been placed yet." /></section>}
       </>}
     </main>
@@ -2264,6 +2330,7 @@ export function AdminRoute() {
   const legacyRolePortal = location.pathname.match(/^\/admin\/(super|it|finance|inventory|marketing|content)-admin(?:\/(.*))?$/)
   const isLegacyAdminPath = /^\/admin(?:\/|$)/.test(location.pathname)
   const isAdministratorPortalPath = /^\/sales-admin(?:\/|$)/.test(location.pathname)
+  const isContentAdminPage = ['/sales-admin/homepage', '/sales-admin/site-pages'].includes(location.pathname)
   const isAdminPortalRoute = isAdministratorPortalPath
   const isAdminAuthRoute = ['/sales-admin/login', '/sales-admin/register', '/sales-admin/onboarding', '/sales-admin/verify'].includes(location.pathname)
   const sessionQuery = useQuery({
@@ -2284,11 +2351,12 @@ export function AdminRoute() {
   if (isAdminPortalRoute) {
     if (sessionQuery.isPending || sessionQuery.isFetching) return <main className="auth-checking" role="status">Checking administrator session…</main>
     if (sessionQuery.isError) {
-      if (isAdminSessionExpired(sessionQuery.error)) return <Navigate to="/sales-admin/login?reason=expired" replace />
+      if (isAdminSessionExpired(sessionQuery.error)) return <Navigate to={isContentAdminPage ? '/content-admin/login?reason=expired' : '/sales-admin/login?reason=expired'} replace />
       return <main className="auth-checking"><p role="alert">Administrator service unavailable: {sessionQuery.error.message}</p><button type="button" onClick={() => void sessionQuery.refetch()}>Retry</button></main>
     }
     const role = sessionQuery.data?.user.role ?? null
-    if (role !== 'sales_admin' && role !== 'super_admin') {
+    const contentAdminPage = role === 'content_admin' && isContentAdminPage
+    if (role !== 'sales_admin' && role !== 'super_admin' && !contentAdminPage) {
       const portalByRole: Record<string, string> = {
         it_admin: '/it-admin/dashboard',
         finance_admin: '/finance-admin/dashboard',

@@ -81,7 +81,16 @@ test('Marketing Admin permissions cover campaign notification boundaries', () =>
   assert.equal(hasAnyPermission(marketing, administratorPermissionsForRoute('POST', '/notifications') ?? []), true)
   assert.equal(hasAnyPermission(defaultAdministratorPermissions.finance_admin, administratorPermissionsForRoute('POST', '/notifications') ?? []), false)
   assert.deepEqual(administratorPermissionsForRoute('POST', '/marketing/email-campaigns'), ['marketing.email.send'])
-  assert.equal(hasAnyPermission(marketing, administratorPermissionsForRoute('POST', '/marketing/email-campaigns') ?? []), false)
+  assert.equal(hasAnyPermission(marketing, administratorPermissionsForRoute('POST', '/marketing/email-campaigns') ?? []), true)
+  assert.equal(hasAnyPermission(marketing, administratorPermissionsForRoute('GET', '/marketing/audiences') ?? []), true)
+  assert.equal(hasAnyPermission(marketing, administratorPermissionsForRoute('POST', '/marketing/coupons') ?? []), true)
+})
+
+test('Content Admin website pages use the content permission and remain unavailable to Marketing Admin', () => {
+  const required = administratorPermissionsForRoute('PUT', '/homepage/site-content') ?? []
+  assert.deepEqual(required, ['sales.manage_catalogue', 'content.manage_content'])
+  assert.equal(hasAnyPermission(defaultAdministratorPermissions.content_admin, required), true)
+  assert.equal(hasAnyPermission(defaultAdministratorPermissions.marketing_admin, required), false)
 })
 
 test('unclassified business routes are not assigned an accidental permission', () => {

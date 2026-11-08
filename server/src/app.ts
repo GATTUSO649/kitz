@@ -55,7 +55,7 @@ app.use(cors({
   credentials: true,
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
 }))
-app.use('/api/v1/store/site-images', (request, response, next) => {
+app.use(['/api/v1/store/site-images', '/api/v1/store/site-content'], (request, response, next) => {
   const origin = request.get('origin')
   if (request.method === 'GET' && origin && isAllowedSiteImageOrigin(origin)) {
     response.setHeader('Access-Control-Allow-Origin', origin)

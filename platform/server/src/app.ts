@@ -22,7 +22,13 @@ import { safeWorkerError, workerHealthSnapshot } from './workers/health.js'
 export const app = express()
 app.disable('x-powered-by')
 app.set('trust proxy', 1)
-app.use(helmet({ contentSecurityPolicy: { directives: { imgSrc: ["'self'", 'data:', 'blob:', 'https://res.cloudinary.com'] } } }))
+const kitzApiOrigin = (() => {
+  try { return new URL(process.env.KITCULTURE_MARKETPLACE_AUTH_URL || 'https://kitz.onrender.com').origin } catch { return 'https://kitz.onrender.com' }
+})()
+app.use(helmet({ contentSecurityPolicy: { directives: {
+  connectSrc: ["'self'", kitzApiOrigin],
+  imgSrc: ["'self'", 'data:', 'blob:', 'https://res.cloudinary.com'],
+} } }))
 app.use(compression())
 const platformOrigin = process.env.PLATFORM_ORIGIN || 'http://127.0.0.1:5173'
 const allowedOrigins = new Set([platformOrigin])

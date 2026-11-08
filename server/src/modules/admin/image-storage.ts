@@ -97,20 +97,25 @@ export function uploadProductImage(productId: number, bytes: Buffer): Promise<Cl
   return uploadImage('kitculture/products', `product-${productId}-${crypto.randomUUID()}`, bytes)
 }
 
+function optimizedSiteAsset(asset: CloudinaryAsset, width: number): CloudinaryAsset {
+  return {
+    ...asset,
+    secure_url: asset.secure_url.replace('/image/upload/', `/image/upload/f_auto,q_auto:good,w_${width},c_limit/`),
+  }
+}
+
 export function uploadHomepageSlideImage(bytes: Buffer): Promise<CloudinaryAsset> {
-  return uploadImage('kitculture/homepage', `homepage-${crypto.randomUUID()}`, bytes)
+  return uploadImage('kitculture/homepage', `homepage-${crypto.randomUUID()}`, bytes).then((asset) => optimizedSiteAsset(asset, 1920))
 }
 
 export function uploadBrandLogoImage(bytes: Buffer): Promise<CloudinaryAsset> {
-  return uploadImage('kitculture/branding', `brand-logo-${crypto.randomUUID()}`, bytes)
+  return uploadImage('kitculture/branding', `brand-logo-${crypto.randomUUID()}`, bytes).then((asset) => optimizedSiteAsset(asset, 640))
 }
 
 export async function uploadSiteImage(slot: SiteImageSlot, bytes: Buffer): Promise<CloudinaryAsset> {
   const asset = await uploadImage('kitculture/site-images', `site-${slot}-${crypto.randomUUID()}`, bytes)
-  return {
-    ...asset,
-    secure_url: asset.secure_url.replace('/image/upload/', '/image/upload/f_auto,q_auto:good,w_1920,c_limit/'),
-  }
+  const width = slot.includes('favicon') ? 256 : slot.includes('logo') ? 640 : 1920
+  return optimizedSiteAsset(asset, width)
 }
 
 export async function deleteProductImage(publicId: string): Promise<void> {

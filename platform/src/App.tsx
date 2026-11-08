@@ -3,7 +3,7 @@ import { FaFacebookF, FaWhatsapp, FaXTwitter, FaYoutube } from 'react-icons/fa6'
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { marketplaceFetch, marketplaceUnavailableEvent } from './api'
-import { SiteImage } from './SiteImages'
+import { SiteContentParagraphs, SiteContentValue, SiteImage } from './SiteImages'
 import { SellListingPage, SubmissionStatusPage } from './SellListingPage'
 import { MarketplaceAdminPage } from './MarketplaceAdmin'
 import { SellerForgotPasswordPage, SellerLoginPage, SellerPortalPage, SellerResetPasswordPage, SellerSignupPage, SellerVerifyPage } from './SellerPortal'
@@ -281,12 +281,8 @@ function MatrixIntro({ exiting }: { exiting: boolean }) {
     <div className="matrix-intro-content">
       <span className="matrix-intro-eyebrow">KITCULTURE + MATRIX</span>
       <div className="matrix-intro-logo-wrap">
-        <svg className="matrix-logo-drawing" viewBox="0 0 960 640" aria-hidden="true">
-          <defs><linearGradient id="matrix-m-stroke" x1="0" y1="1" x2="1" y2="0"><stop stopColor="#18a8ff" /><stop offset=".52" stopColor="#fff" /><stop offset="1" stopColor="#00d8ff" /></linearGradient></defs>
-          <path className="matrix-logo-m-trace" d="M160 500 300 145 465 425 675 145 810 500" />
-          <ellipse className="matrix-logo-ring-trace" cx="480" cy="320" rx="438" ry="170" transform="rotate(-17 480 320)" />
-        </svg>
-        <SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" />
+        <SiteImage className="matrix-intro-monogram" slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="" aria-hidden="true" />
+        <SiteImage className="matrix-intro-full-logo" slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" />
       </div>
       <p className="matrix-intro-tagline">Shop <i /> Connect <i /> Trade</p>
       <div className="matrix-intro-statement">
@@ -556,7 +552,7 @@ function MarketplaceHome() {
       </section>
       <section id="locations" className="market-trust"><span><ShieldCheck /><b>Secure &amp; Trusted</b><small>Your safety comes first</small></span><span><Zap /><b>Fast &amp; Easy</b><small>List or find items quickly</small></span><span><MapPin /><b>Across Kenya</b><small>From Machakos to all counties</small></span><span><BadgeCheck /><b>Direct Connections</b><small>Connect with confidence</small></span></section>
     </main>
-    <footer className="market-footer"><Link to="/" className="market-footer-brand" aria-label="MATRIX home"><SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /></Link><span className="market-footer-links"><Link to="/privacy">Privacy</Link><Link to="/terms">Terms</Link><a href="mailto:hello@markethub.co.ke"><Mail size={14} /> Email</a>{footerSocial.whatsappPhone && <a href={`tel:${footerSocial.whatsappPhone}`}><Phone size={14} /> {footerSocial.whatsappPhone}</a>}</span><span className="market-footer-social" aria-label="MarketHub social accounts">{footerSocial.facebookUrl && <a href={footerSocial.facebookUrl} target="_blank" rel="noreferrer" aria-label="Facebook"><FaFacebookF /></a>}{footerSocial.xUrl && <a href={footerSocial.xUrl} target="_blank" rel="noreferrer" aria-label="X"><FaXTwitter /></a>}{footerSocial.youtubeUrl && <a href={footerSocial.youtubeUrl} target="_blank" rel="noreferrer" aria-label="YouTube"><FaYoutube /></a>}{footerSocial.whatsappUrl && <a href={footerSocial.whatsappUrl} target="_blank" rel="noreferrer" aria-label="WhatsApp"><FaWhatsapp /></a>}</span><small>© {new Date().getFullYear()} MarketHub Kenya</small></footer>
+    <footer className="market-footer"><Link to="/" className="market-footer-brand" aria-label="MATRIX home"><SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /></Link><span className="market-footer-links"><Link to="/privacy">Privacy</Link><Link to="/terms">Terms</Link><a href="mailto:hello@markethub.co.ke"><Mail size={14} /> Email</a>{footerSocial.whatsappPhone && <a href={`tel:${footerSocial.whatsappPhone}`}><Phone size={14} /> {footerSocial.whatsappPhone}</a>}</span><span className="market-footer-social" aria-label="MarketHub social accounts">{footerSocial.facebookUrl && <a href={footerSocial.facebookUrl} target="_blank" rel="noreferrer" aria-label="Facebook"><FaFacebookF /></a>}{footerSocial.xUrl && <a href={footerSocial.xUrl} target="_blank" rel="noreferrer" aria-label="X"><FaXTwitter /></a>}{footerSocial.youtubeUrl && <a href={footerSocial.youtubeUrl} target="_blank" rel="noreferrer" aria-label="YouTube"><FaYoutube /></a>}{footerSocial.whatsappUrl && <a href={footerSocial.whatsappUrl} target="_blank" rel="noreferrer" aria-label="WhatsApp"><FaWhatsapp /></a>}</span><small><SiteContentValue field="platformFooterNotice" fallback={`© ${new Date().getFullYear()} MarketHub Kenya`} /></small></footer>
   </div>
 }
 
@@ -568,7 +564,7 @@ function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
       <p className="hero-eyebrow">MARKETHUB KENYA</p>
       <h1>{isTerms ? 'Terms & Conditions' : 'Privacy Statement'}</h1>
       <p className="legal-updated">Last updated: 8 November 2026</p>
-      {isTerms ? <>
+      {isTerms ? <SiteContentParagraphs field="terms" fallback={<>
         <p>These terms apply when you browse MarketHub, publish a listing, contact a seller, or use a MarketHub account. By using the service, you agree to these terms. If you do not agree, please do not use the service.</p>
         <h2>How MarketHub works</h2>
         <p>MarketHub helps people in Kenya discover second-hand goods and connect with sellers. Sellers create listings; buyers decide whether to contact a seller and arrange a transaction. Unless we expressly say otherwise, MarketHub is not the seller, buyer, owner, or delivery provider for listed goods. Buyers and sellers are responsible for checking goods, agreeing on price and delivery, and completing their transaction safely.</p>
@@ -583,7 +579,7 @@ function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
         <p>We work to keep MarketHub available, but features may occasionally be interrupted or changed. Listings may be hidden or removed, and the period a listing remains visible may vary. We may update these terms by posting a revised version here. Continued use after an update means you accept the revised terms.</p>
         <h2>Contact</h2>
         <p>Questions about these terms can be sent to <a href="mailto:hello@markethub.co.ke">hello@markethub.co.ke</a>.</p>
-      </> : <>
+      </>} /> : <SiteContentParagraphs field="privacy" fallback={<>
         <p>This statement explains what information MarketHub Kenya collects when you browse, create an account, publish or respond to a listing, make a payment, or contact us.</p>
         <h2>Information you provide</h2>
         <p>Depending on how you use MarketHub, this may include your name, email address, phone or WhatsApp number, general location, account details, listing descriptions and images, messages or reports you submit, and information needed to verify or support a payment.</p>
@@ -599,7 +595,7 @@ function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
         <p>You may ask to access or correct personal information associated with you, or raise a privacy concern, by emailing <a href="mailto:hello@markethub.co.ke">hello@markethub.co.ke</a>. We may need to verify your identity before acting on a request. Some information may need to be retained where the law requires it or where it is necessary to resolve a transaction or dispute.</p>
         <h2>Changes and contact</h2>
         <p>We may update this statement as our practices or legal obligations change. The latest version will be posted on this page. For privacy questions, contact <a href="mailto:hello@markethub.co.ke">hello@markethub.co.ke</a>.</p>
-      </>}
+      </>} />}
       <Link className="legal-back" to="/marketplace">Return to MarketHub</Link>
     </article>
   </main>
