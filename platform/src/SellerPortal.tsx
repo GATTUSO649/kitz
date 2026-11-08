@@ -55,7 +55,7 @@ export function SellerPortalSidebar({ activeSection, menuOpen, onClose, onSelect
     return <Link className={className} to={`/marketplace/seller?section=${item.id}`} key={item.id} onClick={onClose}><Icon /><span>{item.label}</span></Link>
   }
   return <aside className={`seller-dashboard-sidebar${menuOpen ? ' is-open' : ''}`}>
-    <Link to="/marketplace" className="seller-sidebar-brand" onClick={onClose}><Tag size={32} /><span><b>MarketHub</b><small>Buy · Sell · Reuse · Save</small></span></Link>
+    <Link to="/marketplace" className="seller-sidebar-brand" aria-label="MATRIX marketplace" onClick={onClose}><img src="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /></Link>
     <nav aria-label="Seller portal">{sellerNavigation.map(renderItem)}</nav>
     <div className="seller-sidebar-bottom"><div className="seller-green-promo"><Leaf /><strong>GROW YOUR BUSINESS</strong><span>Reach more local buyers with MarketHub.</span>{onSelectSection ? <button type="button" onClick={() => { onSelectSection('help'); onClose() }}>Learn More <ArrowRight size={13} /></button> : <Link to="/marketplace/seller?section=help" onClick={onClose}>Learn More <ArrowRight size={13} /></Link>}</div></div>
   </aside>
@@ -74,7 +74,7 @@ function SellerAuthBrand() {
 }
 
 function SellerHeader({ profile }: { profile?: SellerProfile | null }) {
-  return <header className="seller-portal-header"><Link className="market-brand" to="/marketplace"><span className="market-logo"><Box size={25} /></span><span><strong>Market<span>hub</span></strong><small>Buy. Sell. Reuse. Save.</small></span></Link><nav><Link to="/marketplace">Marketplace</Link>{profile ? <Link to="/marketplace/seller">My account</Link> : <Link to="/marketplace/seller/login">Seller sign in</Link>}</nav></header>
+  return <header className="seller-portal-header"><Link className="market-brand" to="/marketplace" aria-label="MATRIX marketplace"><img src="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /></Link><nav><Link to="/marketplace">Marketplace</Link>{profile ? <Link to="/marketplace/seller">My account</Link> : <Link to="/marketplace/seller/login">Seller sign in</Link>}</nav></header>
 }
 
 export function SellerSignupPage() {

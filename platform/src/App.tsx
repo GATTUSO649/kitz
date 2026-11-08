@@ -219,7 +219,7 @@ function MarketplaceProductPage() {
   }
 
   const productHeader = <header>
-    <Link className="market-brand" to="/marketplace"><span className="market-logo"><ShoppingBag size={26} /></span><span><strong>Market<span>hub</span></strong><small>Buy. Sell. Save More.</small></span></Link>
+    <Link className="market-brand" to="/marketplace" aria-label="MATRIX marketplace"><img src={matrixLogoPath} alt="MATRIX" /></Link>
     <Link to="/">Platform home</Link>
   </header>
   if (loading) return <div className="product-page">{productHeader}<main><div className="catalogue-message">Loading listing…</div></main></div>
@@ -324,8 +324,7 @@ function LandingPage() {
   return <div className="platform-shell landing-shell">
     <header className="platform-header" inert={introActive} aria-hidden={introActive}>
       <Link to="/" className="brand-lockup" aria-label="MATRIX home">
-        <span className="brand-bag"><ShoppingBag size={30} strokeWidth={2.6} /></span>
-        <span><strong>MATRIX</strong><small>Shop. Discover. Trade.</small></span>
+        <img src={matrixLogoPath} alt="MATRIX" />
       </Link>
       <nav className="landing-nav" aria-label="Main navigation">
         <a className="nav-current" href="#home"><House size={15} />Home</a>
@@ -382,7 +381,7 @@ function LandingPage() {
     </main>
 
     <footer id="about" className="landing-footer" inert={introActive} aria-hidden={introActive}>
-      <Link to="/" className="footer-brand"><span className="brand-bag"><ShoppingBag size={28} /></span><span><strong>MATRIX</strong><small>Shop. Discover. Trade.</small></span></Link>
+      <Link to="/" className="footer-brand" aria-label="MATRIX home"><img src={matrixLogoPath} alt="MATRIX" /></Link>
       <p><i />Two Amazing Shopping Experiences.<br />One Powerful Platform.<i /></p>
       <div className="footer-right">
         <div className="footer-social" role="group" aria-label="MATRIX social networks">
@@ -495,7 +494,7 @@ function MarketplaceHome() {
   }
   return <div className="marketplace-shell">
     <header className="marketplace-header">
-      <Link to="/" className="market-brand"><span className="market-logo"><ShoppingBag size={26} /></span><span><strong>Market<span>hub</span></strong><small>Buy. Sell. Save More.</small></span></Link>
+      <Link to="/" className="market-brand" aria-label="MATRIX home"><img src={matrixLogoPath} alt="MATRIX" /></Link>
       <nav aria-label="Marketplace navigation"><Link className="market-home" to="/marketplace#top"><House size={15} />Home</Link><Link to="/marketplace?featured=all#products" aria-current={!search && filters.featured === 'all' ? 'page' : undefined}>All Products</Link><Link to="/marketplace?featured=false&sort=newest#products" aria-current={filters.featured === 'false' ? 'page' : undefined}>Recently Published</Link><Link to="/marketplace?featured=true#products" aria-current={filters.featured === 'true' ? 'page' : undefined}>Featured</Link></nav>
       <div className="market-actions"><Link className="sell-link" to="/marketplace/seller/login">+ <span>Sell item</span></Link></div>
     </header>
@@ -550,14 +549,14 @@ function MarketplaceHome() {
       </section>
       <section id="locations" className="market-trust"><span><ShieldCheck /><b>Secure &amp; Trusted</b><small>Your safety comes first</small></span><span><Zap /><b>Fast &amp; Easy</b><small>List or find items quickly</small></span><span><MapPin /><b>Across Kenya</b><small>From Machakos to all counties</small></span><span><BadgeCheck /><b>Direct Connections</b><small>Connect with confidence</small></span></section>
     </main>
-    <footer className="market-footer"><Link to="/">MarketHub</Link><span className="market-footer-links"><Link to="/privacy">Privacy</Link><Link to="/terms">Terms</Link><a href="mailto:hello@markethub.co.ke"><Mail size={14} /> Email</a>{footerSocial.whatsappPhone && <a href={`tel:${footerSocial.whatsappPhone}`}><Phone size={14} /> {footerSocial.whatsappPhone}</a>}</span><span className="market-footer-social" aria-label="MarketHub social accounts">{footerSocial.facebookUrl && <a href={footerSocial.facebookUrl} target="_blank" rel="noreferrer" aria-label="Facebook"><FaFacebookF /></a>}{footerSocial.xUrl && <a href={footerSocial.xUrl} target="_blank" rel="noreferrer" aria-label="X"><FaXTwitter /></a>}{footerSocial.youtubeUrl && <a href={footerSocial.youtubeUrl} target="_blank" rel="noreferrer" aria-label="YouTube"><FaYoutube /></a>}{footerSocial.whatsappUrl && <a href={footerSocial.whatsappUrl} target="_blank" rel="noreferrer" aria-label="WhatsApp"><FaWhatsapp /></a>}</span><small>© {new Date().getFullYear()} MarketHub Kenya</small></footer>
+    <footer className="market-footer"><Link to="/" className="market-footer-brand" aria-label="MATRIX home"><img src={matrixLogoPath} alt="MATRIX" /></Link><span className="market-footer-links"><Link to="/privacy">Privacy</Link><Link to="/terms">Terms</Link><a href="mailto:hello@markethub.co.ke"><Mail size={14} /> Email</a>{footerSocial.whatsappPhone && <a href={`tel:${footerSocial.whatsappPhone}`}><Phone size={14} /> {footerSocial.whatsappPhone}</a>}</span><span className="market-footer-social" aria-label="MarketHub social accounts">{footerSocial.facebookUrl && <a href={footerSocial.facebookUrl} target="_blank" rel="noreferrer" aria-label="Facebook"><FaFacebookF /></a>}{footerSocial.xUrl && <a href={footerSocial.xUrl} target="_blank" rel="noreferrer" aria-label="X"><FaXTwitter /></a>}{footerSocial.youtubeUrl && <a href={footerSocial.youtubeUrl} target="_blank" rel="noreferrer" aria-label="YouTube"><FaYoutube /></a>}{footerSocial.whatsappUrl && <a href={footerSocial.whatsappUrl} target="_blank" rel="noreferrer" aria-label="WhatsApp"><FaWhatsapp /></a>}</span><small>© {new Date().getFullYear()} MarketHub Kenya</small></footer>
   </div>
 }
 
 function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
   const isTerms = kind === 'terms'
   return <main className="marketplace-shell legal-page">
-    <header className="marketplace-header"><Link to="/marketplace" className="market-brand"><span className="market-logo"><ShoppingBag size={26} /></span><span><strong>Market<span>hub</span></strong><small>Buy. Sell. Save More.</small></span></Link><Link to="/marketplace">Back to marketplace</Link></header>
+    <header className="marketplace-header"><Link to="/marketplace" className="market-brand" aria-label="MATRIX marketplace"><img src={matrixLogoPath} alt="MATRIX" /></Link><Link to="/marketplace">Back to marketplace</Link></header>
     <article>
       <p className="hero-eyebrow">MARKETHUB KENYA</p>
       <h1>{isTerms ? 'Terms & Conditions' : 'Privacy Statement'}</h1>
