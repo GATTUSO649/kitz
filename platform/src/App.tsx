@@ -97,6 +97,9 @@ function MarketplaceProductPage() {
   const [paymentPanelOpen, setPaymentPanelOpen] = useState(whatsappIntent)
   const [reportOpen, setReportOpen] = useState(false)
   const [reportMessage, setReportMessage] = useState('')
+  const [sharingListing, setSharingListing] = useState(false)
+  const [shareStatus, setShareStatus] = useState('')
+  const [whatsappFallbackUrl, setWhatsappFallbackUrl] = useState('')
   useEffect(() => {
     const controller = new AbortController()
     setLoading(true)
@@ -212,6 +215,71 @@ function MarketplaceProductPage() {
     }
   }
 
+  async function proceedToWhatsApp() {
+    if (!contact || !listing) return
+    setShareStatus('')
+    setWhatsappFallbackUrl('')
+    const imageUrl = listing.images[selectedImage] ?? listing.imageUrl
+    if (!imageUrl) {
+      setShareStatus('This listing has no product photo to attach.')
+      return
+    }
+    setSharingListing(true)
+    const sellerPhone = (contact.whatsapp || contact.phone).replace(/\D/g, '')
+    const productUrl = new URL(`/marketplace/products/${encodeURIComponent(listing.slug)}`, window.location.origin).toString()
+    const message = [
+      `Hi ${contact.name}, I'm interested in this MarketHub listing:`,
+      listing.title,
+      `Price: ${formatKes(listing.priceKes)}${listing.negotiable ? ' (Negotiable)' : ''}`,
+      `Category: ${listing.category}`,
+      `Condition: ${listing.condition.replaceAll('_', ' ')}`,
+      `Location: ${listing.town}, ${listing.county}`,
+      `Listing reference: ${listing.reference}`,
+      `View listing: ${productUrl}`,
+    ].join('\n')
+    let imageFile: File | null = null
+    try {
+      if (imageUrl) {
+        const imageResponse = await fetch(imageUrl)
+        if (imageResponse.ok) {
+          const downloadedImage = await imageResponse.blob()
+          if (downloadedImage.type.startsWith('image/')) {
+            const extension = downloadedImage.type.split('/')[1]?.replace('jpeg', 'jpg') ?? 'jpg'
+            const fileName = `${listing.slug.replace(/[^a-z0-9-]/gi, '-')}.${extension}`
+            imageFile = new File([downloadedImage], fileName, { type: downloadedImage.type })
+          }
+        }
+      }
+      if (imageFile && typeof navigator.share === 'function' && typeof navigator.canShare === 'function') {
+        const shareData: ShareData = { title: listing.title, text: message, files: [imageFile] }
+        if (navigator.canShare(shareData)) {
+          try {
+            await navigator.share(shareData)
+            return
+          } catch (reason) {
+            if (reason instanceof DOMException && reason.name === 'AbortError') return
+          }
+        }
+      }
+    } catch {
+      // Fall back to downloading the image and opening a prefilled WhatsApp message.
+    } finally {
+      setSharingListing(false)
+    }
+    if (!imageFile) {
+      setShareStatus('The product photo could not be prepared. Please try again.')
+      return
+    }
+    const objectUrl = URL.createObjectURL(imageFile)
+    const downloadLink = document.createElement('a')
+    downloadLink.href = objectUrl
+    downloadLink.download = imageFile.name
+    downloadLink.click()
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+    setWhatsappFallbackUrl(`https://wa.me/${sellerPhone}?text=${encodeURIComponent(message)}`)
+    setShareStatus('Product photo downloaded. Attach it in WhatsApp before sending the prepared message.')
+  }
+
   const productHeader = <header>
     <Link className="market-brand" to="/marketplace"><span className="market-logo"><ShoppingBag size={26} /></span><span><strong>Market<span>hub</span></strong><small>Buy. Sell. Save More.</small></span></Link>
     <Link to="/">Platform home</Link>
@@ -239,7 +307,9 @@ function MarketplaceProductPage() {
             <div>
               <strong>{contact.name}</strong>
               <p><Phone size={14} /> <a href={`tel:${contact.phone}`}>{contact.phone}</a></p>
-              {(contact.whatsapp || contact.phone) && <a className="whatsapp-contact-button" href={`https://wa.me/${(contact.whatsapp || contact.phone).replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer"><FaWhatsapp size={17} /> Proceed to WhatsApp</a>}
+              {(contact.whatsapp || contact.phone) && (whatsappFallbackUrl
+                ? <><p className="share-listing-status" role="status">{shareStatus}</p><a className="whatsapp-contact-button" href={whatsappFallbackUrl} target="_blank" rel="noopener noreferrer"><FaWhatsapp size={17} /> Open prepared WhatsApp message</a></>
+                : <><button className="whatsapp-contact-button" type="button" onClick={() => void proceedToWhatsApp()} disabled={sharingListing}><FaWhatsapp size={17} /> {sharingListing ? 'Preparing listing…' : 'Proceed to WhatsApp'}</button>{shareStatus && <p className="share-listing-status" role="status">{shareStatus}</p>}</>)}
               {contact.email && <p><a href={`mailto:${contact.email}`}>{contact.email}</a></p>}
             </div>
           </aside> : <>
@@ -490,11 +560,11 @@ function MarketplaceHome() {
   return <div className="marketplace-shell">
     <header className="marketplace-header">
       <Link to="/" className="market-brand"><span className="market-logo"><ShoppingBag size={26} /></span><span><strong>Market<span>hub</span></strong><small>Buy. Sell. Save More.</small></span></Link>
-      <nav aria-label="Marketplace navigation"><Link className="market-home" to="/marketplace"><House size={15} />Home</Link><a href="#categories">Categories⌄</a><a href="#locations">Locations⌄</a><a href="#how-it-works">How It Works</a><a href="mailto:hello@markethub.co.ke">Contact</a></nav>
+      <nav aria-label="Marketplace navigation"><Link className="market-home" to="/marketplace#top"><House size={15} />Home</Link><Link to="/marketplace?featured=all#products" aria-current={!search && filters.featured === 'all' ? 'page' : undefined}>All Products</Link><Link to="/marketplace?featured=false&sort=newest#products" aria-current={filters.featured === 'false' ? 'page' : undefined}>Recently Published</Link><Link to="/marketplace?featured=true#products" aria-current={filters.featured === 'true' ? 'page' : undefined}>Featured</Link></nav>
       <div className="market-actions"><Link className="sell-link" to="/marketplace/seller/login">+ <span>Sell item</span></Link></div>
     </header>
     <main>
-      <section className="market-hero">
+      <section className="market-hero" id="top">
         <div className="market-hero-photo" aria-hidden="true" />
         <div className="market-hero-copy">
           <span className="hero-eyebrow"><Sparkles size={14} /> MACHAKOS FINDS, BETTER DAYS</span>
@@ -520,7 +590,7 @@ function MarketplaceHome() {
         {categoryError && <button type="button" onClick={() => setCategoryRetry((value) => value + 1)}>Reload categories</button>}
       </section>
       <section className="market-content">
-        <div className="listing-area">
+        <div className="listing-area" id="products">
           <div className="section-title"><span /> <h2>{search ? 'Search Results' : filters.featured === 'false' ? 'Recently Published' : filters.featured === 'true' ? 'Featured Listings' : 'All Listings'}</h2></div>
           <div className="listing-tabs" role="group" aria-label="Listing collection"><button type="button" aria-pressed={filters.featured === 'all'} onClick={() => setQuery({ featured: 'all' })}>All</button><button type="button" aria-pressed={filters.featured === 'true'} onClick={() => setQuery({ featured: 'true' })}>Featured</button><button type="button" aria-pressed={filters.featured === 'false'} onClick={() => setQuery({ featured: 'false' })}>Recently Published</button></div>
           <div className="listing-tools"><button type="button" className={filtersOpen ? 'filter-button is-open' : 'filter-button'} aria-expanded={filtersOpen} onClick={() => setFiltersOpen((open) => !open)}><SlidersHorizontal size={14} /> Filters</button><span>{counties.length ? `${counties.length} counties` : 'Kenya'}</span><div className="view-toggle" role="group" aria-label="Listing view"><button type="button" aria-label="Grid view" aria-pressed={view === 'grid'} onClick={() => setView('grid')}><LayoutGrid size={15} /></button><button type="button" aria-label="List view" aria-pressed={view === 'list'} onClick={() => setView('list')}><ListIcon size={15} /></button></div></div>

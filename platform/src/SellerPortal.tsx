@@ -85,6 +85,7 @@ export function SellerSignupPage() {
   const [busy, setBusy] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [acceptedTerms, setAcceptedTerms] = useState(false)
   const [values, setValues] = useState({ name: '', email: '', phone: '', whatsapp: '', countyCode: '', password: '', confirmPassword: '' })
 
   useEffect(() => {
@@ -105,7 +106,15 @@ export function SellerSignupPage() {
     setBusy(true)
     setError('')
     try {
-      const response = await marketplaceFetch(`${sellerApi}/signup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) })
+      const response = await marketplaceFetch(`${sellerApi}/signup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...values, acceptedTerms }) })
+      if (response.status === 409) {
+        setError('An account already uses this email. Sign in or request a new verification email.')
+        return
+      }
+      if (response.status === 400) {
+        setError('Please check your account details, location, and password and try again.')
+        return
+      }
       if (!response.ok) throw new Error(await getError(response, 'Seller registration failed.'))
       setPendingEmail(values.email)
     } catch {
@@ -127,7 +136,8 @@ export function SellerSignupPage() {
         <label>County<select required disabled={loadingCounties} value={values.countyCode} onChange={(event) => update('countyCode', event.target.value)}><option value="">Select county</option>{counties.map((county) => <option key={county.code} value={county.code}>{county.name}</option>)}</select></label>
         <label>Password<span className="seller-auth-password"><input required type={showPassword ? 'text' : 'password'} autoComplete="new-password" minLength={12} maxLength={128} value={values.password} onChange={(event) => update('password', event.target.value)} /><button type="button" className="seller-auth-password-toggle" aria-label={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword((shown) => !shown)}>{showPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button></span></label>
         <label>Confirm password<span className="seller-auth-password"><input required type={showConfirmPassword ? 'text' : 'password'} autoComplete="new-password" minLength={12} maxLength={128} value={values.confirmPassword} onChange={(event) => update('confirmPassword', event.target.value)} /><button type="button" className="seller-auth-password-toggle" aria-label={showConfirmPassword ? 'Hide password' : 'Show password'} onClick={() => setShowConfirmPassword((shown) => !shown)}>{showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button></span></label>
-        <button className="seller-primary-button" disabled={busy || loadingCounties || !counties.length}>{busy ? 'Creating account…' : <>Create seller account <ArrowRight size={16} /></>}</button>
+        <label className="seller-terms-acceptance"><input type="checkbox" required checked={acceptedTerms} onChange={(event) => setAcceptedTerms(event.target.checked)} /><span>I agree to the <Link to="/terms" target="_blank" rel="noreferrer">Terms &amp; Conditions</Link> and acknowledge the <Link to="/privacy" target="_blank" rel="noreferrer">Privacy Statement</Link>.</span></label>
+        <button className="seller-primary-button" disabled={busy || loadingCounties || !counties.length || !acceptedTerms}>{busy ? 'Creating account…' : <>Create seller account <ArrowRight size={16} /></>}</button>
       </form>
       <p className="seller-auth-switch">Already registered? <Link to="/marketplace/seller/login">Sign in</Link></p>
     </section>}

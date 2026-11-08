@@ -99,6 +99,7 @@ button, input { font: inherit; }
 .marketplace-header nav { display: flex; align-items: center; gap: clamp(14px, 2.2vw, 32px); height: 100%; font-size: 11px; font-weight: 700; }
 .marketplace-header nav a { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
 .marketplace-header nav .market-home { padding: 8px 13px; border-radius: 24px; color: white; background: #079842; }
+.marketplace-header nav a[aria-current="page"]:not(.market-home) { color: #078e3b; }
 .market-actions { display: flex; align-items: center; gap: 9px; }
 .sell-link { padding: 8px 13px; border-radius: 22px; color: white; background: #079842; font-size: 12px; font-weight: 700; }
 .market-login { padding: 7px 12px; border: 1px solid #d5ddd8; border-radius: 22px; font-size: 12px; font-weight: 700; }
@@ -260,6 +261,7 @@ button, input { font: inherit; }
 .contact-protection p { margin: 4px 0 0; font-size: 10px; line-height: 1.4; }
 .contact-protection.is-unlocked { color: #16482b; }
 .contact-protection.is-unlocked p { display: flex; align-items: center; gap: 5px; }
+.contact-protection.is-unlocked .share-listing-status { display: block; margin: 7px 0 0; color: #536983; font-size: 10px; line-height: 1.45; }
 .contact-protection.is-unlocked a { color: #087c38; font-weight: 700; }
 .whatsapp-contact-button { min-height: 38px; margin-top: 8px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border-radius: 5px; color: white !important; background: #078e3b; font-size: 11px; font-weight: 700; }
 .contact-protection .whatsapp-retry-note { color: #496657; font-size: 9px; }
@@ -508,6 +510,9 @@ button, input { font: inherit; }
 .seller-auth-card > p { margin: 0 0 19px; color: #64746a; font-size: 12px; line-height: 1.5; }
 .seller-eyebrow { color: #078e3b; font-size: 9px; font-weight: 800; }
 .seller-account-form { display: grid; gap: 11px; }
+.seller-account-form .seller-terms-acceptance { margin-top: 3px; padding: 11px 12px; display: grid; grid-template-columns: 17px minmax(0, 1fr); align-items: start; gap: 8px; border: 1px solid #dfe9e2; border-radius: 6px; color: #53665a; background: #f7fbf8; font-size: 11px; font-weight: 500; line-height: 1.5; }
+.seller-terms-acceptance input { width: 15px; height: 15px; min-height: 15px; margin: 1px 0 0; padding: 0; accent-color: #078e3b; }
+.seller-terms-acceptance a { color: #087c38; font-weight: 800; text-decoration: underline; }
 .seller-account-form label, .seller-edit-form label { min-width: 0; display: grid; gap: 5px; color: #354d3d; font-size: 10px; font-weight: 700; }
 .seller-account-form input, .seller-account-form select, .seller-edit-form input, .seller-edit-form select, .seller-edit-form textarea { width: 100%; min-width: 0; min-height: 37px; padding: 8px 10px; border: 1px solid #cdd9d0; border-radius: 5px; outline: 0; color: #183527; background: #fff; font: 11px 'DM Sans', sans-serif; }
 .seller-auth-password { position: relative; display: flex; align-items: center; }
@@ -593,6 +598,8 @@ button, input { font: inherit; }
 .market-seller-login { padding: 7px 12px; border: 1px solid #d5ddd8; border-radius: 22px; color: #28523a; font-size: 12px; font-weight: 700; }
 @media (max-width: 700px) { .seller-portal-heading { align-items: flex-start; } .seller-portal-heading h1 { font-size: 21px; } .seller-toolbar { align-items: flex-start; flex-direction: column; padding: 13px 0; } .seller-toolbar > div:last-child { width: 100%; justify-content: space-between; } .seller-product-row { grid-template-columns: 52px minmax(0, 1fr) auto; gap: 9px; } .seller-product-thumb { width: 52px; height: 52px; } .seller-product-price { grid-column: 2; grid-row: 2; display: flex; align-items: center; gap: 7px; } .seller-product-actions { grid-column: 3; grid-row: 1 / span 2; } .seller-other-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; } }
 @media (max-width: 480px) { .seller-portal-header { min-height: 56px; padding-inline: 12px; } .seller-portal-header nav { gap: 10px; font-size: 10px; } .seller-auth-page { min-height: 100svh; align-items: flex-start; justify-content: center; padding: 96px 12px 16px; background-position: 35% center; } .seller-auth-brand { top: 20px; left: 18px; gap: 7px; } .seller-auth-brand > svg { width: 39px; height: 39px; } .seller-auth-brand strong { font-size: 28px; } .seller-auth-brand small { margin-top: 3px; font-size: 10px; } .seller-auth-main { width: 100%; max-height: none; padding: 24px 20px; border-radius: 14px; } .seller-auth-card h1 { font-size: 24px; } .seller-form-pair { grid-template-columns: 1fr; gap: 11px; } .seller-portal-main { padding: 18px 12px 30px; } .seller-portal-heading > div:last-child { gap: 5px; } .seller-portal-heading .seller-outline-button { min-height: 32px; padding-inline: 8px; font-size: 9px; } .seller-tabs button { gap: 5px; padding-inline: 8px; font-size: 10px; } .seller-status-filter { font-size: 9px; } .seller-status-filter select { max-width: 120px; } .seller-product-row { grid-template-columns: 44px minmax(0, 1fr) auto; gap: 7px; } .seller-product-thumb { width: 44px; height: 44px; } .seller-product-actions { gap: 3px; } .seller-product-actions .seller-icon-button { width: 29px; height: 29px; } .seller-product-main > a { font-size: 10px; } .seller-product-price > strong { font-size: 10px; } .seller-product-price .seller-status { font-size: 7px; } .seller-edit-form { padding: 12px; } }
+@media (min-width: 561px) and (max-width: 800px) { .marketplace-header nav a:nth-child(3), .marketplace-header nav a:nth-child(4) { display: flex; } .marketplace-header nav { gap: 8px; font-size: 10px; } }
+@media (max-width: 560px) { .marketplace-header { height: auto; min-height: 56px; padding-block: 7px; flex-wrap: wrap; } .marketplace-header nav { order: 3; width: 100%; display: flex; gap: 15px; overflow-x: auto; padding: 4px 0 2px; font-size: 10px; } .marketplace-header nav a { min-height: 30px; flex: 0 0 auto; } }
 
 .seller-dashboard-shell { --seller-ink: #172a20; --seller-muted: #68786e; --seller-green: #087c3b; --seller-line: #e2e9e4; min-height: 100vh; display: grid; grid-template-columns: 238px minmax(0, 1fr); color: var(--seller-ink); background: #f3f6f4; font-family: 'DM Sans', sans-serif; }
 .seller-dashboard-sidebar { position: sticky; top: 0; height: 100vh; padding: 22px 14px 14px; display: flex; flex-direction: column; border-right: 1px solid var(--seller-line); background: #fff; }

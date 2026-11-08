@@ -129,6 +129,7 @@ const signupSchema = z.object({
   area: z.string().trim().max(120).optional(),
   password: z.string().min(12).max(128),
   confirmPassword: z.string(),
+  acceptedTerms: z.literal(true),
 }).strict().refine((value) => value.password === value.confirmPassword, { path: ['confirmPassword'], message: 'Passwords do not match.' })
 
 marketplaceSellerAuthRouter.post('/seller/signup', signupLimiter, async (request, response, next) => {
@@ -158,7 +159,7 @@ marketplaceSellerAuthRouter.post('/seller/signup', signupLimiter, async (request
     const passwordHash = await bcrypt.hash(parsed.data.password, 12)
     const rawToken = randomBytes(32).toString('base64url')
     const accountId = await database.transaction(async (transaction) => {
-      const [account] = await transaction.insert(marketplaceSellerAccounts).values({ email: parsed.data.email, passwordHash, status: 'pending' }).returning({ id: marketplaceSellerAccounts.id })
+      const [account] = await transaction.insert(marketplaceSellerAccounts).values({ email: parsed.data.email, passwordHash, status: 'pending', termsAcceptedAt: new Date() }).returning({ id: marketplaceSellerAccounts.id })
       if (!account) throw new Error('Seller account was not created.')
       await transaction.insert(marketplaceSellers).values({
         accountId: account.id,

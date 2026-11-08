@@ -36,6 +36,7 @@ export const marketplaceSellerAccounts = marketplaceSchema.table('marketplace_se
   email: varchar('email', { length: 254 }).notNull(),
   passwordHash: varchar('password_hash', { length: 100 }).notNull(),
   status: varchar('status', { length: 20 }).notNull().default('pending'),
+  termsAcceptedAt: timestamp('terms_accepted_at', { withTimezone: true }),
   emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

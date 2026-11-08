@@ -144,10 +144,20 @@ test('seller signup accepts county-only location details', async () => {
   const response = await fetch(`${origin}/api/v1/marketplace/seller/signup`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:5173' },
-    body: JSON.stringify({ name: 'Test Seller', email: 'seller@example.test', phone: '0712345678', countyCode: '001', password: 'secure-password-123', confirmPassword: 'secure-password-123' }),
+    body: JSON.stringify({ name: 'Test Seller', email: 'seller@example.test', phone: '0712345678', countyCode: '001', password: 'secure-password-123', confirmPassword: 'secure-password-123', acceptedTerms: true }),
   })
   assert.equal(response.status, 503)
   assert.equal((await response.json()).error.code, 'MARKETPLACE_UNAVAILABLE')
+})
+
+test('seller signup requires explicit terms acceptance', async () => {
+  const response = await fetch(`${origin}/api/v1/marketplace/seller/signup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:5173' },
+    body: JSON.stringify({ name: 'Test Seller', email: 'seller@example.test', phone: '0712345678', countyCode: '001', password: 'secure-password-123', confirmPassword: 'secure-password-123' }),
+  })
+  assert.equal(response.status, 400)
+  assert.equal((await response.json()).error.code, 'INVALID_SELLER_SIGNUP')
 })
 
 test('guest listing submission accepts county-only location details', async () => {

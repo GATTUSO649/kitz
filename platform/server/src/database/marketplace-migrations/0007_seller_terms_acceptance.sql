@@ -1,0 +1,1 @@
+ALTER TABLE "marketplace"."marketplace_seller_accounts" ADD COLUMN "terms_accepted_at" timestamp with time zone;
