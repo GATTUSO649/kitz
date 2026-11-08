@@ -276,8 +276,8 @@ function MarketplaceProductPage() {
   </div>
 }
 
-function MatrixIntro({ onSkip, exiting }: { onSkip: () => void; exiting: boolean }) {
-  return <div className={`matrix-intro${exiting ? ' is-exiting' : ''}`} role="dialog" aria-modal="true" aria-label="MATRIX introduction" onKeyDown={(event) => { if (event.key === 'Escape') onSkip() }}>
+function MatrixIntro({ exiting }: { exiting: boolean }) {
+  return <div className={`matrix-intro${exiting ? ' is-exiting' : ''}`} role="dialog" aria-modal="true" aria-label="MATRIX introduction">
     <div className="matrix-intro-content">
       <span className="matrix-intro-eyebrow">KITCULTURE + MARKETHUB</span>
       <div className="matrix-intro-logo-wrap"><img src={matrixLogoPath} alt="MATRIX" /></div>
@@ -287,7 +287,6 @@ function MatrixIntro({ onSkip, exiting }: { onSkip: () => void; exiting: boolean
         <p>Discover football culture and second-hand finds with Matrix.</p>
       </div>
     </div>
-    <button className="matrix-intro-skip" type="button" autoFocus onClick={onSkip}>Skip intro <ArrowRight size={15} /></button>
   </div>
 }
 
@@ -313,7 +312,7 @@ function LandingPage() {
     if (!introActive) return
     try { window.sessionStorage.setItem(matrixIntroStorageKey, 'true') } catch { /* session storage is optional */ }
     setIntroExiting(false)
-    const duration = window.matchMedia('(max-width: 600px)').matches ? 2800 : 3600
+    const duration = 5999
     const exitTimer = window.setTimeout(() => setIntroExiting(true), duration - 550)
     const finishTimer = window.setTimeout(() => setIntroActive(false), duration)
     return () => {
@@ -321,11 +320,6 @@ function LandingPage() {
       window.clearTimeout(finishTimer)
     }
   }, [introActive])
-
-  function skipIntro() {
-    setIntroExiting(true)
-    window.setTimeout(() => setIntroActive(false), 350)
-  }
 
   return <div className="platform-shell landing-shell">
     <header className="platform-header" inert={introActive} aria-hidden={introActive}>
@@ -401,7 +395,7 @@ function LandingPage() {
         <div className="footer-meta"><span className="kenya-flag" role="img" aria-label="Flag of Kenya"><span className="kenya-shield" /></span><span>Kenya</span></div>
       </div>
     </footer>
-    {introActive && <MatrixIntro onSkip={skipIntro} exiting={introExiting} />}
+    {introActive && <MatrixIntro exiting={introExiting} />}
   </div>
 }
 

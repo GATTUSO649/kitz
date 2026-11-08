@@ -415,7 +415,7 @@ function App() {
   }, [isOperationsPage, notify])
   useEffect(() => {
     if (!introVisible) return
-    const timer = window.setTimeout(() => dismissIntro(), 3000)
+    const timer = window.setTimeout(() => dismissIntro(), 5999)
     return () => window.clearTimeout(timer)
   }, [introVisible])
   useEffect(() => {
@@ -951,7 +951,6 @@ function App() {
           </div>
           <p className="intro-tagline">Wear Your Colours. Live the Culture.</p>
         </div>
-        <button type="button" onClick={dismissIntro}>Skip intro <ArrowRight size={15} /></button>
       </div>}
 
       <div className={isHomePage ? 'store-header-stack is-home' : 'store-header-stack'}>
