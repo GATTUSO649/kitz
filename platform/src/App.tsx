@@ -99,7 +99,8 @@ function MarketplaceProductPage() {
   const [reportMessage, setReportMessage] = useState('')
   const [sharingListing, setSharingListing] = useState(false)
   const [shareStatus, setShareStatus] = useState('')
-  const [whatsappFallbackUrl, setWhatsappFallbackUrl] = useState('')
+  const [shareImageFile, setShareImageFile] = useState<File | null>(null)
+  const [shareImageLoading, setShareImageLoading] = useState(false)
   useEffect(() => {
     const controller = new AbortController()
     setLoading(true)
@@ -125,6 +126,32 @@ function MarketplaceProductPage() {
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
   }, [slug])
+
+  useEffect(() => {
+    if (!contact || !listing) return
+    const imageUrl = listing.images[selectedImage] ?? listing.imageUrl
+    setShareImageFile(null)
+    setShareStatus('')
+    if (!imageUrl) {
+      setShareImageLoading(false)
+      setShareStatus('This listing has no product photo to attach.')
+      return
+    }
+    const controller = new AbortController()
+    setShareImageLoading(true)
+    marketplaceFetch(`/api/v1/marketplace/products/${encodeURIComponent(listing.slug)}/images/${selectedImage}/share`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Listing image could not be prepared.')
+        const imageBlob = await response.blob()
+        if (!imageBlob.type.startsWith('image/')) throw new Error('Listing image could not be prepared.')
+        const extension = imageBlob.type.split('/')[1]?.replace('jpeg', 'jpg') ?? 'jpg'
+        const fileName = `${listing.slug.replace(/[^a-z0-9-]/gi, '-')}.${extension}`
+        setShareImageFile(new File([imageBlob], fileName, { type: imageBlob.type }))
+      })
+      .catch(() => { if (!controller.signal.aborted) setShareStatus('The product photo could not be prepared. Please try again.') })
+      .finally(() => { if (!controller.signal.aborted) setShareImageLoading(false) })
+    return () => controller.abort()
+  }, [contact, listing, selectedImage])
 
   async function unlockSellerContact(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -215,17 +242,8 @@ function MarketplaceProductPage() {
     }
   }
 
-  async function proceedToWhatsApp() {
-    if (!contact || !listing) return
-    setShareStatus('')
-    setWhatsappFallbackUrl('')
-    const imageUrl = listing.images[selectedImage] ?? listing.imageUrl
-    if (!imageUrl) {
-      setShareStatus('This listing has no product photo to attach.')
-      return
-    }
-    setSharingListing(true)
-    const sellerPhone = (contact.whatsapp || contact.phone).replace(/\D/g, '')
+  function proceedToWhatsApp() {
+    if (!contact || !listing || !shareImageFile) return
     const productUrl = new URL(`/marketplace/products/${encodeURIComponent(listing.slug)}`, window.location.origin).toString()
     const message = [
       `Hi ${contact.name}, I'm interested in this MarketHub listing:`,
@@ -237,47 +255,27 @@ function MarketplaceProductPage() {
       `Listing reference: ${listing.reference}`,
       `View listing: ${productUrl}`,
     ].join('\n')
-    let imageFile: File | null = null
+    const shareData: ShareData = { title: listing.title, text: message, files: [shareImageFile] }
+    let supportsCombinedShare = false
     try {
-      if (imageUrl) {
-        const imageResponse = await marketplaceFetch(`/api/v1/marketplace/products/${encodeURIComponent(listing.slug)}/images/${selectedImage}/share`)
-        if (imageResponse.ok) {
-          const downloadedImage = await imageResponse.blob()
-          if (downloadedImage.type.startsWith('image/')) {
-            const extension = downloadedImage.type.split('/')[1]?.replace('jpeg', 'jpg') ?? 'jpg'
-            const fileName = `${listing.slug.replace(/[^a-z0-9-]/gi, '-')}.${extension}`
-            imageFile = new File([downloadedImage], fileName, { type: downloadedImage.type })
-          }
-        }
-      }
-      if (imageFile && typeof navigator.share === 'function' && typeof navigator.canShare === 'function') {
-        const shareData: ShareData = { title: listing.title, text: message, files: [imageFile] }
-        if (navigator.canShare(shareData)) {
-          try {
-            await navigator.share(shareData)
-            return
-          } catch (reason) {
-            if (reason instanceof DOMException && reason.name === 'AbortError') return
-          }
-        }
-      }
+      supportsCombinedShare = typeof navigator.share === 'function' && typeof navigator.canShare === 'function' && navigator.canShare(shareData)
     } catch {
-      // Fall back to downloading the image and opening a prefilled WhatsApp message.
-    } finally {
-      setSharingListing(false)
+      supportsCombinedShare = false
     }
-    if (!imageFile) {
-      setShareStatus('The product photo could not be prepared. Please try again.')
+    if (!supportsCombinedShare) {
+      setShareStatus('This browser cannot send the product photo and details together. Open this page in a browser that supports file sharing.')
       return
     }
-    const objectUrl = URL.createObjectURL(imageFile)
-    const downloadLink = document.createElement('a')
-    downloadLink.href = objectUrl
-    downloadLink.download = imageFile.name
-    downloadLink.click()
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
-    setWhatsappFallbackUrl(`https://wa.me/${sellerPhone}?text=${encodeURIComponent(message)}`)
-    setShareStatus('Product photo downloaded. Attach it in WhatsApp before sending the prepared message.')
+    setSharingListing(true)
+    setShareStatus('')
+    void navigator.share(shareData)
+      .then(() => undefined)
+      .catch((reason: unknown) => {
+        if (!(reason instanceof DOMException && reason.name === 'AbortError')) {
+          setShareStatus('The combined photo and listing message could not be shared. Please try again.')
+        }
+      })
+      .finally(() => setSharingListing(false))
   }
 
   const productHeader = <header>
@@ -307,9 +305,12 @@ function MarketplaceProductPage() {
             <div>
               <strong>{contact.name}</strong>
               <p><Phone size={14} /> <a href={`tel:${contact.phone}`}>{contact.phone}</a></p>
-              {(contact.whatsapp || contact.phone) && (whatsappFallbackUrl
-                ? <><p className="share-listing-status" role="status">{shareStatus}</p><a className="whatsapp-contact-button" href={whatsappFallbackUrl} target="_blank" rel="noopener noreferrer"><FaWhatsapp size={17} /> Open prepared WhatsApp message</a></>
-                : <><button className="whatsapp-contact-button" type="button" onClick={() => void proceedToWhatsApp()} disabled={sharingListing}><FaWhatsapp size={17} /> {sharingListing ? 'Preparing listing…' : 'Proceed to WhatsApp'}</button>{shareStatus && <p className="share-listing-status" role="status">{shareStatus}</p>}</>)}
+              {(contact.whatsapp || contact.phone) && <>
+                <button className="whatsapp-contact-button" type="button" onClick={proceedToWhatsApp} disabled={sharingListing || shareImageLoading || !shareImageFile}>
+                  <FaWhatsapp size={17} /> {shareImageLoading ? 'Preparing photo…' : sharingListing ? 'Sharing photo + details…' : 'Share photo + listing details'}
+                </button>
+                {shareStatus && <p className="share-listing-status" role="status">{shareStatus}</p>}
+              </>}
               {contact.email && <p><a href={`mailto:${contact.email}`}>{contact.email}</a></p>}
             </div>
           </aside> : <>
