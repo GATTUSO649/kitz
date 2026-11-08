@@ -1,0 +1,267 @@
+name: MarketHub approved release
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Protected release target
+        required: true
+        type: choice
+        options: [staging, production]
+      preflight_run_id:
+        description: Successful MarketHub migration-preflight workflow run ID for this exact commit and target
+        required: true
+        type: string
+      backup_restore_reference:
+        description: Backup ID and verified restore/recovery rehearsal reference
+        required: true
+        type: string
+      backup_restore_verified:
+        description: Confirm the backup exists and restore/recovery readiness was verified
+        required: true
+        type: boolean
+      approval_reference:
+        description: Change/release approval reference for the protected environment review
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: markethub-release-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: markethub-development
+    outputs:
+      typecheck: ${{ steps.typecheck.outcome }}
+      tests: ${{ steps.tests.outcome }}
+      lint: ${{ steps.lint.outcome }}
+      build: ${{ steps.build.outcome }}
+      security: ${{ steps.security.outcome }}
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: platform/package-lock.json
+
+      - name: Install MarketHub dependencies
+        run: npm ci --include=dev
+        working-directory: platform
+
+      - name: TypeScript checks
+        id: typecheck
+        run: npm run typecheck
+        working-directory: platform
+
+      - name: MarketHub tests
+        id: tests
+        run: npm test
+        working-directory: platform
+
+      - name: Lint
+        id: lint
+        run: npm run lint
+        working-directory: platform
+
+      - name: Production build
+        id: build
+        run: npm run build
+        working-directory: platform
+
+      - name: Dependency audit
+        id: security
+        run: npm audit --audit-level=high
+        working-directory: platform
+
+  release:
+    needs: validate
+    if: needs.validate.result == 'success' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment:
+      name: markethub-${{ inputs.target }}
+      url: ${{ vars.MARKETHUB_BASE_URL }}
+    env:
+      NODE_ENV: production
+      MARKETPLACE_DATABASE_URL: ${{ secrets.MARKETPLACE_DATABASE_URL }}
+      MARKETPLACE_MIGRATION_DATABASE_URL: ${{ secrets.MARKETPLACE_MIGRATION_DATABASE_URL }}
+      MARKETPLACE_DATABASE_NAME: ${{ vars.MARKETPLACE_DATABASE_NAME }}
+      MARKETPLACE_DATABASE_HOST: ${{ vars.MARKETPLACE_DATABASE_HOST }}
+      MARKETPLACE_DATABASE_USER: ${{ vars.MARKETPLACE_DATABASE_USER }}
+      MARKETPLACE_MIGRATION_DATABASE_USER: ${{ vars.MARKETPLACE_MIGRATION_DATABASE_USER }}
+      MARKETPLACE_DATABASE_SCHEMA: ${{ vars.MARKETPLACE_DATABASE_SCHEMA }}
+      MARKETPLACE_DATABASE_CA: ${{ secrets.MARKETPLACE_DATABASE_CA }}
+      MARKETHUB_TARGET: ${{ inputs.target }}
+      MARKETHUB_PREFLIGHT_RUN_ID: ${{ inputs.preflight_run_id }}
+      MARKETHUB_BACKUP_REFERENCE: ${{ inputs.backup_restore_reference }}
+      BACKUP_RESTORE_REFERENCE: ${{ inputs.backup_restore_reference }}
+      BACKUP_RESTORE_VERIFIED: ${{ inputs.backup_restore_verified }}
+      MARKETHUB_APPROVAL_REFERENCE: ${{ inputs.approval_reference }}
+    steps:
+      - name: Checkout exact release commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: platform/package-lock.json
+
+      - name: Install MarketHub dependencies
+        run: npm ci --include=dev
+        working-directory: platform
+
+      - name: Download reviewed preflight artifact
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v4.1.8
+        with:
+          name: markethub-preflight-${{ inputs.preflight_run_id }}
+          run-id: ${{ inputs.preflight_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/markethub-preflight
+
+      - name: Verify the preflight run, commit, target and audit result
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          MARKETHUB_PREFLIGHT_ARTIFACT_DIRECTORY: ${{ runner.temp }}/markethub-preflight
+        run: node scripts/verify-preflight.mjs
+        working-directory: platform
+
+      - name: Require backup and recovery confirmation
+        env:
+          BACKUP_RESTORE_VERIFIED: ${{ inputs.backup_restore_verified }}
+          BACKUP_RESTORE_REFERENCE: ${{ inputs.backup_restore_reference }}
+        run: |
+          if [ "$BACKUP_RESTORE_VERIFIED" != "true" ] || [ -z "$BACKUP_RESTORE_REFERENCE" ]; then
+            echo "Release blocked: verified backup/restore reference is required."
+            exit 1
+          fi
+
+      - name: Mask database URLs
+        run: |
+          echo "::add-mask::$MARKETPLACE_DATABASE_URL"
+          echo "::add-mask::$MARKETPLACE_MIGRATION_DATABASE_URL"
+
+      - name: Re-read migration ledger
+        run: node scripts/run-sanitized-command.mjs --log "$RUNNER_TEMP/marketplace-ledger-before.log" -- npx --yes supabase@3.0.0 migration list --db-url "$MARKETPLACE_MIGRATION_DATABASE_URL"
+        working-directory: platform
+
+      - name: Validate fresh migration inventory and manifest
+        id: manifest
+        run: |
+          node scripts/migration-audit.mjs --ledger "$RUNNER_TEMP/marketplace-ledger-before.log" --report "$RUNNER_TEMP/marketplace-audit-before.md" --json-report "$RUNNER_TEMP/marketplace-plan.json"
+          node scripts/marketplace-migration-manifest.mjs --ledger "$RUNNER_TEMP/marketplace-ledger-before.log" --report "$RUNNER_TEMP/marketplace-manifest-validation.json"
+        working-directory: platform
+
+      - name: Re-verify database target and Kitz public fingerprint
+        id: preapply
+        env:
+          MARKETHUB_MANIFEST_VALIDATION_FILE: ${{ runner.temp }}/marketplace-manifest-validation.json
+        run: node scripts/database-preflight.mjs --compare "$RUNNER_TEMP/markethub-preflight/database-baseline.json" --report "$RUNNER_TEMP/marketplace-preapply.json"
+        working-directory: platform
+
+      - name: Audit unchanged approved migration plan
+        id: plan
+        env:
+          MARKETHUB_PREFLIGHT_ARTIFACT_DIRECTORY: ${{ runner.temp }}/markethub-preflight
+          MARKETHUB_CURRENT_PLAN: ${{ runner.temp }}/marketplace-plan.json
+          MARKETHUB_CURRENT_DATABASE_REPORT: ${{ runner.temp }}/marketplace-preapply.json
+          MARKETHUB_CURRENT_MANIFEST_REPORT: ${{ runner.temp }}/marketplace-manifest-validation.json
+        run: node scripts/compare-migration-plan.mjs
+        working-directory: platform
+
+      - name: Apply only explicitly approved Marketplace migrations
+        id: apply
+        env:
+          MARKETHUB_PREFLIGHT_REPORT: ${{ runner.temp }}/marketplace-preapply.json
+        run: node scripts/apply-approved-marketplace-migrations.mjs --manifest migrations/marketplace-manifest.json --ledger "$RUNNER_TEMP/marketplace-ledger-before.log" --report "$RUNNER_TEMP/marketplace-migration-execution.json"
+        working-directory: platform
+
+      - name: Verify migration ledger and Marketplace schema after apply
+        id: postflight
+        run: |
+          node scripts/run-sanitized-command.mjs --log "$RUNNER_TEMP/marketplace-ledger-after.log" -- npx --yes supabase@3.0.0 migration list --db-url "$MARKETPLACE_MIGRATION_DATABASE_URL"
+          node scripts/migration-audit.mjs --ledger "$RUNNER_TEMP/marketplace-ledger-after.log" --report "$RUNNER_TEMP/marketplace-audit-after.md" --json-report "$RUNNER_TEMP/marketplace-audit-after.json"
+          node scripts/database-preflight.mjs --compare "$RUNNER_TEMP/markethub-preflight/database-baseline.json" --report "$RUNNER_TEMP/marketplace-postflight.json"
+        working-directory: platform
+        env:
+          MARKETPLACE_DATABASE_URL: ${{ secrets.MARKETPLACE_DATABASE_URL }}
+          MARKETPLACE_MIGRATION_DATABASE_URL: ${{ secrets.MARKETPLACE_MIGRATION_DATABASE_URL }}
+          MARKETPLACE_DATABASE_NAME: ${{ vars.MARKETPLACE_DATABASE_NAME }}
+          MARKETPLACE_DATABASE_HOST: ${{ vars.MARKETPLACE_DATABASE_HOST }}
+          MARKETPLACE_DATABASE_USER: ${{ vars.MARKETPLACE_DATABASE_USER }}
+          MARKETPLACE_MIGRATION_DATABASE_USER: ${{ vars.MARKETPLACE_MIGRATION_DATABASE_USER }}
+          MARKETPLACE_DATABASE_SCHEMA: ${{ vars.MARKETPLACE_DATABASE_SCHEMA }}
+          MARKETPLACE_DATABASE_CA: ${{ secrets.MARKETPLACE_DATABASE_CA }}
+          MARKETHUB_POSTFLIGHT: 'true'
+          NODE_ENV: production
+
+      - name: Deploy exact MarketHub Render service and verify health
+        id: render
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_MARKETHUB_SERVICE_ID: ${{ vars.RENDER_MARKETHUB_SERVICE_ID }}
+          MARKETHUB_BASE_URL: ${{ vars.MARKETHUB_BASE_URL }}
+        run: node scripts/render-deploy.mjs --report "$RUNNER_TEMP/render-deployment.md"
+        working-directory: platform
+
+      - name: Write structured deployment report
+        if: always()
+        env:
+          MARKETHUB_VALIDATION_RESULT: ${{ needs.validate.result }}
+          MARKETHUB_TYPECHECK_RESULT: ${{ needs.validate.outputs.typecheck }}
+          MARKETHUB_TEST_RESULT: ${{ needs.validate.outputs.tests }}
+          MARKETHUB_LINT_RESULT: ${{ needs.validate.outputs.lint }}
+          MARKETHUB_BUILD_RESULT: ${{ needs.validate.outputs.build }}
+          MARKETHUB_SECURITY_RESULT: ${{ needs.validate.outputs.security }}
+          MARKETHUB_MIGRATION_AUDIT_RESULT: ${{ steps.plan.outcome }}
+          MARKETHUB_MIGRATION_APPLY_RESULT: ${{ steps.apply.outcome }}
+          MARKETHUB_POSTFLIGHT_RESULT: ${{ steps.postflight.outcome }}
+          MARKETHUB_RENDER_RESULT: ${{ steps.render.outcome }}
+          MARKETHUB_HEALTH_RESULT: ${{ steps.render.outcome }}
+          MARKETHUB_RENDER_DEPLOY_ID: ${{ steps.render.outputs.render_deploy_id }}
+          MARKETHUB_APPROVED_MIGRATION_PLAN: ${{ runner.temp }}/markethub-preflight/migration-plan.json
+          MARKETHUB_FINAL_MIGRATION_AUDIT: ${{ runner.temp }}/marketplace-audit-after.json
+          MARKETHUB_MIGRATION_EXECUTION_REPORT: ${{ runner.temp }}/marketplace-migration-execution.json
+          MARKETHUB_FAILURE_DETAIL_FILES: |
+            ${{ runner.temp }}/marketplace-audit-before.md
+            ${{ runner.temp }}/marketplace-migration-execution.json
+            ${{ runner.temp }}/marketplace-audit-after.md
+            ${{ runner.temp }}/marketplace-postflight.json
+            ${{ runner.temp }}/render-deployment.md
+        run: node scripts/write-deployment-report.mjs "$RUNNER_TEMP/markethub-deployment-report.md"
+        working-directory: platform
+
+      - name: Upload release evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: markethub-release-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/markethub-deployment-report.md
+            ${{ runner.temp }}/markethub-preflight/**
+            ${{ runner.temp }}/marketplace-*.json
+            ${{ runner.temp }}/marketplace-*.txt
+            ${{ runner.temp }}/marketplace-*.log
+            ${{ runner.temp }}/marketplace-*.md
+            ${{ runner.temp }}/render-deployment.md
+          if-no-files-found: warn
+          retention-days: 90

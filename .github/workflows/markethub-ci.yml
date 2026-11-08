@@ -1,0 +1,97 @@
+name: MarketHub validation
+
+on:
+  pull_request:
+    paths:
+      - 'platform/**'
+      - 'supabase/migrations/*markethub*.sql'
+      - 'supabase/migrations/20261108000000_seller_terms_acceptance.sql'
+      - '.github/workflows/markethub-*.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'platform/**'
+      - 'supabase/migrations/*markethub*.sql'
+      - 'supabase/migrations/20261108000000_seller_terms_acceptance.sql'
+      - '.github/workflows/markethub-*.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: markethub-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate MarketHub only
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: markethub-development
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: platform/package-lock.json
+
+      - name: Install MarketHub dependencies
+        run: npm ci --include=dev
+        working-directory: platform
+
+      - name: TypeScript checks
+        run: npm run typecheck
+        working-directory: platform
+
+      - name: MarketHub tests
+        run: npm test
+        working-directory: platform
+
+      - name: Lint
+        run: npm run lint
+        working-directory: platform
+
+      - name: Production build
+        run: npm run build
+        working-directory: platform
+
+      - name: Dependency vulnerability audit
+        run: npm audit --audit-level=high
+        working-directory: platform
+
+      - name: Check changed migration scope and diff formatting
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          : > "$RUNNER_TEMP/markethub-changed-migrations.txt"
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git diff --name-only "$PR_BASE_SHA...$HEAD_SHA" -- supabase/migrations > "$RUNNER_TEMP/markethub-changed-migrations.txt"
+            git diff --check "$PR_BASE_SHA...$HEAD_SHA"
+          elif [ "$EVENT_NAME" = "push" ] && [ -n "$PUSH_BEFORE_SHA" ] && ! [[ "$PUSH_BEFORE_SHA" =~ ^0+$ ]]; then
+            git diff --name-only "$PUSH_BEFORE_SHA" "$HEAD_SHA" -- supabase/migrations > "$RUNNER_TEMP/markethub-changed-migrations.txt"
+            git diff --check "$PUSH_BEFORE_SHA" "$HEAD_SHA"
+          else
+            git diff --check
+          fi
+          node platform/scripts/migration-audit.mjs \
+            --changed-list "$RUNNER_TEMP/markethub-changed-migrations.txt" \
+            --report "$RUNNER_TEMP/markethub-migration-audit.md"
+
+      - name: Upload migration audit report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: markethub-migration-audit-${{ github.run_id }}
+          path: ${{ runner.temp }}/markethub-migration-audit.md
+          if-no-files-found: warn
+          retention-days: 30

@@ -11,6 +11,11 @@ const kitzOrigin = import.meta.env.VITE_KITZ_ORIGIN || 'https://kitz.onrender.co
 const matrixIntroStorageKey = 'matrix-intro-seen'
 const matrixLogoPath = '/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png'
 const formatKes = (value: number) => `KSh ${new Intl.NumberFormat('en-KE').format(value)}`
+const normalizeWhatsAppNumber = (value: string) => {
+  const digits = value.replace(/\D/g, '')
+  const international = digits.startsWith('0') ? `254${digits.slice(1)}` : digits
+  return /^254[17]\d{8}$/.test(international) ? international : null
+}
 
 type Listing = {
   reference: string
@@ -97,10 +102,7 @@ function MarketplaceProductPage() {
   const [paymentPanelOpen, setPaymentPanelOpen] = useState(whatsappIntent)
   const [reportOpen, setReportOpen] = useState(false)
   const [reportMessage, setReportMessage] = useState('')
-  const [sharingListing, setSharingListing] = useState(false)
-  const [shareStatus, setShareStatus] = useState('')
-  const [shareImageFile, setShareImageFile] = useState<File | null>(null)
-  const [shareImageLoading, setShareImageLoading] = useState(false)
+  const sellerWhatsAppNumber = contact ? normalizeWhatsAppNumber(contact.whatsapp || contact.phone) : null
   useEffect(() => {
     const controller = new AbortController()
     setLoading(true)
@@ -126,32 +128,6 @@ function MarketplaceProductPage() {
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
   }, [slug])
-
-  useEffect(() => {
-    if (!contact || !listing) return
-    const imageUrl = listing.images[selectedImage] ?? listing.imageUrl
-    setShareImageFile(null)
-    setShareStatus('')
-    if (!imageUrl) {
-      setShareImageLoading(false)
-      setShareStatus('This listing has no product photo to attach.')
-      return
-    }
-    const controller = new AbortController()
-    setShareImageLoading(true)
-    marketplaceFetch(`/api/v1/marketplace/products/${encodeURIComponent(listing.slug)}/images/${selectedImage}/share`, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error('Listing image could not be prepared.')
-        const imageBlob = await response.blob()
-        if (!imageBlob.type.startsWith('image/')) throw new Error('Listing image could not be prepared.')
-        const extension = imageBlob.type.split('/')[1]?.replace('jpeg', 'jpg') ?? 'jpg'
-        const fileName = `${listing.slug.replace(/[^a-z0-9-]/gi, '-')}.${extension}`
-        setShareImageFile(new File([imageBlob], fileName, { type: imageBlob.type }))
-      })
-      .catch(() => { if (!controller.signal.aborted) setShareStatus('The product photo could not be prepared. Please try again.') })
-      .finally(() => { if (!controller.signal.aborted) setShareImageLoading(false) })
-    return () => controller.abort()
-  }, [contact, listing, selectedImage])
 
   async function unlockSellerContact(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -242,42 +218,6 @@ function MarketplaceProductPage() {
     }
   }
 
-  function proceedToWhatsApp() {
-    if (!contact || !listing || !shareImageFile) return
-    const productUrl = new URL(`/marketplace/products/${encodeURIComponent(listing.slug)}`, window.location.origin).toString()
-    const message = [
-      `Hi ${contact.name}, I'm interested in this MarketHub listing:`,
-      listing.title,
-      `Price: ${formatKes(listing.priceKes)}${listing.negotiable ? ' (Negotiable)' : ''}`,
-      `Category: ${listing.category}`,
-      `Condition: ${listing.condition.replaceAll('_', ' ')}`,
-      `Location: ${listing.town}, ${listing.county}`,
-      `Listing reference: ${listing.reference}`,
-      `View listing: ${productUrl}`,
-    ].join('\n')
-    const shareData: ShareData = { title: listing.title, text: message, files: [shareImageFile] }
-    let supportsCombinedShare = false
-    try {
-      supportsCombinedShare = typeof navigator.share === 'function' && typeof navigator.canShare === 'function' && navigator.canShare(shareData)
-    } catch {
-      supportsCombinedShare = false
-    }
-    if (!supportsCombinedShare) {
-      setShareStatus('This browser cannot send the product photo and details together. Open this page in a browser that supports file sharing.')
-      return
-    }
-    setSharingListing(true)
-    setShareStatus('')
-    void navigator.share(shareData)
-      .then(() => undefined)
-      .catch((reason: unknown) => {
-        if (!(reason instanceof DOMException && reason.name === 'AbortError')) {
-          setShareStatus('The combined photo and listing message could not be shared. Please try again.')
-        }
-      })
-      .finally(() => setSharingListing(false))
-  }
-
   const productHeader = <header>
     <Link className="market-brand" to="/marketplace"><span className="market-logo"><ShoppingBag size={26} /></span><span><strong>Market<span>hub</span></strong><small>Buy. Sell. Save More.</small></span></Link>
     <Link to="/">Platform home</Link>
@@ -305,12 +245,7 @@ function MarketplaceProductPage() {
             <div>
               <strong>{contact.name}</strong>
               <p><Phone size={14} /> <a href={`tel:${contact.phone}`}>{contact.phone}</a></p>
-              {(contact.whatsapp || contact.phone) && <>
-                <button className="whatsapp-contact-button" type="button" onClick={proceedToWhatsApp} disabled={sharingListing || shareImageLoading || !shareImageFile}>
-                  <FaWhatsapp size={17} /> {shareImageLoading ? 'Preparing photo…' : sharingListing ? 'Sharing photo + details…' : 'Share photo + listing details'}
-                </button>
-                {shareStatus && <p className="share-listing-status" role="status">{shareStatus}</p>}
-              </>}
+              {sellerWhatsAppNumber && <a className="whatsapp-contact-button" href={`https://wa.me/${sellerWhatsAppNumber}`} target="_blank" rel="noreferrer"><FaWhatsapp size={17} /> Proceed to WhatsApp</a>}
               {contact.email && <p><a href={`mailto:${contact.email}`}>{contact.email}</a></p>}
             </div>
           </aside> : <>

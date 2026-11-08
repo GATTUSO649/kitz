@@ -1,0 +1,94 @@
+name: MarketHub migration preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Supabase/Render environment to inspect
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: read
+
+concurrency:
+  group: markethub-preflight-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: markethub-${{ inputs.target }}-preflight
+    env:
+      NODE_ENV: production
+      MARKETHUB_PREFLIGHT_ONLY: 'true'
+      MARKETHUB_PREFLIGHT_DATABASE_URL: ${{ secrets.MARKETHUB_PREFLIGHT_DATABASE_URL }}
+      MARKETPLACE_DATABASE_NAME: ${{ vars.MARKETPLACE_DATABASE_NAME }}
+      MARKETPLACE_DATABASE_HOST: ${{ vars.MARKETPLACE_DATABASE_HOST }}
+      MARKETPLACE_DATABASE_USER: ${{ vars.MARKETPLACE_DATABASE_USER }}
+      MARKETPLACE_DATABASE_SCHEMA: ${{ vars.MARKETPLACE_DATABASE_SCHEMA }}
+      MARKETPLACE_DATABASE_CA: ${{ secrets.MARKETPLACE_DATABASE_CA }}
+      MARKETHUB_TARGET: ${{ inputs.target }}
+    steps:
+      - name: Checkout reviewed main commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: platform/package-lock.json
+
+      - name: Install MarketHub dependencies
+        run: npm ci --include=dev
+        working-directory: platform
+
+      - name: Create report directory and mask connection strings
+        run: |
+          mkdir -p "$RUNNER_TEMP/markethub-preflight"
+          echo "::add-mask::$MARKETHUB_PREFLIGHT_DATABASE_URL"
+
+      - name: Audit migration files and schema contracts
+        run: node scripts/migration-audit.mjs --report "$RUNNER_TEMP/markethub-preflight/migration-audit.md" --json-report "$RUNNER_TEMP/markethub-preflight/migration-audit.json"
+        working-directory: platform
+
+      - name: Read Supabase migration ledger
+        run: node scripts/run-sanitized-command.mjs --log "$RUNNER_TEMP/markethub-preflight/migration-ledger.log" -- npx --yes supabase@3.0.0 migration list --db-url "$MARKETHUB_PREFLIGHT_DATABASE_URL"
+        working-directory: platform
+
+      - name: Validate migration inventory and explicit Marketplace allowlist
+        run: |
+          node scripts/migration-audit.mjs --ledger "$RUNNER_TEMP/markethub-preflight/migration-ledger.log" --report "$RUNNER_TEMP/markethub-preflight/migration-audit.md" --json-report "$RUNNER_TEMP/markethub-preflight/migration-plan.json"
+          node scripts/marketplace-migration-manifest.mjs --ledger "$RUNNER_TEMP/markethub-preflight/migration-ledger.log" --report "$RUNNER_TEMP/markethub-preflight/manifest-validation.json"
+        working-directory: platform
+
+      - name: Verify read-only database identity, roles, tables, grants and public fingerprint
+        env:
+          MARKETHUB_MANIFEST_VALIDATION_FILE: ${{ runner.temp }}/markethub-preflight/manifest-validation.json
+        run: node scripts/run-sanitized-command.mjs --log "$RUNNER_TEMP/markethub-preflight/database-preflight.log" -- node scripts/database-preflight.mjs --baseline "$RUNNER_TEMP/markethub-preflight/database-baseline.json" --report "$RUNNER_TEMP/markethub-preflight/database-preflight.json"
+        working-directory: platform
+
+      - name: Write preflight manifest
+        if: always()
+        env:
+          MARKETHUB_PREFLIGHT_STATUS: ${{ job.status }}
+        run: node scripts/write-preflight-manifest.mjs "$RUNNER_TEMP/markethub-preflight"
+        working-directory: platform
+
+      - name: Upload safe preflight report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: markethub-preflight-${{ github.run_id }}
+          path: ${{ runner.temp }}/markethub-preflight
+          if-no-files-found: warn
+          retention-days: 30

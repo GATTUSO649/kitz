@@ -13,10 +13,13 @@
     "build:deploy": "npm run build && npm run build:server",
     "start": "node server/dist/server.js",
     "db:generate": "drizzle-kit generate --config=server/drizzle.config.ts",
-    "db:migrate": "drizzle-kit migrate --config=server/drizzle.config.ts",
+    "db:migrate": "node scripts/blocked-drizzle-migration.mjs",
+    "db:migrate:all": "node scripts/blocked-drizzle-migration.mjs",
+    "db:marketplace:audit": "node scripts/migration-audit.mjs",
+    "db:marketplace:preflight": "node scripts/database-preflight.mjs",
     "admin:provision": "tsx server/src/scripts/provision-marketplace-admin.ts",
-    "lint": "oxlint src server/src",
-    "test": "tsx --test server/src/app.test.ts server/src/modules/marketplace/security.test.ts server/src/modules/marketplace/images.test.ts server/src/modules/marketplace/expiry.test.ts server/src/modules/email/service.test.ts server/src/modules/email/outbox.test.ts server/src/workers/health.test.ts server/src/workers/scheduler.test.ts server/src/modules/payments/daraja.test.ts"
+    "lint": "oxlint src server/src scripts",
+    "test": "tsx --test server/src/app.test.ts server/src/modules/marketplace/security.test.ts server/src/modules/marketplace/images.test.ts server/src/modules/marketplace/expiry.test.ts server/src/modules/email/service.test.ts server/src/modules/email/outbox.test.ts server/src/workers/health.test.ts server/src/workers/scheduler.test.ts server/src/modules/payments/daraja.test.ts scripts/migration-audit.test.mjs scripts/marketplace-migration-manifest.test.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.21",
