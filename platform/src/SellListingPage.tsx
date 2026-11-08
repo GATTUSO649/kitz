@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, BadgeCheck, Check, ImagePlus, LoaderCircle, Menu, Trash2, Upload } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { SellerPortalSidebar } from './SellerPortal'
+import { marketplaceFetch } from './api'
 
 type Subcategory = { id: string; name: string; slug: string }
 type Category = { id: string; name: string; slug: string; subcategories: Subcategory[] }
@@ -43,24 +44,24 @@ export function SellListingPage() {
     const controller = new AbortController()
     setLoadingData(true)
     Promise.all([
-      fetch('/api/v1/marketplace/categories', { signal: controller.signal }).then(async (response) => {
+      marketplaceFetch('/api/v1/marketplace/categories', { signal: controller.signal }).then(async (response) => {
         const result = await response.json() as { data?: Category[]; error?: { message?: string } }
         if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Categories are unavailable.')
         setCategories(result.data)
       }),
-      fetch('/api/v1/marketplace/locations/counties', { signal: controller.signal }).then(async (response) => {
+      marketplaceFetch('/api/v1/marketplace/locations/counties', { signal: controller.signal }).then(async (response) => {
         const result = await response.json() as { data?: County[]; error?: { message?: string } }
         if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Locations are unavailable.')
         setCounties(result.data)
       }),
-      fetch('/api/v1/marketplace/seller/session', { signal: controller.signal }).then(async (response) => {
+      marketplaceFetch('/api/v1/marketplace/seller/session', { signal: controller.signal }).then(async (response) => {
         if (response.status === 401) return
         const result = await response.json() as { data?: SellerAccountProfile; error?: { message?: string } }
         if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Seller account could not be loaded.')
         setSellerProfile(result.data)
         setValues((current) => ({ ...current, name: result.data!.name, email: result.data!.email, phone: result.data!.phone, whatsapp: result.data!.whatsapp ?? '', countyCode: result.data!.countyCode, subcounty: result.data!.subcounty, town: result.data!.town, area: result.data!.area ?? '' }))
       }),
-    ]).catch((error: unknown) => { if (!controller.signal.aborted) setPageError(error instanceof Error ? error.message : 'Marketplace data is unavailable.') })
+    ]).catch(() => { if (!controller.signal.aborted) setPageError('Marketplace data is unavailable.') })
       .finally(() => { if (!controller.signal.aborted) setLoadingData(false) })
     return () => controller.abort()
   }, [])
@@ -103,7 +104,7 @@ export function SellListingPage() {
     try {
       for (let index = fromIndex; index < files.length; index += 1) {
         const file = files[index]!
-        const response = await fetch(`/api/v1/marketplace/submissions/${newSubmission.reference}/images`, {
+        const response = await marketplaceFetch(`/api/v1/marketplace/submissions/${newSubmission.reference}/images`, {
           method: 'POST',
           headers: { 'Content-Type': file.type, 'X-Submission-Token': newSubmission.statusToken, 'X-Primary-Image': index === 0 ? 'true' : 'false' },
           body: await file.arrayBuffer(),
@@ -112,9 +113,9 @@ export function SellListingPage() {
         if (!response.ok) throw new Error(result.error?.message ?? 'Image upload failed.')
         setUploadedCount(index + 1)
       }
-    } catch (error) {
-      setImageError(error instanceof Error ? error.message : 'Image upload failed.')
-      throw error
+    } catch {
+      setImageError('Image upload failed. Please try again.')
+      throw new Error('Image upload failed.')
     } finally {
       setUploading(false)
     }
@@ -138,7 +139,7 @@ export function SellListingPage() {
     if (step !== 3) return
     setLoadingData(true)
     try {
-      const response = await fetch('/api/v1/marketplace/submissions', {
+      const response = await marketplaceFetch('/api/v1/marketplace/submissions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -159,8 +160,8 @@ export function SellListingPage() {
       setPaymentPhone(values.phone)
       setStep(4)
       await uploadPendingImages(result.data)
-    } catch (error) {
-      setPageError(error instanceof Error ? error.message : 'The listing could not be submitted.')
+    } catch {
+      setPageError('The listing could not be submitted. Please try again.')
     } finally {
       setLoadingData(false)
     }
@@ -171,7 +172,7 @@ export function SellListingPage() {
     setPaying(true)
     setPaymentMessage('')
     try {
-      const response = await fetch('/api/v1/marketplace/payments/publication', {
+      const response = await marketplaceFetch('/api/v1/marketplace/payments/publication', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reference: submission.reference, phone: paymentPhone, submissionToken: submission.statusToken }),
@@ -181,7 +182,7 @@ export function SellListingPage() {
       setPaymentMessage(result.data.status === 'ambiguous' ? 'Payment status is unclear. Use the status check before trying again.' : 'Approve the M-Pesa prompt on your phone. The listing stays unpublished until payment is verified.')
       for (let attempt = 0; attempt < 36; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 2500))
-        const statusResponse = await fetch(`/api/v1/marketplace/payments/${result.data.paymentReference}/status`, { headers: { 'X-Payment-Token': submission.statusToken } })
+        const statusResponse = await marketplaceFetch(`/api/v1/marketplace/payments/${result.data.paymentReference}/status`, { headers: { 'X-Payment-Token': submission.statusToken } })
         const statusResult = await statusResponse.json() as { data?: { status: string; listingStatus: string | null }; error?: { message?: string } }
         if (!statusResponse.ok || !statusResult.data) throw new Error(statusResult.error?.message ?? 'Payment status could not be checked.')
         if (statusResult.data.status === 'succeeded' && statusResult.data.listingStatus === 'published') {
@@ -195,8 +196,8 @@ export function SellListingPage() {
         }
       }
       setPaymentMessage('Payment is still being verified. Your listing remains unpublished until confirmation.')
-    } catch (error) {
-      setPaymentMessage(error instanceof Error ? error.message : 'Payment could not be completed.')
+    } catch {
+      setPaymentMessage('Payment could not be completed. Please try again.')
     } finally {
       setPaying(false)
     }
@@ -244,13 +245,13 @@ export function SubmissionStatusPage() {
     const controller = new AbortController()
     setLoading(true)
     setError('')
-    fetch(`/api/v1/marketplace/submissions/${encodeURIComponent(checkedReference)}/status`, { headers: { 'X-Submission-Token': token }, signal: controller.signal })
+    marketplaceFetch(`/api/v1/marketplace/submissions/${encodeURIComponent(checkedReference)}/status`, { headers: { 'X-Submission-Token': token }, signal: controller.signal })
       .then(async (response) => {
         const result = await response.json() as { data?: { status: string; updatedAt: string; slug: string }; error?: { message?: string } }
         if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Submission status could not be loaded.')
         setStatus(result.data)
       })
-      .catch((reason: unknown) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Submission status could not be loaded.') })
+      .catch(() => { if (!controller.signal.aborted) setError('Submission status could not be loaded.') })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
   }, [checkedReference, retry])

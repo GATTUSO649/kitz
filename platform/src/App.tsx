@@ -1,7 +1,8 @@
-import { ArrowRight, BadgeCheck, CircleHelp, Compass, House, LayoutGrid, List as ListIcon, MapPin, Phone, Search, ShieldCheck, ShoppingBag, SlidersHorizontal, Sparkles, X, Zap } from 'lucide-react'
+import { ArrowRight, BadgeCheck, CircleHelp, Compass, House, LayoutGrid, List as ListIcon, Mail, MapPin, Phone, Search, ShieldCheck, ShoppingBag, SlidersHorizontal, Sparkles, X, Zap } from 'lucide-react'
 import { FaFacebookF, FaWhatsapp, FaXTwitter, FaYoutube } from 'react-icons/fa6'
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link, Navigate, Route, Routes, useParams, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { marketplaceFetch, marketplaceUnavailableEvent } from './api'
 import { SellListingPage, SubmissionStatusPage } from './SellListingPage'
 import { MarketplaceAdminPage } from './MarketplaceAdmin'
 import { SellerForgotPasswordPage, SellerLoginPage, SellerPortalPage, SellerResetPasswordPage, SellerSignupPage, SellerVerifyPage } from './SellerPortal'
@@ -30,17 +31,10 @@ type Listing = {
   contactUnlockFeeKes?: number
 }
 
-type MarketplaceCategory = { id: string; name: string; slug: string }
+type MarketplaceCategory = { id: string; name: string; slug: string; subcategories?: { id: string; name: string; slug: string }[] }
 type MarketplaceCounty = { code: string; name: string }
-type FooterSocialLinks = { facebookUrl: string | null; xUrl: string | null; youtubeUrl: string | null; whatsappUrl: string | null }
-type CatalogueFilters = { county: string; subcounty: string; town: string; condition: string; minPrice: string; maxPrice: string; publishedAfter: string; publishedBefore: string; negotiable: string; sort: string; featured: string }
-const categoryIcons: Record<string, string> = {
-  'phones-and-accessories': '📱', 'computers-and-laptops': '💻', electronics: '🖥️', furniture: '🛋️',
-  'home-appliances': '🧊', vehicles: '🚘', 'motorcycles-and-spare-parts': '🏍️', 'fashion-and-clothing': '👕',
-  'shoes-and-bags': '👟', property: '🏠', 'construction-equipment': '🏗️', 'agriculture-and-farming-equipment': '🌱',
-  'sports-and-fitness': '🏃', 'musical-instruments': '🎸', 'business-equipment': '🧰', 'other-products': '••',
-}
-
+type FooterSocialLinks = { facebookUrl: string | null; xUrl: string | null; youtubeUrl: string | null; whatsappUrl: string | null; whatsappPhone: string | null }
+type CatalogueFilters = { county: string; subcounty: string; town: string; condition: string; minPrice: string; maxPrice: string; publishedAfter: string; publishedBefore: string; negotiable: string; sort: string; featured: string; subcategory: string }
 function ProductResults({ search, category, filterQuery, page, view, onPageChange }: { search: string; category: string; filterQuery: string; page: number; view: 'grid' | 'list'; onPageChange: (page: number) => void }) {
   const [listings, setListings] = useState<Listing[]>([])
   const [pagination, setPagination] = useState<{ page: number; limit: number; total: number; hasMore: boolean } | null>(null)
@@ -56,15 +50,15 @@ function ProductResults({ search, category, filterQuery, page, view, onPageChang
     if (category) params.set('category', category)
     setLoading(true)
     setError('')
-    fetch(`/api/v1/marketplace/products?${params}`, { signal: controller.signal })
+    marketplaceFetch(`/api/v1/marketplace/products?${params}`, { signal: controller.signal })
       .then(async (response) => {
         const result = await response.json() as { data?: Listing[]; pagination?: { page: number; limit: number; total: number; hasMore: boolean }; error?: { message?: string } }
         if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Listings could not be loaded.')
         setListings(result.data)
         setPagination(result.pagination ?? null)
       })
-      .catch((reason: unknown) => {
-        if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Listings could not be loaded.')
+      .catch(() => {
+        if (!controller.signal.aborted) setError('Listings could not be loaded.')
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
@@ -74,9 +68,9 @@ function ProductResults({ search, category, filterQuery, page, view, onPageChang
   if (error) return <div className="catalogue-message" role="alert"><strong>Listings are unavailable.</strong><span>{error}</span><button type="button" onClick={() => setRetry((value) => value + 1)}>Retry</button></div>
   if (!listings.length) return <div className="catalogue-message"><strong>No listings found.</strong><span>Try a different search or category.</span></div>
   return <>
-    <div className={`listing-grid ${view === 'list' ? 'list-view' : ''}`}>{listings.map((listing) => <article className="listing-card" key={listing.reference}>
+    <div className={`listing-grid ${view === 'list' ? 'list-view' : ''}`}>{listings.map((listing, index) => <article className="listing-card" key={listing.reference}>
       <Link to={`/marketplace/products/${encodeURIComponent(listing.slug)}`} className="listing-image">
-        {listing.imageUrl ? <img src={listing.imageUrl} alt={listing.title} loading="lazy" /> : <span aria-label="No product image">No image</span>}
+        {listing.imageUrl ? <img src={listing.imageUrl} alt={listing.title} loading={index < 4 ? 'eager' : 'lazy'} decoding="async" fetchPriority={index === 0 ? 'high' : 'auto'} width="640" height="480" /> : <span aria-label="No product image">No image</span>}
         {listing.featured && <b>Featured</b>}
       </Link>
       <div className="listing-info"><small><MapPin size={11} /> {listing.town}, {listing.county}</small><Link to={`/marketplace/products/${encodeURIComponent(listing.slug)}`}><strong>{listing.title}</strong></Link><div><b>KSh {new Intl.NumberFormat('en-KE').format(listing.priceKes)}</b><span>{listing.negotiable ? 'Negotiable' : listing.condition.replaceAll('_', ' ')}</span></div></div>
@@ -107,24 +101,24 @@ function MarketplaceProductPage() {
     const controller = new AbortController()
     setLoading(true)
     setError('')
-    fetch(`/api/v1/marketplace/products/${encodeURIComponent(slug)}`, { signal: controller.signal })
+    marketplaceFetch(`/api/v1/marketplace/products/${encodeURIComponent(slug)}`, { signal: controller.signal })
       .then(async (response) => {
         const result = await response.json() as { data?: Listing & { images: string[]; contactUnlockFeeKes: number }; error?: { message?: string } }
         if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'This listing is unavailable.')
         setListing(result.data)
         setSelectedImage(0)
-        void fetch(`/api/v1/marketplace/products/${encodeURIComponent(slug)}/views`, { method: 'POST', signal: controller.signal }).catch(() => undefined)
+        void marketplaceFetch(`/api/v1/marketplace/products/${encodeURIComponent(slug)}/views`, { method: 'POST', signal: controller.signal }).catch(() => undefined)
         const savedToken = sessionStorage.getItem(`mh_unlock_token_${slug}`)
         if (savedToken) {
           setUnlockToken(savedToken)
-          const contactResponse = await fetch(`/api/v1/marketplace/payments/products/${encodeURIComponent(slug)}/contact`, { method: 'POST', headers: { 'X-Unlock-Token': savedToken }, signal: controller.signal })
+          const contactResponse = await marketplaceFetch(`/api/v1/marketplace/payments/products/${encodeURIComponent(slug)}/contact`, { method: 'POST', headers: { 'X-Unlock-Token': savedToken }, signal: controller.signal })
           if (contactResponse.ok) {
             const contactResult = await contactResponse.json() as { data: { name: string; phone: string; whatsapp: string | null; email: string | null } }
             setContact(contactResult.data)
           }
         }
       })
-      .catch((reason: unknown) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'This listing is unavailable.') })
+      .catch(() => { if (!controller.signal.aborted) setError('This listing is unavailable.') })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
   }, [slug])
@@ -135,7 +129,7 @@ function MarketplaceProductPage() {
     setUnlocking(true)
     setUnlockMessage('')
     try {
-      const response = await fetch('/api/v1/marketplace/payments/contact-unlock', {
+      const response = await marketplaceFetch('/api/v1/marketplace/payments/contact-unlock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ slug, phone, email }),
@@ -149,11 +143,11 @@ function MarketplaceProductPage() {
       setUnlockMessage('Approve the M-Pesa prompt on your phone.')
       for (let attempt = 0; attempt < 36; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 2500))
-        const statusResponse = await fetch(`/api/v1/marketplace/payments/${paymentReference}/status`, { headers: { 'X-Payment-Token': accessToken } })
+        const statusResponse = await marketplaceFetch(`/api/v1/marketplace/payments/${paymentReference}/status`, { headers: { 'X-Payment-Token': accessToken } })
         const statusResult = await statusResponse.json() as { data?: { status: string }; error?: { message?: string } }
         if (!statusResponse.ok || !statusResult.data) throw new Error(statusResult.error?.message ?? 'Payment status could not be checked.')
         if (statusResult.data.status === 'succeeded') {
-          const contactResponse = await fetch(`/api/v1/marketplace/payments/products/${encodeURIComponent(slug)}/contact`, { method: 'POST', headers: { 'X-Unlock-Token': accessToken } })
+          const contactResponse = await marketplaceFetch(`/api/v1/marketplace/payments/products/${encodeURIComponent(slug)}/contact`, { method: 'POST', headers: { 'X-Unlock-Token': accessToken } })
           const contactResult = await contactResponse.json() as { data?: { name: string; phone: string; whatsapp: string | null; email: string | null }; error?: { message?: string } }
           if (!contactResponse.ok || !contactResult.data) throw new Error(contactResult.error?.message ?? 'Verified contact could not be retrieved.')
           setContact(contactResult.data)
@@ -167,8 +161,8 @@ function MarketplaceProductPage() {
         }
       }
       setUnlockMessage('Payment is still being verified.')
-    } catch (reason) {
-      setUnlockMessage(reason instanceof Error ? reason.message : 'Contact unlock could not be completed.')
+    } catch {
+      setUnlockMessage('Contact unlock could not be completed. Please try again.')
     } finally {
       setUnlocking(false)
     }
@@ -179,21 +173,21 @@ function MarketplaceProductPage() {
     if (!unlockToken || !paymentReference) return
     setUnlocking(true)
     try {
-      const response = await fetch(`/api/v1/marketplace/payments/${paymentReference}/status`, { headers: { 'X-Payment-Token': unlockToken } })
+      const response = await marketplaceFetch(`/api/v1/marketplace/payments/${paymentReference}/status`, { headers: { 'X-Payment-Token': unlockToken } })
       const result = await response.json() as { data?: { status: string }; error?: { message?: string } }
       if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Payment status could not be checked.')
       if (result.data.status !== 'succeeded') {
         setUnlockMessage('Payment is still being verified.')
         return
       }
-      const contactResponse = await fetch(`/api/v1/marketplace/payments/products/${encodeURIComponent(slug)}/contact`, { method: 'POST', headers: { 'X-Unlock-Token': unlockToken } })
+      const contactResponse = await marketplaceFetch(`/api/v1/marketplace/payments/products/${encodeURIComponent(slug)}/contact`, { method: 'POST', headers: { 'X-Unlock-Token': unlockToken } })
       const contactResult = await contactResponse.json() as { data?: { name: string; phone: string; whatsapp: string | null; email: string | null }; error?: { message?: string } }
       if (!contactResponse.ok || !contactResult.data) throw new Error(contactResult.error?.message ?? 'Verified contact could not be retrieved.')
       setContact(contactResult.data)
       setUnlockMessage('Payment verified. WhatsApp is ready.')
       setPaymentPanelOpen(false)
-    } catch (reason) {
-      setUnlockMessage(reason instanceof Error ? reason.message : 'Payment status could not be checked.')
+    } catch {
+      setUnlockMessage('Payment status could not be checked. Please try again.')
     } finally {
       setUnlocking(false)
     }
@@ -204,7 +198,7 @@ function MarketplaceProductPage() {
     const formData = new FormData(event.currentTarget)
     setReportMessage('')
     try {
-      const response = await fetch(`/api/v1/marketplace/products/${encodeURIComponent(slug)}/reports`, {
+      const response = await marketplaceFetch(`/api/v1/marketplace/products/${encodeURIComponent(slug)}/reports`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: formData.get('reason'), details: formData.get('details'), email: formData.get('email') }),
@@ -213,8 +207,8 @@ function MarketplaceProductPage() {
       if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'The report could not be sent.')
       setReportMessage('Thanks. The marketplace support team will review this listing.')
       setReportOpen(false)
-    } catch (reason) {
-      setReportMessage(reason instanceof Error ? reason.message : 'The report could not be sent.')
+    } catch {
+      setReportMessage('The report could not be sent. Please try again.')
     }
   }
 
@@ -291,7 +285,7 @@ function MatrixIntro({ exiting }: { exiting: boolean }) {
 }
 
 function LandingPage() {
-  const [footerSocial, setFooterSocial] = useState<FooterSocialLinks>({ facebookUrl: null, xUrl: null, youtubeUrl: null, whatsappUrl: null })
+  const [footerSocial, setFooterSocial] = useState<FooterSocialLinks>({ facebookUrl: null, xUrl: null, youtubeUrl: null, whatsappUrl: null, whatsappPhone: null })
   const [introActive, setIntroActive] = useState(() => {
     if (typeof window === 'undefined' || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false
     try { return window.sessionStorage.getItem(matrixIntroStorageKey) !== 'true' } catch { return false }
@@ -299,7 +293,7 @@ function LandingPage() {
   const [introExiting, setIntroExiting] = useState(false)
   useEffect(() => {
     const controller = new AbortController()
-    fetch('/api/v1/marketplace/settings/footer-social-links', { signal: controller.signal })
+    marketplaceFetch('/api/v1/marketplace/settings/footer-social-links', { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) return
         const result = await response.json() as { data?: FooterSocialLinks }
@@ -345,7 +339,7 @@ function LandingPage() {
 
       <section className="destination-grid" aria-label="Choose a website">
         <article className="destination-card kits-card">
-          <img src="/images/the%20kits.png" alt="Football shirts in a stadium under match lights" />
+          <img src="/images/the%20kits.png" alt="Football shirts in a stadium under match lights" loading="eager" decoding="async" fetchPriority="high" width="640" height="480" />
           <div className="card-shade" />
           <div className="destination-content">
             <span className="destination-tag"><span className="football-mark">●</span> Football Kits</span>
@@ -359,7 +353,7 @@ function LandingPage() {
         </article>
 
         <article className="destination-card market-card">
-          <img src="/images/second%20hand.png" alt="A collection of second-hand products for sale" />
+          <img src="/images/second%20hand.png" alt="A collection of second-hand products for sale" loading="eager" decoding="async" fetchPriority="high" width="640" height="480" />
           <div className="card-shade" />
           <div className="destination-content">
             <span className="destination-tag"><ShoppingBag size={14} /> Second-Hand</span>
@@ -407,13 +401,27 @@ function MarketplaceHome() {
   const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1
   const [categories, setCategories] = useState<MarketplaceCategory[]>([])
   const [counties, setCounties] = useState<MarketplaceCounty[]>([])
+  const [footerSocial, setFooterSocial] = useState<FooterSocialLinks>({ facebookUrl: null, xUrl: null, youtubeUrl: null, whatsappUrl: null, whatsappPhone: null })
   const [categoryError, setCategoryError] = useState('')
   const [categoryRetry, setCategoryRetry] = useState(0)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [view, setView] = useState<'grid' | 'list'>('grid')
-  const [searchText, setSearchText] = useState(search)
+  const [searchDraft, setSearchDraft] = useState({ query: search, value: search })
+  const searchText = searchDraft.query === search ? searchDraft.value : search
+  useEffect(() => {
+    const controller = new AbortController()
+    marketplaceFetch('/api/v1/marketplace/settings/footer-social-links', { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) return
+        const result = await response.json() as { data?: FooterSocialLinks }
+        if (result.data) setFooterSocial(result.data)
+      })
+      .catch(() => undefined)
+    return () => controller.abort()
+  }, [])
   const filters: CatalogueFilters = {
     county: searchParams.get('county') ?? '',
+    subcategory: searchParams.get('subcategory') ?? '',
     subcounty: searchParams.get('subcounty') ?? '',
     town: searchParams.get('town') ?? '',
     condition: searchParams.get('condition') ?? '',
@@ -423,23 +431,23 @@ function MarketplaceHome() {
     publishedBefore: searchParams.get('publishedBefore') ?? '',
     negotiable: searchParams.get('negotiable') ?? '',
     sort: searchParams.get('sort') ?? 'newest',
-    featured: searchParams.get('featured') ?? (search || category ? 'all' : 'true'),
+    featured: searchParams.get('featured') ?? 'all',
   }
   const filterQuery = new URLSearchParams(Object.entries(filters).filter(([key, value]) => value !== '' && (value !== 'false' || key === 'featured'))).toString()
   useEffect(() => {
     const controller = new AbortController()
-    fetch('/api/v1/marketplace/categories', { signal: controller.signal })
+    marketplaceFetch('/api/v1/marketplace/categories', { signal: controller.signal })
       .then(async (response) => {
         const result = await response.json() as { data?: MarketplaceCategory[]; error?: { message?: string } }
         if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Categories could not be loaded.')
         setCategories(result.data)
       })
-      .catch((reason: unknown) => { if (!controller.signal.aborted) setCategoryError(reason instanceof Error ? reason.message : 'Categories could not be loaded.') })
+      .catch(() => { if (!controller.signal.aborted) setCategoryError('Categories could not be loaded.') })
     return () => controller.abort()
   }, [categoryRetry])
   useEffect(() => {
     const controller = new AbortController()
-    fetch('/api/v1/marketplace/locations/counties', { signal: controller.signal })
+    marketplaceFetch('/api/v1/marketplace/locations/counties', { signal: controller.signal })
       .then(async (response) => {
         const result = await response.json() as { data?: MarketplaceCounty[] }
         if (response.ok && result.data) setCounties(result.data)
@@ -460,6 +468,18 @@ function MarketplaceHome() {
     event.preventDefault()
     setQuery({ q: searchText.trim() })
   }
+  useEffect(() => {
+    if (searchText.trim() === search) return
+    const timer = window.setTimeout(() => {
+      const next = new URLSearchParams(searchParams)
+      const value = searchText.trim()
+      if (value) next.set('q', value)
+      else next.delete('q')
+      next.delete('page')
+      setSearchParams(next, { replace: true })
+    }, 220)
+    return () => window.clearTimeout(timer)
+  }, [searchText, search, searchParams, setSearchParams])
   const submitFilters = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const formData = new FormData(event.currentTarget)
@@ -471,7 +491,7 @@ function MarketplaceHome() {
     <header className="marketplace-header">
       <Link to="/" className="market-brand"><span className="market-logo"><ShoppingBag size={26} /></span><span><strong>Market<span>hub</span></strong><small>Buy. Sell. Save More.</small></span></Link>
       <nav aria-label="Marketplace navigation"><Link className="market-home" to="/marketplace"><House size={15} />Home</Link><a href="#categories">Categories⌄</a><a href="#locations">Locations⌄</a><a href="#how-it-works">How It Works</a><a href="mailto:hello@markethub.co.ke">Contact</a></nav>
-      <div className="market-actions"><Link className="sell-link" to="/marketplace/seller/login">+ <span>Sell item</span></Link><Link className="market-login" to="/admin/marketplace/login">Admin</Link></div>
+      <div className="market-actions"><Link className="sell-link" to="/marketplace/seller/login">+ <span>Sell item</span></Link></div>
     </header>
     <main>
       <section className="market-hero">
@@ -480,13 +500,24 @@ function MarketplaceHome() {
           <span className="hero-eyebrow"><Sparkles size={14} /> MACHAKOS FINDS, BETTER DAYS</span>
           <h1>Second-Hand<br /><em>Marketplace</em></h1>
           <p>Discover, advertise and connect with buyers and sellers of quality second-hand products.</p>
-          <form className="market-search" onSubmit={submitSearch}><label className="sr-only" htmlFor="market-search-input">Search products</label><Search size={18} /><input id="market-search-input" value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="Search for products..." /><button type="submit">Search</button></form>
-          <p className="popular-searches"><strong>🔥 Popular:</strong>{categories.filter((item) => ['phones-and-accessories', 'computers-and-laptops', 'furniture', 'vehicles'].includes(item.slug)).map((item) => <Link key={item.id} to={`/marketplace?category=${item.slug}`}>{item.name.split(' ')[0]}</Link>)}</p>
+          <form className="market-search" onSubmit={submitSearch}><label className="sr-only" htmlFor="market-search-input">Search products</label><Search size={18} /><input id="market-search-input" value={searchText} onChange={(event) => setSearchDraft({ query: search, value: event.target.value })} placeholder="Search for products..." /><button type="submit">Search</button></form>
         </div>
         <div className="hero-burst">Great<br />Deals!</div>
       </section>
-      <section id="categories" className="category-rail" aria-label="Browse categories">
-        {categories.length ? <>{categories.slice(0, 10).map((item) => <Link key={item.id} to={`/marketplace?category=${encodeURIComponent(item.slug)}`} aria-current={category === item.slug ? 'page' : undefined}><span>{categoryIcons[item.slug] ?? '◈'}</span><small>{item.name}</small></Link>)}<a href="#categories"><span>••</span><small>More Categories</small></a></> : <p className="category-state">{categoryError ? <>Categories unavailable. <button type="button" onClick={() => setCategoryRetry((value) => value + 1)}>Retry</button></> : 'Loading categories…'}</p>}
+      <section id="categories" className="category-select-section" aria-label="Browse categories">
+        <label htmlFor="market-category">Category</label>
+        <select id="market-category" value={category || (filters.subcategory ? `subcategory:${filters.subcategory}` : '')} onChange={(event) => {
+          const value = event.target.value
+          const isSubcategory = value.startsWith('subcategory:')
+          setQuery({ category: isSubcategory ? '' : value, subcategory: isSubcategory ? value.slice('subcategory:'.length) : '' })
+        }}>
+          <option value="">All categories</option>
+          {categories.map((item) => <optgroup key={item.id} label={item.name}>
+            <option value={item.slug}>{item.name}</option>
+            {item.subcategories?.map((subcategory) => <option key={subcategory.id} value={`subcategory:${subcategory.slug}`}>{subcategory.name}</option>)}
+          </optgroup>)}
+        </select>
+        {categoryError && <button type="button" onClick={() => setCategoryRetry((value) => value + 1)}>Reload categories</button>}
       </section>
       <section className="market-content">
         <div className="listing-area">
@@ -513,8 +544,57 @@ function MarketplaceHome() {
       </section>
       <section id="locations" className="market-trust"><span><ShieldCheck /><b>Secure &amp; Trusted</b><small>Your safety comes first</small></span><span><Zap /><b>Fast &amp; Easy</b><small>List or find items quickly</small></span><span><MapPin /><b>Across Kenya</b><small>From Machakos to all counties</small></span><span><BadgeCheck /><b>Direct Connections</b><small>Connect with confidence</small></span></section>
     </main>
-    <footer className="market-footer"><Link to="/">MarketHub</Link><span><a href="#privacy">Privacy</a><a href="#terms">Terms</a><a href="mailto:hello@markethub.co.ke">Contact</a></span><small>© {new Date().getFullYear()} MarketHub Kenya</small></footer>
+    <footer className="market-footer"><Link to="/">MarketHub</Link><span className="market-footer-links"><Link to="/privacy">Privacy</Link><Link to="/terms">Terms</Link><a href="mailto:hello@markethub.co.ke"><Mail size={14} /> Email</a>{footerSocial.whatsappPhone && <a href={`tel:${footerSocial.whatsappPhone}`}><Phone size={14} /> {footerSocial.whatsappPhone}</a>}</span><span className="market-footer-social" aria-label="MarketHub social accounts">{footerSocial.facebookUrl && <a href={footerSocial.facebookUrl} target="_blank" rel="noreferrer" aria-label="Facebook"><FaFacebookF /></a>}{footerSocial.xUrl && <a href={footerSocial.xUrl} target="_blank" rel="noreferrer" aria-label="X"><FaXTwitter /></a>}{footerSocial.youtubeUrl && <a href={footerSocial.youtubeUrl} target="_blank" rel="noreferrer" aria-label="YouTube"><FaYoutube /></a>}{footerSocial.whatsappUrl && <a href={footerSocial.whatsappUrl} target="_blank" rel="noreferrer" aria-label="WhatsApp"><FaWhatsapp /></a>}</span><small>© {new Date().getFullYear()} MarketHub Kenya</small></footer>
   </div>
+}
+
+function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
+  const isTerms = kind === 'terms'
+  return <main className="marketplace-shell legal-page">
+    <header className="marketplace-header"><Link to="/marketplace" className="market-brand"><span className="market-logo"><ShoppingBag size={26} /></span><span><strong>Market<span>hub</span></strong><small>Buy. Sell. Save More.</small></span></Link><Link to="/marketplace">Back to marketplace</Link></header>
+    <article>
+      <p className="hero-eyebrow">MARKETHUB KENYA</p>
+      <h1>{isTerms ? 'Terms & Conditions' : 'Privacy Statement'}</h1>
+      <p className="legal-updated">Last updated: 8 November 2026</p>
+      {isTerms ? <>
+        <p>These terms apply when you browse MarketHub, publish a listing, contact a seller, or use a MarketHub account. By using the service, you agree to these terms. If you do not agree, please do not use the service.</p>
+        <h2>How MarketHub works</h2>
+        <p>MarketHub helps people in Kenya discover second-hand goods and connect with sellers. Sellers create listings; buyers decide whether to contact a seller and arrange a transaction. Unless we expressly say otherwise, MarketHub is not the seller, buyer, owner, or delivery provider for listed goods. Buyers and sellers are responsible for checking goods, agreeing on price and delivery, and completing their transaction safely.</p>
+        <h2>Accounts and listings</h2>
+        <p>Provide accurate account and listing information, keep your sign-in details secure, and promptly correct information that changes. You must be legally able to use the service. You are responsible for the content you submit and must have the rights needed to publish your text and images.</p>
+        <p>Listings must be lawful, truthful, and for goods you are entitled to sell. Do not list stolen, counterfeit, unsafe, restricted, or otherwise unlawful goods; impersonate another person; post misleading information; or misuse another person’s personal information. MarketHub may edit, limit, decline, or remove content and may restrict accounts when reasonably needed to protect users or comply with law.</p>
+        <h2>Fees and contacting sellers</h2>
+        <p>Any applicable listing or contact fee will be shown before you confirm the relevant action. Contact details made available through a paid contact feature are for discussing the associated listing. Do not misuse those details, send unsolicited bulk messages, or share them without permission. A payment for access to contact information does not guarantee a response, sale, product quality, or delivery.</p>
+        <h2>Safe transactions and reports</h2>
+        <p>Verify an item and seller before paying, meet in a safe place where practical, and use your own judgment when arranging delivery. Report suspected fraud, prohibited goods, or misleading listings through the listing report control or by contacting us. We may review reports but cannot guarantee that every listing or user has been independently verified.</p>
+        <h2>Availability and changes</h2>
+        <p>We work to keep MarketHub available, but features may occasionally be interrupted or changed. Listings may be hidden or removed, and the period a listing remains visible may vary. We may update these terms by posting a revised version here. Continued use after an update means you accept the revised terms.</p>
+        <h2>Contact</h2>
+        <p>Questions about these terms can be sent to <a href="mailto:hello@markethub.co.ke">hello@markethub.co.ke</a>.</p>
+      </> : <>
+        <p>This statement explains what information MarketHub Kenya collects when you browse, create an account, publish or respond to a listing, make a payment, or contact us.</p>
+        <h2>Information you provide</h2>
+        <p>Depending on how you use MarketHub, this may include your name, email address, phone or WhatsApp number, general location, account details, listing descriptions and images, messages or reports you submit, and information needed to verify or support a payment.</p>
+        <h2>Information shown to other users</h2>
+        <p>Published listings can show the item details, images, price, and general location supplied by the seller. Seller contact details are provided only through the contact feature when its stated requirements have been met. Do not include private or sensitive information in a public listing.</p>
+        <h2>How information is used</h2>
+        <p>We use information to operate accounts and listings, help buyers and sellers connect, process and confirm requested payments, respond to questions and reports, prevent fraud and abuse, protect the service, and meet legal obligations. Essential browser storage may be used to keep sign-in or a requested contact-access flow working.</p>
+        <h2>When information is shared</h2>
+        <p>Information may be shared with the other party when you use a marketplace feature that connects you, with payment and communications providers needed to deliver a requested service, with service providers that help operate and protect MarketHub, or when disclosure is required by law. We do not publish buyer payment details as part of a listing.</p>
+        <h2>Storage and protection</h2>
+        <p>We use reasonable measures to protect personal information. No online service can promise absolute security. We keep information for as long as it is needed for the purposes described here, to resolve issues, and to meet applicable legal requirements, then delete or de-identify it where appropriate.</p>
+        <h2>Your choices and requests</h2>
+        <p>You may ask to access or correct personal information associated with you, or raise a privacy concern, by emailing <a href="mailto:hello@markethub.co.ke">hello@markethub.co.ke</a>. We may need to verify your identity before acting on a request. Some information may need to be retained where the law requires it or where it is necessary to resolve a transaction or dispute.</p>
+        <h2>Changes and contact</h2>
+        <p>We may update this statement as our practices or legal obligations change. The latest version will be posted on this page. For privacy questions, contact <a href="mailto:hello@markethub.co.ke">hello@markethub.co.ke</a>.</p>
+      </>}
+      <Link className="legal-back" to="/marketplace">Return to MarketHub</Link>
+    </article>
+  </main>
+}
+
+function ServiceUnavailablePage() {
+  return <main className="service-error-page"><ShoppingBag size={30} aria-hidden="true" /><h1>Error 503</h1><p>MarketHub is temporarily unavailable. Please try again later.</p><Link to="/marketplace">Return to MarketHub</Link></main>
 }
 
 function KitsRedirect() {
@@ -523,6 +603,12 @@ function KitsRedirect() {
 }
 
 export function App() {
+  const navigate = useNavigate()
+  useEffect(() => {
+    const handleUnavailable = () => navigate('/error-503', { replace: true })
+    window.addEventListener(marketplaceUnavailableEvent, handleUnavailable)
+    return () => window.removeEventListener(marketplaceUnavailableEvent, handleUnavailable)
+  }, [navigate])
   return <Routes>
     <Route path="/" element={<LandingPage />} />
     <Route path="/kits/*" element={<KitsRedirect />} />
@@ -536,6 +622,9 @@ export function App() {
     <Route path="/marketplace/seller" element={<SellerPortalPage />} />
     <Route path="/marketplace/status" element={<SubmissionStatusPage />} />
     <Route path="/marketplace/products/:slug" element={<MarketplaceProductPage />} />
+    <Route path="/terms" element={<LegalPage kind="terms" />} />
+    <Route path="/privacy" element={<LegalPage kind="privacy" />} />
+    <Route path="/error-503" element={<ServiceUnavailablePage />} />
     <Route path="/admin/marketplace/login" element={<MarketplaceAdminPage />} />
     <Route path="/admin/marketplace/activate" element={<MarketplaceAdminPage />} />
     <Route path="/admin/marketplace/verify" element={<MarketplaceAdminPage />} />

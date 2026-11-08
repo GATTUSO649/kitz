@@ -1,5 +1,6 @@
 import { useEffect, useEffectEvent, useState, type FormEvent } from 'react'
 import { Activity, ArrowLeft, ArrowRight, BadgeCheck, BarChart3, Bell, Box, CalendarDays, Check, ChevronDown, CircleAlert, CircleHelp, Clock3, Eye, EyeOff, LayoutDashboard, Leaf, ListChecks, LogOut, MapPin, Megaphone, Menu, MessageSquareText, Pencil, Plus, Search, Settings, ShieldCheck, ShoppingBag, Store, Tag, Trash2, UserRound, WalletCards, X } from 'lucide-react'
+import { marketplaceFetch } from './api'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 type County = { code: string; name: string }
@@ -64,9 +65,8 @@ function isSellerSection(value: string | null): value is SellerSection {
   return value !== null && sellerSections.includes(value as SellerSection)
 }
 
-async function getError(response: Response, fallback: string) {
-  const result = await response.json().catch(() => ({})) as { error?: { message?: string } }
-  return result.error?.message ?? fallback
+async function getError(_response: Response, fallback: string) {
+  return fallback
 }
 
 function SellerAuthBrand() {
@@ -89,12 +89,12 @@ export function SellerSignupPage() {
 
   useEffect(() => {
     const controller = new AbortController()
-    fetch('/api/v1/marketplace/locations/counties', { signal: controller.signal }).then(async (response) => {
+    marketplaceFetch('/api/v1/marketplace/locations/counties', { signal: controller.signal }).then(async (response) => {
       const result = await response.json().catch(() => ({})) as { data?: County[]; error?: { message?: string } }
       if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'County information is unavailable.')
       setCounties(result.data)
       setValues((current) => ({ ...current, countyCode: result.data?.[0]?.code ?? '' }))
-    }).catch((reason: unknown) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'County information is unavailable.') })
+    }).catch(() => { if (!controller.signal.aborted) setError('County information is unavailable.') })
       .finally(() => { if (!controller.signal.aborted) setLoadingCounties(false) })
     return () => controller.abort()
   }, [])
@@ -105,11 +105,11 @@ export function SellerSignupPage() {
     setBusy(true)
     setError('')
     try {
-      const response = await fetch(`${sellerApi}/signup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) })
+      const response = await marketplaceFetch(`${sellerApi}/signup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) })
       if (!response.ok) throw new Error(await getError(response, 'Seller registration failed.'))
       setPendingEmail(values.email)
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Seller registration failed.')
+    } catch {
+      setError('Seller registration failed. Please try again.')
     } finally {
       setBusy(false)
     }
@@ -146,11 +146,11 @@ export function SellerLoginPage() {
     setBusy(true)
     setError('')
     try {
-      const response = await fetch(`${sellerApi}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) })
+      const response = await marketplaceFetch(`${sellerApi}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) })
       if (!response.ok) throw new Error(await getError(response, 'Sign in failed.'))
       navigate('/marketplace/seller', { replace: true })
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Sign in failed.')
+    } catch {
+      setError('Sign in failed. Please check your details and try again.')
     } finally {
       setBusy(false)
     }
@@ -175,11 +175,11 @@ export function SellerForgotPasswordPage() {
     setBusy(true)
     setError('')
     try {
-      const response = await fetch(`${sellerApi}/password/forgot`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) })
+      const response = await marketplaceFetch(`${sellerApi}/password/forgot`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) })
       if (!response.ok) throw new Error(await getError(response, 'Password recovery is unavailable.'))
       setRequested(true)
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Password recovery is unavailable.')
+    } catch {
+      setError('Password recovery is unavailable. Please try again.')
     } finally {
       setBusy(false)
     }
@@ -205,13 +205,13 @@ export function SellerResetPasswordPage() {
     setBusy(true)
     setError('')
     try {
-      const response = await fetch(`${sellerApi}/password/reset`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, password, confirmPassword }) })
+      const response = await marketplaceFetch(`${sellerApi}/password/reset`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, password, confirmPassword }) })
       if (!response.ok) throw new Error(await getError(response, 'The reset link could not be used.'))
       setPassword('')
       setConfirmPassword('')
       setReset(true)
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'The reset link could not be used.')
+    } catch {
+      setError('The reset link could not be used. Please request a new one.')
     } finally {
       setBusy(false)
     }
@@ -233,10 +233,10 @@ export function SellerVerifyPage() {
   useEffect(() => {
     if (!token) return
     const controller = new AbortController()
-    fetch(`${sellerApi}/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }), signal: controller.signal }).then(async (response) => {
+    marketplaceFetch(`${sellerApi}/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }), signal: controller.signal }).then(async (response) => {
       if (!response.ok) throw new Error(await getError(response, 'Email verification failed.'))
       setMessage('Your email is verified. You can now sign in and manage your listings.')
-    }).catch((reason: unknown) => { if (!controller.signal.aborted) { setError(reason instanceof Error ? reason.message : 'Email verification failed.'); setMessage('') } })
+    }).catch(() => { if (!controller.signal.aborted) { setError('Email verification failed. Please try again.'); setMessage('') } })
     return () => controller.abort()
   }, [token])
   return <div className="seller-auth-page"><SellerAuthBrand /><main className="seller-auth-main"><section className="seller-auth-card seller-verified-state"><span className={`seller-auth-icon${displayError ? ' is-error' : ''}`}>{displayError ? <CircleAlert /> : <BadgeCheck />}</span><span className="seller-eyebrow">SELLER ACCOUNT</span><h1>{displayError ? 'Verification failed' : message === 'Verifying your email…' ? 'Verifying your email' : 'Email verified'}</h1>{displayError ? <p className="seller-error" role="alert">{displayError}</p> : <p>{message}</p>}{message !== 'Verifying your email…' && !displayError && <button className="seller-primary-button" type="button" onClick={() => navigate('/marketplace/seller/login', { replace: true })}>Continue to sign in <ArrowRight size={16} /></button>}{displayError && <Link className="seller-primary-button" to="/marketplace/seller/signup">Return to registration</Link>}</section></main></div>
@@ -372,10 +372,10 @@ export function SellerPortalPage() {
 
   async function loadProducts(signal?: AbortSignal) {
     const [mineResponse, otherResponse, categoryResponse, countyResponse] = await Promise.all([
-      fetch(`${sellerApi}/products`, { signal }),
-      fetch('/api/v1/marketplace/products?limit=24', { signal }),
-      fetch('/api/v1/marketplace/categories', { signal }),
-      fetch('/api/v1/marketplace/locations/counties', { signal }),
+      marketplaceFetch(`${sellerApi}/products`, { signal }),
+      marketplaceFetch('/api/v1/marketplace/products?limit=24', { signal }),
+      marketplaceFetch('/api/v1/marketplace/categories', { signal }),
+      marketplaceFetch('/api/v1/marketplace/locations/counties', { signal }),
     ])
     if (!mineResponse.ok) throw new Error(await getError(mineResponse, 'Your products could not be loaded.'))
     if (!otherResponse.ok) throw new Error(await getError(otherResponse, 'Marketplace products could not be loaded.'))
@@ -396,26 +396,26 @@ export function SellerPortalPage() {
   useEffect(() => {
     const controller = new AbortController()
     Promise.all([
-      fetch(`${sellerApi}/session`, { signal: controller.signal }).then(async (response) => {
+      marketplaceFetch(`${sellerApi}/session`, { signal: controller.signal }).then(async (response) => {
         if (response.status === 401) { navigate('/marketplace/seller/login', { replace: true }); return }
         if (!response.ok) throw new Error(await getError(response, 'Seller account could not be loaded.'))
         const result = await response.json() as { data: SellerProfile }
         setProfileFromSession(result.data)
       }),
       loadProducts(controller.signal),
-    ]).catch((reason: unknown) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Seller products could not be loaded.') })
+    ]).catch(() => { if (!controller.signal.aborted) setError('Seller products could not be loaded.') })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
   }, [navigate])
 
   async function refresh() {
     setError('')
-    try { await loadProducts() } catch (reason) { setError(reason instanceof Error ? reason.message : 'Products could not be refreshed.') }
+    try { await loadProducts() } catch { setError('Products could not be refreshed.') }
   }
 
   async function logout() {
     setAccountMenuOpen(false)
-    await fetch(`${sellerApi}/logout`, { method: 'POST' })
+    await marketplaceFetch(`${sellerApi}/logout`, { method: 'POST' })
     navigate('/marketplace/seller/login', { replace: true })
   }
 
@@ -424,10 +424,10 @@ export function SellerPortalPage() {
     setBusy(true)
     setError('')
     try {
-      const response = await fetch(`${sellerApi}/products/${product.reference}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'sold' }) })
+      const response = await marketplaceFetch(`${sellerApi}/products/${product.reference}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'sold' }) })
       if (!response.ok) throw new Error(await getError(response, 'The listing could not be marked as sold.'))
       await refresh()
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'The listing could not be marked as sold.') }
+    } catch { setError('The listing could not be marked as sold.') }
     finally { setBusy(false) }
   }
 
@@ -438,7 +438,7 @@ export function SellerPortalPage() {
     setError('')
     setNotice('Starting or checking the publication payment…')
     try {
-      const response = await fetch('/api/v1/marketplace/payments/publication', {
+      const response = await marketplaceFetch('/api/v1/marketplace/payments/publication', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reference: product.reference, phone }),
@@ -448,7 +448,7 @@ export function SellerPortalPage() {
       setNotice(result.data.existing ? 'An existing payment is being checked. No duplicate M-Pesa prompt was sent.' : 'Approve the M-Pesa prompt on your phone.')
       for (let attempt = 0; attempt < 36; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 2500))
-        const statusResponse = await fetch(`/api/v1/marketplace/payments/${result.data.paymentReference}/status`)
+        const statusResponse = await marketplaceFetch(`/api/v1/marketplace/payments/${result.data.paymentReference}/status`)
         const statusResult = await statusResponse.json() as { data?: { status: string; listingStatus: string | null }; error?: { message?: string } }
         if (!statusResponse.ok || !statusResult.data) throw new Error(statusResult.error?.message ?? 'Payment status could not be checked.')
         if (statusResult.data.status === 'succeeded' && statusResult.data.listingStatus === 'published') {
@@ -463,9 +463,9 @@ export function SellerPortalPage() {
         }
       }
       setNotice('Payment is still being verified. The listing will appear after confirmation.')
-    } catch (reason) {
+    } catch {
       setNotice('')
-      setError(reason instanceof Error ? reason.message : 'The publication payment could not be completed.')
+      setError('The publication payment could not be completed. Please try again.')
     } finally { setBusy(false) }
   }
 
@@ -474,12 +474,12 @@ export function SellerPortalPage() {
     setBusy(true)
     setError('')
     try {
-      const response = await fetch(`${sellerApi}/products/${product.reference}`, { method: 'DELETE' })
+      const response = await marketplaceFetch(`${sellerApi}/products/${product.reference}`, { method: 'DELETE' })
       if (!response.ok) throw new Error(await getError(response, 'The listing could not be removed.'))
       setEditing((current) => current?.id === product.id ? null : current)
       setNotice('Listing deleted. It is no longer visible on the public marketplace.')
       await refresh()
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'The listing could not be removed.') }
+    } catch { setError('The listing could not be removed.') }
     finally { setBusy(false) }
   }
 
@@ -495,12 +495,12 @@ export function SellerPortalPage() {
     setBusy(true)
     setError('')
     try {
-      const response = await fetch(`${sellerApi}/products/${editing.reference}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(draft) })
+      const response = await marketplaceFetch(`${sellerApi}/products/${editing.reference}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(draft) })
       if (!response.ok) throw new Error(await getError(response, 'The listing could not be updated.'))
       setEditing(null)
       setDraft(null)
       await refresh()
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'The listing could not be updated.') }
+    } catch { setError('The listing could not be updated.') }
     finally { setBusy(false) }
   }
 
@@ -511,12 +511,12 @@ export function SellerPortalPage() {
     setNotice('')
     try {
       const countyName = counties.find((county) => county.code === profileDraft.countyCode)?.name
-      const response = await fetch(`${sellerApi}/profile`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...profileDraft, subcounty: countyName ?? profileDraft.subcounty, town: countyName ?? profileDraft.town, area: '' }) })
+      const response = await marketplaceFetch(`${sellerApi}/profile`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...profileDraft, subcounty: countyName ?? profileDraft.subcounty, town: countyName ?? profileDraft.town, area: '' }) })
       if (!response.ok) throw new Error(await getError(response, 'Profile changes could not be saved.'))
       const result = await response.json() as { data: SellerProfile }
       setProfile(result.data)
       setNotice('Seller profile saved.')
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Profile changes could not be saved.') }
+    } catch { setError('Profile changes could not be saved.') }
     finally { setProfileBusy(false) }
   }
 
@@ -526,11 +526,11 @@ export function SellerPortalPage() {
     setError('')
     setNotice('')
     try {
-      const response = await fetch(`${sellerApi}/password`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(passwordDraft) })
+      const response = await marketplaceFetch(`${sellerApi}/password`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(passwordDraft) })
       if (!response.ok) throw new Error(await getError(response, 'Password could not be changed.'))
       setPasswordDraft({ currentPassword: '', password: '', confirmPassword: '' })
       setNotice('Password changed. Other signed-in sessions were revoked.')
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Password could not be changed.') }
+    } catch { setError('Password could not be changed.') }
     finally { setProfileBusy(false) }
   }
 

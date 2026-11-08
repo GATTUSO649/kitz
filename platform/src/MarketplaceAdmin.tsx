@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Activity, ArrowRight, BadgeDollarSign, Box, Check, ChevronDown, CircleAlert, CreditCard, Eye, EyeOff, LayoutDashboard, LockKeyhole, LogOut, Mail, MapPin, Plus, Search, Settings, ShieldCheck, Tag, Tags } from 'lucide-react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { marketplaceFetch } from './api'
 
 type AdminUser = { id: string; email: string; role: string; permissions: string[] }
 type Listing = { reference: string; title: string; status: string; priceKes: number; category: string; county: string; town: string }
@@ -148,7 +149,7 @@ export function MarketplaceAdminPage() {
     setLoading(true)
     setError('')
     const load = async () => {
-      const sessionResponse = await fetch(`${adminApi}/session`, { signal: controller.signal })
+      const sessionResponse = await marketplaceFetch(`${adminApi}/session`, { signal: controller.signal })
       const session = await sessionResponse.json() as { data?: AdminUser; error?: { message?: string } }
       if (!sessionResponse.ok || !session.data) throw new Error(session.error?.message ?? 'Sign in to continue.')
       setAdmin(session.data)
@@ -184,7 +185,7 @@ export function MarketplaceAdminPage() {
                 : section === 'settings' ? `${adminApi}/settings/fees`
                 : section === 'categories' ? `${adminApi}/categories`
                   : `${adminApi}/dashboard`
-      const response = await fetch(endpoint, { signal: controller.signal })
+      const response = await marketplaceFetch(endpoint, { signal: controller.signal })
       const result = await response.json() as { data?: Dashboard | Listing[] | Payment[] | ListingReport[] | MarketplaceSellerAccount[] | Category[] | FeeSettings | FooterSocialSettings | BuyerRecord[] | ActivityRecord[] | NotificationRecord[] | EmailConsole | RevenueRecord[] | MarketplaceAnalytics | PaymentSummary; pagination?: PaymentPagination; error?: { message?: string } }
       if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Marketplace data could not be loaded.')
       if (section === 'listings') setListings(result.data as Listing[])
@@ -200,7 +201,7 @@ export function MarketplaceAdminPage() {
       else if (section === 'sellers') setSellerAccounts(result.data as MarketplaceSellerAccount[])
       else if (section === 'settings') {
         setFeeSettings(result.data as FeeSettings)
-        const socialResponse = await fetch(`${adminApi}/settings/footer-social-links`, { signal: controller.signal })
+        const socialResponse = await marketplaceFetch(`${adminApi}/settings/footer-social-links`, { signal: controller.signal })
         const socialResult = await socialResponse.json() as { data?: Partial<FooterSocialSettings>; error?: { message?: string } }
         if (!socialResponse.ok || !socialResult.data) throw new Error(socialResult.error?.message ?? 'Footer social links could not be loaded.')
         setFooterSocialSettings({
@@ -234,7 +235,7 @@ export function MarketplaceAdminPage() {
     setError('')
     setNotice('')
     try {
-      const response = await fetch(`${adminApi}/seller-accounts/${account.id}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) })
+      const response = await marketplaceFetch(`${adminApi}/seller-accounts/${account.id}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) })
       const result = await response.json() as { error?: { message?: string } }
       if (!response.ok) throw new Error(result.error?.message ?? 'Seller status could not be updated.')
       setSellerAccounts((current) => current.map((item) => item.id === account.id ? { ...item, status } : item))
@@ -251,7 +252,7 @@ export function MarketplaceAdminPage() {
     setBusy(true)
     setError('')
     try {
-      const response = await fetch(`${adminApi}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) })
+      const response = await marketplaceFetch(`${adminApi}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) })
       const result = await response.json() as { data?: { activationRequired?: boolean; activationToken?: string; roleNumber?: string; email?: string }; error?: { message?: string } }
       if (!response.ok) throw new Error(result.error?.message ?? 'Sign in failed.')
       if (result.data?.activationRequired && result.data.activationToken && result.data.roleNumber && result.data.email) {
@@ -276,7 +277,7 @@ export function MarketplaceAdminPage() {
     setBusy(true)
     setError('')
     try {
-      const response = await fetch(`${adminApi}/invitations/activate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: verificationToken, password, confirmPassword }) })
+      const response = await marketplaceFetch(`${adminApi}/invitations/activate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: verificationToken, password, confirmPassword }) })
       const result = await response.json() as { error?: { message?: string } }
       if (!response.ok) throw new Error(result.error?.message ?? 'Invitation verification failed.')
       setNotice('Password saved. Check your email and open the verification link to activate your account.')
@@ -293,7 +294,7 @@ export function MarketplaceAdminPage() {
     setBusy(true)
     setError('')
     try {
-      const response = await fetch(`${adminApi}/invitations/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: verificationToken }) })
+      const response = await marketplaceFetch(`${adminApi}/invitations/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: verificationToken }) })
       const result = await response.json() as { error?: { message?: string } }
       if (!response.ok) throw new Error(result.error?.message ?? 'Email verification failed.')
       setNotice('Email verified. Your Second-hand admin account is active and ready to use.')
@@ -305,7 +306,7 @@ export function MarketplaceAdminPage() {
   }
 
   async function logout() {
-    await fetch(`${adminApi}/logout`, { method: 'POST' })
+    await marketplaceFetch(`${adminApi}/logout`, { method: 'POST' })
     navigate('/admin/marketplace/login', { replace: true })
   }
 
@@ -313,7 +314,7 @@ export function MarketplaceAdminPage() {
     setBusy(true)
     setError('')
     try {
-      const response = await fetch(`${adminApi}/listings/${reference}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) })
+      const response = await marketplaceFetch(`${adminApi}/listings/${reference}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) })
       const result = await response.json() as { error?: { message?: string } }
       if (!response.ok) throw new Error(result.error?.message ?? 'Listing update failed.')
       setListings((current) => current.map((item) => item.reference === reference ? { ...item, status } : item))
@@ -328,7 +329,7 @@ export function MarketplaceAdminPage() {
     setBusy(true)
     setError('')
     try {
-      const response = await fetch(`${adminApi}/payments/${reference}/reconcile`, { method: 'POST' })
+      const response = await marketplaceFetch(`${adminApi}/payments/${reference}/reconcile`, { method: 'POST' })
       const result = await response.json() as { data?: { status: string }; error?: { message?: string } }
       if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Payment reconciliation failed.')
       setPayments((current) => current.map((payment) => payment.reference === reference ? { ...payment, status: result.data!.status } : payment))
@@ -344,7 +345,7 @@ export function MarketplaceAdminPage() {
     setPaymentDetailLoading(true)
     setError('')
     try {
-      const response = await fetch(`${adminApi}/payments/${reference}`)
+      const response = await marketplaceFetch(`${adminApi}/payments/${reference}`)
       const result = await response.json() as { data?: PaymentDetail; error?: { message?: string } }
       if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Payment details could not be loaded.')
       setPaymentDetail(result.data)
@@ -361,7 +362,7 @@ export function MarketplaceAdminPage() {
     setNotice('')
     try {
       const payload = { subject: emailSubject, body: emailBody, ...(test ? {} : { to: emailRecipient }) }
-      const response = await fetch(`${adminApi}/emails/${test ? 'test' : 'send'}`, {
+      const response = await marketplaceFetch(`${adminApi}/emails/${test ? 'test' : 'send'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -402,7 +403,7 @@ export function MarketplaceAdminPage() {
     setBusy(true)
     setError('')
     try {
-      const response = await fetch(`${adminApi}/reports/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) })
+      const response = await marketplaceFetch(`${adminApi}/reports/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) })
       const result = await response.json() as { error?: { message?: string } }
       if (!response.ok) throw new Error(result.error?.message ?? 'Report could not be updated.')
       setReports((current) => current.filter((report) => report.id !== id))
@@ -418,7 +419,7 @@ export function MarketplaceAdminPage() {
     setBusy(true)
     setError('')
     try {
-      const response = await fetch(`${adminApi}/settings/fees`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(feeSettings) })
+      const response = await marketplaceFetch(`${adminApi}/settings/fees`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(feeSettings) })
       const result = await response.json() as { data?: FeeSettings; error?: { message?: string } }
       if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Fee settings could not be saved.')
       setFeeSettings(result.data)
@@ -434,7 +435,7 @@ export function MarketplaceAdminPage() {
     setBusy(true)
     setError('')
     try {
-      const response = await fetch(`${adminApi}/settings/footer-social-links`, {
+      const response = await marketplaceFetch(`${adminApi}/settings/footer-social-links`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(footerSocialSettings),
@@ -455,7 +456,7 @@ export function MarketplaceAdminPage() {
   }
 
   async function toggleCategory(category: Category) {
-    const response = await fetch(`${adminApi}/categories/${category.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: !category.active }) })
+    const response = await marketplaceFetch(`${adminApi}/categories/${category.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: !category.active }) })
     const result = await response.json() as { data?: Category; error?: { message?: string } }
     if (!response.ok || !result.data) {
       setCategoryError(result.error?.message ?? 'Category could not be updated.')
@@ -468,7 +469,7 @@ export function MarketplaceAdminPage() {
     event.preventDefault()
     const slug = categoryName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
     setCategoryError('')
-    const response = await fetch(`${adminApi}/categories`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: categoryName, slug }) })
+    const response = await marketplaceFetch(`${adminApi}/categories`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: categoryName, slug }) })
     const result = await response.json() as { data?: Category; error?: { message?: string } }
     if (!response.ok || !result.data) {
       setCategoryError(result.error?.message ?? 'Category could not be created.')
@@ -503,7 +504,7 @@ export function MarketplaceAdminPage() {
             <div className="admin-panel"><header><div><h2>Provider status</h2><span>{emailConsole?.provider.provider ?? 'Unknown'}</span></div><span className={`status-pill status-${emailConsole?.provider.configured ? 'succeeded' : 'failed'}`}>{emailConsole?.provider.configured ? 'Configured' : emailConsole?.provider.code ?? 'Unavailable'}</span></header><p className="admin-ledger-note">A sent record confirms provider acceptance only. Mailbox delivery events are not integrated with the configured provider.</p></div>
             <div className="admin-panel"><header><h2>Most-used notification types</h2></header><div className="admin-table-wrap"><table><thead><tr><th>Notification type</th><th>Recorded events</th></tr></thead><tbody>{emailConsole?.summary.frequentKinds.map((item) => <tr key={item.kind}><td>{item.kind.replaceAll('_', ' ')}</td><td>{item.total.toLocaleString('en-KE')}</td></tr>)}{!emailConsole?.summary.frequentKinds.length && <tr><td colSpan={2}>No email events are recorded.</td></tr>}</tbody></table></div></div>
           </>}
-          {section !== 'email-dashboard' && <div className="admin-panel"><header><div><h2>{section === 'email-sent' ? 'Sent Emails' : section === 'email-failed' ? 'Failed Emails' : 'Email Queue'}</h2><span>{emailPagination?.total.toLocaleString('en-KE') ?? 0} matching records</span></div></header><div className="admin-payment-filters"><label>Search recipient or event<input value={emailSearch} onChange={(event) => { setEmailSearch(event.target.value); setEmailPage(1) }} placeholder="Email, event type, or event key" /></label></div><div className="admin-table-wrap"><table><thead><tr><th>Recipient</th><th>Notification</th><th>Status</th><th>Attempts</th><th>Provider message</th><th>Last updated</th><th>Action</th></tr></thead><tbody>{emailConsole?.emails.map((item) => <tr key={item.id}><td>{item.recipientEmail}</td><td>{item.kind.replaceAll('_', ' ')}<small>{item.eventKey}</small></td><td><span className={`status-pill status-${item.status}`}>{item.status === 'sent' ? 'provider accepted' : item.status}</span>{item.lastErrorCode && <small>{item.lastErrorCode}</small>}</td><td>{item.attempts}</td><td>{item.providerMessageId ?? 'Not recorded'}</td><td>{formatEAT(item.sentAt ?? item.createdAt)}</td><td>{section === 'email-failed' && item.status === 'failed' && <button className="admin-reconcile" type="button" disabled={busy} onClick={async () => { const response = await fetch(`${adminApi}/email-events/${item.id}/retry`, { method: 'POST' }); const result = await response.json() as { error?: { message?: string } }; if (!response.ok) setError(result.error?.message ?? 'Email could not be requeued.'); else { setEmailConsole((current) => current ? { ...current, emails: current.emails.map((email) => email.id === item.id ? { ...email, status: 'pending', attempts: 0, lastErrorCode: null } : email) } : current); setNotice('Email requeued for retry.') } }}>Retry</button>}</td></tr>)}{!emailConsole?.emails.length && <tr><td colSpan={7}>No email records match this view.</td></tr>}</tbody></table></div><footer className="admin-payment-pagination"><span>{emailPagination ? `Page ${emailPagination.page} · ${emailPagination.total} emails` : 'Email records'}</span><div><button className="admin-reconcile" type="button" disabled={!emailPagination || emailPagination.page <= 1} onClick={() => setEmailPage((page) => Math.max(1, page - 1))}>Previous</button><button className="admin-reconcile" type="button" disabled={!emailPagination?.hasMore} onClick={() => setEmailPage((page) => page + 1)}>Next</button></div></footer></div>}
+          {section !== 'email-dashboard' && <div className="admin-panel"><header><div><h2>{section === 'email-sent' ? 'Sent Emails' : section === 'email-failed' ? 'Failed Emails' : 'Email Queue'}</h2><span>{emailPagination?.total.toLocaleString('en-KE') ?? 0} matching records</span></div></header><div className="admin-payment-filters"><label>Search recipient or event<input value={emailSearch} onChange={(event) => { setEmailSearch(event.target.value); setEmailPage(1) }} placeholder="Email, event type, or event key" /></label></div><div className="admin-table-wrap"><table><thead><tr><th>Recipient</th><th>Notification</th><th>Status</th><th>Attempts</th><th>Provider message</th><th>Last updated</th><th>Action</th></tr></thead><tbody>{emailConsole?.emails.map((item) => <tr key={item.id}><td>{item.recipientEmail}</td><td>{item.kind.replaceAll('_', ' ')}<small>{item.eventKey}</small></td><td><span className={`status-pill status-${item.status}`}>{item.status === 'sent' ? 'provider accepted' : item.status}</span>{item.lastErrorCode && <small>{item.lastErrorCode}</small>}</td><td>{item.attempts}</td><td>{item.providerMessageId ?? 'Not recorded'}</td><td>{formatEAT(item.sentAt ?? item.createdAt)}</td><td>{section === 'email-failed' && item.status === 'failed' && <button className="admin-reconcile" type="button" disabled={busy} onClick={async () => { const response = await marketplaceFetch(`${adminApi}/email-events/${item.id}/retry`, { method: 'POST' }); const result = await response.json() as { error?: { message?: string } }; if (!response.ok || result.error) setError('Email could not be requeued.'); else { setEmailConsole((current) => current ? { ...current, emails: current.emails.map((email) => email.id === item.id ? { ...email, status: 'pending', attempts: 0, lastErrorCode: null } : email) } : current); setNotice('Email requeued for retry.') } }}>Retry</button>}</td></tr>)}{!emailConsole?.emails.length && <tr><td colSpan={7}>No email records match this view.</td></tr>}</tbody></table></div><footer className="admin-payment-pagination"><span>{emailPagination ? `Page ${emailPagination.page} · ${emailPagination.total} emails` : 'Email records'}</span><div><button className="admin-reconcile" type="button" disabled={!emailPagination || emailPagination.page <= 1} onClick={() => setEmailPage((page) => Math.max(1, page - 1))}>Previous</button><button className="admin-reconcile" type="button" disabled={!emailPagination?.hasMore} onClick={() => setEmailPage((page) => page + 1)}>Next</button></div></footer></div>}
         </div>}
         {!loading && (section === 'payments' || section === 'reconciliation') && <div className="admin-panel admin-payments-panel">
           <header><div><h2>{section === 'reconciliation' ? 'M-Pesa Reconciliation Queue' : 'All Transactions'}</h2><span>{paymentPagination?.total ?? payments.length} recorded payment attempts</span></div><button className="admin-reconcile" type="button" disabled={!payments.length} onClick={exportPaymentsCsv}>Export CSV</button></header>
