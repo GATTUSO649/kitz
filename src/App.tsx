@@ -1,4 +1,4 @@
-import { Fragment, lazy, Suspense, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react'
+import { Fragment, lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ArrowDown, ArrowRight, ChevronDown, Heart, MapPin, Menu, Search, ShieldCheck, ShoppingBag, ShoppingCart, Smartphone, Star, Truck, UserRound, X } from 'lucide-react'
@@ -43,7 +43,7 @@ const CustomerPortalPage = lazy(() => import('./pages/CustomerPortalPages').then
 const CustomerAuthForm = lazy(() => import('./pages/AuthPages').then((module) => ({ default: module.CustomerAuthForm })))
 const CustomerAuthInfoPage = lazy(() => import('./pages/AuthPages').then((module) => ({ default: module.CustomerAuthInfoPage })))
 
-const cultureLogo = '/culture-mark.webp'
+const cultureLogo = '/matrix-logo.png'
 type Variant = { id: number; size: string; stock: number; price?: string | null }
 type Product = {
   id: number
@@ -943,12 +943,9 @@ function App() {
 
   return (
     <div className={`public-storefront${isHomePage ? ' is-home' : ''}`}>
-      {introVisible && <div className="brand-intro" aria-label="KitCulture introduction">
+      {introVisible && <div className="brand-intro" aria-label="MATRIX introduction">
         <div className="intro-identity">
-          <img className="intro-logo" src={cultureLogo} alt="" />
-          <div className="intro-wordmark" aria-label="KitCulture">
-            {'KitCulture'.split('').map((letter, index) => <span key={`${letter}-${index}`} style={{ '--letter-index': index } as CSSProperties & { '--letter-index': number }}>{letter}</span>)}
-          </div>
+          <img className="intro-logo" src={cultureLogo} alt="MATRIX" />
           <p className="intro-tagline">Wear Your Colours. Live the Culture.</p>
         </div>
       </div>}
@@ -956,7 +953,7 @@ function App() {
       <div className={isHomePage ? 'store-header-stack is-home' : 'store-header-stack'}>
         {!isHomePage && <div className="announcement">Machakos, this is your matchday uniform <span>Dispatch begins in Machakos</span></div>}
         <header className="site-header">
-        <Link className="wordmark" to="/" aria-label="KitCulture home"><img src={cultureLogo} alt="" /><span className="wordmark-copy"><strong>KitCulture</strong><small>Wear Your Colours. Live the Culture.</small></span></Link>
+        <Link className="wordmark" to="/" aria-label="MATRIX home"><img src={cultureLogo} alt="MATRIX" /></Link>
         <nav className={mobileOpen ? 'main-nav is-open' : 'main-nav'} aria-label="Main navigation">
           <Link to="/" onClick={() => setMobileOpen(false)}>Home</Link>
           <Link to="/shop" onClick={() => setMobileOpen(false)}>Shop Jerseys <ChevronDown size={13} /></Link>
@@ -1112,7 +1109,7 @@ function App() {
       </main>
 
       <footer className="site-footer" id="contact"><div className="footer-top">
-        <div className="footer-brand"><Link className="wordmark footer-wordmark" to="/" aria-label="KitCulture home"><img src={cultureLogo} alt="" /><span className="wordmark-copy"><strong>KitCulture</strong><small>Wear Your Colours. Live the Culture.</small></span></Link><p>Your one-stop shop for authentic football jerseys. From the global giants to local favourites, we bring the colours you live in.</p></div>
+        <div className="footer-brand"><Link className="wordmark footer-wordmark" to="/" aria-label="MATRIX home"><img src={cultureLogo} alt="MATRIX" /></Link><p>Your one-stop shop for authentic football jerseys. From the global giants to local favourites, we bring the colours you live in.</p></div>
         <nav className="footer-links" aria-label="Shop links"><strong>Shop</strong><Link to="/shop">All Jerseys</Link><Link to="/marketplace">Club Jerseys</Link><Link to="/categories/national-team-kits">National Teams</Link><Link to="/new-arrivals">New Arrivals</Link></nav>
         <nav className="footer-links" aria-label="Customer links"><strong>Customer Support</strong><Link to="/account/orders">My Orders</Link><Link to="/account/profile">My Account</Link><Link to="/cart">Shopping Bag</Link><Link to="/login">Sign In</Link></nav>
         <nav className="footer-links" aria-label="KitCulture links"><strong>About KitCulture</strong><Link to="/marketplace">Our Marketplace</Link><Link to="/shop">Football Culture</Link><span>Machakos, Kenya</span></nav>

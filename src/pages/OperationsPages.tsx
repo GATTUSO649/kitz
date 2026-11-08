@@ -1,7 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Activity,
   AlertTriangle,
   ArrowRight,
   Bell,
@@ -1457,11 +1456,8 @@ function OperationsConsole() {
     <main className="operations-shell operations-shell-advanced">
       <aside className="operations-sidebar">
         <div className="operations-sidebar-brand">
-          <span className="operations-brand-mark"><Activity size={18} /></span>
-          <div>
-            <span>KitCulture</span>
-            <strong>Operations</strong>
-          </div>
+          <img className="operations-brand-logo" src="/matrix-logo.png" alt="MATRIX" />
+          <strong>Operations</strong>
         </div>
 
         {moduleGroups.map((group) => (

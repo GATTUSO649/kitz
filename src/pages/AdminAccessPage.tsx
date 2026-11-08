@@ -37,7 +37,7 @@ function AccessCard({ portal }: { portal: typeof portals[number] }) {
 export function AdminAccessPage() {
   const location = useLocation()
   const approvalPending = new URLSearchParams(location.search).get('status') === 'approval-pending'
-  return <main className="admin-access-page"><section className="admin-access-frame"><header className="admin-access-hero"><div><span className="access-eyebrow">KITCULTURE ADMINISTRATION</span><h1>KitCulture Administrator Portals</h1><p>{approvalPending ? 'Email verified. Your MarketHub administrator access is waiting for Super Admin approval.' : 'Access your dedicated administration portal below.'}</p></div><div className="access-hero-art" aria-hidden="true"><ShoppingCart size={78} /></div><em>Together for a better<br />shopping experience</em></header><div className="access-grid">{portals.map((portal) => <AccessCard key={portal.title} portal={portal} />)}</div><p className="access-footer">New administrators should use the activation link in their invitation email.</p></section></main>
+  return <main className="admin-access-page"><section className="admin-access-frame"><header className="admin-access-hero"><div><img className="admin-access-logo" src="/matrix-logo.png" alt="MATRIX" /><span className="access-eyebrow">ADMINISTRATION</span><h1>Administrator Portals</h1><p>{approvalPending ? 'Email verified. Your MarketHub administrator access is waiting for Super Admin approval.' : 'Access your dedicated administration portal below.'}</p></div><div className="access-hero-art" aria-hidden="true"><ShoppingCart size={78} /></div><em>Together for a better<br />shopping experience</em></header><div className="access-grid">{portals.map((portal) => <AccessCard key={portal.title} portal={portal} />)}</div><p className="access-footer">New administrators should use the activation link in their invitation email.</p></section></main>
 }
 
 export function AdminActivationPage() {
@@ -84,7 +84,7 @@ export function AdminActivationPage() {
   }
 
   return <main className="admin-access-page"><section className="activation-card">
-    <Link className="activation-brand" to="/admin/access"><ShieldCheck size={20} /> KitCulture Administration</Link>
+    <Link className="activation-brand" to="/admin/access" aria-label="MATRIX administration"><img src="/matrix-logo.png" alt="MATRIX" /><span>Administration</span></Link>
     <span className="access-eyebrow">SECURE ROLE ACTIVATION</span>
     <h1>{sent ? 'Verify your email address' : activated ? 'Create your private password' : 'Activate your administrator role'}</h1>
     {sent ? <>

@@ -175,8 +175,8 @@
 .orders-page .account-orders{max-width:760px;max-height:none}
 .admin-app{min-height:100vh;background:#f4f6f8;color:var(--ink)}
 .admin-sidebar{position:fixed;z-index:12;inset:0 auto 0 0;display:flex;width:250px;flex-direction:column;background:var(--navy);padding:20px 14px;color:#fff}
-.admin-brand{display:flex;align-items:center;gap:10px;padding:7px 8px 22px;color:#fff;font-family:var(--display);font-size:19px;font-weight:700;text-decoration:none}
-.admin-brand img{width:43px;height:34px;object-fit:contain}
+.admin-brand{display:flex;align-items:center;gap:10px;padding:7px 8px 22px;color:#fff;text-decoration:none}
+.admin-brand img{width:145px;height:48px;object-fit:contain}
 .admin-brand span{margin-left:auto;color:#9bdab4;font:700 8px var(--body);letter-spacing:.14em}
 .admin-sidebar nav{display:grid;gap:4px;overflow:auto}
 .admin-sidebar nav a,.admin-logout{display:flex;align-items:center;gap:11px;min-height:41px;padding:0 11px;border:0;background:transparent;color:#d3d9e3;text-align:left;text-decoration:none;font:inherit;font-size:12px;cursor:pointer}
@@ -698,8 +698,8 @@
 .customer-portal-page{padding-top:34px;padding-bottom:72px}
 .customer-portal-layout{grid-template-columns:250px minmax(0,1fr);gap:clamp(24px,3vw,42px)}
 .customer-portal-nav{top:20px;min-height:calc(100vh - 40px);gap:5px;padding:16px 13px}
-.portal-sidebar-brand{display:flex;align-items:center;gap:9px;min-height:47px;padding:0 6px 15px;border-bottom:1px solid #ffffff25;color:white;font-family:var(--display);font-size:18px;font-weight:700;text-decoration:none}
-.portal-sidebar-brand img{width:38px;height:32px;object-fit:contain}
+.portal-sidebar-brand{display:flex;align-items:center;gap:9px;min-height:60px;padding:0 6px 15px;border-bottom:1px solid #ffffff25;color:white;text-decoration:none}
+.portal-sidebar-brand img{width:145px;height:48px;object-fit:contain}
 .portal-sidebar-brand span{margin-left:auto;color:#9bdab4;font:700 8px var(--body);letter-spacing:.13em}
 .portal-sidebar-user{display:flex;align-items:center;gap:10px;min-width:0;margin:8px 0 13px;padding:11px 8px;border:1px solid #ffffff20;background:#ffffff0a}
 .portal-avatar{display:grid;flex:none;width:34px;height:34px;place-items:center;border-radius:50%;background:#9bdab4;color:var(--navy);font-size:11px;font-weight:700}
@@ -782,7 +782,8 @@
 .portal-sidebar-identity>button{display:grid;width:34px;height:34px;place-items:center;border:0;background:transparent;color:#dce5e1;cursor:pointer}
 .portal-workspace{grid-column:2;display:flex;flex-direction:column;min-width:0;min-height:100vh;padding-top:66px}
 .portal-topbar{position:fixed;top:0;right:0;left:256px;z-index:25;display:flex;align-items:center;justify-content:space-between;min-height:66px;padding:0 clamp(18px,3vw,38px);border-bottom:1px solid #e5e9e6;background:#ffffffed;backdrop-filter:blur(10px)}
-.portal-topbar-title{display:grid;gap:3px;color:var(--portal-navy);font-family:var(--display);font-size:15px;font-weight:700}
+.portal-topbar-title{display:flex;align-items:center;gap:9px;color:var(--portal-navy);font-family:var(--display);font-size:15px;font-weight:700}
+.portal-topbar-title img{display:block;width:116px;height:40px;object-fit:contain}
 .portal-topbar-title small{color:#758176;font:700 8px var(--body);letter-spacing:.13em}
 .portal-topbar-actions{display:flex;align-items:center;gap:8px}
 .portal-topbar-actions>a,.portal-account-menu>button{display:grid;width:37px;height:37px;place-items:center;border:1px solid #e3e8e4;background:#fff;color:#435346;text-decoration:none}
@@ -799,6 +800,8 @@
 .portal-main{width:min(100%,1440px);flex:1;margin:0 auto;padding:clamp(22px,3vw,42px) clamp(18px,3vw,42px) 36px}
 .portal-main .customer-portal-content{width:100%;max-width:1240px;margin:0 auto}
 .portal-footer{display:flex;justify-content:space-between;gap:15px;padding:17px clamp(18px,3vw,42px);border-top:1px solid #e5e9e6;color:#758176;font-size:9px}
+.portal-footer-brand{display:flex;align-items:center;gap:8px}
+.portal-footer-brand img{display:block;width:94px;height:32px;object-fit:contain}
 .portal-footer a{color:var(--portal-green);font-weight:700;text-decoration:none}
 .portal-dashboard-lower{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}
 .portal-summary-card>strong{display:block;margin:10px 0;color:var(--portal-navy);font-family:var(--display);font-size:28px}
@@ -857,7 +860,7 @@
 .auth-brand-panel:before{position:absolute;z-index:0;inset:0;background:linear-gradient(125deg,#06172ade 0%,#07583cb8 52%,#06172ae8 100%),repeating-linear-gradient(0deg,transparent 0 54px,#ffffff12 55px 56px),linear-gradient(90deg,transparent calc(50% - 1px),#ffffff24 calc(50% - 1px) calc(50% + 1px),transparent calc(50% + 1px));content:""}
 .auth-brand-panel:after{position:absolute;z-index:0;right:-24px;bottom:-62px;color:#ffffff0a;font-family:var(--display);font-size:clamp(210px,32vw,460px);font-weight:800;line-height:.8;content:"KC"}
 .auth-brand-mark{position:relative;z-index:1;display:flex;align-items:center;gap:12px;color:#fff;font-family:var(--display);font-size:22px;font-weight:700;text-decoration:none}
-.auth-brand-mark img{width:49px;height:43px;object-fit:contain}
+.auth-brand-mark img{display:block;width:180px;max-height:58px;object-fit:contain}
 .auth-brand-copy{position:relative;z-index:1;max-width:480px}
 .auth-brand-copy>span,.auth-brand-footer{color:#8df5aa;font-size:9px;font-weight:700;letter-spacing:.15em}
 .auth-brand-copy h2{margin:18px 0;color:#fff;font-family:var(--display);font-size:clamp(42px,6vw,76px);letter-spacing:-.06em;line-height:1}
@@ -901,7 +904,7 @@
 .auth-card-register .auth-card-side-copy{transform:translateY(0)}
 .auth-card-login .auth-card-side-copy{transform:translateY(4px)}
 .auth-card-brand{display:inline-flex;align-items:center;gap:10px;margin-bottom:38px;color:#fff;font-family:var(--display);font-size:17px;font-weight:700;text-decoration:none}
-.auth-card-brand img{width:42px;height:38px;object-fit:contain}
+.auth-card-brand img{width:145px;max-height:46px;object-fit:contain}
 .auth-card-side-kicker{display:block;color:#a5d8ba;font-size:9px;font-weight:800;letter-spacing:.13em}
 .auth-card-side h2{margin:12px 0;color:#fff;font-family:var(--display);font-size:38px;line-height:1.03}
 .auth-card-side h2 em{color:#a5d8ba;font-weight:500}

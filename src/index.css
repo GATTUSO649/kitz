@@ -9,7 +9,7 @@
 .kit-loader-ball{width:42px;height:42px;border:2px solid #fff;border-radius:50%;background:repeating-conic-gradient(from 6deg,#142c3c 0 16deg,#fff 16deg 38deg);box-shadow:0 6px 14px #101b3525;animation:kit-ball-spin 2.4s linear infinite}
 .kit-loader-ball:after{content:"";display:block;width:9px;height:9px;margin:14px auto;border:1px solid #fff;border-radius:50%;background:#142c3c}
 .kit-loader-trail{position:absolute;inset:5px;border:1px solid #18a55855;border-left-color:transparent;border-radius:50%;animation:kit-ball-spin 4s linear infinite reverse}
-.kit-loader-screen>strong{font-family:var(--display);font-size:20px}
+.kit-loader-logo{display:block;width:min(220px,70vw);height:auto;object-fit:contain}
 .kit-loader-caption{color:var(--muted);font-size:11px}
 .kit-loader-track{width:150px;height:3px;overflow:hidden;background:#dce4dc}
 .kit-loader-track>span{display:block;width:38%;height:100%;background:var(--green);animation:kit-loader-progress 2.4s ease-in-out infinite}

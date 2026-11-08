@@ -1,7 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ShieldCheck } from 'lucide-react'
 import '../admin-theme.css'
 import '../super-admin-auth.css'
 
@@ -23,7 +22,7 @@ const marketplaceRoles = new Set<string>(['second_hand_admin', 'seller_support_a
 function SuperAdminAuthLayout({ eyebrow, title, description, variant, children }: { eyebrow: string; title: string; description?: string; variant: 'login' | 'setup' | 'verification'; children: ReactNode }) {
   return <main className={`sa-auth-shell is-${variant}`}>
     <aside className="sa-auth-aside">
-      <a className="sa-auth-brand" href="/" aria-label="KitCulture home"><span><ShieldCheck size={18} /></span><strong>KitCulture</strong></a>
+      <a className="sa-auth-brand" href="/" aria-label="MATRIX home"><img src="/matrix-logo.png" alt="MATRIX" /></a>
       <div className="sa-auth-aside-copy"><span>ADMINISTRATOR ACCESS</span><h2>One platform.<br />Controlled access.</h2><p>Restricted tools for governing KitCulture administrators and business systems.</p></div>
       <small className="sa-auth-footer">KITCULTURE · SUPER ADMIN</small>
     </aside>

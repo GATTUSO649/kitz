@@ -301,8 +301,7 @@
   color: #fff;
 }
 
-.portal-shell .portal-sidebar-brand img { width: 38px; height: 38px; }
-.portal-shell .portal-sidebar-brand span { font-family: var(--display); font-size: 17px; font-weight: 800; }
+.portal-shell .portal-sidebar-brand img { width: 145px; height: 48px; }
 .portal-shell .portal-sidebar-brand small,
 .portal-shell .portal-nav-group h2 { color: #54b7ff; }
 .portal-shell .portal-nav-group { border-bottom-color: #164d86; }
@@ -335,6 +334,7 @@
 .portal-shell .portal-page-header h1,
 .portal-shell .portal-section-heading h2,
 .portal-shell .portal-dashboard-lower h2 { color: #fff; }
+.portal-shell .portal-topbar-title img { width: 116px; height: 40px; }
 .portal-shell .portal-topbar-title small,
 .portal-shell .portal-page-header .standalone-intro,
 .portal-shell .portal-footer { color: var(--kc-secondary); }

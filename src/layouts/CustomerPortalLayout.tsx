@@ -91,7 +91,7 @@ export function CustomerPortalLayout({
   return <div className="portal-shell">
     {drawerOpen && <button className="portal-drawer-scrim" type="button" aria-label="Close customer navigation" onClick={() => setDrawerOpen(false)} />}
     <aside className={drawerOpen ? 'portal-sidebar is-open' : 'portal-sidebar'}>
-      <Link to="/account/dashboard" className="portal-sidebar-brand" onClick={() => setDrawerOpen(false)}><img src="/culture-mark.webp" alt="" /><span>KitCulture</span><small>PORTAL</small></Link>
+      <Link to="/account/dashboard" className="portal-sidebar-brand" aria-label="MATRIX customer portal" onClick={() => setDrawerOpen(false)}><img src="/matrix-logo.png" alt="MATRIX" /><small>PORTAL</small></Link>
       <nav aria-label="Customer portal">
         {sections.map(({ label, items }) => <section className="portal-nav-group" key={label}>
           <h2>{label}</h2>
@@ -107,7 +107,7 @@ export function CustomerPortalLayout({
     <div className="portal-workspace">
       <header className="portal-topbar">
         <button type="button" className="portal-menu-toggle" aria-label={drawerOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={drawerOpen} onClick={() => setDrawerOpen((open) => !open)}>{drawerOpen ? <X size={20} /> : <Menu size={20} />}</button>
-        <div className="portal-topbar-title"><span>KitCulture</span><small>CUSTOMER PORTAL</small></div>
+        <div className="portal-topbar-title"><img src="/matrix-logo.png" alt="MATRIX" /><small>CUSTOMER PORTAL</small></div>
         <div className="portal-topbar-actions">
           <Link to="/account/notifications" className="portal-notification-link" aria-label={`Notifications${unreadNotifications ? `, ${unreadNotifications} unread` : ''}`} title="Notifications"><Bell size={17} />{unreadNotifications > 0 && <span className="portal-cart-count">{unreadNotifications > 99 ? '99+' : unreadNotifications}</span>}</Link>
           <Link to="/account/cart" className="portal-cart-link" aria-label={`Shopping cart, ${itemCount} ${itemCount === 1 ? 'item' : 'items'}`} title="Shopping cart"><ShoppingCart size={17} /><span className="portal-cart-count">{itemCount}</span></Link>
@@ -119,7 +119,7 @@ export function CustomerPortalLayout({
         </div>
       </header>
       <main className="portal-main">{children}</main>
-      <footer className="portal-footer"><span>KitCulture Customer Portal</span><Link to="/account/marketplace">Continue Shopping <span aria-hidden="true">↗</span></Link></footer>
+      <footer className="portal-footer"><span className="portal-footer-brand"><img src="/matrix-logo.png" alt="MATRIX" /> Customer Portal</span><Link to="/account/marketplace">Continue Shopping <span aria-hidden="true">↗</span></Link></footer>
     </div>
   </div>
 }
