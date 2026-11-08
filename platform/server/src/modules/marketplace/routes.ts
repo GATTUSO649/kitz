@@ -7,11 +7,12 @@ import { marketplaceAdminUsers, marketplaceCategories, marketplaceCounties, mark
 import { calculateFeeKes } from './security.js'
 import { parseMarketplaceSocialLinks } from './social-links.js'
 import { enqueueMarketplaceEmail } from '../email/outbox.js'
-import { marketplaceImageDeliveryUrl } from './images.js'
+import { downloadMarketplaceShareImage, marketplaceImageDeliveryUrl } from './images.js'
 
 export const marketplaceRouter = Router()
 const productViewLimiter = rateLimit({ windowMs: 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false })
 const productReportLimiter = rateLimit({ windowMs: 60 * 60_000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false })
+const productShareImageLimiter = rateLimit({ windowMs: 60_000, limit: 12, standardHeaders: 'draft-8', legacyHeaders: false })
 
 marketplaceRouter.get('/settings/footer-social-links', async (_request, response, next) => {
   if (!database) {
@@ -219,6 +220,46 @@ marketplaceRouter.get('/products/:slug', async (request, response, next) => {
       town: product.town,
     }
     response.json({ data: { ...publicProduct, contactUnlockFeeKes, images: images.map(({ imageUrl }) => marketplaceImageDeliveryUrl(imageUrl, 1200)) } })
+  } catch (error) {
+    next(error)
+  }
+})
+
+marketplaceRouter.get('/products/:slug/images/:imageIndex/share', productShareImageLimiter, async (request, response, next) => {
+  const slug = z.string().min(1).max(180).safeParse(request.params.slug)
+  const imageIndex = z.coerce.number().int().min(0).max(4).safeParse(request.params.imageIndex)
+  if (!slug.success || !imageIndex.success) {
+    response.status(400).json({ error: { code: 'INVALID_LISTING_IMAGE', message: 'The listing image is unavailable.' } })
+    return
+  }
+  if (!database) {
+    response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Marketplace data is temporarily unavailable.' } })
+    return
+  }
+  try {
+    const [product] = await database.select({ id: marketplaceProducts.id }).from(marketplaceProducts)
+      .innerJoin(marketplaceCategories, eq(marketplaceProducts.categoryId, marketplaceCategories.id))
+      .where(and(eq(marketplaceProducts.slug, slug.data), eq(marketplaceProducts.status, 'published'), gt(marketplaceProducts.expiresAt, new Date()), eq(marketplaceCategories.active, true)))
+      .limit(1)
+    if (!product) {
+      response.status(404).json({ error: { code: 'LISTING_NOT_FOUND', message: 'This listing is not available.' } })
+      return
+    }
+    const images = await database.select({ imageUrl: marketplaceProductImages.imageUrl, isPrimary: marketplaceProductImages.isPrimary, sortOrder: marketplaceProductImages.sortOrder })
+      .from(marketplaceProductImages)
+      .where(eq(marketplaceProductImages.productId, product.id))
+      .orderBy(desc(marketplaceProductImages.isPrimary), asc(marketplaceProductImages.sortOrder))
+    const selectedImage = images[imageIndex.data]
+    const image = selectedImage ? await downloadMarketplaceShareImage(selectedImage.imageUrl) : null
+    if (!image) {
+      response.status(422).json({ error: { code: 'LISTING_IMAGE_NOT_AVAILABLE', message: 'This listing image cannot be shared right now.' } })
+      return
+    }
+    response.setHeader('Cache-Control', 'public, max-age=900')
+    response.setHeader('Content-Type', image.contentType)
+    response.setHeader('Content-Length', image.bytes.byteLength)
+    response.setHeader('X-Content-Type-Options', 'nosniff')
+    response.send(image.bytes)
   } catch (error) {
     next(error)
   }

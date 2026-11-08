@@ -35,6 +35,7 @@ test('marketplace public GET endpoints fail closed without a database', async ()
     '/api/v1/marketplace/settings/footer-social-links',
     '/api/v1/marketplace/categories',
     '/api/v1/marketplace/locations/counties',
+    '/api/v1/marketplace/products/test-item/images/0/share',
   ]
   const responses = await Promise.all(paths.map((path) => fetch(`${origin}${path}`)))
   for (const response of responses) {

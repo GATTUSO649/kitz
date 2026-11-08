@@ -27,6 +27,45 @@ export function marketplaceImageDeliveryUrl(source: string, width: number): stri
   }
 }
 
+const shareableImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
+const maxShareImageBytes = 8 * 1024 * 1024
+
+export function isShareableMarketplaceImageUrl(source: string): boolean {
+  try {
+    const url = new URL(source)
+    return url.protocol === 'https:' && url.hostname === 'res.cloudinary.com' && !url.username && !url.password && !url.port
+  } catch {
+    return false
+  }
+}
+
+export async function downloadMarketplaceShareImage(source: string): Promise<{ bytes: Buffer; contentType: string } | null> {
+  if (!isShareableMarketplaceImageUrl(source)) return null
+  try {
+    const response = await fetch(marketplaceImageDeliveryUrl(source, 1200), { redirect: 'error', signal: AbortSignal.timeout(10_000) })
+    const contentType = response.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase() ?? ''
+    const contentLength = Number(response.headers.get('content-length'))
+    if (!response.ok || !shareableImageTypes.has(contentType) || (Number.isFinite(contentLength) && contentLength > maxShareImageBytes) || !response.body) return null
+
+    const reader = response.body.getReader()
+    const chunks: Buffer[] = []
+    let totalBytes = 0
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      totalBytes += value.byteLength
+      if (totalBytes > maxShareImageBytes) {
+        await reader.cancel().catch(() => undefined)
+        return null
+      }
+      chunks.push(Buffer.from(value))
+    }
+    return totalBytes ? { bytes: Buffer.concat(chunks, totalBytes), contentType } : null
+  } catch {
+    return null
+  }
+}
+
 export class MarketplaceImageStorageError extends Error {
   constructor(readonly reason: 'network' | 'cloud_name' | 'api_key' | 'signature' | 'provider_rejected' | 'invalid_response') {
     super(`Marketplace image storage failed: ${reason}.`)

@@ -240,7 +240,7 @@ function MarketplaceProductPage() {
     let imageFile: File | null = null
     try {
       if (imageUrl) {
-        const imageResponse = await fetch(imageUrl)
+        const imageResponse = await marketplaceFetch(`/api/v1/marketplace/products/${encodeURIComponent(listing.slug)}/images/${selectedImage}/share`)
         if (imageResponse.ok) {
           const downloadedImage = await imageResponse.blob()
           if (downloadedImage.type.startsWith('image/')) {

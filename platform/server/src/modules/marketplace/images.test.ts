@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { getMarketplaceImageStorageReadiness, inspectImage, marketplaceImageDeliveryUrl } from './images.js'
+import { getMarketplaceImageStorageReadiness, inspectImage, isShareableMarketplaceImageUrl, marketplaceImageDeliveryUrl } from './images.js'
 
 function pngHeader(width: number, height: number) {
   const buffer = Buffer.alloc(24)
@@ -43,4 +43,12 @@ test('Cloudinary delivery URLs request responsive automatic-format images only f
     marketplaceImageDeliveryUrl('https://res.cloudinary.com/demo/image/upload/v123/item.jpg', 9000),
     'https://res.cloudinary.com/demo/image/upload/f_auto,q_auto:good,w_2000,c_limit/v123/item.jpg',
   )
+})
+
+test('listing image sharing accepts only HTTPS Cloudinary URLs', () => {
+  assert.equal(isShareableMarketplaceImageUrl('https://res.cloudinary.com/demo/image/upload/item.jpg'), true)
+  assert.equal(isShareableMarketplaceImageUrl('http://res.cloudinary.com/demo/image/upload/item.jpg'), false)
+  assert.equal(isShareableMarketplaceImageUrl('https://res.cloudinary.com.attacker.example/item.jpg'), false)
+  assert.equal(isShareableMarketplaceImageUrl('https://user:pass@res.cloudinary.com/demo/item.jpg'), false)
+  assert.equal(isShareableMarketplaceImageUrl('https://example.com/item.jpg'), false)
 })
