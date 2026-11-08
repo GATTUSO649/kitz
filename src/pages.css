@@ -447,6 +447,14 @@
 .admin-icon-action.is-danger{color:#9c3528}
 .admin-homepage-manager{display:grid;gap:18px}
 .admin-homepage-manager>.admin-create-form{margin-top:0}
+.admin-brand-logo-manager{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(180px,250px);align-items:center;gap:14px;padding:15px 18px;border:1px solid var(--dark-border);background:var(--dark-surface);color:var(--dark-text)}
+.admin-brand-logo-manager h2{margin:4px 0;color:var(--dark-text);font-family:var(--display);font-size:16px}
+.admin-brand-logo-manager p{margin:4px 0 0;color:var(--dark-muted);font-size:10px;line-height:1.5}
+.admin-brand-logo-manager>img{display:block;width:130px;height:68px;padding:5px;border:1px solid var(--dark-border);background:#07112f;object-fit:contain}
+.admin-brand-logo-manager>label{display:grid;gap:6px;color:var(--dark-text);font-size:10px;font-weight:700}
+.admin-brand-logo-manager input[type=file]{min-width:0;width:100%;padding:8px;border:1px dashed #50705f;background:#102019;color:var(--dark-muted);font-size:9px}
+.admin-brand-logo-manager small{color:var(--dark-muted);font-size:9px;font-weight:400}
+.admin-brand-logo-manager>[role=alert],.admin-brand-logo-manager>[role=status]{grid-column:1/-1;margin:0}
 .admin-form-actions{display:flex;flex-wrap:wrap;gap:9px}
 .admin-checkbox-label{display:flex!important;align-items:center;gap:8px}
 .admin-checkbox-label input{width:16px;height:16px}

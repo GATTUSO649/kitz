@@ -11,7 +11,7 @@ import { applicationSettings, categories, deliveryZones, expenseCategories, expe
 import { authenticateAdmin, authenticatedAdmin } from '../../middleware/authenticate.js'
 import { isCustomerOnline, publishChatMessage, publishMessageReceipt, registerAdminStream } from '../../realtime/chat-events.js'
 import { recordAdminAudit } from './auth.js'
-import { deleteProductImage, ImageStorageError, uploadHomepageSlideImage, uploadProductImage } from './image-storage.js'
+import { deleteProductImage, ImageStorageError, uploadBrandLogoImage, uploadHomepageSlideImage, uploadProductImage } from './image-storage.js'
 import { buildAdminDashboardReport, reportPeriods, resolveOptionalDateRange, resolveReportingRange } from './reporting.js'
 import { hasItPermission, itPermissions, type ItPermission } from './it-access.js'
 import { getRequestMetrics } from '../../middleware/request-metrics.js'
@@ -519,6 +519,29 @@ adminRouter.get('/homepage', async (_request, response) => {
   if (!db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Homepage content services are unavailable.' } })
   const slides = await db.select().from(homepageSlides).orderBy(asc(homepageSlides.sortOrder), asc(homepageSlides.id))
   response.json({ data: slides })
+})
+
+adminRouter.get('/homepage/logo', async (_request, response) => {
+  if (!db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Homepage branding is unavailable.' } })
+  const [setting] = await db.select({ value: applicationSettings.value }).from(applicationSettings)
+    .where(eq(applicationSettings.key, 'brandLogoUrl')).limit(1)
+  response.json({ data: { logoUrl: typeof setting?.value === 'string' ? setting.value : null } })
+})
+
+adminRouter.post('/homepage/logo', express.raw({ type: 'application/octet-stream', limit: '8mb' }), async (request, response) => {
+  if (!Buffer.isBuffer(request.body)) return response.status(400).json({ error: { code: 'INVALID_IMAGE_UPLOAD', message: 'Choose a JPEG, PNG, or WebP logo image.' } })
+  if (!db) return response.status(503).json({ error: { code: 'DATABASE_UNAVAILABLE', message: 'Homepage branding is unavailable.' } })
+  try {
+    const asset = await uploadBrandLogoImage(request.body)
+    await db.insert(applicationSettings).values({ key: 'brandLogoUrl', value: asset.secure_url, updatedBy: null })
+      .onConflictDoUpdate({ target: applicationSettings.key, set: { value: asset.secure_url, updatedBy: null } })
+    const actor = authenticatedAdmin(request)
+    if (actor) await recordAdminAudit(actor.id, 'homepage.brand_logo_updated', 'homepage_branding', asset.public_id)
+    response.status(201).json({ data: { logoUrl: asset.secure_url } })
+  } catch (error) {
+    if (!(error instanceof ImageStorageError)) throw error
+    response.status(error.statusCode).json({ error: { code: 'IMAGE_UPLOAD_FAILED', message: error.message } })
+  }
 })
 
 adminRouter.post('/homepage/slides/image', express.raw({ type: 'application/octet-stream', limit: '8mb' }), async (request, response) => {

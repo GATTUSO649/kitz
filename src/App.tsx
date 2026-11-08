@@ -43,7 +43,7 @@ const CustomerPortalPage = lazy(() => import('./pages/CustomerPortalPages').then
 const CustomerAuthForm = lazy(() => import('./pages/AuthPages').then((module) => ({ default: module.CustomerAuthForm })))
 const CustomerAuthInfoPage = lazy(() => import('./pages/AuthPages').then((module) => ({ default: module.CustomerAuthInfoPage })))
 
-const cultureLogo = '/matrix-logo.png'
+const fallbackCultureLogo = '/matrix-logo.jpg'
 type Variant = { id: number; size: string; stock: number; price?: string | null }
 type Product = {
   id: number
@@ -237,6 +237,24 @@ function App() {
   const location = useLocation()
   const navigate = useNavigate()
   const { notify } = useNotifications()
+  const storeBrandingQuery = useQuery({
+    queryKey: ['store-branding'],
+    queryFn: async ({ signal }) => {
+      const response = await fetch('/api/v1/store/branding', { signal })
+      const result = await response.json() as { data?: { logoUrl: string | null }; error?: { message?: string } }
+      if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Store branding is unavailable.')
+      return result.data
+    },
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+  const cultureLogo = storeBrandingQuery.data?.logoUrl ?? fallbackCultureLogo
+  useEffect(() => {
+    if (!storeBrandingQuery.data?.logoUrl) return
+    for (const icon of document.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]')) {
+      icon.href = storeBrandingQuery.data.logoUrl
+    }
+  }, [storeBrandingQuery.data?.logoUrl])
   const pagePath = location.pathname
   const isOperationsPage = pagePath === '/operations'
   const isItAdminPage = /^\/it-admin(?:\/|$)/.test(pagePath)

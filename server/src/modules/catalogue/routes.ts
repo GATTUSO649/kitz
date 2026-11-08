@@ -79,6 +79,17 @@ catalogueRouter.get('/store/contact', async (_request, response) => {
   response.json({ data: { whatsappNumber: setting?.value ?? '' } })
 })
 
+catalogueRouter.get('/store/branding', async (_request, response) => {
+  if (!db) return response.status(503).json({ error: { code: 'BRANDING_UNAVAILABLE', message: 'Store branding is unavailable.' } })
+  const [setting] = await db.select({ value: applicationSettings.value }).from(applicationSettings)
+    .where(eq(applicationSettings.key, 'brandLogoUrl')).limit(1)
+  const logoUrl = typeof setting?.value === 'string'
+    && /^https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\//i.test(setting.value)
+    ? setting.value
+    : null
+  response.json({ data: { logoUrl } })
+})
+
 catalogueRouter.get('/store/payment-options', async (_request, response) => {
   if (!db) return response.status(503).json({ error: { code: 'PAYMENT_OPTIONS_UNAVAILABLE', message: 'Payment options are unavailable.' } })
   const settings = await db.select({ key: applicationSettings.key, value: applicationSettings.value }).from(applicationSettings)

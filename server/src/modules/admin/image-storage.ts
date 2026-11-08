@@ -100,6 +100,10 @@ export function uploadHomepageSlideImage(bytes: Buffer): Promise<CloudinaryAsset
   return uploadImage('kitculture/homepage', `homepage-${crypto.randomUUID()}`, bytes)
 }
 
+export function uploadBrandLogoImage(bytes: Buffer): Promise<CloudinaryAsset> {
+  return uploadImage('kitculture/branding', `brand-logo-${crypto.randomUUID()}`, bytes)
+}
+
 export async function deleteProductImage(publicId: string): Promise<void> {
   const { cloudName, apiKey, apiSecret } = configuration()
   const timestamp = String(Math.floor(Date.now() / 1000))

@@ -1255,12 +1255,51 @@ const homepageSlideDestinations = [
 ]
 
 function HomepageSlidesManager({ slides, onDone }: { slides: HomepageSlide[]; onDone: () => Promise<void> }) {
+  const queryClient = useQueryClient()
+  const brandLogoQuery = useQuery({
+    queryKey: ['admin', 'homepage', 'logo'],
+    queryFn: () => api<{ logoUrl: string | null }>('/api/v1/admin/homepage/logo'),
+    retry: false,
+  })
   const [editing, setEditing] = useState<HomepageSlide | null>(null)
   const [error, setError] = useState('')
   const [uploadStatus, setUploadStatus] = useState('')
+  const [logoError, setLogoError] = useState('')
+  const [logoStatus, setLogoStatus] = useState('')
+  const [logoBusy, setLogoBusy] = useState(false)
   const [imageUrls, setImageUrls] = useState<string[]>([])
   const [imageLinks, setImageLinks] = useState('')
   const [busy, setBusy] = useState(false)
+
+  async function uploadBrandLogo(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0]
+    event.currentTarget.value = ''
+    if (!file) return
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 8 * 1024 * 1024) {
+      setLogoError('Choose a JPEG, PNG, or WebP logo no larger than 8 MB.')
+      setLogoStatus('')
+      return
+    }
+    setLogoBusy(true)
+    setLogoError('')
+    setLogoStatus('')
+    try {
+      await api<{ logoUrl: string }>('/api/v1/admin/homepage/logo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: file,
+      })
+      await Promise.all([
+        brandLogoQuery.refetch(),
+        queryClient.invalidateQueries({ queryKey: ['store-branding'] }),
+      ])
+      setLogoStatus('Store logo updated.')
+    } catch (issue) {
+      setLogoError(issue instanceof Error ? issue.message : 'Logo upload failed.')
+    } finally {
+      setLogoBusy(false)
+    }
+  }
 
   async function uploadImages(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.currentTarget.files ?? [])
@@ -1401,6 +1440,15 @@ function HomepageSlidesManager({ slides, onDone }: { slides: HomepageSlide[]; on
   }
 
   return <section className="admin-homepage-manager">
+    <section className="admin-brand-logo-manager" aria-labelledby="admin-brand-logo-title">
+      <div><span className="admin-kicker">STORE BRANDING</span><h2 id="admin-brand-logo-title">Site logo</h2><p>Upload the logo used across the storefront, browser tab, and account portals.</p></div>
+      <img src={brandLogoQuery.data?.logoUrl ?? '/matrix-logo.png'} alt="Current site logo" />
+      <label>Upload a replacement logo<input type="file" accept="image/jpeg,image/png,image/webp" disabled={logoBusy} onChange={(event) => void uploadBrandLogo(event)} /><small>JPEG, PNG, or WebP, up to 8 MB.</small></label>
+      {brandLogoQuery.isError && <p className="admin-error" role="alert">{brandLogoQuery.error.message}</p>}
+      {logoError && <p className="admin-error" role="alert">{logoError}</p>}
+      {logoStatus && <p className="admin-success" role="status">{logoStatus}</p>}
+      {logoBusy && <p className="admin-form-note" role="status">Uploading logo…</p>}
+    </section>
     <div className="admin-slideshow-intro"><div><span className="admin-kicker">HOMEPAGE CREATIVE</span><h2>Build the hero slideshow</h2><p>Published slides appear automatically on the home page. The button destination only controls where each call to action leads.</p></div><span className="admin-slideshow-count">{imageUrls.length} / 20 selected</span></div>
     <form key={editing?.id ?? 'new'} className="admin-create-form admin-slideshow-form" onSubmit={(event) => void save(event)}>
       <h2>{editing ? 'Edit slide' : 'Slide content'}</h2>

@@ -9,7 +9,7 @@ import { SellerForgotPasswordPage, SellerLoginPage, SellerPortalPage, SellerRese
 
 const kitzOrigin = import.meta.env.VITE_KITZ_ORIGIN || 'https://kitz.onrender.com'
 const matrixIntroStorageKey = 'matrix-intro-seen'
-const matrixLogoPath = '/images/matrix-logo-optimized.png'
+const matrixLogoPath = '/images/logo1-optimized.jpg'
 const formatKes = (value: number) => `KSh ${new Intl.NumberFormat('en-KE').format(value)}`
 const normalizeWhatsAppNumber = (value: string) => {
   const digits = value.replace(/\D/g, '')
@@ -280,7 +280,14 @@ function MatrixIntro({ exiting }: { exiting: boolean }) {
   return <div className={`matrix-intro${exiting ? ' is-exiting' : ''}`} role="dialog" aria-modal="true" aria-label="MATRIX introduction">
     <div className="matrix-intro-content">
       <span className="matrix-intro-eyebrow">KITCULTURE + MATRIX</span>
-      <div className="matrix-intro-logo-wrap"><img src={matrixLogoPath} alt="MATRIX" /></div>
+      <div className="matrix-intro-logo-wrap">
+        <svg className="matrix-logo-drawing" viewBox="0 0 960 640" aria-hidden="true">
+          <defs><linearGradient id="matrix-m-stroke" x1="0" y1="1" x2="1" y2="0"><stop stopColor="#18a8ff" /><stop offset=".52" stopColor="#fff" /><stop offset="1" stopColor="#00d8ff" /></linearGradient></defs>
+          <path className="matrix-logo-m-trace" d="M160 500 300 145 465 425 675 145 810 500" />
+          <ellipse className="matrix-logo-ring-trace" cx="480" cy="320" rx="438" ry="170" transform="rotate(-17 480 320)" />
+        </svg>
+        <img src={matrixLogoPath} alt="MATRIX" />
+      </div>
       <p className="matrix-intro-tagline">Shop <i /> Connect <i /> Trade</p>
       <div className="matrix-intro-statement">
         <h1>ONE DESTINATION. TWO WORLDS.</h1>
