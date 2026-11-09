@@ -1,3 +1,20 @@
+.wordmark img[src="/matrix-logo.png"],
+.admin-brand img[src="/matrix-logo.png"],
+.admin-access-logo[src="/matrix-logo.png"],
+.activation-brand img[src="/matrix-logo.png"],
+.auth-brand-mark img[src="/matrix-logo.png"],
+.auth-card-brand img[src="/matrix-logo.png"],
+.auth-card-logo[src="/matrix-logo.png"],
+.portal-sidebar-brand img[src="/matrix-logo.png"],
+.portal-topbar-title img[src="/matrix-logo.png"],
+.portal-footer-brand img[src="/matrix-logo.png"],
+.operations-brand-logo[src="/matrix-logo.png"],
+.role-portal-login-brand img[src="/matrix-logo.png"],
+.sa-brand-logo[src="/matrix-logo.png"],
+.sa-crumb-logo[src="/matrix-logo.png"] {
+  content: url('/matrix-full-logo.png');
+}
+
 .portal-shell {
   background-image: var(--site-image-kitz-portal-background, url('https://i.pinimg.com/736x/81/13/c2/8113c26c3d058b2beef401b32e1d3bde.jpg'));
 }

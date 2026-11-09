@@ -5,8 +5,8 @@ import { SiteImage } from './SiteImages'
 export default function BrandLoader({ label = 'Loading MATRIX' }: { label?: string }) {
   return <main className="kit-loader-screen" role="status" aria-live="polite" aria-label={label}>
     <div className="kit-loader-mark" aria-hidden="true">
-      <SiteImage className="kit-loader-logo-full" slot="platform-brand-logo" fallback="/matrix-logo.png" alt="" />
-      <SiteImage className="kit-loader-logo-monogram" slot="platform-brand-logo" fallback="/matrix-logo.png" alt="" />
+      <SiteImage className="kit-loader-logo-full" slot="platform-brand-logo" fallback="/matrix-full-logo.png" alt="" />
+      <SiteImage className="kit-loader-logo-monogram" slot="platform-brand-logo" fallback="/matrix-full-logo.png" alt="" />
       <span className="kit-loader-orbit" />
     </div>
     <span className="kit-loader-caption">{label}</span>

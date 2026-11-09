@@ -1456,7 +1456,7 @@ function OperationsConsole() {
     <main className="operations-shell operations-shell-advanced">
       <aside className="operations-sidebar">
         <div className="operations-sidebar-brand">
-          <img className="operations-brand-logo" src="/matrix-logo.png" alt="MATRIX" />
+          <img className="operations-brand-logo" src="/matrix-full-logo.png" alt="MATRIX" />
           <strong>Operations</strong>
         </div>
 

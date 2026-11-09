@@ -45,7 +45,7 @@ const CustomerPortalPage = lazy(() => import('./pages/CustomerPortalPages').then
 const CustomerAuthForm = lazy(() => import('./pages/AuthPages').then((module) => ({ default: module.CustomerAuthForm })))
 const CustomerAuthInfoPage = lazy(() => import('./pages/AuthPages').then((module) => ({ default: module.CustomerAuthInfoPage })))
 
-const fallbackCultureLogo = '/matrix-logo.jpg'
+const fallbackCultureLogo = '/matrix-full-logo.png'
 type Variant = { id: number; size: string; stock: number; price?: string | null }
 type Product = {
   id: number

@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom'
 export function AuthBrandPanel({ audience = 'customer' }: { audience?: 'customer' | 'admin' }) {
   const isAdmin = audience === 'admin'
   return <section className="auth-brand-panel" aria-label={isAdmin ? 'MATRIX administration' : 'MATRIX'}>
-    <Link to="/" className="auth-brand-mark"><img src="/matrix-logo.png" alt="MATRIX" /></Link>
+    <Link to="/" className="auth-brand-mark"><img src="/matrix-full-logo.png" alt="MATRIX" /></Link>
     <div className="auth-brand-copy"><span>{isAdmin ? 'OPERATIONS' : 'BUILT FOR THE STANDS. READY FOR THE STREET.'}</span><h2>{isAdmin ? <>Matchday starts<br /><em>behind the scenes.</em></> : <>Your colours.<br /><em>Your culture.</em></>}</h2><p>{isAdmin ? 'Keep the catalogue, orders, and supporter experience in sync.' : 'Made for every minute, and everyone who carries the game with them.'}</p></div>
     <span className="auth-brand-footer">MACHAKOS-BORN · MATCHDAY-READY</span>
   </section>
