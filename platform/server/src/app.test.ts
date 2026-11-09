@@ -30,6 +30,7 @@ test('content security policy allows seller previews and Cloudinary product imag
   assert.match(policy, /img-src[^;]*'self'[^;]*data:[^;]*blob:/)
   assert.match(policy, /img-src[^;]*https:\/\/res\.cloudinary\.com/)
   assert.match(policy, /connect-src[^;]*'self'[^;]*https:\/\/kitz\.example\.test/)
+  assert.match(policy, /frame-ancestors[^;]*'self'[^;]*https:\/\/kitz\.example\.test/)
 })
 
 test('marketplace public GET endpoints fail closed without a database', async () => {

@@ -321,7 +321,7 @@ test('customer and administrator session renewal reject requests without valid s
   }
 })
 
-test('denies framing on application, admin, not-found, and error responses', async () => {
+test('allows same-origin site previews while blocking external framing on application responses', async () => {
   const responses = await Promise.all([
     fetch(`${baseUrl}/health/live`),
     fetch(`${baseUrl}/api/v1/admin/me`),
@@ -337,13 +337,14 @@ test('denies framing on application, admin, not-found, and error responses', asy
   assert.match(policy, /img-src[^;]*https:/)
   assert.match(policy, /frame-src[^;]*https:\/\/maps\.google\.com/)
   assert.match(policy, /frame-src[^;]*https:\/\/www\.google\.com/)
-  assert.match(policy, /frame-ancestors 'none'/)
+  assert.match(policy, /frame-ancestors 'self'/)
+  assert.match(policy, /frame-src[^;]*'self'[^;]*https:\/\/market\.example\.test/)
   assert.equal(response.headers.get('strict-transport-security') ?? '', 'max-age=31536000; includeSubDomains')
   assert.equal(response.headers.get('x-content-type-options') ?? '', 'nosniff')
   assert.equal(response.headers.get('referrer-policy') ?? '', 'no-referrer')
   for (const protectedResponse of responses) {
-    assert.equal(protectedResponse.headers.get('x-frame-options') ?? '', 'DENY')
-    assert.match(protectedResponse.headers.get('content-security-policy') ?? '', /frame-ancestors 'none'/)
+    assert.equal(protectedResponse.headers.get('x-frame-options') ?? '', 'SAMEORIGIN')
+    assert.match(protectedResponse.headers.get('content-security-policy') ?? '', /frame-ancestors 'self'/)
   }
   assert.equal(responses[1].status, 401)
   assert.equal(responses[2].status, 404)

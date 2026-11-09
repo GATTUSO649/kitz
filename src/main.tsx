@@ -5,6 +5,7 @@ import { BrowserRouter } from 'react-router-dom'
 import './index.css'
 import App from './App.tsx'
 import { NotificationProvider } from './components/Notifications'
+import { RouteTransitionLoader } from './components/BrandLoader'
 import { SiteImageVariables } from './components/SiteImages'
 
 const queryClient = new QueryClient({
@@ -37,7 +38,7 @@ if (underCustomAdminPrefix) {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <NotificationProvider><SiteImageVariables /><BrowserRouter basename={underCustomAdminPrefix ? adminRoutePrefix : undefined}><App /></BrowserRouter></NotificationProvider>
+      <NotificationProvider><SiteImageVariables /><BrowserRouter basename={underCustomAdminPrefix ? adminRoutePrefix : undefined}><App /><RouteTransitionLoader /></BrowserRouter></NotificationProvider>
     </QueryClientProvider>
   </StrictMode>,
 )

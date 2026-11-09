@@ -252,12 +252,6 @@ function App() {
     retry: false,
   })
   const cultureLogo = storeBrandingQuery.data?.logoUrl ?? fallbackCultureLogo
-  useEffect(() => {
-    if (!storeBrandingQuery.data?.logoUrl) return
-    for (const icon of document.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]')) {
-      icon.href = storeBrandingQuery.data.logoUrl
-    }
-  }, [storeBrandingQuery.data?.logoUrl])
   const pagePath = location.pathname
   const isOperationsPage = pagePath === '/operations'
   const isItAdminPage = /^\/it-admin(?:\/|$)/.test(pagePath)
@@ -436,7 +430,7 @@ function App() {
   }, [isOperationsPage, notify])
   useEffect(() => {
     if (!introVisible) return
-    const timer = window.setTimeout(() => dismissIntro(), 5999)
+    const timer = window.setTimeout(() => dismissIntro(), 4000)
     return () => window.clearTimeout(timer)
   }, [introVisible])
   useEffect(() => {
@@ -1005,7 +999,7 @@ function App() {
             <div className="hero-footnote"><span className="live-dot" /> Machakos-born. Matchday-ready.</div>
           </div>
           <div className="hero-image hero-slide-image">
-            <StoreImage key={activeHeroProduct?.id ?? activeSlide?.id} className={`hero-slide-photo${activeHeroProduct ? ' hero-kit-photo' : ''}`} src={activeHeroProduct?.imageUrl ?? activeSlide?.imageUrl} alt={activeHeroProduct?.name ?? activeSlide?.title ?? 'KitCulture kit'} width={1200} height={900} priority />
+            {activeSlide?.imageUrl ? <img key={activeSlide.id} className="hero-slide-photo" src={activeSlide.imageUrl} alt={activeSlide.title} width={1200} height={900} loading="eager" decoding="async" fetchPriority="high" /> : <StoreImage key={activeHeroProduct?.id} className="hero-slide-photo hero-kit-photo" src={activeHeroProduct?.imageUrl} alt={activeHeroProduct?.name ?? 'KitCulture kit'} width={1200} height={900} priority />}
             <div className="hero-image-shade" />
             <div className="hero-image-caption"><span>{String(activeSlideIndex + 1).padStart(2, '0')} / KITCULTURE</span><span>{activeHeroProduct?.name ?? activeSlide?.ctaLabel}</span></div>
             {heroSlideCount > 1 && <div className="hero-slide-controls"><button type="button" aria-label="Previous homepage kit" onClick={() => setActiveSlideIndex((index) => (index - 1 + heroSlideCount) % heroSlideCount)}>←</button><span>{activeSlideIndex + 1} / {heroSlideCount}</span><button type="button" aria-label="Next homepage kit" onClick={() => setActiveSlideIndex((index) => (index + 1) % heroSlideCount)}>→</button></div>}

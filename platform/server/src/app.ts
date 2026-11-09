@@ -27,8 +27,9 @@ const kitzApiOrigin = (() => {
 })()
 app.use(helmet({ contentSecurityPolicy: { directives: {
   connectSrc: ["'self'", kitzApiOrigin],
+  frameAncestors: ["'self'", kitzApiOrigin],
   imgSrc: ["'self'", 'data:', 'blob:', 'https://res.cloudinary.com'],
-} } }))
+} }, frameguard: false, crossOriginResourcePolicy: { policy: 'cross-origin' } }))
 app.use(compression())
 const platformOrigin = process.env.PLATFORM_ORIGIN || 'http://127.0.0.1:5173'
 const allowedOrigins = new Set([platformOrigin])

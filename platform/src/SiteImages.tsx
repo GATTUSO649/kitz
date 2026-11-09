@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ImgHTMLAttributes, type PropsWithChildren, type ReactNode } from 'react'
+import { useLocation } from 'react-router-dom'
 
 const platformImageSlots = [
   'platform-brand-logo',
@@ -84,6 +85,33 @@ export function SiteImagesProvider({ children }: PropsWithChildren) {
 export function SiteImage({ slot, fallback, ...props }: Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & { slot: PlatformImageSlot; fallback: string }) {
   const { images } = useContext(SiteImagesContext)
   return <img {...props} src={images[slot] ?? fallback} />
+}
+
+export function RouteTransitionLoader() {
+  const { pathname } = useLocation()
+  const [transition, setTransition] = useState({ pathname, active: false })
+
+  if (transition.pathname !== pathname) setTransition({ pathname, active: true })
+
+  useEffect(() => {
+    if (!transition.active) return
+    const transitionPath = transition.pathname
+    const timer = window.setTimeout(() => {
+      setTransition((current) => current.pathname === transitionPath ? { ...current, active: false } : current)
+    }, 4000)
+    return () => window.clearTimeout(timer)
+  }, [transition.active, transition.pathname])
+
+  if (!transition.active) return null
+  return <main className="platform-transition-loader" role="status" aria-live="polite" aria-label="Loading next page">
+    <div className="platform-loader-mark" aria-hidden="true">
+      <SiteImage className="platform-loader-logo-full" slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="" />
+      <SiteImage className="platform-loader-logo-monogram" slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="" />
+      <span className="platform-loader-orbit" />
+    </div>
+    <span className="platform-loader-caption">Loading next page</span>
+    <span className="platform-loader-track" aria-hidden="true"><span /></span>
+  </main>
 }
 
 export function SiteContentValue({ field, fallback }: { field: SiteContentField; fallback: string }) {

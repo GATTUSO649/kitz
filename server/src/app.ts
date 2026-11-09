@@ -24,6 +24,10 @@ import { requestMetrics } from './middleware/request-metrics.js'
 
 export const app = express()
 
+const marketHubFrameOrigin = (() => {
+  try { return env.MARKETHUB_PUBLIC_URL ? new URL(env.MARKETHUB_PUBLIC_URL).origin : null } catch { return null }
+})()
+
 app.disable('x-powered-by')
 app.set('trust proxy', 3)
 app.use(helmet({
@@ -33,14 +37,14 @@ app.use(helmet({
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
       formAction: ["'self'"],
-      frameAncestors: ["'none'"],
+      frameAncestors: ["'self'"],
       imgSrc: ["'self'", 'data:', 'https:'],
-      frameSrc: ["'self'", 'https://maps.google.com', 'https://www.google.com'],
+      frameSrc: ["'self'", ...(marketHubFrameOrigin ? [marketHubFrameOrigin] : []), 'https://maps.google.com', 'https://www.google.com'],
     },
   },
   crossOriginResourcePolicy: { policy: 'same-origin' },
   dnsPrefetchControl: { allow: false },
-  frameguard: { action: 'deny' },
+  frameguard: { action: 'sameorigin' },
   hidePoweredBy: true,
   hsts: {
     maxAge: 31536000,

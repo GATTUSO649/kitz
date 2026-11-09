@@ -1356,6 +1356,9 @@ function SitePagesManager() {
 function SitePagesEditor({ initialContent, onSaved }: { initialContent: SiteContentData; onSaved: () => Promise<void> }) {
   const [draft, setDraft] = useState<Record<SiteContentField, string>>(() => Object.fromEntries(siteContentFields.map(({ key }) => [key, initialContent[key] ?? ''])) as Record<SiteContentField, string>)
   const [previewField, setPreviewField] = useState<'terms' | 'privacy'>('terms')
+  const [previewPage, setPreviewPage] = useState('/')
+  const [previewViewport, setPreviewViewport] = useState<'desktop' | 'tablet' | 'mobile'>('desktop')
+  const [previewVersion, setPreviewVersion] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -1368,6 +1371,7 @@ function SitePagesEditor({ initialContent, onSaved }: { initialContent: SiteCont
     try {
       await api('/api/v1/admin/homepage/site-content', { method: 'PUT', body: JSON.stringify(draft) })
       await onSaved()
+      setPreviewVersion((version) => version + 1)
       setNotice('Site pages and footer text saved.')
     } catch (issue) {
       setError(issue instanceof Error ? issue.message : 'Site content could not be saved.')
@@ -1377,6 +1381,10 @@ function SitePagesEditor({ initialContent, onSaved }: { initialContent: SiteCont
   }
 
   const previewText = draft[previewField].trim()
+  const platformOrigin = (import.meta.env.VITE_MARKETHUB_ORIGIN ?? '').replace(/\/$/, '')
+  const isPlatformPage = previewPage.startsWith('platform:')
+  const platformPath = isPlatformPage ? previewPage.slice('platform:'.length) : ''
+  const previewSrc = isPlatformPage ? platformOrigin ? `${platformOrigin}${platformPath}` : '' : previewPage
   return <div className="admin-site-pages">
     <header className="admin-site-pages-heading"><div><span className="admin-kicker">PUBLISHED COPY</span><h2>Site Pages</h2><p>Edit the marketplace terms, privacy statement, and both site footers. Content is plain text; HTML is never executed.</p></div></header>
     <div className="admin-site-pages-layout">
@@ -1391,6 +1399,14 @@ function SitePagesEditor({ initialContent, onSaved }: { initialContent: SiteCont
         <article><span className="admin-kicker">LIVE PREVIEW</span><h2>{previewField === 'terms' ? 'Terms & Conditions' : 'Privacy Statement'}</h2>{previewText ? previewText.split(/\n\s*\n/).map((paragraph, index) => <p key={`${index}-${paragraph.slice(0, 20)}`}>{paragraph}</p>) : <p>The existing built-in {previewField === 'terms' ? 'terms and conditions' : 'privacy statement'} remains published until replacement text is saved.</p>}</article>
       </section>
     </div>
+    <section className="admin-live-site-preview" aria-labelledby="admin-live-preview-title">
+      <header><div><span className="admin-kicker">LIVE SITE</span><h2 id="admin-live-preview-title">Website preview</h2></div><div className="admin-live-preview-controls">
+        <label>Page<select value={previewPage} onChange={(event) => setPreviewPage(event.target.value)}><optgroup label="KitCulture"><option value="/">Homepage</option><option value="/shop">Shop</option><option value="/marketplace">Marketplace</option><option value="/login">Sign in</option></optgroup><optgroup label="MarketHub"><option value="platform:/">Platform home</option><option value="platform:/marketplace">Marketplace</option><option value="platform:/terms">Terms</option><option value="platform:/privacy">Privacy</option></optgroup></select></label>
+        <div className="admin-preview-viewports" role="group" aria-label="Preview viewport">{(['desktop', 'tablet', 'mobile'] as const).map((size) => <button key={size} type="button" className={previewViewport === size ? 'is-active' : ''} aria-pressed={previewViewport === size} onClick={() => setPreviewViewport(size)}>{size}</button>)}</div>
+        <button className="admin-icon-action" type="button" onClick={() => setPreviewVersion((version) => version + 1)}>Refresh preview</button>
+      </div></header>
+      {previewSrc ? <div className={`admin-live-preview-stage is-${previewViewport}`}><iframe key={`${previewSrc}-${previewVersion}`} title={`${isPlatformPage ? 'MarketHub' : 'KitCulture'} ${previewPage.split('/').filter(Boolean).at(-1) || 'homepage'} preview`} src={previewSrc} loading="lazy" sandbox="allow-forms allow-scripts allow-same-origin allow-popups" /></div> : <p className="admin-form-note">Set the build-time `VITE_MARKETHUB_ORIGIN` to preview MarketHub pages here.</p>}
+    </section>
     <SiteImagesManager />
   </div>
 }
@@ -1580,6 +1596,21 @@ function HomepageSlidesManager({ slides, onDone }: { slides: HomepageSlide[]; on
     }
   }
 
+  async function publish(slide: HomepageSlide) {
+    setBusy(true)
+    setError('')
+    setUploadStatus('')
+    try {
+      await api(`/api/v1/admin/homepage/slides/${slide.id}`, { method: 'PATCH', body: JSON.stringify({ active: true }) })
+      await onDone()
+      setUploadStatus(`"${slide.title}" is now live on the homepage.`)
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Slide could not be published.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return <section className="admin-homepage-manager">
     <section className="admin-brand-logo-manager" aria-labelledby="admin-brand-logo-title">
       <div><span className="admin-kicker">STORE BRANDING</span><h2 id="admin-brand-logo-title">Site logo</h2><p>Upload the logo used across the storefront, browser tab, and account portals.</p></div>
@@ -1610,15 +1641,18 @@ function HomepageSlidesManager({ slides, onDone }: { slides: HomepageSlide[]; on
         {editing?.destinationUrl && !homepageSlideDestinations.some((destination) => destination.value === editing.destinationUrl) && <option value={editing.destinationUrl}>Current destination ({editing.destinationUrl})</option>}
       </select></label>
       <label>Display order<input name="sortOrder" type="number" min="0" max="10000" defaultValue={editing?.sortOrder ?? 0} /></label>
-      <label className="admin-checkbox-label"><input name="active" type="checkbox" defaultChecked={editing?.active ?? false} /> Publish when schedule is active</label>
+      <label className="admin-checkbox-label"><input name="active" type="checkbox" defaultChecked={editing?.active ?? true} /> Publish on the homepage</label>
+      {!editing && <small className="admin-form-note">New slides publish as soon as they are saved. Uncheck to save a draft.</small>}
       {error && <p className="admin-error" role="alert">{error}</p>}
       {uploadStatus && <p className="admin-form-note" role="status">{uploadStatus}</p>}
       <div className="admin-form-actions"><button className="button button-green" disabled={busy || !imageUrls.length}>{busy ? 'Saving…' : editing ? 'Save slide' : `Create ${imageUrls.length || ''} slide${imageUrls.length === 1 ? '' : 's'}`} <ArrowRight size={15} /></button>{editing && <button className="button button-light" type="button" onClick={cancelEdit}>Cancel edit</button>}</div>
     </form>
     <section className="admin-order-actions"><h2>Homepage slides</h2>
+      {slides.length > 0 && !slides.some((slide) => slide.active) && <p className="admin-error" role="status">No slides are published, so the storefront is using product artwork instead. Publish a slide to show the homepage slideshow.</p>}
       {!slides.length && <div className="admin-empty">No homepage slides have been created.</div>}
       {slides.map((slide) => <article key={slide.id} className="admin-slide-row">
         <img src={slide.imageUrl} alt="" /><div><strong>{slide.title}</strong><span>{slide.active ? 'Published' : 'Draft'} · order {slide.sortOrder}</span><small>{slide.destinationUrl}</small></div>
+        {!slide.active && <button type="button" className="admin-icon-action" disabled={busy} onClick={() => void publish(slide)}>Publish</button>}
         <button type="button" className="admin-icon-action" onClick={() => editSlide(slide)}>Edit</button>
         <button type="button" className="admin-icon-action is-danger" onClick={() => void remove(slide)}><Trash2 size={15} />Delete</button>
       </article>)}
