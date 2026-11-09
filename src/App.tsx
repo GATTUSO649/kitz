@@ -953,7 +953,7 @@ function App() {
         : pagePath === '/account/chat'
           ? <CustomerChatPage user={accountUser} />
           : <CustomerPortalPage path={pagePath} user={accountUser} onProfileUpdate={(fullName, phone) => setAccountUser((current) => current ? { ...current, fullName, phone } : current)} />
-    return <CustomerPortalLayout currentPath={pagePath} user={accountUser} itemCount={itemCount} onSignOut={() => void signOut()} onSessionExpired={() => { setAccountUser(null); setSessionExpired(true) }}><Suspense fallback={<DelayedBrandLoader label="Loading your account" />}>{content}</Suspense></CustomerPortalLayout>
+    return <CustomerPortalLayout currentPath={pagePath} user={accountUser} itemCount={itemCount} onSignOut={() => void signOut()} onSessionExpired={() => { setAccountUser(null); setSessionExpired(true) }}><Suspense fallback={null}>{content}</Suspense></CustomerPortalLayout>
   }
 
   return (
@@ -1095,9 +1095,9 @@ function App() {
           <div><Star size={28} /><span><strong>Football Culture</strong><small>More than just jerseys</small></span></div>
         </section>
         </div>}
-        {isShopPage && <Suspense fallback={<DelayedBrandLoader label="Loading jerseys" />}><ShopPage key={pagePath} onSave={(productId) => void saveToWishlist(productId)} onAdd={(product) => addToCart(product)} /></Suspense>}
-        {isMarketplacePage && <Suspense fallback={<DelayedBrandLoader label="Loading teams" />}><MarketplacePage onSave={(productId) => void saveToWishlist(productId)} onAdd={(product) => addToCart(product)} /></Suspense>}
-        {isProductPage && <Suspense fallback={<DelayedBrandLoader label="Loading jersey details" />}><ProductPage onAdd={addToCart} onBuyNow={buyNow} accountUser={accountUser} onSave={(productId) => void saveToWishlist(productId)} /></Suspense>}
+        {isShopPage && <Suspense fallback={null}><ShopPage key={pagePath} onSave={(productId) => void saveToWishlist(productId)} onAdd={(product) => addToCart(product)} /></Suspense>}
+        {isMarketplacePage && <Suspense fallback={null}><MarketplacePage onSave={(productId) => void saveToWishlist(productId)} onAdd={(product) => addToCart(product)} /></Suspense>}
+        {isProductPage && <Suspense fallback={null}><ProductPage onAdd={addToCart} onBuyNow={buyNow} accountUser={accountUser} onSave={(productId) => void saveToWishlist(productId)} /></Suspense>}
         {isCartPage && <section className="standalone-page page-width cart-page"><Link to="/shop" className="standalone-back"><ArrowDown size={14} /> Continue shopping</Link><h1>Your matchday bag</h1>
           {cart.length === 0 ? <div className="catalogue-state"><strong>Your bag is empty.</strong><span>Browse the team catalogue and find your colours.</span><Link className="button button-green" to="/shop">Shop teams <ArrowRight size={15} /></Link></div> : <><div className="cart-page-lines">{cart.map((line) => <article className="cart-line" key={`${line.productId}-${line.size}`}>{line.imageUrl ? <StoreImage src={line.imageUrl} alt="" width={120} height={150} /> : <div className="cart-image-placeholder">KC</div>}<div className="cart-line-info"><strong>{line.name}</strong><span>Size {line.size}</span><span>{money.format(line.price)}</span><div className="quantity-control"><button type="button" aria-label={`Remove one ${line.name}`} onClick={() => updateQuantity(line.productId, line.size, line.quantity - 1)}>−</button><span>{line.quantity}</span><button type="button" aria-label={`Add one ${line.name}`} onClick={() => updateQuantity(line.productId, line.size, line.quantity + 1)}>+</button></div></div><button className="remove-line" type="button" onClick={() => updateQuantity(line.productId, line.size, 0)}>Remove</button></article>)}</div><div className="cart-page-total"><span>Subtotal (delivery calculated at checkout)</span><strong>{money.format(subtotal)}</strong><Link to="/checkout" className="button button-green">Continue to checkout <ArrowRight size={15} /></Link></div></>}
         </section>}

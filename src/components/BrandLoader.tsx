@@ -29,7 +29,10 @@ export function RouteTransitionLoader() {
     return () => window.clearTimeout(timer)
   }, [transition.active, transition.pathname])
 
-  return transition.active ? <BrandLoader label="Loading next page" /> : null
+  const isAuthenticationPath = (path: string) => /(?:^|\/)(?:login|signup|forgot-password|reset-password|verify-email|access|activate|verify)$/.test(path)
+  const isAuthenticationTransition = isAuthenticationPath(transition.pathname) || isAuthenticationPath(pathname)
+
+  return transition.active && isAuthenticationTransition ? <BrandLoader label="Loading next page" /> : null
 }
 
 export function DelayedBrandLoader({ label, delayMs = 180 }: { label: string; delayMs?: number }) {
