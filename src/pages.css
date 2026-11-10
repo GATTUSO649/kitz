@@ -686,7 +686,7 @@
 .portal-featured-kits .product-category{color:var(--dark-muted)}
 .portal-featured-kits .product-team-name{color:var(--green)}
 .portal-featured-kits .product-card-actions{display:grid;gap:7px;margin:8px 12px 12px}
-.portal-featured-kits .product-card-actions .quick-add{width:100%;margin:0}
+.portal-featured-kits .product-card-actions .quick-add{width:100%;min-height:34px;margin:0}
 .portal-featured-kits .product-card-buy{display:flex;min-height:34px;align-items:center;justify-content:center;gap:6px;border:1px solid #00a96b;border-radius:4px;background:#00a96b;color:#fff;font-size:10px;font-weight:700;text-decoration:none}
 .portal-featured-kits .product-card-buy:hover{border-color:#008c5c;background:#008c5c}
 .portal-featured-kits .product-card-buy:focus-visible{outline:3px solid #83c99b;outline-offset:3px}

@@ -53,7 +53,7 @@ const eventCopy: Record<MarketplaceEmailKind, { subject: string; intro: string }
   product_publication_failed: { subject: 'MarketHub publication payment was not completed', intro: 'The payment was not verified. Your listing remains unpublished.' },
   product_removed: { subject: 'An update about your MarketHub listing', intro: 'An administrator has removed your listing from the marketplace.' },
   contact_unlock_payment_initiated: { subject: 'MarketHub contact payment started', intro: 'An M-Pesa contact-unlock prompt was requested. Seller contact remains protected until payment is verified.' },
-  contact_unlock_payment_success: { subject: 'MarketHub contact payment confirmed', intro: 'Your contact-unlock payment was verified successfully.' },
+  contact_unlock_payment_success: { subject: 'MarketHub | Contact access payment confirmed', intro: 'Your payment has been verified and the seller contact details are available below.' },
   contact_details_unlocked: { subject: 'MarketHub seller contact unlocked', intro: 'Your verified payment unlocked seller contact for the listing below.' },
   payment_unsuccessful: { subject: 'MarketHub payment was not completed', intro: 'The payment was not verified. No paid marketplace action was completed.' },
   payment_receipt: { subject: 'Your MarketHub payment receipt', intro: 'This is confirmation of a marketplace payment verified by M-Pesa.' },
@@ -80,8 +80,52 @@ export function escapeMarketplaceHtml(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
+function renderContactUnlockConfirmation(input: MarketplaceEmailInput): { subject: string; text: string; html: string } {
+  const payerName = safeValue(input.data.payerName, 120) || 'Customer'
+  const listingTitle = safeValue(input.data.title, 160) || 'Marketplace listing'
+  const reference = safeValue(input.data.reference, 40)
+  const amount = safeValue(input.data.amountKes, 20)
+  const sellerName = safeValue(input.data.sellerName, 120)
+  const sellerPhone = safeValue(input.data.sellerPhone, 24)
+  const sellerPhoneHref = sellerPhone.replace(/[^\d+]/g, '')
+  const sellerWhatsApp = safeValue(input.data.sellerWhatsApp, 24).replace(/\D/g, '')
+  const sellerEmail = safeValue(input.data.sellerEmail, 254)
+  const sellerEmailHref = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sellerEmail) ? sellerEmail : ''
+  const sellerLocation = safeValue(input.data.sellerLocation, 240)
+  const sellerRows: { label: string; value: string; destination?: string }[] = []
+  if (sellerName) sellerRows.push({ label: 'Seller', value: sellerName })
+  if (sellerPhone) sellerRows.push({ label: 'Phone', value: sellerPhone, destination: `tel:${sellerPhoneHref}` })
+  if (sellerWhatsApp) sellerRows.push({ label: 'WhatsApp', value: 'Message seller', destination: `https://wa.me/${sellerWhatsApp}` })
+  if (sellerEmailHref) sellerRows.push({ label: 'Email', value: sellerEmailHref, destination: `mailto:${sellerEmailHref}` })
+  if (sellerLocation) sellerRows.push({ label: 'Location', value: sellerLocation })
+  const sellerHtml = sellerRows.map(({ label, value, destination }) => {
+    const content = destination
+      ? `<a href="${escapeMarketplaceHtml(destination)}" style="color:#17643e;text-decoration:underline">${escapeMarketplaceHtml(value)}</a>`
+      : escapeMarketplaceHtml(value)
+    return `<tr><th align="left" style="padding:8px 12px;color:#68756f;font-size:13px;font-weight:600">${escapeMarketplaceHtml(label)}</th><td style="padding:8px 12px;color:#1d2b24;font-size:13px">${content}</td></tr>`
+  }).join('')
+  const text = [
+    `Hello ${payerName},`,
+    eventCopy.contact_unlock_payment_success.intro,
+    `Listing: ${listingTitle}`,
+    ...(reference ? [`Payment reference: ${reference}`] : []),
+    ...(amount ? [`Amount paid: KSh ${amount}`] : []),
+    'Seller contact details:',
+    ...(sellerName ? [`Name: ${sellerName}`] : []),
+    ...(sellerPhone ? [`Phone: ${sellerPhone}`] : []),
+    ...(sellerWhatsApp ? [`WhatsApp: https://wa.me/${sellerWhatsApp}`] : []),
+    ...(sellerEmailHref ? [`Email: ${sellerEmailHref}`] : []),
+    ...(sellerLocation ? [`Location: ${sellerLocation}`] : []),
+    '',
+    'MarketHub Kenya | This message confirms a verified M-PESA transaction. Never share your M-PESA PIN or one-time codes.',
+  ].join('\n\n')
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeMarketplaceHtml(eventCopy.contact_unlock_payment_success.subject)}</title></head><body style="margin:0;padding:24px 12px;background:#f1f4f2;color:#1d2b24;font-family:Arial,Helvetica,sans-serif"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;margin:0 auto;border-collapse:collapse;background:#fff;border:1px solid #dce5df"><tr><td style="padding:22px 28px;background:#123d2b;color:#fff"><div style="font-size:17px;font-weight:700;letter-spacing:.4px">MarketHub Kenya</div><div style="margin-top:5px;color:#d9e8df;font-size:11px;text-transform:uppercase">Verified payment confirmation</div></td></tr><tr><td style="padding:28px"><p style="margin:0 0 8px;color:#53645a;font-size:14px">Hello ${escapeMarketplaceHtml(payerName)},</p><h1 style="margin:0 0 12px;color:#173b29;font-size:22px;line-height:1.3">Contact access confirmed</h1><p style="margin:0 0 22px;color:#53645a;font-size:14px;line-height:1.65">${escapeMarketplaceHtml(eventCopy.contact_unlock_payment_success.intro)}</p><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;border:1px solid #e0e7e2;background:#f8faf8"><tr><th align="left" style="padding:10px 12px;color:#68756f;font-size:13px;font-weight:600">Listing</th><td style="padding:10px 12px;color:#1d2b24;font-size:13px">${escapeMarketplaceHtml(listingTitle)}</td></tr>${reference ? `<tr><th align="left" style="padding:8px 12px;color:#68756f;font-size:13px;font-weight:600">Payment reference</th><td style="padding:8px 12px;color:#1d2b24;font-size:13px">${escapeMarketplaceHtml(reference)}</td></tr>` : ''}${amount ? `<tr><th align="left" style="padding:8px 12px;color:#68756f;font-size:13px;font-weight:600">Amount paid</th><td style="padding:8px 12px;color:#1d2b24;font-size:13px">KSh ${escapeMarketplaceHtml(amount)}</td></tr>` : ''}</table><h2 style="margin:25px 0 8px;color:#173b29;font-size:16px">Seller contact details</h2><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;border:1px solid #e0e7e2">${sellerHtml || '<tr><td style="padding:12px;color:#53645a;font-size:13px">Contact the seller from the listing page.</td></tr>'}</table><p style="margin:24px 0 0;padding-top:16px;border-top:1px solid #e4e9e5;color:#68756f;font-size:11px;line-height:1.6">This message confirms a verified M-PESA transaction. MarketHub will never ask for your M-PESA PIN or one-time codes. For assistance, reply to this email.</p></td></tr></table></body></html>`
+  return { subject: eventCopy.contact_unlock_payment_success.subject, text, html }
+}
+
 export function renderMarketplaceEmail(input: MarketplaceEmailInput): { subject: string; text: string; html: string } {
   const copy = eventCopy[input.kind]
+  if (input.kind === 'contact_unlock_payment_success') return renderContactUnlockConfirmation(input)
   if (input.kind === 'admin_custom_message') {
     const subject = safeValue(input.data.subject, 180) || copy.subject
     const body = typeof input.data.body === 'string'

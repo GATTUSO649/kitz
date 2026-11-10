@@ -6,6 +6,8 @@ const inputSchema = z.object({
   xUrl: z.string().trim().max(2048).optional().default(''),
   youtubeUrl: z.string().trim().max(2048).optional().default(''),
   whatsappPhone: z.string().trim().max(24).optional().default(''),
+  contactEmail: z.string().trim().max(254).optional().default(''),
+  contactPhone: z.string().trim().max(24).optional().default(''),
 })
 
 function normalizeProfileUrl(value: string, hosts: string[]): string | null | undefined {
@@ -25,6 +27,8 @@ export type MarketplaceSocialLinks = {
   youtubeUrl: string | null
   whatsappPhone: string | null
   whatsappUrl: string | null
+  contactEmail: string | null
+  contactPhone: string | null
 }
 
 export function parseMarketplaceSocialLinks(value: unknown): { success: true; data: MarketplaceSocialLinks } | { success: false; message: string } {
@@ -33,7 +37,9 @@ export function parseMarketplaceSocialLinks(value: unknown): { success: true; da
   const facebookUrl = normalizeProfileUrl(parsed.data.facebookUrl, ['facebook.com', 'fb.com'])
   const xUrl = normalizeProfileUrl(parsed.data.xUrl, ['x.com', 'twitter.com'])
   const youtubeUrl = normalizeProfileUrl(parsed.data.youtubeUrl, ['youtube.com', 'youtu.be'])
-  if (facebookUrl === undefined || xUrl === undefined || youtubeUrl === undefined) {
+  const contactEmail = parsed.data.contactEmail ? parsed.data.contactEmail.toLowerCase() : null
+  if (facebookUrl === undefined || xUrl === undefined || youtubeUrl === undefined
+    || contactEmail && !z.string().email().safeParse(contactEmail).success) {
     return { success: false, message: 'Social links must use HTTPS and point to Facebook, X, or YouTube.' }
   }
   let whatsappPhone: string | null = null
@@ -44,6 +50,14 @@ export function parseMarketplaceSocialLinks(value: unknown): { success: true; da
       return { success: false, message: 'Enter a valid Kenyan mobile number for WhatsApp.' }
     }
   }
+  let contactPhone: string | null = null
+  if (parsed.data.contactPhone) {
+    try {
+      contactPhone = normalizeKenyanPhone(parsed.data.contactPhone)
+    } catch {
+      return { success: false, message: 'Enter a valid Kenyan mobile number for the contact phone.' }
+    }
+  }
   return {
     success: true,
     data: {
@@ -52,6 +66,8 @@ export function parseMarketplaceSocialLinks(value: unknown): { success: true; da
       youtubeUrl,
       whatsappPhone,
       whatsappUrl: whatsappPhone ? `https://wa.me/${whatsappPhone}` : null,
+      contactEmail,
+      contactPhone,
     },
   }
 }

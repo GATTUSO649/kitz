@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { and, asc, count, desc, eq, gte, ilike, inArray, lte, or, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gte, ilike, inArray, lte, ne, or, sql } from 'drizzle-orm'
 import { rateLimit } from 'express-rate-limit'
 import { Router } from 'express'
 import { z } from 'zod'
@@ -459,13 +459,14 @@ marketplaceAdminDataRouter.get('/dashboard', requireMarketplacePermission('dashb
   }
   try {
     const [listingStates, revenueRows, paymentStates, reports, recentListings] = await Promise.all([
-      database.select({ status: marketplaceProducts.status, total: count() }).from(marketplaceProducts).groupBy(marketplaceProducts.status),
+      database.select({ status: marketplaceProducts.status, total: count() }).from(marketplaceProducts).where(ne(marketplaceProducts.status, 'removed')).groupBy(marketplaceProducts.status),
       database.select({ purpose: marketplacePayments.purpose, amount: sql<string>`coalesce(sum(${marketplacePayments.amountKes}), 0)` })
         .from(marketplacePayments).where(eq(marketplacePayments.status, 'succeeded')).groupBy(marketplacePayments.purpose),
       database.select({ status: marketplacePayments.status, total: count() }).from(marketplacePayments).groupBy(marketplacePayments.status),
       database.select({ total: count() }).from(marketplaceProductReports).where(eq(marketplaceProductReports.status, 'open')),
       database.select({ reference: marketplaceProducts.reference, title: marketplaceProducts.title, status: marketplaceProducts.status, priceKes: marketplaceProducts.priceKes, createdAt: marketplaceProducts.createdAt, category: marketplaceCategories.name, county: marketplaceCounties.name })
         .from(marketplaceProducts).innerJoin(marketplaceCategories, eq(marketplaceProducts.categoryId, marketplaceCategories.id)).innerJoin(marketplaceSellers, eq(marketplaceProducts.sellerId, marketplaceSellers.id)).innerJoin(marketplaceCounties, eq(marketplaceSellers.countyId, marketplaceCounties.id))
+        .where(ne(marketplaceProducts.status, 'removed'))
         .orderBy(desc(marketplaceProducts.createdAt)).limit(8),
     ])
     const listingCount = (status: string) => Number(listingStates.find((item) => item.status === status)?.total ?? 0)
@@ -506,6 +507,7 @@ marketplaceAdminDataRouter.get('/listings', requireMarketplacePermission('listin
     const conditions = []
     if (query.data.q) conditions.push(ilike(marketplaceProducts.title, `%${query.data.q}%`))
     if (query.data.status) conditions.push(eq(marketplaceProducts.status, query.data.status))
+    else conditions.push(ne(marketplaceProducts.status, 'removed'))
     const where = conditions.length ? and(...conditions) : undefined
     const [rows, totals] = await Promise.all([
       database.select({ reference: marketplaceProducts.reference, slug: marketplaceProducts.slug, title: marketplaceProducts.title, status: marketplaceProducts.status, priceKes: marketplaceProducts.priceKes, createdAt: marketplaceProducts.createdAt, category: marketplaceCategories.name, county: marketplaceCounties.name, town: marketplaceSellers.town })
@@ -613,6 +615,8 @@ marketplaceAdminDataRouter.get('/settings/footer-social-links', requireMarketpla
       xUrl: result.data.xUrl ?? '',
       youtubeUrl: result.data.youtubeUrl ?? '',
       whatsappPhone: result.data.whatsappPhone ?? '',
+      contactEmail: result.data.contactEmail ?? '',
+      contactPhone: result.data.contactPhone ?? '',
     } })
   } catch (error) {
     next(error)
@@ -634,6 +638,8 @@ marketplaceAdminDataRouter.patch('/settings/footer-social-links', requireMarketp
     xUrl: parsed.data.xUrl,
     youtubeUrl: parsed.data.youtubeUrl,
     whatsappPhone: parsed.data.whatsappPhone,
+    contactEmail: parsed.data.contactEmail,
+    contactPhone: parsed.data.contactPhone,
   }
   const admin = adminSession(response)
   try {
@@ -649,6 +655,8 @@ marketplaceAdminDataRouter.patch('/settings/footer-social-links', requireMarketp
           xConfigured: Boolean(values.xUrl),
           youtubeConfigured: Boolean(values.youtubeUrl),
           whatsappConfigured: Boolean(values.whatsappPhone),
+          contactEmailConfigured: Boolean(values.contactEmail),
+          contactPhoneConfigured: Boolean(values.contactPhone),
         },
       })
     })
@@ -926,7 +934,7 @@ marketplaceAdminDataRouter.post('/payments/:reference/reconcile', requireMarketp
     return
   }
   try {
-    const [payment] = await database.select({ id: marketplacePayments.id, checkoutRequestId: marketplacePayments.checkoutRequestId, merchantRequestId: marketplacePayments.merchantRequestId, purpose: marketplacePayments.purpose, productId: marketplacePayments.productId, amountKes: marketplacePayments.amountKes, phone: marketplacePayments.phone, customerEmail: marketplacePayments.customerEmail, status: marketplacePayments.status, accessTokenHash: marketplacePayments.accessTokenHash })
+    const [payment] = await database.select({ id: marketplacePayments.id, checkoutRequestId: marketplacePayments.checkoutRequestId, merchantRequestId: marketplacePayments.merchantRequestId, purpose: marketplacePayments.purpose, productId: marketplacePayments.productId, amountKes: marketplacePayments.amountKes, phone: marketplacePayments.phone, customerEmail: marketplacePayments.customerEmail, providerDetails: marketplacePayments.providerDetails, status: marketplacePayments.status, accessTokenHash: marketplacePayments.accessTokenHash })
       .from(marketplacePayments).where(eq(marketplacePayments.paymentReference, reference.data)).limit(1)
     if (!payment) {
       response.status(404).json({ error: { code: 'PAYMENT_NOT_FOUND', message: 'The marketplace payment could not be found.' } })
@@ -973,7 +981,7 @@ marketplaceAdminDataRouter.post('/payments/:reference/reconcile', requireMarketp
     const admin = adminSession(response)
     let reconciled = false
     await database.transaction(async (transaction) => {
-      const updated = await transaction.update(marketplacePayments).set({ status: 'succeeded', providerReceipt: receipt, transactionAt, verifiedAt: now, callbackProcessedAt: now, providerDetails: { verification: 'operator_reconciliation', checkoutRequestId: payment.checkoutRequestId, merchantRequestId: payment.merchantRequestId }, updatedAt: now })
+      const updated = await transaction.update(marketplacePayments).set({ status: 'succeeded', providerReceipt: receipt, transactionAt, verifiedAt: now, callbackProcessedAt: now, providerDetails: { ...(payment.providerDetails ?? {}), verification: 'operator_reconciliation', checkoutRequestId: payment.checkoutRequestId, merchantRequestId: payment.merchantRequestId }, updatedAt: now })
         .where(and(eq(marketplacePayments.id, payment.id), inArray(marketplacePayments.status, ['pending', 'ambiguous'])))
         .returning({ id: marketplacePayments.id })
       if (!updated.length) return
@@ -997,7 +1005,22 @@ marketplaceAdminDataRouter.post('/payments/:reference/reconcile', requireMarketp
         for (const recipient of financeAdmins) await enqueueMarketplaceEmail(transaction, { eventKey: `payment:${reference.data}:admin-success:${recipient.email}`, to: recipient.email, kind: 'admin_publication_success', data: { title: product?.title, reference: reference.data, amountKes: payment.amountKes } })
       } else if (payment.purpose === 'CONTACT_UNLOCK' && payment.accessTokenHash) {
         await transaction.insert(marketplaceContactUnlocks).values({ productId: payment.productId!, paymentId: payment.id, tokenHash: payment.accessTokenHash, expiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000) }).onConflictDoNothing()
-        if (payment.customerEmail) await enqueueMarketplaceEmail(transaction, { eventKey: `payment:${reference.data}:receipt`, to: payment.customerEmail, kind: 'payment_receipt', data: { reference: reference.data, amountKes: payment.amountKes } })
+        if (payment.customerEmail) {
+          const [seller] = await transaction.select({ title: marketplaceProducts.title, sellerName: marketplaceSellers.name, sellerPhone: marketplaceSellers.phone, sellerWhatsApp: marketplaceSellers.whatsapp, sellerEmail: marketplaceSellers.email, area: marketplaceSellers.area, town: marketplaceSellers.town, subcounty: marketplaceSellers.subcounty, county: marketplaceCounties.name })
+            .from(marketplaceProducts).innerJoin(marketplaceSellers, eq(marketplaceProducts.sellerId, marketplaceSellers.id)).innerJoin(marketplaceCounties, eq(marketplaceSellers.countyId, marketplaceCounties.id)).where(eq(marketplaceProducts.id, payment.productId!)).limit(1)
+          const payerName = typeof payment.providerDetails?.payerName === 'string' ? payment.providerDetails.payerName : ''
+          await enqueueMarketplaceEmail(transaction, { eventKey: `payment:${reference.data}:verified`, to: payment.customerEmail, kind: 'contact_unlock_payment_success', data: {
+            payerName,
+            title: seller?.title,
+            reference: reference.data,
+            amountKes: payment.amountKes,
+            sellerName: seller?.sellerName,
+            sellerPhone: seller?.sellerPhone,
+            sellerWhatsApp: seller?.sellerWhatsApp,
+            sellerEmail: seller?.sellerEmail,
+            sellerLocation: [seller?.area, seller?.town, seller?.subcounty, seller?.county].filter(Boolean).join(', '),
+          } })
+        }
       }
       await transaction.insert(marketplaceAuditLogs).values({ adminUserId: admin.id, action: 'payment.reconcile.success', resourceType: 'marketplace_payment', resourceId: payment.id, metadata: { reference: reference.data } })
     })

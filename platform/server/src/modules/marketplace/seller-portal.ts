@@ -6,7 +6,7 @@ import { rateLimit } from 'express-rate-limit'
 import { Router } from 'express'
 import { z } from 'zod'
 import { database } from '../../database/connection.js'
-import { marketplaceAuditLogs, marketplaceCategories, marketplaceCounties, marketplaceProductImages, marketplaceProductViews, marketplaceProducts, marketplaceSellerAccounts, marketplaceSellerSessions, marketplaceSellers, marketplaceSellerVerificationTokens, marketplaceSubcategories } from '../../database/schema.js'
+import { marketplaceAuditLogs, marketplaceCategories, marketplaceCounties, marketplacePayments, marketplaceProductImages, marketplaceProductViews, marketplaceProducts, marketplaceSellerAccounts, marketplaceSellerSessions, marketplaceSellers, marketplaceSellerVerificationTokens, marketplaceSubcategories } from '../../database/schema.js'
 import { enqueueMarketplaceEmail } from '../email/outbox.js'
 import { hashSecret, normalizeKenyanPhone } from './security.js'
 import { marketplaceImageDeliveryUrl } from './images.js'
@@ -340,12 +340,12 @@ marketplaceSellerDataRouter.get('/seller/products', requireMarketplaceSeller, as
     }).from(marketplaceProducts)
       .innerJoin(marketplaceSellers, eq(marketplaceProducts.sellerId, marketplaceSellers.id))
       .innerJoin(marketplaceCategories, eq(marketplaceProducts.categoryId, marketplaceCategories.id))
-      .where(eq(marketplaceSellers.accountId, seller.id)).orderBy(desc(marketplaceProducts.createdAt))
+      .where(and(eq(marketplaceSellers.accountId, seller.id), ne(marketplaceProducts.status, 'removed'))).orderBy(desc(marketplaceProducts.createdAt))
     const images = products.length ? await database.select({ id: marketplaceProductImages.id, productId: marketplaceProductImages.productId, imageUrl: marketplaceProductImages.imageUrl, isPrimary: marketplaceProductImages.isPrimary, sortOrder: marketplaceProductImages.sortOrder })
       .from(marketplaceProductImages).where(inArray(marketplaceProductImages.productId, products.map((product) => product.id))).orderBy(desc(marketplaceProductImages.isPrimary), marketplaceProductImages.sortOrder) : []
     const productIds = products.map((product) => product.id)
     const yearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000)
-    const [viewTotals, dailyViews, recentActivity] = await Promise.all([
+    const [viewTotals, dailyViews, recentActivity, interestedViewers] = await Promise.all([
       productIds.length
         ? database.select({ productId: marketplaceProductViews.productId, total: count() }).from(marketplaceProductViews)
           .where(inArray(marketplaceProductViews.productId, productIds)).groupBy(marketplaceProductViews.productId)
@@ -366,6 +366,24 @@ marketplaceSellerDataRouter.get('/seller/products', requireMarketplaceSeller, as
             sql`${marketplaceAuditLogs.metadata}->>'sellerAccountId' = ${seller.id}`,
           ))
           .orderBy(desc(marketplaceAuditLogs.createdAt)).limit(12)
+        : Promise.resolve([]),
+      productIds.length
+        ? database.select({
+          name: sql<string>`coalesce(${marketplacePayments.providerDetails}->>'payerName', 'Customer')`,
+          phone: marketplacePayments.phone,
+          reference: marketplaceProducts.reference,
+          title: marketplaceProducts.title,
+          paidAt: marketplacePayments.verifiedAt,
+        }).from(marketplacePayments)
+          .innerJoin(marketplaceProducts, eq(marketplacePayments.productId, marketplaceProducts.id))
+          .innerJoin(marketplaceSellers, eq(marketplaceProducts.sellerId, marketplaceSellers.id))
+          .where(and(
+            eq(marketplaceSellers.accountId, seller.id),
+            eq(marketplacePayments.purpose, 'CONTACT_UNLOCK'),
+            eq(marketplacePayments.status, 'succeeded'),
+            inArray(marketplacePayments.productId, productIds),
+          ))
+          .orderBy(desc(marketplacePayments.verifiedAt)).limit(100)
         : Promise.resolve([]),
     ])
     const imagesByProduct = new Map<string, typeof images>()
@@ -393,6 +411,7 @@ marketplaceSellerDataRouter.get('/seller/products', requireMarketplaceSeller, as
         viewsPrevious30Days,
         dailyViews: dailyViews.map((row) => ({ day: row.day, views: Number(row.total) })),
         viewsByListing: products.map((product) => ({ reference: product.reference, views: viewCountByProduct.get(product.id) ?? 0 })),
+        interestedViewers: interestedViewers.map((viewer) => ({ ...viewer, paidAt: viewer.paidAt?.toISOString() ?? null })),
       },
       recentActivity: [
         ...products.flatMap((product) => [

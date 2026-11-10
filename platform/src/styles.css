@@ -71,6 +71,9 @@ button, input { font: inherit; }
 .landing-footer p { width: 380px; flex: 0 1 380px; display: flex; align-items: center; justify-content: center; gap: 12px; text-align: center; font: italic 500 14px/1.2 'DM Sans', sans-serif; }
 .landing-footer p i { background: #d7e8ff; }
 .footer-right { display: flex; align-items: center; gap: 17px; }
+.footer-contact-links { display: flex; align-items: center; gap: 9px; }
+.footer-contact-links a { display: inline-flex; align-items: center; gap: 4px; color: #e6eefb; font-size: 10px; white-space: nowrap; }
+.footer-contact-links svg { width: 13px; height: 13px; }
 .footer-social { display: flex; align-items: center; gap: 7px; }
 .footer-social a, .footer-social span { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; color: white; font-size: 12px; }
 .footer-social a { transition: transform .18s ease, box-shadow .18s ease; }
@@ -82,8 +85,7 @@ button, input { font: inherit; }
 .social-whatsapp { background: #11c964; }
 .footer-divider { width: 1px; height: 29px; background: #d7e8ffb3; }
 .footer-meta { display: flex; align-items: center; gap: 7px; font-size: 11px; }
-.kenya-flag { width: 20px; height: 14px; position: relative; display: inline-block; flex: 0 0 20px; overflow: hidden; border: 1px solid #ffffff9c; border-radius: 1px; background: linear-gradient(to bottom, #090909 0 27%, #fff 27% 36%, #b51224 36% 64%, #fff 64% 73%, #08743b 73% 100%); }
-.kenya-shield { position: absolute; top: 1px; left: 7px; width: 4px; height: 10px; border: 1px solid #fff; border-radius: 50%; background: #b51224; box-shadow: 0 0 0 1px #101010; }
+.kenya-flag { width: 20px; height: 14px; display: block; flex: 0 0 20px; border: 1px solid #ffffff9c; border-radius: 1px; }
 .footer-meta small { margin-left: 12px; color: #a8b8ce; }
 
 .marketplace-shell { min-height: 100vh; color: #10271e; background: #f5f8f6; }
@@ -202,6 +204,16 @@ button, input { font: inherit; }
 .market-footer-social a:nth-child(3) { background: #e62117; }
 .market-footer-social a:nth-child(4) { background: #11a85b; }
 .market-footer-social svg { width: 13px; height: 13px; }
+.payment-waiting { min-height: 210px; padding: 28px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; color: #53645a; }
+.payment-waiting > svg { color: #078e3b; animation: payment-spin 1.1s linear infinite; }
+.payment-waiting strong { color: #173b29; font-size: 15px; }
+.payment-waiting span { max-width: 340px; font-size: 12px; line-height: 1.55; }
+.seller-paid-viewers article { grid-template-columns: 32px minmax(0, 1fr) auto auto; }
+.seller-paid-viewer-mark { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; color: #087c3b; background: #e7f3eb; }
+.seller-paid-viewers article > a { color: #17643e; font-size: 12px; font-weight: 700; }
+.seller-paid-viewers article > time { color: #68756f; font-size: 11px; }
+@keyframes payment-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .payment-waiting > svg { animation-duration: 3s; } }
 .legal-page { padding-bottom: 36px; }
 .legal-page > article { width: min(820px, calc(100% - 32px)); margin: 28px auto; padding: clamp(20px, 4vw, 42px); border: 1px solid #e1e9e3; border-radius: 8px; background: #fff; box-shadow: 0 4px 18px #113d2710; }
 .legal-page article > .hero-eyebrow { margin: 0; color: #087c38; }

@@ -465,15 +465,17 @@
 .auth-layout .auth-return-link { border-color: #164d86; border-radius: 6px; background: #0a2145; color: #d7e8ff; box-shadow: none; }
 .auth-layout .auth-return-link:hover { border-color: var(--kc-bright); background: #0d2b58; color: #fff; }
 .auth-layout .auth-card.auth-card-split {
-  min-height: 560px;
+  min-height: 470px;
   border-color: #164d86;
   border-radius: 12px;
   background: #071b3a;
   box-shadow: 0 24px 70px #0008;
 }
 
+.auth-layout .auth-content-inner { width: min(100%, 760px); }
+
 .auth-layout .auth-card-side {
-  padding: 36px;
+  padding: 26px;
   clip-path: none;
   background: linear-gradient(180deg, #04132b50, #04132be8), url('./assets/ghjkhgfds.png') center / cover no-repeat;
 }
@@ -482,7 +484,7 @@
 .auth-layout .auth-card-brand { color: #fff; }
 .auth-layout .auth-card-brand img { width: 44px; height: 42px; }
 .auth-layout .auth-card-side-kicker { color: var(--kc-yellow); }
-.auth-layout .auth-card-side h2 { font-size: 40px; }
+.auth-layout .auth-card-side h2 { font-size: 34px; }
 .auth-layout .auth-card-side h2 em { color: var(--kc-yellow); font-weight: 800; }
 .auth-layout .auth-card-side-copy > p,
 .auth-layout .auth-card-side-switch > span { color: #d7e8ff; }
@@ -503,7 +505,7 @@
 .auth-layout .auth-card > label { color: #d7e8ff; }
 .auth-layout .auth-card-split .auth-card-fields input:not([type="checkbox"]):not([type="radio"]),
 .auth-layout .auth-card input:not([type="checkbox"]):not([type="radio"]) {
-  min-height: 48px;
+  min-height: 42px;
   border-color: #1b5794;
   border-radius: 6px;
   background: #04132b;
@@ -511,9 +513,9 @@
   color-scheme: dark;
 }
 .auth-layout .auth-card-split .auth-card-fields input::placeholder { color: #a9bed8; }
-.auth-layout .auth-card-split .auth-card-fields .auth-password-control > button { height: 48px; color: #c5d5e8; }
+.auth-layout .auth-card-split .auth-card-fields .auth-password-control > button { height: 42px; color: #c5d5e8; }
 .auth-layout .auth-card-split .auth-card-fields .auth-password-control > button:hover { color: var(--kc-yellow); }
-.auth-layout .auth-submit { min-height: 48px; border-radius: 7px; }
+.auth-layout .auth-submit { min-height: 42px; border-radius: 7px; }
 .auth-layout .auth-feedback { border-color: #245c93; border-radius: 6px; background: #0d2b58; color: #d7e8ff; }
 .auth-layout .auth-feedback.success { border-color: #30836f; background: #0b3b48; color: #a6f1dc; }
 .auth-layout .auth-field-error { color: #ffb6a8; }

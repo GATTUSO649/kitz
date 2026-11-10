@@ -103,6 +103,10 @@ test('site image overrides accept only HTTPS Cloudinary assets and known image s
 test('editable site content is bounded plain text with a strict field allowlist', () => {
   const content = { terms: 'Terms\n\nSecond paragraph', privacy: 'Privacy', kitzFooterDescription: 'Store copy', kitzFooterCopyright: '© KitCulture', platformFooterNotice: '© MarketHub' }
   assert.equal(siteContentSchema.safeParse(content).success, true)
+  assert.equal(siteContentSchema.safeParse({ ...content, platformFacebookUrl: 'https://facebook.com/markethub' }).success, true)
+  assert.equal(siteContentSchema.safeParse({ ...content, platformFacebookUrl: 'javascript:alert(1)' }).success, false)
+  assert.equal(siteContentSchema.safeParse({ ...content, platformContactEmail: 'not-an-email' }).success, false)
+  assert.equal(siteContentSchema.safeParse({ ...content, platformWhatsappPhone: '12345' }).success, false)
   assert.equal(siteContentSchema.safeParse({ ...content, injectedField: 'ignored' }).success, false)
   assert.equal(siteContentSchema.safeParse({ ...content, terms: 'x'.repeat(20_001) }).success, false)
 })

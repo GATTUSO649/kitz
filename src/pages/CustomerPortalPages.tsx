@@ -483,6 +483,8 @@ export function CustomerPortalPage({ path, user, onProfileUpdate }: { path: stri
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState<Address | null>(null)
+  const [addressPinStatus, setAddressPinStatus] = useState('')
+  const [addressPin, setAddressPin] = useState<{ latitude: number; longitude: number } | null>(null)
   const [notificationsUnreadOnly, setNotificationsUnreadOnly] = useState(false)
   const [notificationBusy, setNotificationBusy] = useState(false)
   const [paymentBusy, setPaymentBusy] = useState(false)
@@ -682,6 +684,8 @@ export function CustomerPortalPage({ path, user, onProfileUpdate }: { path: stri
       const result = await response.json() as { error?: { message?: string } }
       if (!response.ok) throw new Error(result.error?.message ?? 'Address could not be saved.')
       setEditing(null)
+      setAddressPin(null)
+      setAddressPinStatus('')
       setMessage(editing ? 'Delivery address updated.' : 'Delivery address saved.')
       await queryClient.invalidateQueries({ queryKey: ['account-addresses', user.id] })
     } catch (cause) {
@@ -689,6 +693,29 @@ export function CustomerPortalPage({ path, user, onProfileUpdate }: { path: stri
     } finally {
       setBusy(false)
     }
+  }
+
+  function pinAddressLocation(form: HTMLFormElement) {
+    setAddressPinStatus('')
+    if (!navigator.geolocation) {
+      setAddressPinStatus('Location sharing is not available in this browser.')
+      return
+    }
+    setAddressPinStatus('Finding your delivery location…')
+    navigator.geolocation.getCurrentPosition((position) => {
+      const latitude = form.elements.namedItem('latitude')
+      const longitude = form.elements.namedItem('longitude')
+      if (!(latitude instanceof HTMLInputElement) || !(longitude instanceof HTMLInputElement)) {
+        setAddressPinStatus('The delivery pin could not be added to this address.')
+        return
+      }
+      latitude.value = String(position.coords.latitude)
+      longitude.value = String(position.coords.longitude)
+      setAddressPin({ latitude: position.coords.latitude, longitude: position.coords.longitude })
+      setAddressPinStatus(`Pin saved here with approximately ${Math.round(position.coords.accuracy)} m accuracy.`)
+    }, (issue) => setAddressPinStatus(issue.code === issue.PERMISSION_DENIED
+      ? 'Allow location access in your browser to pin this address.'
+      : 'Your delivery location could not be found. You can enter coordinates manually.'), { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 })
   }
 
   async function removeAddress(address: Address) {
@@ -773,7 +800,7 @@ export function CustomerPortalPage({ path, user, onProfileUpdate }: { path: stri
               <button className="button button-green" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save profile'} <ArrowRight size={15} /></button>
             </form>)}
 
-        {path === '/account/security' && <><p className="portal-note">Changing your password signs out all active customer sessions. Administrator accounts are stored separately and are not affected.</p><form className="portal-form" onSubmit={(event) => void changePassword(event)}>
+        {path === '/account/security' && <><form className="portal-form" onSubmit={(event) => void changePassword(event)}>
           <label>Current password<input name="currentPassword" type="password" autoComplete="current-password" required maxLength={128} /></label>
           <label>New password<input name="newPassword" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label>
           <label>Confirm new password<input name="confirmPassword" type="password" autoComplete="new-password" required minLength={14} maxLength={128} /></label>
@@ -789,6 +816,9 @@ export function CustomerPortalPage({ path, user, onProfileUpdate }: { path: stri
             <div className="checkout-fields"><label>Estate<input name="estate" defaultValue={editing?.estate ?? ''} maxLength={100} /></label><label>Landmark<input name="landmark" defaultValue={editing?.landmark ?? ''} maxLength={180} /></label></div>
             <label>Delivery instructions<input name="instructions" defaultValue={editing?.instructions ?? ''} maxLength={500} /></label>
             <div className="checkout-fields"><label>Latitude <span>(optional)</span><input name="latitude" type="number" step="any" min="-90" max="90" defaultValue={editing?.latitude ?? ''} /></label><label>Longitude <span>(optional)</span><input name="longitude" type="number" step="any" min="-180" max="180" defaultValue={editing?.longitude ?? ''} /></label></div>
+            <button type="button" className="button button-outline checkout-location-button" disabled={busy} onClick={(event) => { if (event.currentTarget.form) pinAddressLocation(event.currentTarget.form) }}><MapPin size={15} /> Pin this saved address</button>
+            {addressPinStatus && <p className="checkout-location-status" role="status">{addressPinStatus}</p>}
+            {addressPin && <GoogleMapView latitude={addressPin.latitude} longitude={addressPin.longitude} title={`Saved delivery pin${editing ? ` · ${editing.label}` : ''}`} />}
             <label className="portal-checkbox"><input name="isDefault" type="checkbox" defaultChecked={editing?.isDefault ?? false} /> Set as my default delivery address</label>
             <div className="portal-form-actions"><button className="button button-green" type="submit" disabled={busy}>{busy ? 'Saving…' : editing ? 'Save changes' : 'Add address'}</button>{editing && <button type="button" className="button button-outline" onClick={() => setEditing(null)}>Cancel edit</button>}</div>
           </form>
@@ -796,7 +826,7 @@ export function CustomerPortalPage({ path, user, onProfileUpdate }: { path: stri
             : addressQuery.isError ? <div className="catalogue-state error-state"><strong>Addresses unavailable</strong><span>{addressQuery.error.message}</span><button type="button" className="portal-retry-link" onClick={() => void addressQuery.refetch()}>Retry</button></div>
               : addressQuery.data?.length ? <div className="portal-address-list">{addressQuery.data.map((address) => <article className="portal-address-card" key={address.id}>
                 <div><strong>{address.label} {address.isDefault && <span className="portal-default">DEFAULT</span>}</strong><span>{address.recipientName} · {address.phone}</span><span>{address.address}, {address.town}, {address.county}{address.estate ? ` · ${address.estate}` : ''}</span></div>
-                <div className="portal-row-actions"><button type="button" disabled={busy} onClick={() => setEditing(address)}>Edit</button><button type="button" disabled={busy} onClick={() => void removeAddress(address)}>Remove</button></div>
+                <div className="portal-row-actions"><button type="button" disabled={busy} onClick={() => { setEditing(address); setAddressPin(address.latitude !== null && address.longitude !== null ? { latitude: Number(address.latitude), longitude: Number(address.longitude) } : null); setAddressPinStatus('') }}>Edit</button><button type="button" disabled={busy} onClick={() => void removeAddress(address)}>Remove</button></div>
               </article>)}</div>
                 : <div className="catalogue-state"><strong>No saved delivery addresses.</strong><span>Add an address above to keep checkout details ready.</span></div>}
         </>}

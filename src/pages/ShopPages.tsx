@@ -10,6 +10,7 @@ import { StoreImage } from '../components/StoreImage'
 import { WhatsAppProductLink } from '../components/WhatsAppProductLink'
 import { useStoreWhatsAppNumber } from '../components/whatsapp-product'
 import { userFacingErrorMessage } from '../components/notification-api'
+import { PaymentWaitState } from '../components/PaymentWaitState'
 import { matchesNationalTeam, NATIONAL_TEAM_NAMES } from '../nationalTeams'
 
 export type ShopVariant = { id: number; size: string; stock: number; price?: string | null }
@@ -27,6 +28,7 @@ export type BuyNowCheckoutDetails = {
   town?: string
   estate?: string
   landmark?: string
+  instructions?: string
   latitude?: number
   longitude?: number
   accuracy?: number
@@ -35,7 +37,9 @@ export type BuyNowResult = { message: string; guestOrderNumber?: string }
 type ShopImage = { id: number; imageUrl: string; altText: string; sortOrder: number; isPrimary: boolean }
 type ShopVideo = { id: number; videoUrl: string; title: string; sortOrder: number }
 type ProductReview = { id: number; reviewerName: string; rating: number; body: string; createdAt: string }
+type SavedDeliveryAddress = { id: number; label: string; recipientName: string; phone: string; address: string; county: string; town: string; estate: string | null; landmark: string | null; instructions: string | null; latitude: string | null; longitude: string | null; isDefault: boolean }
 type GuestOrderPaymentStatus = { orderNumber: string; status: string; total: string; payment: { status: string; verificationMessage: string | null } | null }
+export type Category = { id: string; name: string; subcategories: { id: string; name: string }[] }
 export type ShopProduct = {
   id: number
   name: string
@@ -120,8 +124,8 @@ function ProductsGrid({ products, onSave, onAdd, portalMode = false, whatsappNum
       {!portalMode && <KitRating productId={product.id} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />}
       <div className="product-meta"><div className="product-sizes">{product.variants.length ? product.variants.map((variant) => <span className={!variant.stock ? 'is-sold-out' : ''} key={variant.id}>{variant.size}</span>) : <span>Sizes unavailable</span>}</div><span className={stock > 0 ? 'stock-label' : 'stock-label sold-out'}>{stock > 0 ? 'In stock' : 'Out of stock'}</span></div>
       <div className="product-card-actions public-product-card-actions">{portalMode
-        ? <Link className="quick-add quick-add-preview" to={productPath(product.slug)} state={{ openBuyFlow: true }}><ShoppingCart size={13} />Buy</Link>
-        : <><button className="quick-add" type="button" disabled={!stock || !onAdd} onClick={() => onAdd?.(product)}><ShoppingCart size={13} />Add to Cart</button><Link className="product-card-buy public-product-card-shop" to={productPath(product.slug)} state={{ openBuyFlow: true }}>Shop <ArrowRight size={14} /></Link></>}
+        ? <Link className="quick-add quick-add-preview" to={productPath(product.slug)} state={{ openBuyFlow: true }}>Buy</Link>
+        : <><button className="quick-add" type="button" disabled={!stock || !onAdd} onClick={() => onAdd?.(product)}><ShoppingCart size={13} />Add to Cart</button><Link className="product-card-buy public-product-card-shop" to={productPath(product.slug)} state={{ openBuyFlow: true }}>Buy</Link></>}
         {whatsappNumber && <WhatsAppProductLink phone={whatsappNumber} product={product} />}
       </div>
     </article>
@@ -352,7 +356,7 @@ export function ShopPage({ onSave, onAdd }: { onSave: (productId: number) => voi
   </section>
 }
 
-export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode = false }: { onAdd: (product: ShopProduct, selections: ShopPurchaseSelection[]) => void; onBuyNow: (product: ShopProduct, selections: ShopPurchaseSelection[], details: BuyNowCheckoutDetails) => Promise<BuyNowResult | string | void>; onSave: (productId: number) => void; accountUser: { fullName: string; email: string; phone: string | null } | null; portalMode?: boolean }) {
+export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode = false }: { onAdd: (product: ShopProduct, selections: ShopPurchaseSelection[]) => void; onBuyNow: (product: ShopProduct, selections: ShopPurchaseSelection[], details: BuyNowCheckoutDetails) => Promise<BuyNowResult | string | void>; onSave: (productId: number) => void; accountUser: { id: number; fullName: string; email: string; phone: string | null } | null; portalMode?: boolean }) {
   const whatsappNumber = useStoreWhatsAppNumber()
   const location = useLocation()
   const navigate = useNavigate()
@@ -372,6 +376,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
   const [buyFlowBusy, setBuyFlowBusy] = useState(false)
   const [buyFlowIdempotencyKey, setBuyFlowIdempotencyKey] = useState(() => crypto.randomUUID())
   const [deliveryZoneId, setDeliveryZoneId] = useState('')
+  const [deliveryAddressId, setDeliveryAddressId] = useState('')
   const [deliveryPinStatus, setDeliveryPinStatus] = useState('')
   const [deliveryPin, setDeliveryPin] = useState<{ latitude: number; longitude: number; accuracy: number | null } | null>(null)
   const [deliveryPhone, setDeliveryPhone] = useState(accountUser?.phone ?? '')
@@ -415,6 +420,16 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
       const response = await fetch('/api/v1/delivery/zones')
       const result = await response.json() as { data?: { id: number; name: string; fee: string }[]; error?: { message?: string } }
       if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Delivery areas are unavailable.')
+      return result.data
+    },
+  })
+  const savedAddressesQuery = useQuery({
+    queryKey: ['account-addresses', accountUser?.id],
+    enabled: Boolean(accountUser && buyFlowOpen),
+    queryFn: async () => {
+      const response = await fetch('/api/v1/account/addresses')
+      const result = await response.json() as { data?: SavedDeliveryAddress[]; error?: { message?: string } }
+      if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Saved delivery addresses could not be loaded.')
       return result.data
     },
   })
@@ -503,7 +518,17 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
   const selectedImageIndex = Math.max(0, galleryImages.findIndex((image) => image.id === selectedImage?.id))
   const imageUrl = selectedImage?.imageUrl ?? product.imageUrl
   const selectedZone = deliveryZonesQuery.data?.find((zone) => String(zone.id) === deliveryZoneId)
+  const selectedDeliveryAddress = savedAddressesQuery.data?.find((address) => String(address.id) === deliveryAddressId)
   const buyFlowTotal = selectedSubtotal + Number(selectedZone?.fee ?? 0)
+  useEffect(() => {
+    if (!savedAddressesQuery.data?.length) {
+      if (deliveryAddressId) setDeliveryAddressId('')
+      return
+    }
+    if (savedAddressesQuery.data.some((address) => String(address.id) === deliveryAddressId)) return
+    const preferredAddress = savedAddressesQuery.data.find((address) => address.isDefault) ?? savedAddressesQuery.data[0]
+    setDeliveryAddressId(String(preferredAddress.id))
+  }, [deliveryAddressId, savedAddressesQuery.data])
   const guestPaymentStatus = guestOrderStatusQuery.data?.payment?.status
   const guestPaymentRetryable = guestOrderStatusQuery.isSuccess
     && (!guestPaymentStatus || ['cancelled', 'failed', 'expired'].includes(guestPaymentStatus))
@@ -582,6 +607,14 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
         setBuyFlowError('Choose a delivery area before continuing.')
         return
       }
+      if (portalMode && !accountUser) {
+        setBuyFlowError('Sign in before placing a customer-portal order.')
+        return
+      }
+      if (accountUser && !selectedDeliveryAddress) {
+        setBuyFlowError('Choose a saved delivery address before continuing. Add one in your account if needed.')
+        return
+      }
       setBuyFlowError('')
       setBuyFlowStep(2)
       return
@@ -618,10 +651,19 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
         paymentMethod: buyFlowPaymentMethod,
         email: accountUser?.email ?? guestEmail,
         payerPhone,
-        recipientName: accountUser?.fullName ?? guestRecipientName,
-        phone: deliveryPhone,
-        ...(deliveryPin ? { latitude: deliveryPin.latitude, longitude: deliveryPin.longitude } : {}),
-        ...(deliveryPin?.accuracy !== null && deliveryPin ? { accuracy: deliveryPin.accuracy } : {}),
+        recipientName: selectedDeliveryAddress?.recipientName ?? guestRecipientName,
+        phone: selectedDeliveryAddress?.phone ?? deliveryPhone,
+        ...(selectedDeliveryAddress ? {
+          address: selectedDeliveryAddress.address,
+          county: selectedDeliveryAddress.county,
+          town: selectedDeliveryAddress.town,
+          ...(selectedDeliveryAddress.estate ? { estate: selectedDeliveryAddress.estate } : {}),
+          ...(selectedDeliveryAddress.landmark ? { landmark: selectedDeliveryAddress.landmark } : {}),
+          ...(selectedDeliveryAddress.instructions ? { instructions: selectedDeliveryAddress.instructions } : {}),
+        } : {}),
+        ...(selectedDeliveryAddress?.latitude !== null && selectedDeliveryAddress?.longitude !== null && selectedDeliveryAddress ? { latitude: Number(selectedDeliveryAddress.latitude), longitude: Number(selectedDeliveryAddress.longitude) } : {}),
+        ...(!selectedDeliveryAddress && deliveryPin ? { latitude: deliveryPin.latitude, longitude: deliveryPin.longitude } : {}),
+        ...(!selectedDeliveryAddress && deliveryPin?.accuracy !== null && deliveryPin ? { accuracy: deliveryPin.accuracy } : {}),
       })
       if (!portalMode && !accountUser) {
         setBuyFlowConfirmation(typeof result === 'object' && result ? result.message : result ?? 'Your guest order was created. Check your phone for the M-PESA prompt.')
@@ -706,7 +748,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
         })}</div><small className="product-size-limit">Choose multiple sizes if needed. Maximum 5 kits total, limited by available stock.</small></section>}
         <p className="product-purchase-total"><span>{selectedQuantity} {selectedQuantity === 1 ? 'kit' : 'kits'} selected</span><strong>{money.format(selectedSubtotal)}</strong></p>
         <button className="button button-outline product-add" type="button" disabled={!selectedItems.length} onClick={() => selectedItems.length && onAdd(product, selectedItems)}>Add to bag<ArrowRight size={16} /></button>
-        <button className="button button-green product-buy-now" type="button" disabled={!product.variants.some((variant) => variant.stock > 0)} onClick={() => { setBuyFlowStep(0); setBuyFlowPaymentMethod(!portalMode && !accountUser ? 'mpesa' : 'pay_on_delivery'); setBuyFlowError(''); setBuyFlowConfirmation(''); setGuestOrderNumber(''); setBuyFlowIdempotencyKey(crypto.randomUUID()); setPayerPhone(accountUser?.phone ?? ''); setBuyFlowOpen(true) }}>Buy now <ArrowRight size={16} /></button>
+        <button className="button button-green product-buy-now" type="button" disabled={!product.variants.some((variant) => variant.stock > 0)} onClick={() => { setBuyFlowStep(0); setBuyFlowPaymentMethod(!portalMode && !accountUser ? 'mpesa' : 'pay_on_delivery'); setBuyFlowError(''); setBuyFlowConfirmation(''); setGuestOrderNumber(''); setBuyFlowIdempotencyKey(crypto.randomUUID()); setPayerPhone(accountUser?.phone ?? ''); setBuyFlowOpen(true) }}>Buy</button>
         <div className="product-secondary-actions"><button className="wishlist-add" type="button" onClick={() => onSave(product.id)}>Save to wishlist</button>
         {portalMode && <button className="product-chat-button" type="button" onClick={() => navigate('/account/chat', { state: {
           draft: `Hi KitCulture Admin, I’m interested in ${product.name}. The listed price is ${money.format(startingPrice)}. Is it available?`,
@@ -745,15 +787,21 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
       </div> : <form className="buy-flow-content" onSubmit={(event) => void submitBuyFlow(event)} noValidate>
         {buyFlowStep === 1 && <>
           {deliveryZonesQuery.isPending ? <p>Loading delivery areas…</p> : deliveryZonesQuery.isError ? <p className="buy-flow-error">{deliveryZonesQuery.error.message}</p> : <label>Delivery area<select required value={deliveryZoneId} onChange={(event) => setDeliveryZoneId(event.target.value)}><option value="">Choose an area</option>{deliveryZonesQuery.data?.map((zone) => <option key={zone.id} value={zone.id}>{zone.name} · {money.format(Number(zone.fee))}</option>)}</select></label>}
-          {!portalMode && !accountUser && <label>Recipient full name<input autoComplete="name" required minLength={2} maxLength={160} value={guestRecipientName} onChange={(event) => setGuestRecipientName(event.target.value)} /></label>}
-          {!portalMode && !accountUser && <label>Email address<input type="email" autoComplete="email" required maxLength={254} value={guestEmail} onChange={(event) => setGuestEmail(event.target.value)} /></label>}
-          <label>Delivery recipient phone<input type="tel" inputMode="tel" autoComplete="tel" required minLength={7} maxLength={20} value={deliveryPhone} onChange={(event) => setDeliveryPhone(event.target.value)} /></label>
-          <p className="buy-flow-hint">Choose a delivery area. Pinning your exact location is optional; its map preview appears with payment details.</p>
-          <button className="button button-outline checkout-location-button" type="button" onClick={pinDeliveryLocation}><MapPin size={15} /> Pin my delivery location</button>
-          {deliveryPinStatus && <p className="checkout-location-status" role="status">{deliveryPinStatus}</p>}
+          {accountUser ? <>
+            {savedAddressesQuery.isPending ? <p>Loading saved delivery addresses…</p> : savedAddressesQuery.isError ? <p className="buy-flow-error">{savedAddressesQuery.error.message}</p> : !savedAddressesQuery.data?.length ? <div className="buy-flow-review"><strong>Add a delivery address before checkout.</strong><p className="buy-flow-hint">Recipient details and map pins are saved in your account.</p><Link className="button button-outline" to="/account/addresses">Manage saved addresses</Link></div> : <label>Saved delivery address<select required value={deliveryAddressId} onChange={(event) => setDeliveryAddressId(event.target.value)}><option value="">Choose an address</option>{savedAddressesQuery.data.map((address) => <option key={address.id} value={address.id}>{address.label} · {address.town}, {address.county}</option>)}</select></label>}
+            {selectedDeliveryAddress && <div className="buy-flow-review"><h3>{selectedDeliveryAddress.recipientName} · {selectedDeliveryAddress.phone}</h3><p className="buy-flow-hint">{selectedDeliveryAddress.address}{selectedDeliveryAddress.estate ? `, ${selectedDeliveryAddress.estate}` : ''}, {selectedDeliveryAddress.town}, {selectedDeliveryAddress.county}</p><Link to="/account/addresses">Manage saved addresses</Link></div>}
+            {selectedDeliveryAddress?.latitude !== null && selectedDeliveryAddress?.longitude !== null && selectedDeliveryAddress && <GoogleMapView latitude={Number(selectedDeliveryAddress.latitude)} longitude={Number(selectedDeliveryAddress.longitude)} title={`Saved delivery pin · ${selectedDeliveryAddress.label}`} />}
+          </> : !portalMode && <>
+            <label>Recipient full name<input autoComplete="name" required minLength={2} maxLength={160} value={guestRecipientName} onChange={(event) => setGuestRecipientName(event.target.value)} /></label>
+            <label>Email address<input type="email" autoComplete="email" required maxLength={254} value={guestEmail} onChange={(event) => setGuestEmail(event.target.value)} /></label>
+            <label>Delivery recipient phone<input type="tel" inputMode="tel" autoComplete="tel" required minLength={7} maxLength={20} value={deliveryPhone} onChange={(event) => setDeliveryPhone(event.target.value)} /></label>
+            <p className="buy-flow-hint">Pinning the delivery location is optional. Guest orders are not saved to an account.</p>
+            <button className="button button-outline checkout-location-button" type="button" onClick={pinDeliveryLocation}><MapPin size={15} /> Pin delivery location</button>
+            {deliveryPinStatus && <p className="checkout-location-status" role="status">{deliveryPinStatus}</p>}
+            {deliveryPin && <GoogleMapView latitude={deliveryPin.latitude} longitude={deliveryPin.longitude} title="Pinned delivery location" />}
+          </>}
         </>}
         {buyFlowStep === 2 && <>
-          {deliveryPin && <GoogleMapView latitude={deliveryPin.latitude} longitude={deliveryPin.longitude} title="Pinned delivery location" />}
           <fieldset className="checkout-payment-options">
             <legend>Payment method</legend>
             <label className={`checkout-payment-option${!portalMode && !accountUser ? ' is-unavailable' : ''}`}><input type="radio" name="buyFlowPaymentMethod" value="pay_on_delivery" checked={buyFlowPaymentMethod === 'pay_on_delivery'} disabled={!portalMode && !accountUser} onChange={() => { setBuyFlowPaymentMethod('pay_on_delivery'); setBuyFlowError('') }} /><span><strong>Pay on Delivery</strong><small>{!portalMode && !accountUser ? 'Available after you sign up or sign in.' : 'Pay when your kit is delivered.'}</small></span></label>
@@ -774,6 +822,7 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
         </>}
         {buyFlowError && <p className="buy-flow-error" role="alert">{buyFlowError}</p>}
         <div className="buy-flow-actions"><button className="button button-outline" type="button" disabled={buyFlowBusy} onClick={() => { setBuyFlowError(''); setBuyFlowStep(buyFlowStep - 1) }}>Back</button>{buyFlowStep < 3 ? <button className="button button-green" type="submit" disabled={(buyFlowStep === 1 && deliveryZonesQuery.isPending) || (buyFlowStep === 2 && buyFlowPaymentMethod === 'mpesa' && (!payerPhone || !paymentOptionsQuery.data?.stkPushAvailable))}>Continue <ArrowRight size={16} /></button> : <button className="button button-green" type="button" disabled={buyFlowBusy || (buyFlowPaymentMethod === 'mpesa' && !paymentOptionsQuery.data?.stkPushAvailable)} onClick={() => void submitBuyFlow()}>{buyFlowBusy ? 'Placing order…' : buyFlowPaymentMethod === 'mpesa' ? 'Send M-Pesa prompt' : 'Place order'} <ArrowRight size={16} /></button>}</div>
+        {buyFlowBusy && buyFlowPaymentMethod === 'mpesa' && <PaymentWaitState />}
       </form>}
     </section></div>}
     {zoomOpen && imageUrl && <div className="product-lightbox" role="dialog" aria-modal="true" aria-label={`${product.name} image preview`} onClick={(event) => { if (event.target === event.currentTarget) setZoomOpen(false) }}>

@@ -300,7 +300,11 @@
 }
 
 .portal-shell .portal-cart-panel {
-  padding: 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+  align-items: start;
+  gap: 24px;
+  padding: 20px;
   border: 1px solid #31506f;
   background: #0c223d;
 }
@@ -309,10 +313,58 @@
   border-top: 0;
 }
 
+.portal-shell .portal-cart-panel .cart-page-lines .cart-line {
+  grid-template-columns: 76px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 0;
+}
+
+.portal-shell .portal-cart-panel .cart-line-info {
+  gap: 5px;
+}
+
+.portal-shell .portal-cart-panel .quantity-control {
+  margin-top: 5px;
+}
+
+.portal-shell .portal-cart-line-total {
+  grid-column: 3;
+  grid-row: 1;
+  color: #fff;
+  font-size: 13px;
+}
+
+.portal-shell .portal-cart-panel .remove-line {
+  grid-column: 2 / 4;
+  justify-self: end;
+}
+
 .portal-shell .portal-cart-panel .cart-page-total {
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid #31506f;
+  width: 100%;
+  max-width: none;
+  grid-template-columns: 1fr auto;
+  align-content: start;
+  gap: 14px 12px;
+  margin: 0;
+  padding: 8px 0 8px 18px;
+  border-left: 1px solid #31506f;
+  background: transparent;
+}
+
+.portal-shell .portal-cart-panel .portal-cart-delivery-note,
+.portal-shell .portal-cart-panel .cart-page-total .button {
+  grid-column: 1 / -1;
+}
+
+.portal-shell .portal-cart-panel .cart-page-total .button {
+  min-height: 46px;
+  justify-content: center;
+}
+
+@media (max-width: 760px) {
+  .portal-shell .portal-cart-panel { grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 14px; }
+  .portal-shell .portal-cart-panel .cart-page-total { padding: 14px 0 0; border-top: 1px solid #31506f; border-left: 0; }
 }
 
 .portal-shell .portal-checkout-page .checkout-form label,

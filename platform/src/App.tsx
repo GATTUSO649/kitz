@@ -1,9 +1,9 @@
-import { ArrowRight, BadgeCheck, CircleHelp, Compass, House, LayoutGrid, List as ListIcon, Mail, MapPin, Phone, Search, ShieldCheck, ShoppingBag, SlidersHorizontal, Sparkles, X, Zap } from 'lucide-react'
+import { ArrowRight, BadgeCheck, CircleHelp, Compass, House, LayoutGrid, List as ListIcon, LoaderCircle, Mail, MapPin, Phone, Search, ShieldCheck, ShoppingBag, SlidersHorizontal, Sparkles, X, Zap } from 'lucide-react'
 import { FaFacebookF, FaWhatsapp, FaXTwitter, FaYoutube } from 'react-icons/fa6'
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { marketplaceFetch, marketplaceUnavailableEvent } from './api'
-import { SiteContentParagraphs, SiteContentValue, SiteImage } from './SiteImages'
+import { SiteContentParagraphs, SiteContentValue, SiteImage, usePlatformSiteContent, type SiteContentOverrides } from './SiteImages'
 import { SellListingPage, SubmissionStatusPage } from './SellListingPage'
 import { MarketplaceAdminPage } from './MarketplaceAdmin'
 import { SellerForgotPasswordPage, SellerLoginPage, SellerPortalPage, SellerResetPasswordPage, SellerSignupPage, SellerVerifyPage } from './SellerPortal'
@@ -38,8 +38,40 @@ type Listing = {
 
 type MarketplaceCategory = { id: string; name: string; slug: string; subcategories?: { id: string; name: string; slug: string }[] }
 type MarketplaceCounty = { code: string; name: string }
-type FooterSocialLinks = { facebookUrl: string | null; xUrl: string | null; youtubeUrl: string | null; whatsappUrl: string | null; whatsappPhone: string | null }
+type FooterSocialLinks = { facebookUrl: string | null; xUrl: string | null; youtubeUrl: string | null; whatsappUrl: string | null; whatsappPhone: string | null; contactEmail: string | null; contactPhone: string | null }
 type CatalogueFilters = { county: string; subcounty: string; town: string; condition: string; minPrice: string; maxPrice: string; publishedAfter: string; publishedBefore: string; negotiable: string; sort: string; featured: string; subcategory: string }
+
+function safeSocialProfile(value: string, hosts: string[]): string | null {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' && !url.username && !url.password && !url.port
+      && hosts.some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`)) ? url.toString() : null
+  } catch {
+    return null
+  }
+}
+
+function contentValue(value: string | undefined, fallback: string | null, validate: (input: string) => string | null) {
+  return value === undefined ? fallback : value.trim() ? validate(value.trim()) : null
+}
+
+function resolveFooterSocial(content: SiteContentOverrides, fallback: FooterSocialLinks): FooterSocialLinks {
+  const whatsappPhone = content.platformWhatsappPhone === undefined
+    ? fallback.whatsappPhone
+    : normalizeWhatsAppNumber(content.platformWhatsappPhone)
+  const contactEmail = contentValue(content.platformContactEmail, fallback.contactEmail, (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? value.toLowerCase() : null)
+  const contactPhone = contentValue(content.platformContactPhone, fallback.contactPhone, normalizeWhatsAppNumber)
+  return {
+    facebookUrl: contentValue(content.platformFacebookUrl, fallback.facebookUrl, (value) => safeSocialProfile(value, ['facebook.com', 'fb.com'])),
+    xUrl: contentValue(content.platformXUrl, fallback.xUrl, (value) => safeSocialProfile(value, ['x.com', 'twitter.com'])),
+    youtubeUrl: contentValue(content.platformYoutubeUrl, fallback.youtubeUrl, (value) => safeSocialProfile(value, ['youtube.com', 'youtu.be'])),
+    whatsappPhone,
+    whatsappUrl: content.platformWhatsappPhone === undefined ? fallback.whatsappUrl : whatsappPhone ? `https://wa.me/${whatsappPhone}` : null,
+    contactEmail,
+    contactPhone,
+  }
+}
+
 function ProductResults({ search, category, filterQuery, page, view, onPageChange }: { search: string; category: string; filterQuery: string; page: number; view: 'grid' | 'list'; onPageChange: (page: number) => void }) {
   const [listings, setListings] = useState<Listing[]>([])
   const [pagination, setPagination] = useState<{ page: number; limit: number; total: number; hasMore: boolean } | null>(null)
@@ -93,6 +125,7 @@ function MarketplaceProductPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [selectedImage, setSelectedImage] = useState(0)
+  const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
   const [contact, setContact] = useState<{ name: string; phone: string; whatsapp: string | null; email: string | null } | null>(null)
@@ -138,7 +171,7 @@ function MarketplaceProductPage() {
       const response = await marketplaceFetch('/api/v1/marketplace/payments/contact-unlock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug, phone, email }),
+        body: JSON.stringify({ slug, name, phone, email }),
       })
       const result = await response.json() as { data?: { paymentReference: string; accessToken: string; status: string }; error?: { message?: string } }
       if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Contact unlock could not be started.')
@@ -258,12 +291,13 @@ function MarketplaceProductPage() {
               <section className="payment-dialog" role="dialog" aria-modal="true" aria-labelledby="contact-payment-title">
                 <header><div><span className="seller-eyebrow">M-PESA CHECKOUT</span><h2 id="contact-payment-title">Continue to WhatsApp</h2></div><button className="payment-dialog-close" type="button" aria-label="Close payment" disabled={unlocking} onClick={() => setPaymentPanelOpen(false)}><X size={18} /></button></header>
                 <p className="payment-dialog-amount">{formatKes(listing.contactUnlockFeeKes)} <span>one-time contact unlock</span></p>
-                <form className="unlock-form" onSubmit={unlockSellerContact}>
+                {unlocking ? <div className="payment-waiting" role="status" aria-live="polite"><LoaderCircle size={28} aria-hidden="true" /><strong>Waiting for M-PESA confirmation</strong><span>Approve the prompt on your phone. MarketHub is verifying the payment securely.</span></div> : <form className="unlock-form" onSubmit={unlockSellerContact}>
+                  <label>Your full name<input required autoComplete="name" minLength={2} maxLength={120} value={name} onChange={(event) => setName(event.target.value)} /></label>
                   <label>M-Pesa phone number<input required inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="0712 345 678" /></label>
-                  <label>Email for payment receipt<input required type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-                  <button className="pay-button" type="submit" disabled={unlocking}>{unlocking ? 'Waiting for verification…' : `Pay ${formatKes(listing.contactUnlockFeeKes)} with M-Pesa`}</button>
+                  <label>Email for payment confirmation<input required type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+                  <button className="pay-button" type="submit">Pay {formatKes(listing.contactUnlockFeeKes)} with M-Pesa</button>
                   {unlockMessage && <p className="payment-message" role="status">{unlockMessage}</p>}
-                </form>
+                </form>}
               </section>
             </div>}
           </>}
@@ -294,7 +328,9 @@ function MatrixIntro({ exiting }: { exiting: boolean }) {
 }
 
 function LandingPage() {
-  const [footerSocial, setFooterSocial] = useState<FooterSocialLinks>({ facebookUrl: null, xUrl: null, youtubeUrl: null, whatsappUrl: null, whatsappPhone: null })
+  const siteContent = usePlatformSiteContent()
+  const [footerSocial, setFooterSocial] = useState<FooterSocialLinks>({ facebookUrl: null, xUrl: null, youtubeUrl: null, whatsappUrl: null, whatsappPhone: null, contactEmail: null, contactPhone: null })
+  const publicFooterSocial = resolveFooterSocial(siteContent, footerSocial)
   const [introActive, setIntroActive] = useState(() => {
     if (typeof window === 'undefined' || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false
     try { return window.sessionStorage.getItem(matrixIntroStorageKey) !== 'true' } catch { return false }
@@ -332,7 +368,7 @@ function LandingPage() {
       <nav className="landing-nav" aria-label="Main navigation">
         <a className="nav-current" href="#home"><House size={15} />Home</a>
         <a href="#about"><CircleHelp size={15} />About</a>
-        <a href="mailto:hello@markethub.co.ke"><Compass size={15} />Contact</a>
+        <a href={publicFooterSocial.contactEmail ? `mailto:${publicFooterSocial.contactEmail}` : '#about'}><Compass size={15} />Contact</a>
         <Link className="nav-cta" to="/marketplace">Get Started <ArrowRight size={15} /></Link>
       </nav>
     </header>
@@ -387,14 +423,15 @@ function LandingPage() {
       <Link to="/" className="footer-brand" aria-label="MATRIX home"><SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /></Link>
       <p><i />Two Amazing Shopping Experiences.<br />One Powerful Platform.<i /></p>
       <div className="footer-right">
+        <div className="footer-contact-links">{publicFooterSocial.contactEmail && <a href={`mailto:${publicFooterSocial.contactEmail}`}><Mail size={14} />{publicFooterSocial.contactEmail}</a>}{publicFooterSocial.contactPhone && <a href={`tel:${publicFooterSocial.contactPhone}`}><Phone size={14} />{publicFooterSocial.contactPhone}</a>}</div>
         <div className="footer-social" role="group" aria-label="MATRIX social networks">
-          {footerSocial.facebookUrl ? <a className="social-facebook" href={footerSocial.facebookUrl} target="_blank" rel="noreferrer" aria-label="MATRIX on Facebook"><FaFacebookF /></a> : <span className="social-facebook" role="img" aria-label="Facebook link not configured"><FaFacebookF /></span>}
-          {footerSocial.xUrl ? <a className="social-x" href={footerSocial.xUrl} target="_blank" rel="noreferrer" aria-label="MATRIX on X"><FaXTwitter /></a> : <span className="social-x" role="img" aria-label="X link not configured"><FaXTwitter /></span>}
-          {footerSocial.youtubeUrl ? <a className="social-youtube" href={footerSocial.youtubeUrl} target="_blank" rel="noreferrer" aria-label="MATRIX on YouTube"><FaYoutube /></a> : <span className="social-youtube" role="img" aria-label="YouTube link not configured"><FaYoutube /></span>}
-          {footerSocial.whatsappUrl ? <a className="social-whatsapp" href={footerSocial.whatsappUrl} target="_blank" rel="noreferrer" aria-label="Message MATRIX on WhatsApp"><FaWhatsapp /></a> : <span className="social-whatsapp" role="img" aria-label="Kenyan WhatsApp number not configured"><FaWhatsapp /></span>}
+          {publicFooterSocial.facebookUrl ? <a className="social-facebook" href={publicFooterSocial.facebookUrl} target="_blank" rel="noreferrer" aria-label="MATRIX on Facebook"><FaFacebookF /></a> : <span className="social-facebook" role="img" aria-label="Facebook link not configured"><FaFacebookF /></span>}
+          {publicFooterSocial.xUrl ? <a className="social-x" href={publicFooterSocial.xUrl} target="_blank" rel="noreferrer" aria-label="MATRIX on X"><FaXTwitter /></a> : <span className="social-x" role="img" aria-label="X link not configured"><FaXTwitter /></span>}
+          {publicFooterSocial.youtubeUrl ? <a className="social-youtube" href={publicFooterSocial.youtubeUrl} target="_blank" rel="noreferrer" aria-label="MATRIX on YouTube"><FaYoutube /></a> : <span className="social-youtube" role="img" aria-label="YouTube link not configured"><FaYoutube /></span>}
+          {publicFooterSocial.whatsappUrl ? <a className="social-whatsapp" href={publicFooterSocial.whatsappUrl} target="_blank" rel="noreferrer" aria-label="Message MATRIX on WhatsApp"><FaWhatsapp /></a> : <span className="social-whatsapp" role="img" aria-label="Kenyan WhatsApp number not configured"><FaWhatsapp /></span>}
         </div>
         <span className="footer-divider" aria-hidden="true" />
-        <div className="footer-meta"><span className="kenya-flag" role="img" aria-label="Flag of Kenya"><span className="kenya-shield" /></span><span>Kenya</span></div>
+        <div className="footer-meta"><img className="kenya-flag" src="/images/kenya-flag.svg" alt="Flag of Kenya" /><span>Kenya</span></div>
       </div>
     </footer>
     {introActive && <MatrixIntro exiting={introExiting} />}
@@ -402,6 +439,7 @@ function LandingPage() {
 }
 
 function MarketplaceHome() {
+  const siteContent = usePlatformSiteContent()
   const [searchParams, setSearchParams] = useSearchParams()
   const search = searchParams.get('q') ?? ''
   const category = searchParams.get('category') ?? ''
@@ -409,7 +447,8 @@ function MarketplaceHome() {
   const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1
   const [categories, setCategories] = useState<MarketplaceCategory[]>([])
   const [counties, setCounties] = useState<MarketplaceCounty[]>([])
-  const [footerSocial, setFooterSocial] = useState<FooterSocialLinks>({ facebookUrl: null, xUrl: null, youtubeUrl: null, whatsappUrl: null, whatsappPhone: null })
+  const [footerSocial, setFooterSocial] = useState<FooterSocialLinks>({ facebookUrl: null, xUrl: null, youtubeUrl: null, whatsappUrl: null, whatsappPhone: null, contactEmail: null, contactPhone: null })
+  const publicFooterSocial = resolveFooterSocial(siteContent, footerSocial)
   const [categoryError, setCategoryError] = useState('')
   const [categoryRetry, setCategoryRetry] = useState(0)
   const [filtersOpen, setFiltersOpen] = useState(false)
@@ -552,7 +591,7 @@ function MarketplaceHome() {
       </section>
       <section id="locations" className="market-trust"><span><ShieldCheck /><b>Secure &amp; Trusted</b><small>Your safety comes first</small></span><span><Zap /><b>Fast &amp; Easy</b><small>List or find items quickly</small></span><span><MapPin /><b>Across Kenya</b><small>From Machakos to all counties</small></span><span><BadgeCheck /><b>Direct Connections</b><small>Connect with confidence</small></span></section>
     </main>
-    <footer className="market-footer"><Link to="/" className="market-footer-brand" aria-label="MATRIX home"><SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /></Link><span className="market-footer-links"><Link to="/privacy">Privacy</Link><Link to="/terms">Terms</Link><a href="mailto:hello@markethub.co.ke"><Mail size={14} /> Email</a>{footerSocial.whatsappPhone && <a href={`tel:${footerSocial.whatsappPhone}`}><Phone size={14} /> {footerSocial.whatsappPhone}</a>}</span><span className="market-footer-social" aria-label="MarketHub social accounts">{footerSocial.facebookUrl && <a href={footerSocial.facebookUrl} target="_blank" rel="noreferrer" aria-label="Facebook"><FaFacebookF /></a>}{footerSocial.xUrl && <a href={footerSocial.xUrl} target="_blank" rel="noreferrer" aria-label="X"><FaXTwitter /></a>}{footerSocial.youtubeUrl && <a href={footerSocial.youtubeUrl} target="_blank" rel="noreferrer" aria-label="YouTube"><FaYoutube /></a>}{footerSocial.whatsappUrl && <a href={footerSocial.whatsappUrl} target="_blank" rel="noreferrer" aria-label="WhatsApp"><FaWhatsapp /></a>}</span><small><SiteContentValue field="platformFooterNotice" fallback={`© ${new Date().getFullYear()} MarketHub Kenya`} /></small></footer>
+    <footer className="market-footer"><Link to="/" className="market-footer-brand" aria-label="MATRIX home"><SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /></Link><span className="market-footer-links"><Link to="/privacy">Privacy</Link><Link to="/terms">Terms</Link>{publicFooterSocial.contactEmail && <a href={`mailto:${publicFooterSocial.contactEmail}`}><Mail size={14} /> Email</a>}{publicFooterSocial.contactPhone && <a href={`tel:${publicFooterSocial.contactPhone}`}><Phone size={14} /> {publicFooterSocial.contactPhone}</a>}</span><span className="market-footer-social" aria-label="MarketHub social accounts">{publicFooterSocial.facebookUrl && <a href={publicFooterSocial.facebookUrl} target="_blank" rel="noreferrer" aria-label="Facebook"><FaFacebookF /></a>}{publicFooterSocial.xUrl && <a href={publicFooterSocial.xUrl} target="_blank" rel="noreferrer" aria-label="X"><FaXTwitter /></a>}{publicFooterSocial.youtubeUrl && <a href={publicFooterSocial.youtubeUrl} target="_blank" rel="noreferrer" aria-label="YouTube"><FaYoutube /></a>}{publicFooterSocial.whatsappUrl && <a href={publicFooterSocial.whatsappUrl} target="_blank" rel="noreferrer" aria-label="WhatsApp"><FaWhatsapp /></a>}</span><small><SiteContentValue field="platformFooterNotice" fallback={`© ${new Date().getFullYear()} MarketHub Kenya`} /></small></footer>
   </div>
 }
 

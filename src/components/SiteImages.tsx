@@ -61,7 +61,7 @@ export function SiteImageVariables() {
     const defaultFaviconType = favicon.dataset.defaultType ?? favicon.type
     favicon.dataset.defaultHref = defaultFavicon
     favicon.dataset.defaultType = defaultFaviconType
-    const customFavicon = imagesQuery.data?.['kitz-favicon']
+    const customFavicon = imagesQuery.data?.['platform-favicon']
     favicon.href = customFavicon ?? defaultFavicon
     if (customFavicon) favicon.removeAttribute('type')
     else if (defaultFaviconType) favicon.type = defaultFaviconType

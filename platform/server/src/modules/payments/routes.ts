@@ -12,7 +12,7 @@ import { assertDarajaConfigured, callbackFailureStatus, DarajaRequestError, Dara
 export const paymentRouter = Router()
 
 const publicationInput = z.object({ reference: z.string().regex(/^MH-[A-F0-9]{16}$/), phone: z.string().max(24), submissionToken: z.string().min(20).max(100).optional() })
-const unlockInput = z.object({ slug: z.string().min(1).max(180), phone: z.string().max(24), email: z.string().trim().email().max(254) })
+const unlockInput = z.object({ slug: z.string().min(1).max(180), name: z.string().trim().min(2).max(120), phone: z.string().max(24), email: z.string().trim().email().max(254) })
 const callbackSchema = z.object({
   Body: z.object({ stkCallback: z.object({
     MerchantRequestID: z.string().min(1).max(100),
@@ -58,6 +58,7 @@ async function startPayment(input: {
   accessToken: string
   customerEmail: string | null
   recipientName?: string
+  payerName?: string
 }): Promise<{ paymentReference: string; status: string }> {
   if (!database) throw new Error('Marketplace data is unavailable.')
   const paymentReference = `MP-${createListingReference().slice(3)}`
@@ -71,6 +72,7 @@ async function startPayment(input: {
     amountKes: input.amountKes,
     phone: input.phone,
     customerEmail: input.customerEmail,
+    providerDetails: input.payerName ? { payerName: input.payerName } : null,
     accessTokenHash: hashSecret(input.accessToken),
     status: 'initiated',
   }).returning({ id: marketplacePayments.id })
@@ -97,7 +99,7 @@ async function startPayment(input: {
       await transaction.update(marketplacePayments).set({
         checkoutRequestId: provider.CheckoutRequestID,
         merchantRequestId: provider.MerchantRequestID,
-        providerDetails: { merchantRequestId: provider.MerchantRequestID },
+        providerDetails: { ...(input.payerName ? { payerName: input.payerName } : {}), merchantRequestId: provider.MerchantRequestID },
         status: 'pending',
         stkPushSubmittedAt,
         stkPushResponseAt,
@@ -107,7 +109,7 @@ async function startPayment(input: {
         failureReason: null,
         updatedAt: new Date(),
       }).where(eq(marketplacePayments.id, payment.id))
-      if (input.customerEmail) await enqueueMarketplaceEmail(transaction, {
+      if (input.customerEmail && input.purpose === 'PRODUCT_PUBLICATION') await enqueueMarketplaceEmail(transaction, {
         eventKey: `payment:${paymentReference}:initiated:${input.purpose}`,
         to: input.customerEmail,
         kind: input.purpose === 'PRODUCT_PUBLICATION' ? 'publication_payment_initiated' : 'contact_unlock_payment_initiated',
@@ -131,10 +133,10 @@ async function startPayment(input: {
         failureReason,
         finalizedAt: rejected ? new Date() : null,
         updatedAt: new Date(),
-        providerDetails: { initiationOutcome: status, ...(error instanceof DarajaRequestError && error.httpStatus ? { httpStatus: error.httpStatus } : {}) },
+        providerDetails: { ...(input.payerName ? { payerName: input.payerName } : {}), initiationOutcome: status, ...(error instanceof DarajaRequestError && error.httpStatus ? { httpStatus: error.httpStatus } : {}) },
       }).where(eq(marketplacePayments.id, payment.id))
       if (!rejected) return
-      if (input.customerEmail) await enqueueMarketplaceEmail(transaction, {
+      if (input.customerEmail && input.purpose === 'PRODUCT_PUBLICATION') await enqueueMarketplaceEmail(transaction, {
         eventKey: `payment:${paymentReference}:initiation-failed`,
         to: input.customerEmail,
         kind: input.purpose === 'PRODUCT_PUBLICATION' ? 'product_publication_failed' : 'payment_unsuccessful',
@@ -244,7 +246,7 @@ paymentRouter.post('/contact-unlock', async (request, response, next) => {
     }
     const fee = calculateFeeKes(product.priceKes, await getFeeBasisPoints('contact_unlock_fee_basis_points', 500))
     const accessToken = createSecret()
-    const result = await startPayment({ purpose: 'CONTACT_UNLOCK', productId: product.id, phone, amountKes: fee, accessToken, customerEmail: parsed.data.email.toLowerCase() })
+    const result = await startPayment({ purpose: 'CONTACT_UNLOCK', productId: product.id, phone, amountKes: fee, accessToken, customerEmail: parsed.data.email.toLowerCase(), payerName: parsed.data.name })
     response.status(202).json({ data: { ...result, accessToken, amountKes: fee, currency: 'KES', paymentPurpose: 'CONTACT_UNLOCK' } })
   } catch (error) {
     if (error instanceof DarajaUnavailableError || (error instanceof Error && /valid Kenyan mobile number/.test(error.message))) {
@@ -298,9 +300,10 @@ paymentRouter.post('/callback/:token', async (request, response) => {
   }
   const callback = parsed.data.Body.stkCallback
   const resultCode = String(callback.ResultCode)
-  const [payment] = await database.select({ id: marketplacePayments.id, applicationId: marketplacePayments.applicationId, reference: marketplacePayments.paymentReference, checkoutRequestId: marketplacePayments.checkoutRequestId, merchantRequestId: marketplacePayments.merchantRequestId, purpose: marketplacePayments.purpose, productId: marketplacePayments.productId, amountKes: marketplacePayments.amountKes, phone: marketplacePayments.phone, customerEmail: marketplacePayments.customerEmail, status: marketplacePayments.status, accessTokenHash: marketplacePayments.accessTokenHash, createdAt: marketplacePayments.createdAt, productTitle: marketplaceProducts.title, sellerEmail: marketplaceSellers.email, sellerName: marketplaceSellers.name })
+  const [payment] = await database.select({ id: marketplacePayments.id, applicationId: marketplacePayments.applicationId, reference: marketplacePayments.paymentReference, checkoutRequestId: marketplacePayments.checkoutRequestId, merchantRequestId: marketplacePayments.merchantRequestId, purpose: marketplacePayments.purpose, productId: marketplacePayments.productId, amountKes: marketplacePayments.amountKes, phone: marketplacePayments.phone, customerEmail: marketplacePayments.customerEmail, providerDetails: marketplacePayments.providerDetails, status: marketplacePayments.status, accessTokenHash: marketplacePayments.accessTokenHash, createdAt: marketplacePayments.createdAt, productTitle: marketplaceProducts.title, sellerEmail: marketplaceSellers.email, sellerName: marketplaceSellers.name, sellerPhone: marketplaceSellers.phone, sellerWhatsApp: marketplaceSellers.whatsapp, sellerCounty: marketplaceCounties.name, sellerSubcounty: marketplaceSellers.subcounty, sellerTown: marketplaceSellers.town, sellerArea: marketplaceSellers.area })
     .from(marketplacePayments).leftJoin(marketplaceProducts, eq(marketplacePayments.productId, marketplaceProducts.id))
     .leftJoin(marketplaceSellers, eq(marketplaceProducts.sellerId, marketplaceSellers.id))
+    .leftJoin(marketplaceCounties, eq(marketplaceSellers.countyId, marketplaceCounties.id))
     .where(eq(marketplacePayments.checkoutRequestId, callback.CheckoutRequestID)).limit(1)
   if (!payment) {
     response.status(503).json({ ResultCode: 1, ResultDesc: 'Payment request is not ready for verification; retry callback.' })
@@ -385,7 +388,7 @@ paymentRouter.post('/callback/:token', async (request, response) => {
           providerReceipt: receipt,
           transactionAt,
           verifiedAt: now,
-          providerDetails: { verification: 'stk_query_and_callback_match', resultCode, checkoutRequestId: callback.CheckoutRequestID, merchantRequestId: callback.MerchantRequestID },
+          providerDetails: { ...(payment.providerDetails ?? {}), verification: 'stk_query_and_callback_match', resultCode, checkoutRequestId: callback.CheckoutRequestID, merchantRequestId: callback.MerchantRequestID },
           updatedAt: now,
         }).where(and(eq(marketplacePayments.id, payment.id), inArray(marketplacePayments.status, ['initiated', 'pending', 'processing', 'ambiguous']))).returning({ id: marketplacePayments.id })
         if (!updated.length || !payment.productId) return
@@ -405,9 +408,18 @@ paymentRouter.post('/callback/:token', async (request, response) => {
         } else if (payment.purpose === 'CONTACT_UNLOCK' && payment.accessTokenHash) {
           await transaction.insert(marketplaceContactUnlocks).values({ productId: payment.productId, paymentId: payment.id, tokenHash: payment.accessTokenHash, expiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000) }).onConflictDoNothing()
           if (payment.customerEmail) {
-            await enqueueMarketplaceEmail(transaction, { eventKey: `payment:${payment.reference}:verified`, to: payment.customerEmail, kind: 'contact_unlock_payment_success', data: { title: payment.productTitle, reference: payment.reference, amountKes: payment.amountKes } })
-            await enqueueMarketplaceEmail(transaction, { eventKey: `payment:${payment.reference}:contact-unlocked`, to: payment.customerEmail, kind: 'contact_details_unlocked', data: { title: payment.productTitle, reference: payment.reference, amountKes: payment.amountKes } })
-            await enqueueMarketplaceEmail(transaction, { eventKey: `payment:${payment.reference}:receipt`, to: payment.customerEmail, kind: 'payment_receipt', data: { title: payment.productTitle, reference: payment.reference, amountKes: payment.amountKes } })
+            const payerName = typeof payment.providerDetails?.payerName === 'string' ? payment.providerDetails.payerName : ''
+            await enqueueMarketplaceEmail(transaction, { eventKey: `payment:${payment.reference}:verified`, to: payment.customerEmail, kind: 'contact_unlock_payment_success', data: {
+              payerName,
+              title: payment.productTitle,
+              reference: payment.reference,
+              amountKes: payment.amountKes,
+              sellerName: payment.sellerName,
+              sellerPhone: payment.sellerPhone,
+              sellerWhatsApp: payment.sellerWhatsApp,
+              sellerEmail: payment.sellerEmail,
+              sellerLocation: [payment.sellerArea, payment.sellerTown, payment.sellerSubcounty, payment.sellerCounty].filter(Boolean).join(', '),
+            } })
           }
         }
       })
@@ -445,7 +457,7 @@ paymentRouter.post('/callback/:token', async (request, response) => {
       })
       return
     }
-    if (payment.customerEmail) await enqueueMarketplaceEmail(transaction, {
+    if (payment.customerEmail && payment.purpose === 'PRODUCT_PUBLICATION') await enqueueMarketplaceEmail(transaction, {
       eventKey: `payment:${payment.reference}:not-completed:${failureStatus}`,
       to: payment.customerEmail,
       kind: payment.purpose === 'PRODUCT_PUBLICATION' ? 'product_publication_failed' : 'payment_unsuccessful',

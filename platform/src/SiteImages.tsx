@@ -13,8 +13,8 @@ const platformImageSlots = [
 
 type PlatformImageSlot = typeof platformImageSlots[number]
 type SiteImageOverrides = Partial<Record<PlatformImageSlot, string>>
-type SiteContentField = 'terms' | 'privacy' | 'platformFooterNotice'
-type SiteContentOverrides = Partial<Record<SiteContentField, string>>
+type SiteContentField = 'terms' | 'privacy' | 'platformFooterNotice' | 'platformFacebookUrl' | 'platformXUrl' | 'platformYoutubeUrl' | 'platformWhatsappPhone' | 'platformContactEmail' | 'platformContactPhone'
+export type SiteContentOverrides = Partial<Record<SiteContentField, string>>
 const SiteImagesContext = createContext<{ images: SiteImageOverrides; content: SiteContentOverrides }>({ images: {}, content: {} })
 
 function isCloudinaryImageUrl(value: unknown): value is string {
@@ -47,7 +47,7 @@ export function SiteImagesProvider({ children }: PropsWithChildren) {
       .then(async (response) => {
         const result = await response.json() as { data?: Record<string, unknown> }
         if (!response.ok || !result.data) return
-        const fields: SiteContentField[] = ['terms', 'privacy', 'platformFooterNotice']
+        const fields: SiteContentField[] = ['terms', 'privacy', 'platformFooterNotice', 'platformFacebookUrl', 'platformXUrl', 'platformYoutubeUrl', 'platformWhatsappPhone', 'platformContactEmail', 'platformContactPhone']
         setContent(Object.fromEntries(fields.flatMap((field) => typeof result.data?.[field] === 'string' ? [[field, result.data[field] as string]] : [])) as SiteContentOverrides)
       })
       .catch(() => undefined)
@@ -102,7 +102,8 @@ export function RouteTransitionLoader() {
     return () => window.clearTimeout(timer)
   }, [transition.active, transition.pathname])
 
-  if (!transition.active) return null
+  const isAuthenticationPath = /(?:^|\/)(?:login|signup|activate|verify|forgot-password|reset-password)$/.test(pathname)
+  if (!transition.active || !isAuthenticationPath) return null
   return <main className="platform-transition-loader" role="status" aria-live="polite" aria-label="Loading next page">
     <div className="platform-loader-mark" aria-hidden="true">
       <SiteImage className="platform-loader-logo-full" slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="" />
@@ -124,4 +125,8 @@ export function SiteContentParagraphs({ field, fallback }: { field: 'terms' | 'p
   const text = content[field]?.trim()
   if (!text) return <>{fallback}</>
   return <>{text.split(/\n\s*\n/).map((paragraph, index) => <p key={`${index}-${paragraph.slice(0, 20)}`}>{paragraph}</p>)}</>
+}
+
+export function usePlatformSiteContent() {
+  return useContext(SiteImagesContext).content
 }

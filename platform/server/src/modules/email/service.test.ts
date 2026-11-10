@@ -172,3 +172,30 @@ test('email provider readiness reports disabled, unsupported, or incomplete conf
   assert.deepEqual(getMarketplaceEmailProviderStatus({ MARKETPLACE_EMAIL_PROVIDER: 'resend', MARKETPLACE_RESEND_API_KEY: 'secret' }), { provider: 'resend', configured: false, code: 'RESEND_NOT_CONFIGURED' })
   assert.deepEqual(getMarketplaceEmailProviderStatus(resendEnvironment), { provider: 'resend', configured: true, code: null })
 })
+
+test('verified contact-unlock email includes payer and seller details in a professional confirmation', () => {
+  const rendered = renderMarketplaceEmail({
+    to: 'buyer@example.test',
+    kind: 'contact_unlock_payment_success',
+    data: {
+      payerName: 'Amina Buyer',
+      title: 'Used <script>chair</script>',
+      reference: 'MP-1234567890ABCDEF',
+      amountKes: 250,
+      sellerName: 'Seller Name',
+      sellerPhone: '+254 712 345 678',
+      sellerWhatsApp: '254712345678',
+      sellerEmail: 'seller@example.test',
+      sellerLocation: 'Machakos, Kenya',
+    },
+  })
+  assert.match(rendered.subject, /payment confirmed/i)
+  assert.match(rendered.text, /Amina Buyer/)
+  assert.match(rendered.text, /Seller Name/)
+  assert.match(rendered.html, /Verified payment confirmation/)
+  assert.match(rendered.html, /href="tel:\+254712345678"/)
+  assert.match(rendered.html, /href="https:\/\/wa\.me\/254712345678"/)
+  assert.match(rendered.html, /href="mailto:seller@example\.test"/)
+  assert.match(rendered.html, /&lt;script&gt;chair&lt;\/script&gt;/)
+  assert.doesNotMatch(rendered.html, /<script>/)
+})

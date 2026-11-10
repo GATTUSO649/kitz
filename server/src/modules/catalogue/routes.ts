@@ -94,7 +94,7 @@ catalogueRouter.get('/store/branding', async (_request, response) => {
 
   catalogueRouter.get('/store/site-content', async (_request, response) => {
     if (!db) return response.status(503).json({ error: { code: 'SITE_CONTENT_UNAVAILABLE', message: 'Site content is unavailable.' } })
-    const keys = ['terms', 'privacy', 'kitzFooterDescription', 'kitzFooterCopyright', 'platformFooterNotice'].map((field) => `siteContent:${field}`)
+    const keys = ['terms', 'privacy', 'kitzFooterDescription', 'kitzFooterCopyright', 'platformFooterNotice', 'platformFacebookUrl', 'platformXUrl', 'platformYoutubeUrl', 'platformWhatsappPhone', 'platformContactEmail', 'platformContactPhone'].map((field) => `siteContent:${field}`)
     const settings = await db.select({ key: applicationSettings.key, value: applicationSettings.value }).from(applicationSettings)
       .where(inArray(applicationSettings.key, keys))
     const content = Object.fromEntries(settings.flatMap(({ key, value }) => {

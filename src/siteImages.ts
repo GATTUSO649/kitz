@@ -14,7 +14,6 @@ export const siteImageSlots = [
   { key: 'platform-marketplace-card', label: 'Second-hand marketplace card', description: 'Image for the second-hand destination card and marketplace hero.' },
   { key: 'platform-auth-background', label: 'Platform sign-in background', description: 'Background image on marketplace admin and seller sign-in.' },
   { key: 'platform-intro-background', label: 'Platform intro background', description: 'Background image for the platform intro animation.' },
-  { key: 'kitz-favicon', label: 'KitCulture favicon', description: 'Browser tab icon for the KitCulture storefront.' },
 ] as const
 
 export type SiteImageSlotKey = typeof siteImageSlots[number]['key']

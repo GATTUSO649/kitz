@@ -28,6 +28,37 @@ function hashOperationsToken(token: string) {
   return createHash('sha256').update(token).digest('hex')
 }
 
+async function probeMarketHub() {
+  const checkedAt = new Date().toISOString()
+  if (!env.MARKETHUB_PUBLIC_URL) return { status: 'unknown', checkedAt, reason: 'MARKETHUB_PUBLIC_URL is not configured.' }
+  const startedAt = performance.now()
+  try {
+    const healthUrl = new URL(env.MARKETHUB_PUBLIC_URL)
+    const [readyResponse, workersResponse] = await Promise.all([
+      fetch(new URL('/health/ready', healthUrl), { signal: AbortSignal.timeout(3000) }),
+      fetch(new URL('/health/workers', healthUrl), { signal: AbortSignal.timeout(3000) }),
+    ])
+    const [ready, workerHealth] = await Promise.all([
+      readyResponse.json().catch(() => null) as Promise<{ status?: string; database?: string } | null>,
+      workersResponse.json().catch(() => null) as Promise<{ workers?: Record<string, { enabled?: boolean; consecutiveFailures?: number }> } | null>,
+    ])
+    const failedWorkers = Object.values(workerHealth?.workers ?? {}).filter((worker) => worker.enabled && (worker.consecutiveFailures ?? 0) > 0).length
+    const status = !readyResponse.ok || ready?.status === 'not_ready' ? 'down'
+      : ready?.status !== 'ready' || !workersResponse.ok || failedWorkers > 0 ? 'degraded' : 'healthy'
+    return {
+      status,
+      checkedAt,
+      latencyMs: Math.round(performance.now() - startedAt),
+      readiness: ready?.status ?? 'unknown',
+      database: ready?.database ?? 'unknown',
+      workerHealth: workersResponse.ok ? 'available' : 'unavailable',
+      failedWorkers,
+    }
+  } catch {
+    return { status: 'down', checkedAt, latencyMs: Math.round(performance.now() - startedAt), reason: 'MarketHub health endpoints could not be reached.' }
+  }
+}
+
 function operationsCookieToken(request: Request) {
   const cookie = request.headers.cookie?.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${operationsCookieName}=`))
   if (!cookie) return null
@@ -364,11 +395,12 @@ operationsRouter.get('/workers', async (request, response) => {
 
 operationsRouter.get('/health', async (_request, response) => {
   const queue = getTelemetryQueueState()
-  const [storeDatabase, [worker]] = await Promise.all([
+  const [storeDatabase, [worker], marketHub] = await Promise.all([
     probeDatabase(pool, 'store'),
     adminDb ? adminDb.select({ lastHeartbeatAt: monitoringWorkerState.lastHeartbeatAt, failureCount: monitoringWorkerState.failureCount })
       .from(monitoringWorkerState).where(eq(monitoringWorkerState.workerName, 'monitoring-detection')).limit(1)
       : Promise.resolve([]),
+    probeMarketHub(),
   ])
   const workerState = !worker?.lastHeartbeatAt ? 'unknown'
     : Date.now() - worker.lastHeartbeatAt.getTime() > 2 * 60_000 ? 'down'
@@ -380,6 +412,7 @@ operationsRouter.get('/health', async (_request, response) => {
     services: [
       { name: 'backend-api', state: 'healthy', source: 'current-request' },
       { name: 'postgresql', state: storeDatabase.status === 'healthy' ? 'healthy' : 'down', latencyMs: storeDatabase.latencyMs, source: 'live-select-1' },
+      { name: 'markethub-platform', state: marketHub.status, latencyMs: 'latencyMs' in marketHub ? marketHub.latencyMs : null, source: 'live-health-endpoints' },
       { name: 'monitoring-collection', state: collectionState, source: 'last-successful-persistence' },
       { name: 'monitoring-processing', state: workerState, source: 'persisted-worker-heartbeat' },
       { name: 'external-integrations', state: 'unknown', source: 'no-authorized-provider-probes-configured' },
@@ -802,12 +835,13 @@ operationsRouter.get('/overview', async (request, response) => {
   if (!adminDb) return operationsUnavailable(response, String(request.id))
   const metricEnd = new Date()
   const metricStart = new Date(metricEnd.getTime() - 60 * 60_000)
-  const [storeDatabase, adminDatabase, [openIncidentCount], [investigatingIncidentCount], requestMetrics] = await Promise.all([
+  const [storeDatabase, adminDatabase, [openIncidentCount], [investigatingIncidentCount], requestMetrics, marketHub] = await Promise.all([
     probeDatabase(pool, 'store'),
     adminPool === pool ? Promise.resolve({ name: 'admin', status: 'healthy' as const, latencyMs: null }) : probeDatabase(adminPool, 'admin'),
     adminDb.select({ total: count() }).from(operationsIncidents).where(eq(operationsIncidents.status, 'open')),
     adminDb.select({ total: count() }).from(operationsIncidents).where(eq(operationsIncidents.status, 'investigating')),
     persistentRequestMetrics(metricStart, metricEnd),
+    probeMarketHub(),
   ])
   const memory = process.memoryUsage()
   response.json({ data: {
@@ -837,6 +871,7 @@ operationsRouter.get('/overview', async (request, response) => {
     },
     incidents: { open: Number(openIncidentCount.total), investigating: Number(investigatingIncidentCount.total) },
     externalServices: {
+      markethub: marketHub,
       render: { status: 'unknown', reason: 'Provider API credentials are not configured.' },
       railwayBackups: { status: 'unknown', reason: 'No backup verification feed is configured.' },
       cloudflare: { status: 'unknown', reason: 'No authorized Cloudflare account integration is configured.' },

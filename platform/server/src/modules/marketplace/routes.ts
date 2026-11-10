@@ -23,7 +23,7 @@ marketplaceRouter.get('/settings/footer-social-links', async (_request, response
     const [setting] = await database.select({ value: marketplaceSettings.value }).from(marketplaceSettings).where(eq(marketplaceSettings.key, 'footer_social_links')).limit(1)
     const result = parseMarketplaceSocialLinks(setting?.value ?? {})
     response.setHeader('Cache-Control', 'public, max-age=300')
-    response.json({ data: result.success ? result.data : { facebookUrl: null, xUrl: null, youtubeUrl: null, whatsappPhone: null, whatsappUrl: null } })
+    response.json({ data: result.success ? result.data : { facebookUrl: null, xUrl: null, youtubeUrl: null, whatsappPhone: null, whatsappUrl: null, contactEmail: null, contactPhone: null } })
   } catch (error) {
     next(error)
   }

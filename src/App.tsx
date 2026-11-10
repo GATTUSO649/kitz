@@ -1,7 +1,7 @@
 import { Fragment, lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { ArrowDown, ArrowRight, ChevronDown, Heart, MapPin, Menu, Search, ShieldCheck, ShoppingBag, ShoppingCart, Smartphone, Star, Truck, UserRound, X } from 'lucide-react'
+import { ArrowDown, ArrowRight, ChevronDown, Heart, Menu, Search, ShieldCheck, ShoppingBag, ShoppingCart, Smartphone, Star, Truck, UserRound, X } from 'lucide-react'
 import { z } from 'zod'
 import './App.css'
 import './checkout.css'
@@ -27,6 +27,7 @@ import { StoreImage } from './components/StoreImage'
 import { SiteContentValue, SiteImage } from './components/SiteImages'
 import { WhatsAppProductLink } from './components/WhatsAppProductLink'
 import { useStoreWhatsAppNumber } from './components/whatsapp-product'
+import { PaymentWaitState } from './components/PaymentWaitState'
 
 const AdminRoute = lazy(() => import('./pages/AdminPages').then((module) => ({ default: module.AdminRoute })))
 const AdminAccessPage = lazy(() => import('./pages/AdminAccessPage').then((module) => ({ default: module.AdminAccessPage })))
@@ -82,6 +83,7 @@ type HomepageData = { slides: HomepageSlide[]; leagues: HomepageLeague[] }
 type CartLine = { productId: number; variantId?: number; name: string; price: number; imageUrl: string | null; size: string; stock: number; quantity: number }
 type AccountUser = { id: number; email: string; fullName: string; phone: string | null }
 type AccountSummary = { orderCount: number; savedAddressCount: number; wishlistCount: number }
+type CustomerAddress = { id: number; label: string; recipientName: string; phone: string; address: string; county: string; town: string; estate: string | null; landmark: string | null; instructions: string | null; latitude: string | null; longitude: string | null; isDefault: boolean }
 type DeliveryZone = { id: number; name: string; fee: string }
 type MpesaPaymentOptions = { mpesaTillName: string; mpesaTillNumber: string; mpesaMobileNumber: string; mpesaTransactionType: string; stkPushAvailable: boolean }
 type CustomerOrder = { orderNumber: string; status: string; paymentMethod: 'pay_on_delivery' | 'mpesa'; currency: string; total: string; createdAt: string }
@@ -186,7 +188,7 @@ function HomepageProductSection({ title, kicker, products, error, onAdd, onSave,
         <div className={`product-info${portalMode ? ' portal-kit-info' : ''}`}><div><ProductCategoryLine team={product.team?.name} league={product.league?.name} jerseyCategory={product.jerseyCategory?.name} category={portalMode ? undefined : product.category?.name} fallback="KitCulture" /><h3><Link to={productPath(product.slug)}>{product.name}</Link></h3></div><span className="product-price">{product.salePrice ? <><del>{money.format(Number(product.price))}</del><strong className="sale-price">{money.format(Number(product.salePrice))}</strong></> : money.format(Number(product.price))}</span>{portalMode && <KitRating productId={product.id} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />}</div>
         {!portalMode && <KitRating productId={product.id} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />}
         <div className="product-meta"><div className="product-sizes">{product.variants.length ? product.variants.map((variant) => <span className={!variant.stock ? 'is-sold-out' : ''} key={variant.id}>{variant.size}</span>) : <span>Unavailable</span>}</div><span className={inStock ? 'stock-label' : 'stock-label sold-out'}>{inStock ? 'In stock' : 'Out of stock'}</span></div>
-        {inStock ? <div className={`product-card-actions${portalMode ? '' : ' public-product-card-actions'}`}><button className="quick-add" type="button" onClick={() => onAdd(product)}><ShoppingCart size={13} />Add to Cart</button>{(showBuyButton || !portalMode) && <Link className={portalMode ? 'product-card-buy' : 'product-card-buy public-product-card-shop'} state={portalMode ? undefined : { openBuyFlow: true }} to={productPath(product.slug)}>Shop <ArrowRight size={14} /></Link>}{whatsappNumber && <WhatsAppProductLink phone={whatsappNumber} product={product} />}</div> : <div className="product-card-actions public-product-card-actions"><Link className="quick-add quick-add-preview" to={productPath(product.slug)}><ShoppingCart size={13} />View kit</Link>{whatsappNumber && <WhatsAppProductLink phone={whatsappNumber} product={product} />}</div>}
+        {inStock ? <div className={`product-card-actions${portalMode ? '' : ' public-product-card-actions'}`}><button className="quick-add" type="button" onClick={() => onAdd(product)}><ShoppingCart size={13} />Add to Cart</button>{(showBuyButton || !portalMode) && <Link className={portalMode ? 'product-card-buy' : 'product-card-buy public-product-card-shop'} state={portalMode ? undefined : { openBuyFlow: true }} to={productPath(product.slug)}>Buy</Link>}{whatsappNumber && <WhatsAppProductLink phone={whatsappNumber} product={product} />}</div> : <div className="product-card-actions public-product-card-actions"><Link className="quick-add quick-add-preview" to={productPath(product.slug)}><ShoppingCart size={13} />View kit</Link>{whatsappNumber && <WhatsAppProductLink phone={whatsappNumber} product={product} />}</div>}
       </article>
     })}</div>
   </section>
@@ -291,15 +293,11 @@ function App() {
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [checkoutBusy, setCheckoutBusy] = useState(false)
   const [checkoutError, setCheckoutError] = useState('')
-  const [checkoutPinStatus, setCheckoutPinStatus] = useState('')
-  const [checkoutLocation, setCheckoutLocation] = useState<{ latitude: number; longitude: number; accuracy: number | null } | null>(null)
-  const [checkoutLatitude, setCheckoutLatitude] = useState('')
-  const [checkoutLongitude, setCheckoutLongitude] = useState('')
-  const [checkoutAccuracy, setCheckoutAccuracy] = useState<number | null>(null)
   const [checkoutPaymentMethod, setCheckoutPaymentMethod] = useState<'pay_on_delivery' | 'mpesa'>('pay_on_delivery')
   const [mpesaPhone, setMpesaPhone] = useState('')
   const [checkoutIdempotencyKey, setCheckoutIdempotencyKey] = useState('')
   const [checkoutDeliveryZoneId, setCheckoutDeliveryZoneId] = useState('')
+  const [checkoutAddressId, setCheckoutAddressId] = useState('')
   const [orderActionBusy, setOrderActionBusy] = useState('')
   const [orderActionError, setOrderActionError] = useState('')
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -406,6 +404,16 @@ function App() {
       return result.data
     },
   })
+  const accountAddressesQuery = useQuery({
+    queryKey: ['account-addresses', accountUser?.id],
+    enabled: (checkoutOpen || isCheckoutPage) && Boolean(accountUser),
+    queryFn: async ({ signal }) => {
+      const response = await fetch('/api/v1/account/addresses', { signal })
+      const result = await response.json() as { data?: CustomerAddress[]; error?: { message?: string } }
+      if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Saved delivery addresses could not be loaded.')
+      return result.data
+    },
+  })
 
   useEffect(() => { localStorage.setItem('kitculture-cart', JSON.stringify(cart)) }, [cart])
   useEffect(() => {
@@ -450,6 +458,15 @@ function App() {
     else if (isAccountPortalRoute && authChecked && accountUser && !isPortalPath && !isAccountCartRoute) navigate('/account/dashboard', { replace: true })
   }, [pagePath, authChecked, accountUser, isAccountPortalRoute, isPortalPath, isAccountCartRoute, navigate])
   useEffect(() => {
+    if (!accountAddressesQuery.data?.length) {
+      if (checkoutAddressId) setCheckoutAddressId('')
+      return
+    }
+    if (accountAddressesQuery.data.some((address) => String(address.id) === checkoutAddressId)) return
+    const preferredAddress = accountAddressesQuery.data.find((address) => address.isDefault) ?? accountAddressesQuery.data[0]
+    setCheckoutAddressId(String(preferredAddress.id))
+  }, [accountAddressesQuery.data, checkoutAddressId])
+  useEffect(() => {
     if (isLoginPage && authChecked && accountUser) {
       navigate(safeCustomerReturnTo(new URLSearchParams(location.search).get('returnTo')) ?? '/account/dashboard', { replace: true })
     }
@@ -489,6 +506,7 @@ function App() {
   const checkoutCart = buyNowItems ?? cart
   const checkoutSubtotal = checkoutCart.reduce((total, line) => total + line.price * line.quantity, 0)
   const checkoutDeliveryFee = Number(deliveryZones.find((zone) => zone.id === Number(checkoutDeliveryZoneId))?.fee ?? 0)
+  const checkoutAddress = accountAddressesQuery.data?.find((address) => address.id === Number(checkoutAddressId)) ?? null
 
   function addToCart(product: Product | ShopProduct, selection?: Variant | ShopVariant | ShopPurchaseSelection[]) {
     const selections = Array.isArray(selection)
@@ -537,7 +555,12 @@ function App() {
           address: {
             recipientName: details.recipientName,
             phone: details.phone,
-            address: details.address,
+            ...(details.address ? { address: details.address } : {}),
+            ...(details.county ? { county: details.county } : {}),
+            ...(details.town ? { town: details.town } : {}),
+            ...(details.estate ? { estate: details.estate } : {}),
+            ...(details.landmark ? { landmark: details.landmark } : {}),
+            ...(details.instructions ? { instructions: details.instructions } : {}),
             ...(details.latitude !== undefined && details.longitude !== undefined ? { latitude: details.latitude, longitude: details.longitude } : {}),
             ...(details.accuracy !== undefined ? { accuracy: details.accuracy } : {}),
           },
@@ -567,7 +590,12 @@ function App() {
         address: {
           recipientName: details.recipientName,
           phone: details.phone,
-          address: details.address,
+          ...(details.address ? { address: details.address } : {}),
+          ...(details.county ? { county: details.county } : {}),
+          ...(details.town ? { town: details.town } : {}),
+          ...(details.estate ? { estate: details.estate } : {}),
+          ...(details.landmark ? { landmark: details.landmark } : {}),
+          ...(details.instructions ? { instructions: details.instructions } : {}),
           ...(details.latitude !== undefined && details.longitude !== undefined ? { latitude: details.latitude, longitude: details.longitude } : {}),
           ...(details.accuracy !== undefined ? { accuracy: details.accuracy } : {}),
         },
@@ -725,50 +753,8 @@ function App() {
       return
     }
     setCheckoutError('')
-    setCheckoutPinStatus('')
     setCheckoutIdempotencyKey(crypto.randomUUID())
     setCheckoutOpen(true)
-  }
-
-  function captureDeliveryLocation(form: HTMLFormElement) {
-    const latitude = form.elements.namedItem('latitude')
-    const longitude = form.elements.namedItem('longitude')
-    const accuracy = form.elements.namedItem('accuracy')
-    if (latitude instanceof HTMLInputElement) latitude.value = ''
-    if (longitude instanceof HTMLInputElement) longitude.value = ''
-    if (accuracy instanceof HTMLInputElement) accuracy.value = ''
-    setCheckoutLocation(null)
-    setCheckoutLatitude('')
-    setCheckoutLongitude('')
-    setCheckoutAccuracy(null)
-    if (!navigator.geolocation) {
-      setCheckoutPinStatus('Location sharing is not available in this browser.')
-      return
-    }
-    setCheckoutPinStatus('Finding your delivery location…')
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const latitude = form.elements.namedItem('latitude')
-        const longitude = form.elements.namedItem('longitude')
-        const accuracy = form.elements.namedItem('accuracy')
-        if (!(latitude instanceof HTMLInputElement) || !(longitude instanceof HTMLInputElement) || !(accuracy instanceof HTMLInputElement)) {
-          setCheckoutPinStatus('The delivery pin could not be attached to this order.')
-          return
-        }
-        latitude.value = String(position.coords.latitude)
-        longitude.value = String(position.coords.longitude)
-        accuracy.value = String(position.coords.accuracy)
-        setCheckoutLatitude(latitude.value)
-        setCheckoutLongitude(longitude.value)
-        setCheckoutAccuracy(position.coords.accuracy)
-        setCheckoutLocation({ latitude: position.coords.latitude, longitude: position.coords.longitude, accuracy: position.coords.accuracy })
-        setCheckoutPinStatus(`Pin saved with approximately ${Math.round(position.coords.accuracy)} m accuracy. Pin again outdoors for a more precise location.`)
-      },
-      (error) => setCheckoutPinStatus(error.code === error.PERMISSION_DENIED
-        ? 'Allow location access in your browser to add an optional delivery pin.'
-        : 'Your delivery location could not be found. You can continue without a pin.'),
-      { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 },
-    )
   }
 
   async function submitCheckout(event: FormEvent<HTMLFormElement>) {
@@ -778,9 +764,6 @@ function App() {
     const form = new FormData(event.currentTarget)
     const deliveryZoneId = Number(form.get('deliveryZoneId'))
     const paymentMethod = String(form.get('paymentMethod') ?? 'pay_on_delivery')
-    const latitudeValue = String(form.get('latitude') ?? '').trim()
-    const longitudeValue = String(form.get('longitude') ?? '').trim()
-    const accuracyValue = String(form.get('accuracy') ?? '').trim()
     if (paymentMethod === 'mpesa' && !mpesaPaymentOptions?.stkPushAvailable) {
       setCheckoutError('M-PESA Express is unavailable until Daraja is configured.')
       return
@@ -794,8 +777,8 @@ function App() {
       const variantId = line.variantId ?? product?.variants.find((variant) => variant.size === line.size)?.id
       return variantId ? [{ variantId, quantity: line.quantity }] : []
     })
-    if (!deliveryZoneId || items.length !== checkoutCart.length) {
-      setCheckoutError('Some items in your bag are no longer available. Refresh the shop and try again.')
+    if (!deliveryZoneId || !checkoutAddress || items.length !== checkoutCart.length) {
+      setCheckoutError(!checkoutAddress ? 'Choose a saved delivery address before placing your order.' : 'Some items in your bag are no longer available. Refresh the shop and try again.')
       return
     }
 
@@ -811,11 +794,15 @@ function App() {
           deliveryZoneId,
           paymentMethod,
           address: {
-            recipientName: String(form.get('recipientName') ?? ''),
-            phone: String(form.get('phone') ?? ''),
-            instructions: String(form.get('instructions') ?? ''),
-            ...(latitudeValue && longitudeValue ? { latitude: Number(latitudeValue), longitude: Number(longitudeValue) } : {}),
-            ...(accuracyValue ? { accuracy: Number(accuracyValue) } : {}),
+            recipientName: checkoutAddress.recipientName,
+            phone: checkoutAddress.phone,
+            address: checkoutAddress.address,
+            county: checkoutAddress.county,
+            town: checkoutAddress.town,
+            ...(checkoutAddress.estate ? { estate: checkoutAddress.estate } : {}),
+            ...(checkoutAddress.landmark ? { landmark: checkoutAddress.landmark } : {}),
+            instructions: checkoutAddress.instructions ?? '',
+            ...(checkoutAddress.latitude !== null && checkoutAddress.longitude !== null ? { latitude: Number(checkoutAddress.latitude), longitude: Number(checkoutAddress.longitude) } : {}),
           },
         }),
       })
@@ -862,15 +849,15 @@ function App() {
     }
   }
 
-  if (pagePath === '/admin/access') return <Suspense fallback={<DelayedBrandLoader label="Loading administrator portals" />}><AdminAccessPage /></Suspense>
-  if (pagePath === '/admin/activate') return <Suspense fallback={<DelayedBrandLoader label="Loading administrator activation" />}><AdminActivationPage /></Suspense>
+  if (pagePath === '/admin/access') return <Suspense fallback={null}><AdminAccessPage /></Suspense>
+  if (pagePath === '/admin/activate') return <Suspense fallback={null}><AdminActivationPage /></Suspense>
   if (isSuperAdminPage) {
     const isSuperAdminAuthRoute = ['/super-admin/signup', '/super-admin/login', '/super-admin/verify'].includes(pagePath)
-    return <Suspense fallback={<DelayedBrandLoader label="Loading Super Administrator" />}>{isSuperAdminAuthRoute ? <SuperAdminRoute /> : <SuperAdminConsole />}</Suspense>
+    return <Suspense fallback={isSuperAdminAuthRoute ? <DelayedBrandLoader label="Loading Super Administrator sign-in" /> : null}>{isSuperAdminAuthRoute ? <SuperAdminRoute /> : <SuperAdminConsole />}</Suspense>
   }
-  if (roleAdminPage) return <Suspense fallback={<DelayedBrandLoader label="Loading administrator portal" />}><RolePortalRoute /></Suspense>
-  if (isAdminPage) return <Suspense fallback={<DelayedBrandLoader label="Loading administration" />}><AdminRoute /></Suspense>
-  if (isOperationsPage || isItAdminPage) return <Suspense fallback={<DelayedBrandLoader label="Loading IT operations" />}><OperationsRoute /></Suspense>
+  if (roleAdminPage) return <Suspense fallback={pagePath.endsWith('/login') ? <DelayedBrandLoader label="Loading administrator sign-in" /> : null}><RolePortalRoute /></Suspense>
+  if (isAdminPage) return <Suspense fallback={pagePath.endsWith('/login') ? <DelayedBrandLoader label="Loading administrator sign-in" /> : null}><AdminRoute /></Suspense>
+  if (isOperationsPage || isItAdminPage) return <Suspense fallback={isOperationsPage ? <DelayedBrandLoader label="Loading operations sign-in" /> : null}><OperationsRoute /></Suspense>
 
   if (isAccountPortalRoute || isCustomerAuthRoute) {
     if (!authChecked) return <DelayedBrandLoader label="Checking your account" />
@@ -923,17 +910,16 @@ function App() {
             {zonesLoading ? <div className="catalogue-state"><strong>Loading delivery areas…</strong></div> : zonesFailed || deliveryZones.length === 0 ? <div className="catalogue-state error-state"><strong>Checkout is not available yet.</strong><span>{zonesFailed ? (zonesError instanceof Error ? zonesError.message : 'Delivery areas could not be loaded.') : 'Delivery areas have not been configured.'}</span></div> : <form className="standalone-card checkout-form" onSubmit={(event) => void submitCheckout(event)} noValidate>
               <label>Delivery area<select name="deliveryZoneId" required value={checkoutDeliveryZoneId} onChange={(event) => setCheckoutDeliveryZoneId(event.target.value)}><option value="" disabled>Select an area</option>{deliveryZones.map((zone) => <option key={zone.id} value={zone.id}>{zone.name} · {money.format(Number(zone.fee))}</option>)}</select></label>
               <CheckoutPaymentOptions paymentMethod={checkoutPaymentMethod} onPaymentMethodChange={setCheckoutPaymentMethod} mpesaOptions={mpesaPaymentOptions} accountUser={accountUser} payerPhone={mpesaPhone} onPayerPhoneChange={setMpesaPhone} />
-              <div className="checkout-fields"><label>Recipient full name<input key={`recipient-${checkoutPaymentMethod}-${accountUser.id}`} name="recipientName" autoComplete="name" defaultValue={accountUser.fullName} required minLength={2} maxLength={160} /></label><label>Delivery phone number<input key={`phone-${checkoutPaymentMethod}-${accountUser.id}`} name="phone" type="tel" autoComplete="tel" defaultValue={accountUser.phone ?? ''} required minLength={7} maxLength={20} /></label></div>
-              <label>Email address<input type="email" autoComplete="email" value={accountUser.email} readOnly /></label>
-              <label>Delivery instructions <span>(optional)</span><textarea name="instructions" rows={2} maxLength={500} /></label>
-              <input type="hidden" name="latitude" value={checkoutLatitude} readOnly /><input type="hidden" name="longitude" value={checkoutLongitude} readOnly /><input type="hidden" name="accuracy" value={checkoutAccuracy ?? ''} readOnly />
-              <button className="button button-outline checkout-location-button" type="button" onClick={(event) => { if (event.currentTarget.form) captureDeliveryLocation(event.currentTarget.form) }}><MapPin size={15} /> Pin this delivery location</button>
-              {checkoutPinStatus && <p className="checkout-location-status" role="status">{checkoutPinStatus}</p>}
-              {checkoutLocation && <GoogleMapView latitude={checkoutLocation.latitude} longitude={checkoutLocation.longitude} title="Pinned delivery location" />}
+              {accountAddressesQuery.isPending ? <div className="catalogue-state"><strong>Loading saved addresses…</strong></div> : accountAddressesQuery.isError ? <div className="catalogue-state error-state"><strong>Saved addresses unavailable</strong><span>{accountAddressesQuery.error.message}</span><button type="button" className="portal-retry-link" onClick={() => void accountAddressesQuery.refetch()}>Retry</button></div> : !accountAddressesQuery.data?.length ? <div className="catalogue-state"><strong>Add a delivery address first.</strong><span>Your delivery details and optional map pin are saved in your account.</span><Link className="button button-outline" to="/account/addresses">Manage delivery addresses</Link></div> : <>
+                <label>Saved delivery address<select required value={checkoutAddressId} onChange={(event) => setCheckoutAddressId(event.target.value)}><option value="">Choose an address</option>{accountAddressesQuery.data.map((address) => <option key={address.id} value={address.id}>{address.label} · {address.town}, {address.county}</option>)}</select></label>
+                {checkoutAddress && <div className="checkout-address-summary"><strong>{checkoutAddress.recipientName} · {checkoutAddress.phone}</strong><span>{checkoutAddress.address}{checkoutAddress.estate ? `, ${checkoutAddress.estate}` : ''}, {checkoutAddress.town}, {checkoutAddress.county}</span><Link to="/account/addresses">Manage saved addresses</Link></div>}
+                {checkoutAddress?.latitude !== null && checkoutAddress?.longitude !== null && checkoutAddress && <GoogleMapView latitude={Number(checkoutAddress.latitude)} longitude={Number(checkoutAddress.longitude)} title={`Saved delivery pin · ${checkoutAddress.label}`} />}
+              </>}
               {checkoutError && <p className="auth-message" role="alert">{checkoutError}</p>}
               <div className="checkout-total"><span>Items subtotal</span><strong>{money.format(checkoutSubtotal)}</strong></div><div className="checkout-total checkout-fee"><span>Delivery</span><strong>{money.format(checkoutDeliveryFee)}</strong></div><div className="checkout-total checkout-grand-total"><span>Total due</span><strong>{money.format(checkoutSubtotal + checkoutDeliveryFee)}</strong></div>
               <p className="checkout-disclaimer">Your selected delivery area is attached to the order. A map pin is optional. Stock and delivery fees are rechecked before confirmation.</p>
               <button className="button button-green" type="submit" disabled={checkoutBusy || checkoutCart.length === 0}>{checkoutBusy ? 'Creating order…' : `Place order · ${checkoutPaymentMethod === 'pay_on_delivery' ? 'Pay on Delivery' : 'M-Pesa'}`} <ArrowRight size={16} /></button>
+              {checkoutBusy && checkoutPaymentMethod === 'mpesa' && <PaymentWaitState />}
             </form>}
           </section>
       : pagePath === '/account/marketplace' || isPortalMarketplaceTeam
@@ -1074,7 +1060,7 @@ function App() {
               <div className="product-info"><div><ProductCategoryLine team={product.team?.name} league={product.league?.name} jerseyCategory={product.jerseyCategory?.name} category={product.category?.name} fallback="KitCulture" /><h3><Link to={`/products/${product.slug}`}>{product.name}</Link></h3></div><span className="product-price">{product.salePrice ? <><del>{money.format(Number(product.price))}</del><strong className="sale-price">{money.format(Number(product.salePrice))}</strong></> : money.format(Number(product.price))}</span></div>
               <KitRating productId={product.id} productName={product.name} rating={product.ratingAverage} count={product.reviewCount} />
               <div className="product-meta"><div className="product-sizes">{product.variants.length ? product.variants.map((variant) => <span className={!variant.stock ? 'is-sold-out' : ''} key={variant.id}>{variant.size}</span>) : <span>Unavailable</span>}</div><span className={inStock ? 'stock-label' : 'stock-label sold-out'}>{inStock ? 'In stock' : 'Out of stock'}</span></div>
-                {inStock ? <div className="product-card-actions public-product-card-actions"><button className="quick-add" type="button" onClick={() => addToCart(product)} aria-label={`Add ${product.name} to cart`}><ShoppingCart size={13} />Add to Cart</button><Link className="product-card-buy public-product-card-shop" to={`/products/${product.slug}`} state={{ openBuyFlow: true }}>Shop <ArrowRight size={14} /></Link>{whatsappNumber && <WhatsAppProductLink phone={whatsappNumber} product={product} />}</div> : <div className="product-card-actions public-product-card-actions"><Link className="quick-add quick-add-preview" to={`/products/${product.slug}`}><ShoppingCart size={13} />View kit</Link>{whatsappNumber && <WhatsAppProductLink phone={whatsappNumber} product={product} />}</div>}
+                {inStock ? <div className="product-card-actions public-product-card-actions"><button className="quick-add" type="button" onClick={() => addToCart(product)} aria-label={`Add ${product.name} to cart`}><ShoppingCart size={13} />Add to Cart</button><Link className="product-card-buy public-product-card-shop" to={`/products/${product.slug}`} state={{ openBuyFlow: true }}>Buy</Link>{whatsappNumber && <WhatsAppProductLink phone={whatsappNumber} product={product} />}</div> : <div className="product-card-actions public-product-card-actions"><Link className="quick-add quick-add-preview" to={`/products/${product.slug}`}><ShoppingCart size={13} />View kit</Link>{whatsappNumber && <WhatsAppProductLink phone={whatsappNumber} product={product} />}</div>}
             </article>
           })}</div>}
           {!catalogueError && !loading && homeFeaturedProducts.length === 0 && <div className="catalogue-state"><span className="catalogue-mark">KC</span><strong>{products.length ? 'No kits found for that search.' : 'A fresh season starts here.'}</strong><span>{products.length ? 'Try another phrase or collection.' : 'New pieces will appear here once inventory is added in the admin catalogue.'}</span></div>}
@@ -1105,19 +1091,18 @@ function App() {
           {zonesLoading ? <div className="catalogue-state"><strong>Loading delivery areas…</strong></div> : zonesFailed || deliveryZones.length === 0 ? <div className="catalogue-state error-state"><strong>Checkout is not available yet.</strong><span>{zonesFailed ? (zonesError instanceof Error ? zonesError.message : 'Delivery areas could not be loaded.') : 'Delivery areas have not been configured.'}</span></div> : <form className="standalone-card checkout-form" onSubmit={(event) => void submitCheckout(event)} noValidate>
             <label>Delivery area<select name="deliveryZoneId" required value={checkoutDeliveryZoneId} onChange={(event) => setCheckoutDeliveryZoneId(event.target.value)}><option value="" disabled>Select an area</option>{deliveryZones.map((zone) => <option key={zone.id} value={zone.id}>{zone.name} · {money.format(Number(zone.fee))}</option>)}</select></label>
             <CheckoutPaymentOptions paymentMethod={checkoutPaymentMethod} onPaymentMethodChange={setCheckoutPaymentMethod} mpesaOptions={mpesaPaymentOptions} accountUser={accountUser} payerPhone={mpesaPhone} onPayerPhoneChange={setMpesaPhone} />
-            <div className="checkout-fields"><label>Recipient full name<input key={`recipient-${checkoutPaymentMethod}-${accountUser?.id ?? 'guest'}`} name="recipientName" autoComplete="name" defaultValue={accountUser?.fullName ?? ''} readOnly={checkoutPaymentMethod === 'mpesa'} required minLength={2} maxLength={160} /></label><label>Phone number<input key={`phone-${checkoutPaymentMethod}-${accountUser?.id ?? 'guest'}`} name="phone" type="tel" autoComplete="tel" defaultValue={accountUser?.phone ?? ''} readOnly={checkoutPaymentMethod === 'mpesa'} required minLength={7} maxLength={20} /></label></div>
-            <label>Email address<input type="email" autoComplete="email" value={accountUser?.email ?? ''} readOnly /></label>
-            <label>Delivery instructions <span>(optional)</span><textarea name="instructions" rows={2} maxLength={500} /></label>
-            <input type="hidden" name="latitude" value={checkoutLatitude} readOnly /><input type="hidden" name="longitude" value={checkoutLongitude} readOnly /><input type="hidden" name="accuracy" value={checkoutAccuracy ?? ''} readOnly />
-            <button className="button button-outline checkout-location-button" type="button" onClick={(event) => { if (event.currentTarget.form) captureDeliveryLocation(event.currentTarget.form) }}><MapPin size={15} /> Pin this delivery location</button>
-            {checkoutPinStatus && <p className="checkout-location-status" role="status">{checkoutPinStatus}</p>}
-            {checkoutLocation && <GoogleMapView latitude={checkoutLocation.latitude} longitude={checkoutLocation.longitude} title="Pinned delivery location" />}
+            {accountAddressesQuery.isPending ? <div className="catalogue-state"><strong>Loading saved addresses…</strong></div> : accountAddressesQuery.isError ? <div className="catalogue-state error-state"><strong>Saved addresses unavailable</strong><span>{accountAddressesQuery.error.message}</span><button type="button" className="portal-retry-link" onClick={() => void accountAddressesQuery.refetch()}>Retry</button></div> : !accountAddressesQuery.data?.length ? <div className="catalogue-state"><strong>Add a delivery address first.</strong><span>Your delivery details and optional map pin are saved in your account.</span><Link className="button button-outline" to="/account/addresses">Manage delivery addresses</Link></div> : <>
+              <label>Saved delivery address<select required value={checkoutAddressId} onChange={(event) => setCheckoutAddressId(event.target.value)}><option value="">Choose an address</option>{accountAddressesQuery.data.map((address) => <option key={address.id} value={address.id}>{address.label} · {address.town}, {address.county}</option>)}</select></label>
+              {checkoutAddress && <div className="checkout-address-summary"><strong>{checkoutAddress.recipientName} · {checkoutAddress.phone}</strong><span>{checkoutAddress.address}{checkoutAddress.estate ? `, ${checkoutAddress.estate}` : ''}, {checkoutAddress.town}, {checkoutAddress.county}</span><Link to="/account/addresses">Manage saved addresses</Link></div>}
+              {checkoutAddress?.latitude !== null && checkoutAddress?.longitude !== null && checkoutAddress && <GoogleMapView latitude={Number(checkoutAddress.latitude)} longitude={Number(checkoutAddress.longitude)} title={`Saved delivery pin · ${checkoutAddress.label}`} />}
+            </>}
             {checkoutError && <p className="auth-message" role="alert">{checkoutError}</p>}
             <div className="checkout-total"><span>Items subtotal</span><strong>{money.format(checkoutSubtotal)}</strong></div>
             <div className="checkout-total checkout-fee"><span>Delivery</span><strong>{money.format(checkoutDeliveryFee)}</strong></div>
             <div className="checkout-total checkout-grand-total"><span>Total due</span><strong>{money.format(checkoutSubtotal + checkoutDeliveryFee)}</strong></div>
             <p className="checkout-disclaimer">Your selected delivery area is attached to the order. A map pin is optional. Stock and delivery fees are rechecked before confirmation.</p>
             <button className="button button-green" type="submit" disabled={checkoutBusy || checkoutCart.length === 0}>{checkoutBusy ? 'Creating order…' : `Place order · ${checkoutPaymentMethod === 'pay_on_delivery' ? 'Pay on Delivery' : 'M-Pesa'}`} <ArrowRight size={16} /></button>
+            {checkoutBusy && checkoutPaymentMethod === 'mpesa' && <PaymentWaitState />}
           </form>}
         </section>}
         {isNotFoundPage && <section className="standalone-page page-width"><div className="catalogue-state"><strong>That page is not in our lineup.</strong><span>Check the address or head back to the shop.</span><Link className="button button-green" to="/shop">Browse teams <ArrowRight size={15} /></Link></div></section>}
@@ -1137,13 +1122,11 @@ function App() {
           {zonesLoading ? <div className="catalogue-state"><strong>Loading delivery areas…</strong></div> : zonesFailed || deliveryZones.length === 0 ? <div className="catalogue-state"><strong>Checkout is not available yet.</strong><span>{zonesFailed ? (zonesError instanceof Error ? zonesError.message : 'Delivery areas could not be loaded.') : 'Delivery areas have not been configured. Please try again later.'}</span></div> : <form className="checkout-form" onSubmit={(event) => void submitCheckout(event)} noValidate>
             <label>Delivery area<select name="deliveryZoneId" required value={checkoutDeliveryZoneId} onChange={(event) => setCheckoutDeliveryZoneId(event.target.value)}><option value="" disabled>Select an area</option>{deliveryZones.map((zone) => <option key={zone.id} value={zone.id}>{zone.name} · {money.format(Number(zone.fee))}</option>)}</select></label>
             <CheckoutPaymentOptions paymentMethod={checkoutPaymentMethod} onPaymentMethodChange={setCheckoutPaymentMethod} mpesaOptions={mpesaPaymentOptions} accountUser={accountUser} payerPhone={mpesaPhone} onPayerPhoneChange={setMpesaPhone} />
-            <div className="checkout-fields"><label>Recipient full name<input key={`recipient-${checkoutPaymentMethod}-${accountUser?.id ?? 'guest'}`} name="recipientName" autoComplete="name" defaultValue={accountUser?.fullName ?? ''} readOnly={checkoutPaymentMethod === 'mpesa'} required minLength={2} maxLength={160} /></label><label>Phone number<input key={`phone-${checkoutPaymentMethod}-${accountUser?.id ?? 'guest'}`} name="phone" type="tel" autoComplete="tel" defaultValue={accountUser?.phone ?? ''} readOnly={checkoutPaymentMethod === 'mpesa'} required minLength={7} maxLength={20} /></label></div>
-            <label>Email address<input type="email" autoComplete="email" value={accountUser?.email ?? ''} readOnly /></label>
-            <label>Delivery instructions <span>(optional)</span><textarea name="instructions" rows={2} maxLength={500} /></label>
-            <input type="hidden" name="latitude" value={checkoutLatitude} readOnly /><input type="hidden" name="longitude" value={checkoutLongitude} readOnly /><input type="hidden" name="accuracy" value={checkoutAccuracy ?? ''} readOnly />
-            <button className="button button-outline checkout-location-button" type="button" onClick={(event) => { if (event.currentTarget.form) captureDeliveryLocation(event.currentTarget.form) }}><MapPin size={15} /> Pin this delivery location</button>
-            {checkoutPinStatus && <p className="checkout-location-status" role="status">{checkoutPinStatus}</p>}
-            {checkoutLocation && <GoogleMapView latitude={checkoutLocation.latitude} longitude={checkoutLocation.longitude} title="Pinned delivery location" />}
+            {accountAddressesQuery.isPending ? <div className="catalogue-state"><strong>Loading saved addresses…</strong></div> : accountAddressesQuery.isError ? <div className="catalogue-state error-state"><strong>Saved addresses unavailable</strong><span>{accountAddressesQuery.error.message}</span><button type="button" className="portal-retry-link" onClick={() => void accountAddressesQuery.refetch()}>Retry</button></div> : !accountAddressesQuery.data?.length ? <div className="catalogue-state"><strong>Add a delivery address first.</strong><span>Your delivery details and optional map pin are saved in your account.</span><Link className="button button-outline" to="/account/addresses">Manage delivery addresses</Link></div> : <>
+              <label>Saved delivery address<select required value={checkoutAddressId} onChange={(event) => setCheckoutAddressId(event.target.value)}><option value="">Choose an address</option>{accountAddressesQuery.data.map((address) => <option key={address.id} value={address.id}>{address.label} · {address.town}, {address.county}</option>)}</select></label>
+              {checkoutAddress && <div className="checkout-address-summary"><strong>{checkoutAddress.recipientName} · {checkoutAddress.phone}</strong><span>{checkoutAddress.address}{checkoutAddress.estate ? `, ${checkoutAddress.estate}` : ''}, {checkoutAddress.town}, {checkoutAddress.county}</span><Link to="/account/addresses">Manage saved addresses</Link></div>}
+              {checkoutAddress?.latitude !== null && checkoutAddress?.longitude !== null && checkoutAddress && <GoogleMapView latitude={Number(checkoutAddress.latitude)} longitude={Number(checkoutAddress.longitude)} title={`Saved delivery pin · ${checkoutAddress.label}`} />}
+            </>}
             {checkoutError && <p className="auth-message" role="alert">{checkoutError}</p>}
             <div className="checkout-total"><span>Items subtotal</span><strong>{money.format(checkoutSubtotal)}</strong></div>
             <div className="checkout-total checkout-fee"><span>Delivery</span><strong>{money.format(checkoutDeliveryFee)}</strong></div>

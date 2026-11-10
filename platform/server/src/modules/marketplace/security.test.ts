@@ -36,13 +36,19 @@ test('footer social settings allow only HTTPS network URLs and normalize Kenya W
     xUrl: 'https://x.com/markethub',
     youtubeUrl: 'https://youtu.be/channel',
     whatsappPhone: '0712 345 678',
+    contactEmail: 'HELLO@MARKETHUB.CO.KE',
+    contactPhone: '0711 222 333',
   })
   assert.equal(parsed.success, true)
   if (parsed.success) {
     assert.equal(parsed.data.whatsappPhone, '254712345678')
     assert.equal(parsed.data.whatsappUrl, 'https://wa.me/254712345678')
+    assert.equal(parsed.data.contactEmail, 'hello@markethub.co.ke')
+    assert.equal(parsed.data.contactPhone, '254711222333')
   }
   assert.equal(parseMarketplaceSocialLinks({ facebookUrl: 'https://facebook.com.evil.test/page' }).success, false)
   assert.equal(parseMarketplaceSocialLinks({ xUrl: 'http://x.com/markethub' }).success, false)
   assert.equal(parseMarketplaceSocialLinks({ whatsappPhone: '12345' }).success, false)
+  assert.equal(parseMarketplaceSocialLinks({ contactEmail: 'not-an-email' }).success, false)
+  assert.equal(parseMarketplaceSocialLinks({ contactPhone: '12345' }).success, false)
 })

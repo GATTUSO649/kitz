@@ -43,6 +43,13 @@
 .checkout-disclaimer{margin:0;color:var(--muted);font-size:11px;line-height:1.6}
 .checkout-form>.button{width:100%;justify-content:space-between}
 .checkout-form>.button-green{min-height:56px;padding:15px 18px;border-color:#075d34;background:#08733e;color:#fff;font-size:14px;font-weight:800}
+.checkout-form,.buy-flow-dialog,.buy-flow-content{position:relative}
+.payment-wait-state{position:absolute;z-index:8;inset:0;display:grid;align-content:center;justify-items:center;gap:10px;padding:28px;border:1px solid #34506f;background:#071a33f5;color:#f5f7f2;text-align:center}
+.payment-wait-state>svg{color:#ffd54a;animation:payment-wait-spin 1.15s linear infinite}
+.payment-wait-kicker{color:#ffd54a;font-size:9px;font-weight:800;letter-spacing:.08em}
+.payment-wait-state>strong{font-size:15px}
+.payment-wait-state>p{max-width:330px;margin:0;color:#d5e0ef;font-size:12px;line-height:1.55}
+@keyframes payment-wait-spin{to{transform:rotate(360deg)}}
 .checkout-form>.button-green:hover{background:#075d34}
 .checkout-form>.button-green:focus-visible{outline:3px solid #f4bd42;outline-offset:3px}
 .buy-flow-backdrop{position:fixed;z-index:80;inset:0;display:grid;place-items:center;padding:20px;background:#050a07d9;animation:buy-flow-in .18s ease}
