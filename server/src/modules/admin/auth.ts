@@ -214,7 +214,11 @@ adminAuthRouter.get('/me', authenticateAdmin, async (request, response) => {
     response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Administrator sign in is required.' } })
     return
   }
-  response.json({ data: { user: admin, portal: admin.role && admin.status === 'active' ? administratorPortal(admin.role as Parameters<typeof administratorPortal>[0]) : null } })
+  response.json({ data: {
+    user: admin,
+    portal: admin.role && admin.status === 'active' ? administratorPortal(admin.role as Parameters<typeof administratorPortal>[0]) : null,
+    marketHubOrigin: env.MARKETHUB_PUBLIC_URL ? new URL(env.MARKETHUB_PUBLIC_URL).origin : null,
+  } })
 })
 
 adminAuthRouter.post('/session/activity', (request, response, next) => {

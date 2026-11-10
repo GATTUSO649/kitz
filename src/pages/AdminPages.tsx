@@ -1334,7 +1334,7 @@ function SiteImagesManager() {
   </section>
 }
 
-function SitePagesManager() {
+function SitePagesManager({ marketHubOrigin }: { marketHubOrigin: string | null }) {
   const queryClient = useQueryClient()
   const contentQuery = useQuery({
     queryKey: ['admin', 'homepage', 'site-content'],
@@ -1345,7 +1345,7 @@ function SitePagesManager() {
   if (contentQuery.isPending) return <div className="admin-empty">Loading site pages…</div>
   if (contentQuery.isError) return <div className="admin-empty admin-error">{contentQuery.error.message}<button type="button" onClick={() => void contentQuery.refetch()}>Retry</button></div>
 
-  return <SitePagesEditor key={JSON.stringify(contentQuery.data)} initialContent={contentQuery.data ?? {}} onSaved={async () => {
+  return <SitePagesEditor key={JSON.stringify(contentQuery.data)} initialContent={contentQuery.data ?? {}} marketHubOrigin={marketHubOrigin} onSaved={async () => {
     await Promise.all([
       contentQuery.refetch(),
       queryClient.invalidateQueries({ queryKey: siteContentQueryKey }),
@@ -1353,7 +1353,7 @@ function SitePagesManager() {
   }} />
 }
 
-function SitePagesEditor({ initialContent, onSaved }: { initialContent: SiteContentData; onSaved: () => Promise<void> }) {
+function SitePagesEditor({ initialContent, marketHubOrigin, onSaved }: { initialContent: SiteContentData; marketHubOrigin: string | null; onSaved: () => Promise<void> }) {
   const [draft, setDraft] = useState<Record<SiteContentField, string>>(() => Object.fromEntries(siteContentFields.map(({ key }) => [key, initialContent[key] ?? ''])) as Record<SiteContentField, string>)
   const [previewField, setPreviewField] = useState<'terms' | 'privacy'>('terms')
   const [previewPage, setPreviewPage] = useState('/')
@@ -1381,7 +1381,7 @@ function SitePagesEditor({ initialContent, onSaved }: { initialContent: SiteCont
   }
 
   const previewText = draft[previewField].trim()
-  const platformOrigin = (import.meta.env.VITE_MARKETHUB_ORIGIN ?? '').replace(/\/$/, '')
+  const platformOrigin = (marketHubOrigin || import.meta.env.VITE_MARKETHUB_ORIGIN || '').replace(/\/$/, '')
   const isPlatformPage = previewPage.startsWith('platform:')
   const platformPath = isPlatformPage ? previewPage.slice('platform:'.length) : ''
   const previewSrc = isPlatformPage ? platformOrigin ? `${platformOrigin}${platformPath}` : '' : previewPage
@@ -2174,7 +2174,7 @@ function ItOperationsPanel() {
   </div>
 }
 
-export function AdminConsole({ role }: { role: string | null }) {
+export function AdminConsole({ role, marketHubOrigin }: { role: string | null; marketHubOrigin: string | null }) {
   const location = useLocation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -2322,7 +2322,7 @@ export function AdminConsole({ role }: { role: string | null }) {
           : current[0] === 'inventory'
           ? <InventoryAdjustmentForm onDone={async () => { await sectionQuery.refetch() }} />
           : current[0] === 'site-pages'
-            ? <SitePagesManager />
+            ? <SitePagesManager marketHubOrigin={marketHubOrigin} />
           : current[0] === 'homepage'
             ? <HomepageSlidesManager slides={records.filter(isHomepageSlide)} onDone={async () => { await sectionQuery.refetch() }} />
           : <SectionForm section={current[0]} onDone={async (createdProductId) => {
@@ -2369,7 +2369,7 @@ export function AdminRoute() {
   const isAdminAuthRoute = ['/sales-admin/login', '/sales-admin/register', '/sales-admin/onboarding', '/sales-admin/verify'].includes(location.pathname)
   const sessionQuery = useQuery({
     queryKey: ['admin-session'],
-    queryFn: () => api<{ user: { id: number; role?: string | null } }>('/api/v1/admin/me'),
+    queryFn: () => api<{ user: { id: number; role?: string | null }; marketHubOrigin?: string | null }>('/api/v1/admin/me'),
     enabled: isAdminPortalRoute && !isAdminAuthRoute,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -2400,7 +2400,7 @@ export function AdminRoute() {
       }
       return <Navigate to={portalByRole[role ?? ''] ?? '/admin/access'} replace />
     }
-    return <AdminConsole role={role} />
+    return <AdminConsole role={role} marketHubOrigin={sessionQuery.data?.marketHubOrigin ?? null} />
   }
   return <Navigate to="/sales-admin/login" replace />
 }
