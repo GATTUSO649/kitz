@@ -468,6 +468,15 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
     const frame = window.requestAnimationFrame(() => document.getElementById('product-reviews')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     return () => window.cancelAnimationFrame(frame)
   }, [location.hash, productQuery.data?.id])
+  useEffect(() => {
+    if (!savedAddressesQuery.data?.length) {
+      if (deliveryAddressId) setDeliveryAddressId('')
+      return
+    }
+    if (savedAddressesQuery.data.some((address) => String(address.id) === deliveryAddressId)) return
+    const preferredAddress = savedAddressesQuery.data.find((address) => address.isDefault) ?? savedAddressesQuery.data[0]
+    setDeliveryAddressId(String(preferredAddress.id))
+  }, [deliveryAddressId, savedAddressesQuery.data])
   const recommendationsQuery = useQuery({
     queryKey: ['product-recommendations', productQuery.data?.id, productQuery.data?.team?.slug],
     enabled: Boolean(productQuery.data),
@@ -520,15 +529,6 @@ export function ProductPage({ onAdd, onBuyNow, onSave, accountUser, portalMode =
   const selectedZone = deliveryZonesQuery.data?.find((zone) => String(zone.id) === deliveryZoneId)
   const selectedDeliveryAddress = savedAddressesQuery.data?.find((address) => String(address.id) === deliveryAddressId)
   const buyFlowTotal = selectedSubtotal + Number(selectedZone?.fee ?? 0)
-  useEffect(() => {
-    if (!savedAddressesQuery.data?.length) {
-      if (deliveryAddressId) setDeliveryAddressId('')
-      return
-    }
-    if (savedAddressesQuery.data.some((address) => String(address.id) === deliveryAddressId)) return
-    const preferredAddress = savedAddressesQuery.data.find((address) => address.isDefault) ?? savedAddressesQuery.data[0]
-    setDeliveryAddressId(String(preferredAddress.id))
-  }, [deliveryAddressId, savedAddressesQuery.data])
   const guestPaymentStatus = guestOrderStatusQuery.data?.payment?.status
   const guestPaymentRetryable = guestOrderStatusQuery.isSuccess
     && (!guestPaymentStatus || ['cancelled', 'failed', 'expired'].includes(guestPaymentStatus))
