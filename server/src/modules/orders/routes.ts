@@ -194,11 +194,13 @@ ordersRouter.post('/orders/guest', rejectCrossOrigin, guestCheckoutLimiter, asyn
           variantId: productVariants.id,
           productId: products.id,
           productName: products.name,
+          stock: productVariants.stock,
           price: sql<string>`COALESCE(${productVariants.price}, ${products.salePrice}, ${products.price})`,
           size: productVariants.size,
         }).from(productVariants).innerJoin(products, eq(productVariants.productId, products.id))
           .where(and(eq(productVariants.id, requested.variantId), eq(products.published, true))).limit(1)
         if (!row) throw new OrderRequestError(400, 'PRODUCT_UNAVAILABLE', 'One or more selected products are no longer available.')
+        if (row.stock < requested.quantity) throw new OrderRequestError(409, 'INSUFFICIENT_STOCK', `${row.productName} (${row.size}) no longer has enough stock.`)
         const priceCents = toCents(row.price)
         subtotalCents += priceCents * requested.quantity
         itemSnapshots.push({ ...requested, ...row, priceCents })
@@ -240,11 +242,6 @@ ordersRouter.post('/orders/guest', rejectCrossOrigin, guestCheckoutLimiter, asyn
         await transaction.insert(marketingCouponRedemptions).values({ couponId, orderId, userId: null, discountAmount: fromCents(discountCents) })
       }
       for (const item of itemSnapshots) {
-        const updated = await transaction.update(productVariants).set({ stock: sql`${productVariants.stock} - ${item.quantity}` })
-          .where(and(eq(productVariants.id, item.variantId), gte(productVariants.stock, item.quantity)))
-          .returning({ id: productVariants.id })
-        if (updated.length !== 1) throw new OrderRequestError(409, 'INSUFFICIENT_STOCK', `${item.productName} (${item.size}) no longer has enough stock.`)
-        await transaction.insert(inventoryMovements).values({ variantId: item.variantId, movementType: 'reservation', quantityChange: -item.quantity, note: `Reserved for guest order ${orderId}` })
         await transaction.insert(orderItems).values({
           orderId, productId: item.productId, variantId: item.variantId, productNameSnapshot: item.productName,
           sizeSnapshot: item.size, customizationSnapshot: null, quantity: item.quantity, unitPrice: (item.priceCents / 100).toFixed(2),
@@ -312,11 +309,13 @@ ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, re
           variantId: productVariants.id,
           productId: products.id,
           productName: products.name,
+          stock: productVariants.stock,
           price: sql<string>`COALESCE(${productVariants.price}, ${products.salePrice}, ${products.price})`,
           size: productVariants.size,
         }).from(productVariants).innerJoin(products, eq(productVariants.productId, products.id))
           .where(and(eq(productVariants.id, requested.variantId), eq(products.published, true))).limit(1)
         if (!row) throw new OrderRequestError(400, 'PRODUCT_UNAVAILABLE', 'One or more selected products are no longer available.')
+        if (row.stock < requested.quantity) throw new OrderRequestError(409, 'INSUFFICIENT_STOCK', `${row.productName} (${row.size}) no longer has enough stock.`)
 
         const priceCents = toCents(row.price)
         subtotalCents += priceCents * requested.quantity
@@ -368,20 +367,21 @@ ordersRouter.post('/orders', rejectCrossOrigin, authenticate, async (request, re
       }
 
       for (const item of itemSnapshots) {
-        const updated = await transaction.update(productVariants)
-          .set({ stock: sql`${productVariants.stock} - ${item.quantity}` })
-          .where(and(eq(productVariants.id, item.variantId), gte(productVariants.stock, item.quantity)))
-          .returning({ id: productVariants.id })
-        if (updated.length !== 1) {
-          throw new OrderRequestError(409, 'INSUFFICIENT_STOCK', `${item.productName} (${item.size}) no longer has enough stock.`)
+        if (input.data.paymentMethod === 'pay_on_delivery') {
+          const updated = await transaction.update(productVariants)
+            .set({ stock: sql`${productVariants.stock} - ${item.quantity}` })
+            .where(and(eq(productVariants.id, item.variantId), gte(productVariants.stock, item.quantity)))
+            .returning({ id: productVariants.id })
+          if (updated.length !== 1) {
+            throw new OrderRequestError(409, 'INSUFFICIENT_STOCK', `${item.productName} (${item.size}) no longer has enough stock.`)
+          }
+          await transaction.insert(inventoryMovements).values({
+            variantId: item.variantId,
+            movementType: 'reservation',
+            quantityChange: -item.quantity,
+            note: `Reserved for order ${orderId}`,
+          })
         }
-
-        await transaction.insert(inventoryMovements).values({
-          variantId: item.variantId,
-          movementType: 'reservation',
-          quantityChange: -item.quantity,
-          note: `Reserved for order ${orderId}`,
-        })
         await transaction.insert(orderItems).values({
           orderId,
           productId: item.productId,
@@ -747,35 +747,68 @@ ordersRouter.post(darajaCallbackRoute, async (request, response) => {
     return response.json({ ResultCode: 0, ResultDesc: 'Accepted' })
   }
 
-  await db.transaction(async (transaction) => {
-    const paymentUpdate = await transaction.update(payments).set({
-      status: 'succeeded',
+  try {
+    await db.transaction(async (transaction) => {
+      const paymentUpdate = await transaction.update(payments).set({
+        status: 'succeeded',
+        providerResultCode: resultCode,
+        providerReceipt: receipt,
+        payerPhone: callbackPhone,
+        transactionAt,
+        verificationMessage: 'Payment was verified against the Daraja STK query and matched this order.',
+      }).where(and(eq(payments.id, payment.id), eq(payments.status, 'pending'))).returning({ id: payments.id })
+      if (paymentUpdate.length !== 1) return
+      const orderUpdate = await transaction.update(orders).set({ status: 'paid' })
+        .where(and(eq(orders.id, order.id), eq(orders.status, 'pending_payment')))
+        .returning({ id: orders.id })
+      if (orderUpdate.length !== 1) throw new Error('Order changed while verifying the M-Pesa payment.')
+      const items = await transaction.select({ variantId: orderItems.variantId, quantity: orderItems.quantity })
+        .from(orderItems).where(eq(orderItems.orderId, order.id))
+      for (const item of items) {
+        if (item.variantId === null) throw new Error('Paid order item is missing its inventory variant.')
+        const reservationNote = order.userId === null ? `Reserved for guest order ${order.id}` : `Reserved for order ${order.id}`
+        const [existingReservation] = await transaction.select({ id: inventoryMovements.id }).from(inventoryMovements)
+          .where(and(eq(inventoryMovements.variantId, item.variantId), eq(inventoryMovements.movementType, 'reservation'), eq(inventoryMovements.note, reservationNote))).limit(1)
+        if (existingReservation) continue
+        const updated = await transaction.update(productVariants)
+          .set({ stock: sql`${productVariants.stock} - ${item.quantity}` })
+          .where(and(eq(productVariants.id, item.variantId), gte(productVariants.stock, item.quantity)))
+          .returning({ id: productVariants.id })
+        if (updated.length !== 1) throw new OrderRequestError(409, 'INSUFFICIENT_STOCK', 'Payment was received, but the selected kit is no longer available. Manual review is required.')
+        await transaction.insert(inventoryMovements).values({
+          variantId: item.variantId,
+          movementType: 'sale',
+          quantityChange: -item.quantity,
+          note: `Paid order ${order.id}`,
+        })
+      }
+      await transaction.insert(auditLogs).values({
+        actorUserId: null,
+        action: 'payment.mpesa_verified',
+        targetType: 'payment',
+        targetId: String(payment.id),
+      })
+      const [{ id: notificationId }] = await transaction.insert(notificationCampaigns).values({
+        type: 'order',
+        title: 'M-Pesa payment confirmed',
+        body: `Payment ${receipt} for order ${order.orderNumber} has been verified.`,
+        href: `/account/orders/${encodeURIComponent(order.orderNumber)}`,
+        audienceType: 'system',
+      }).returning({ id: notificationCampaigns.id })
+      if (order.userId !== null) await transaction.insert(notificationRecipients).values({ campaignId: notificationId, userId: order.userId })
+    })
+  } catch (error) {
+    if (!(error instanceof OrderRequestError) || error.code !== 'INSUFFICIENT_STOCK') throw error
+    await db.update(payments).set({
+      status: 'requires_review',
       providerResultCode: resultCode,
       providerReceipt: receipt,
       payerPhone: callbackPhone,
       transactionAt,
-      verificationMessage: 'Payment was verified against the Daraja STK query and matched this order.',
-    }).where(and(eq(payments.id, payment.id), eq(payments.status, 'pending'))).returning({ id: payments.id })
-    if (paymentUpdate.length !== 1) return
-    const orderUpdate = await transaction.update(orders).set({ status: 'paid' })
-      .where(and(eq(orders.id, order.id), eq(orders.status, 'pending_payment')))
-      .returning({ id: orders.id })
-    if (orderUpdate.length !== 1) throw new Error('Order changed while verifying the M-Pesa payment.')
-    await transaction.insert(auditLogs).values({
-      actorUserId: null,
-      action: 'payment.mpesa_verified',
-      targetType: 'payment',
-      targetId: String(payment.id),
-    })
-    const [{ id: notificationId }] = await transaction.insert(notificationCampaigns).values({
-      type: 'order',
-      title: 'M-Pesa payment confirmed',
-      body: `Payment ${receipt} for order ${order.orderNumber} has been verified.`,
-      href: `/account/orders/${encodeURIComponent(order.orderNumber)}`,
-      audienceType: 'system',
-    }).returning({ id: notificationCampaigns.id })
-    if (order.userId !== null) await transaction.insert(notificationRecipients).values({ campaignId: notificationId, userId: order.userId })
-  })
+      verificationMessage: 'Payment was confirmed, but stock was unavailable. Manual reconciliation is required.',
+    }).where(and(eq(payments.id, payment.id), eq(payments.status, 'pending')))
+    return response.json({ ResultCode: 0, ResultDesc: 'Accepted' })
+  }
   response.json({ ResultCode: 0, ResultDesc: 'Accepted' })
 })
 
@@ -940,6 +973,13 @@ ordersRouter.post('/orders/:orderNumber/cancel', rejectCrossOrigin, authenticate
       }).from(orderItems).where(eq(orderItems.orderId, order.id))
       for (const reservation of reservations) {
         if (reservation.variantId === null) continue
+        const [existingReservation] = await transaction.select({ id: inventoryMovements.id }).from(inventoryMovements)
+          .where(and(
+            eq(inventoryMovements.variantId, reservation.variantId),
+            eq(inventoryMovements.movementType, 'reservation'),
+            eq(inventoryMovements.note, `Reserved for order ${order.id}`),
+          )).limit(1)
+        if (!existingReservation) continue
         await transaction.update(productVariants)
           .set({ stock: sql`${productVariants.stock} + ${reservation.quantity}` })
           .where(eq(productVariants.id, reservation.variantId))
