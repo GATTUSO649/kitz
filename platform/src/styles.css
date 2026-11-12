@@ -123,6 +123,1098 @@ button, input { font: inherit; }
 .kenya-flag { width: 20px; height: 14px; display: block; flex: 0 0 20px; border: 1px solid #ffffff9c; border-radius: 1px; }
 .footer-meta small { margin-left: 12px; color: #a8b8ce; }
 
+.laundry-page-shell {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #f3f8f3 0%, #eef4f1 100%);
+  color: #13262a;
+}
+
+.laundry-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: linear-gradient(90deg, #0d2f4f 0%, #123f64 45%, #0e2446 100%);
+  box-shadow: 0 10px 30px rgba(6, 24, 41, 0.16);
+}
+
+.laundry-header-inner {
+  max-width: 1450px;
+  margin: 0 auto;
+  min-height: 78px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 0 clamp(18px, 3vw, 40px);
+}
+
+.laundry-brand {
+  display: inline-flex;
+  align-items: center;
+  min-width: 170px;
+}
+
+.laundry-brand img {
+  display: block;
+  width: 190px;
+  max-height: 56px;
+  object-fit: contain;
+}
+
+.laundry-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+  flex: 1;
+}
+
+.laundry-nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  color: rgba(245, 249, 252, 0.82);
+  font-size: 14px;
+  font-weight: 700;
+  transition: background .2s ease, color .2s ease, transform .2s ease;
+}
+
+.laundry-nav-link:hover,
+.laundry-nav-link:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  outline: none;
+}
+
+.laundry-nav-link.is-active {
+  background: rgba(227, 182, 77, 0.16);
+  color: #f4daa0;
+  box-shadow: inset 0 0 0 1px rgba(244, 218, 160, 0.3);
+}
+
+.laundry-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.laundry-browse-button,
+.primary-action,
+.secondary-action,
+.booking-button,
+.service-card a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-weight: 800;
+  transition: transform .2s ease, box-shadow .2s ease, filter .2s ease;
+}
+
+.laundry-browse-button,
+.primary-action,
+.booking-button {
+  background: linear-gradient(135deg, #d9b85d 0%, #f0cb73 28%, #d4a935 100%);
+  color: #142a30;
+  box-shadow: 0 10px 20px rgba(212, 169, 53, 0.3);
+}
+
+.laundry-browse-button {
+  padding: 11px 18px;
+  font-size: 13px;
+}
+
+.primary-action,
+.booking-button {
+  padding: 14px 24px;
+  min-height: 48px;
+}
+
+.secondary-action {
+  background: rgba(255, 255, 255, 0.1);
+  color: #effaf6;
+  border-color: rgba(255, 255, 255, 0.2);
+  padding: 14px 22px;
+  min-height: 48px;
+}
+
+.laundry-browse-button:hover,
+.primary-action:hover,
+.secondary-action:hover,
+.booking-button:hover,
+.service-card a:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.02);
+}
+
+.laundry-browse-button:focus-visible,
+.primary-action:focus-visible,
+.secondary-action:focus-visible,
+.booking-button:focus-visible,
+.service-card a:focus-visible,
+.laundry-nav-link:focus-visible,
+.field-group input:focus-visible,
+.field-group select:focus-visible,
+.field-group textarea:focus-visible {
+  outline: 3px solid rgba(93, 170, 127, 0.45);
+  outline-offset: 2px;
+}
+
+.laundry-main {
+  max-width: 1450px;
+  margin: 0 auto;
+  padding: 28px clamp(18px, 3vw, 38px) 64px;
+}
+
+.laundry-hero {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  align-items: center;
+  gap: 36px;
+  padding: clamp(24px, 3vw, 40px);
+  border-radius: 32px;
+  background: linear-gradient(135deg, #0a314b 0%, #1d5872 50%, #264f6b 100%);
+  box-shadow: 0 18px 50px rgba(10, 49, 75, 0.12);
+  overflow: hidden;
+  position: relative;
+}
+
+.laundry-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at top right, rgba(255, 212, 109, 0.24), transparent 32%);
+  pointer-events: none;
+}
+
+.laundry-hero-copy,
+.laundry-hero-media {
+  position: relative;
+  z-index: 1;
+}
+
+.hero-kicker,
+.section-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 16px;
+  color: #f0d98c;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 800;
+}
+
+.laundry-hero-copy h1 {
+  margin: 0;
+  color: #f7fbff;
+  font-size: clamp(2.4rem, 5vw, 4.4rem);
+  line-height: 1.02;
+  letter-spacing: -0.06em;
+}
+
+.laundry-hero-copy p {
+  max-width: 660px;
+  margin: 16px 0 0;
+  color: rgba(238, 246, 250, 0.9);
+  font-size: 1.08rem;
+  line-height: 1.7;
+}
+
+.laundry-hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  margin-top: 24px;
+}
+
+.laundry-hero-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: #ebf8ef;
+  font-weight: 700;
+  font-size: 0.98rem;
+}
+
+.laundry-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 28px;
+}
+
+.laundry-hero-badges {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 30px;
+  max-width: 560px;
+}
+
+.laundry-hero-badges div {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  padding: 14px 18px;
+}
+
+.laundry-hero-badges strong,
+.laundry-hero-badges small {
+  display: block;
+}
+
+.laundry-hero-badges strong {
+  font-size: 0.93rem;
+  color: #ffffff;
+}
+
+.laundry-hero-badges small {
+  margin-top: 4px;
+  color: rgba(239, 245, 248, 0.78);
+}
+
+.laundry-hero-media {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 480px;
+}
+
+.laundry-hero-media img {
+  width: 100%;
+  max-width: 620px;
+  height: 550px;
+  object-fit: cover;
+  border-radius: 30px;
+  border: 3px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 24px 48px rgba(8, 22, 37, 0.28);
+}
+
+.laundry-float-card {
+  position: absolute;
+  right: 35px;
+  bottom: 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 18px;
+  max-width: 230px;
+  border-radius: 18px;
+  background: rgba(14, 39, 48, 0.88);
+  border: 1px solid rgba(248, 238, 201, 0.2);
+  box-shadow: 0 18px 32px rgba(10, 20, 26, 0.3);
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(93, 175, 109, 0.15);
+  border: 1px solid rgba(137, 220, 157, 0.25);
+  color: #b2f2c3;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.laundry-float-card strong,
+.laundry-float-card small {
+  display: block;
+}
+
+.laundry-float-card strong {
+  color: #eefaf5;
+  font-size: 1rem;
+}
+
+.laundry-float-card small {
+  color: rgba(230, 239, 244, 0.8);
+}
+
+.laundry-section {
+  margin-top: 52px;
+  padding: 28px 0 0;
+}
+
+.section-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.section-heading h2 {
+  margin: 0;
+  color: #183340;
+  font-size: clamp(1.8rem, 3vw, 3rem);
+  letter-spacing: -0.06em;
+}
+
+.center-heading {
+  justify-content: center;
+  text-align: center;
+}
+
+.compact-heading {
+  margin-bottom: 12px;
+}
+
+.service-grid,
+.benefits-grid,
+.faq-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 22px;
+}
+
+.service-card,
+.benefit-card,
+.faq-card,
+.step-card,
+.location-card,
+.info-card {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(16, 48, 60, 0.08);
+  border-radius: 26px;
+  box-shadow: 0 12px 28px rgba(18, 43, 55, 0.08);
+}
+
+.service-card {
+  padding: 24px;
+}
+
+.service-icon,
+.benefit-icon {
+  width: 62px;
+  height: 62px;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, rgba(32, 111, 74, 0.14), rgba(209, 168, 73, 0.18));
+  color: #0d553b;
+}
+
+.service-card h3,
+.benefit-card h3,
+.step-card h3,
+.faq-card h3 {
+  margin: 18px 0 10px;
+  color: #17364a;
+  font-size: 1.35rem;
+  letter-spacing: -0.04em;
+}
+
+.service-card p,
+.benefit-card p,
+.step-card p,
+.faq-card p,
+.info-card p,
+.location-card p {
+  margin: 0;
+  color: rgba(23, 52, 64, 0.8);
+  line-height: 1.7;
+}
+
+.service-card a {
+  margin-top: 18px;
+  color: #0d483a;
+  font-size: 0.95rem;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
+.steps-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.step-card {
+  padding: 22px 20px;
+}
+
+.step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #0f5a47, #1b7f64);
+  color: #f4fdf9;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.laundry-booking-section {
+  display: grid;
+  grid-template-columns: 0.82fr 1.18fr;
+  gap: 28px;
+  margin-top: 52px;
+  padding: 32px 30px;
+  border-radius: 30px;
+  background: linear-gradient(180deg, rgba(247, 250, 248, 0.98), rgba(233, 243, 239, 0.96));
+  box-shadow: 0 20px 40px rgba(12, 47, 53, 0.08);
+}
+
+.booking-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.booking-copy h2 {
+  margin: 0;
+  color: #17364a;
+  font-size: clamp(2.1rem, 3vw, 3rem);
+  letter-spacing: -0.06em;
+}
+
+.booking-copy p {
+  margin: 14px 0 0;
+  color: rgba(23, 52, 64, 0.8);
+  line-height: 1.7;
+}
+
+.booking-summary {
+  display: grid;
+  gap: 12px;
+  margin-top: 22px;
+}
+
+.booking-summary div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #17364a;
+  font-weight: 700;
+}
+
+.laundry-booking-form {
+  background: #ffffff;
+  border: 1px solid rgba(19, 52, 60, 0.08);
+  border-radius: 26px;
+  box-shadow: 0 12px 28px rgba(18, 43, 55, 0.07);
+  padding: 26px;
+}
+
+.booking-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 20px;
+}
+
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field-group.wide {
+  grid-column: 1 / -1;
+}
+
+.field-group label {
+  color: #12333f;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.field-group input,
+.field-group select,
+.field-group textarea {
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 14px;
+  border: 1px solid rgba(18, 51, 63, 0.16);
+  border-radius: 14px;
+  background: #f5faf7;
+  color: #183340;
+  font: inherit;
+  transition: border-color .2s ease, box-shadow .2s ease;
+}
+
+.field-group textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+.field-group input:focus,
+.field-group select:focus,
+.field-group textarea:focus {
+  border-color: rgba(15, 90, 71, 0.5);
+  box-shadow: 0 0 0 3px rgba(15, 90, 71, 0.08);
+  background: #fff;
+}
+
+.field-error {
+  color: #b42318;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.booking-submit-row {
+  margin-top: 22px;
+}
+
+.booking-button {
+  width: 100%;
+  border: none;
+  cursor: pointer;
+}
+
+.booking-button:disabled {
+  opacity: 0.8;
+  cursor: wait;
+}
+
+.booking-message {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 18px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: rgba(32, 111, 74, 0.09);
+  border: 1px solid rgba(32, 111, 74, 0.18);
+}
+
+.booking-message strong {
+  color: #0d563a;
+}
+
+.booking-message span {
+  color: rgba(18, 48, 59, 0.8);
+  line-height: 1.6;
+}
+
+.laundry-pricing-section {
+  margin-top: 40px;
+}
+
+.pricing-notice {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 22px 24px;
+  border: 1px solid rgba(17, 91, 65, 0.15);
+  border-radius: 22px;
+  background: linear-gradient(110deg, #f7fbf7, #eef5eb 62%, #fbf5e6);
+  box-shadow: 0 10px 24px rgba(18, 43, 55, 0.06);
+}
+
+.pricing-notice h3 {
+  margin: 0 0 5px;
+  color: #17364a;
+  font-size: 1.15rem;
+}
+
+.pricing-notice p {
+  margin: 0;
+  color: rgba(23, 52, 64, 0.8);
+  line-height: 1.6;
+}
+
+.pricing-notice .primary-action {
+  flex: 0 0 auto;
+  text-decoration: none;
+}
+
+.booking-confirmation {
+  margin-top: 20px;
+  padding: 20px;
+}
+
+.booking-confirmation > strong {
+  color: #0d563a;
+  font-size: 1.15rem;
+}
+
+.confirmation-status,
+.tracking-status {
+  color: #14523b;
+  background: rgba(44, 131, 79, 0.12);
+  border-color: rgba(44, 131, 79, 0.24);
+}
+
+.booking-confirmation dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 18px;
+  margin: 8px 0;
+}
+
+.booking-confirmation dl div {
+  min-width: 0;
+}
+
+.booking-confirmation dt {
+  color: #527067;
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.booking-confirmation dd {
+  margin: 4px 0 0;
+  color: #17364a;
+  overflow-wrap: anywhere;
+}
+
+.booking-confirmation > small,
+.tracking-form > small {
+  color: #587168;
+  line-height: 1.55;
+}
+
+.booking-support-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  color: #087848;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.booking-support-link:hover {
+  text-decoration: underline;
+}
+
+.laundry-whatsapp-float {
+  position: fixed;
+  z-index: 45;
+  right: 22px;
+  bottom: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 52px;
+  padding: 0 18px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 999px;
+  background: #12824c;
+  color: #fff;
+  box-shadow: 0 12px 28px rgba(7, 70, 40, 0.28);
+  font-weight: 800;
+  text-decoration: none;
+  transition: transform .2s ease, box-shadow .2s ease;
+}
+
+.laundry-whatsapp-float:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 32px rgba(7, 70, 40, 0.34);
+}
+
+.laundry-whatsapp-float:focus-visible {
+  outline: 3px solid rgba(18, 130, 76, 0.35);
+  outline-offset: 3px;
+}
+
+.quantity-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(108px, 0.8fr);
+  gap: 8px;
+}
+
+.tracking-section {
+  scroll-margin-top: 100px;
+}
+
+.tracking-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 22px;
+  align-items: start;
+}
+
+.tracking-form,
+.tracking-result {
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+  background: #fff;
+  border: 1px solid rgba(19, 52, 60, 0.08);
+  border-radius: 24px;
+  box-shadow: 0 12px 28px rgba(18, 43, 55, 0.07);
+}
+
+.tracking-form > p,
+.tracking-result > p {
+  margin: 0;
+  color: rgba(23, 52, 64, 0.8);
+  line-height: 1.65;
+}
+
+.tracking-form .booking-button {
+  margin-top: 2px;
+}
+
+.tracking-result h3 {
+  margin: 0;
+  color: #17364a;
+  font-size: 1.4rem;
+}
+
+.status-timeline {
+  list-style: none;
+  padding: 0;
+  margin: 4px 0;
+  display: grid;
+  gap: 0;
+}
+
+.status-timeline li {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 42px;
+  color: #73847d;
+  font-weight: 700;
+}
+
+.status-timeline li:not(:last-child)::after {
+  position: absolute;
+  content: '';
+  width: 2px;
+  height: 18px;
+  left: 7px;
+  top: 31px;
+  background: #dce5df;
+}
+
+.status-timeline li.is-complete {
+  color: #175c40;
+}
+
+.status-timeline li span {
+  z-index: 1;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  border: 2px solid #b9c9bf;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.status-timeline li.is-complete span {
+  border-color: #19734e;
+  background: #19734e;
+  box-shadow: inset 0 0 0 3px #fff;
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.benefit-card,
+.faq-card {
+  padding: 22px;
+}
+
+.benefit-icon {
+  margin-bottom: 10px;
+}
+
+.gallery-section {
+  padding-top: 26px;
+}
+
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.gallery-item {
+  margin: 0;
+  overflow: hidden;
+  border-radius: 22px;
+  box-shadow: 0 14px 30px rgba(15, 39, 49, 0.08);
+  aspect-ratio: 4 / 3;
+  background: #dfeae5;
+}
+
+.gallery-item img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform .25s ease;
+}
+
+.gallery-item:hover img {
+  transform: scale(1.03);
+}
+
+.laundry-location-section {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 24px;
+  margin-top: 52px;
+}
+
+.location-card,
+.info-card {
+  padding: 28px;
+}
+
+.location-details {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.detail-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #183340;
+  font-weight: 700;
+}
+
+.detail-row a,
+.info-card li,
+.laundry-footer-links a,
+.laundry-footer-links span,
+.location-card a,
+.laundry-footer-brand p {
+  color: rgba(23, 52, 64, 0.8);
+}
+
+.location-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.info-card h3 {
+  margin: 0 0 12px;
+  color: #17364a;
+  font-size: 1.6rem;
+  letter-spacing: -0.04em;
+}
+
+.info-card ul {
+  margin: 18px 0 0;
+  padding-left: 22px;
+  display: grid;
+  gap: 10px;
+  color: rgba(23, 52, 64, 0.8);
+}
+
+.faq-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.faq-card svg {
+  color: #0d5b41;
+}
+
+.laundry-footer {
+  display: grid;
+  grid-template-columns: 1.1fr 1.8fr;
+  gap: 18px;
+  padding: 28px clamp(18px, 3vw, 40px) 44px;
+  background: linear-gradient(90deg, #081d2c 0%, #0a2d45 100%);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.laundry-footer-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  color: rgba(230, 239, 244, 0.82);
+}
+
+.laundry-footer-brand .brand-lockup img {
+  width: 190px;
+  height: auto;
+}
+
+.laundry-footer-brand p {
+  max-width: 420px;
+  margin: 0;
+  line-height: 1.7;
+}
+
+.laundry-footer-links {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.laundry-footer-links h3 {
+  margin: 0 0 12px;
+  color: #f7fbff;
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.laundry-footer-links a,
+.laundry-footer-links span {
+  display: block;
+  margin-bottom: 10px;
+  color: rgba(231, 241, 245, 0.82);
+  text-decoration: none;
+}
+
+@media (max-width: 1024px) {
+  .laundry-hero,
+  .laundry-booking-section,
+  .laundry-location-section {
+    grid-template-columns: 1fr;
+  }
+
+  .steps-grid,
+  .service-grid,
+  .benefits-grid,
+  .faq-grid,
+  .gallery-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .laundry-footer {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .laundry-header-inner {
+    flex-wrap: wrap;
+    justify-content: center;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+
+  .laundry-nav {
+    order: 3;
+    width: 100%;
+  }
+
+  .laundry-header-actions {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .laundry-main {
+    padding-top: 20px;
+  }
+
+  .laundry-hero {
+    gap: 22px;
+    padding: 18px 18px 24px;
+  }
+
+  .laundry-hero-media img {
+    height: 380px;
+  }
+
+  .laundry-hero-badges,
+  .booking-fields,
+  .steps-grid,
+  .service-grid,
+  .benefits-grid,
+  .faq-grid,
+  .gallery-grid,
+  .laundry-footer-links {
+    grid-template-columns: 1fr;
+  }
+
+  .laundry-hero-actions,
+  .location-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .primary-action,
+  .secondary-action,
+  .laundry-browse-button,
+  .booking-button {
+    width: 100%;
+  }
+
+  .laundry-booking-section {
+    padding: 20px 18px;
+  }
+
+  .pricing-notice,
+  .tracking-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .pricing-notice {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .pricing-notice .primary-action {
+    width: 100%;
+  }
+
+  .booking-confirmation dl {
+    grid-template-columns: 1fr;
+  }
+
+  .laundry-booking-form {
+    padding: 18px;
+  }
+
+  .laundry-float-card {
+    right: 18px;
+    bottom: 18px;
+    max-width: 200px;
+  }
+
+  .laundry-whatsapp-float {
+    right: 14px;
+    bottom: 14px;
+    min-width: 52px;
+    width: 52px;
+    height: 52px;
+    padding: 0;
+  }
+
+  .laundry-whatsapp-float span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 .marketplace-shell { min-height: 100vh; color: #10271e; background: #f5f8f6; }
 .marketplace-header { height: 62px; display: flex; align-items: center; gap: 28px; justify-content: space-between; padding: 0 clamp(18px, 4vw, 64px); background: linear-gradient(100deg, #071f3d, #0a2c5a 52%, #071f3d); box-shadow: 0 5px 18px rgba(7, 22, 49, 0.18); position: sticky; top: 0; z-index: 20; }
 .market-brand img { display: block; width: 166px; max-height: 48px; object-fit: contain; }

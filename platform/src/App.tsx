@@ -1,4 +1,4 @@
-import { ArrowRight, BadgeCheck, CircleHelp, Compass, House, LayoutGrid, List as ListIcon, LoaderCircle, Mail, MapPin, Moon, Phone, Search, ShieldCheck, ShoppingBag, SlidersHorizontal, Sparkles, Sun, X, Zap } from 'lucide-react'
+import { ArrowRight, BadgeCheck, CalendarDays, CheckCircle2, CircleHelp, Clock3, Compass, House, LayoutGrid, List as ListIcon, LoaderCircle, Mail, MapPin, Moon, PackageCheck, Phone, Search, ShieldCheck, ShoppingBag, Shirt, SlidersHorizontal, Sparkles, Star, Sun, Truck, X, Zap } from 'lucide-react'
 import { FaFacebookF, FaWhatsapp, FaXTwitter, FaYoutube } from 'react-icons/fa6'
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -58,6 +58,10 @@ type LaundryBooking = {
   location: string
   address: string
   service: string
+  quantity: number
+  quantityUnit: string
+  preferredDate: string
+  preferredTime: string
   notes: string
   createdAt: string
   status: 'new' | 'confirmed' | 'ready'
@@ -190,84 +194,509 @@ function ProductResults({ search, category, filterQuery, page, view, onPageChang
 
 function LaundryPage() {
   const [settings, setSettings] = useState<LaundryPageSettings>(() => readStoredValue(laundrySettingsStorageKey, defaultLaundrySettings))
-  const [form, setForm] = useState({ name: '', phone: '', email: '', location: '', address: '', service: 'Wash & Fold', notes: '' })
+  const [form, setForm] = useState({ name: '', phone: '', email: '', location: '', address: '', exactLocation: '', service: 'Wash & Fold', quantity: '1', quantityUnit: 'bag', preferredDate: '', preferredTime: '', notes: '' })
+  const [errors, setErrors] = useState<Record<string, string>>({})
   const [notice, setNotice] = useState('')
+  const [bookingConfirmation, setBookingConfirmation] = useState<LaundryBooking | null>(null)
+  const [trackingReference, setTrackingReference] = useState('')
+  const [trackingPhone, setTrackingPhone] = useState('')
+  const [trackedBooking, setTrackedBooking] = useState<LaundryBooking | null>(null)
+  const [trackingError, setTrackingError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const siteContent = usePlatformSiteContent()
+  const whatsappNumber = normalizeWhatsAppNumber(siteContent.platformWhatsappPhone ?? '')
+  const whatsappUrl = whatsappNumber ? `https://wa.me/${whatsappNumber}` : null
 
   useEffect(() => {
     setSettings(readStoredValue(laundrySettingsStorageKey, defaultLaundrySettings))
   }, [])
 
+  const serviceCards = [
+    { title: 'Wash & Fold', description: 'Fresh everyday laundry with careful washing, drying and neatly folded finishing.', icon: Shirt },
+    { title: 'Dry Cleaning', description: 'Professional garment care for delicate clothing, uniforms and special pieces.', icon: Sparkles },
+    { title: 'Ironing', description: 'Perfect finishing for shirts, dresses, workwear and household essentials.', icon: CheckCircle2 },
+    { title: 'Express Laundry', description: 'Quick turnaround for time-sensitive requests when you need items back fast.', icon: Clock3 },
+    { title: 'Bedding & Duvets', description: 'Deep cleaning for bed linens, duvet covers and large household textiles.', icon: PackageCheck },
+    { title: 'Pickup & Delivery', description: 'Convenient collection and return service for busy homes and offices.', icon: Truck },
+  ]
+
+  const steps = [
+    { title: 'Choose Your Service', description: 'Select the care option that fits your laundry needs and schedule.' },
+    { title: 'Schedule Your Pickup', description: 'Tell us when and where we should collect your clothes.' },
+    { title: 'We Clean Your Clothes', description: 'Our team washes, dries and finishes everything with care.' },
+    { title: 'Receive Your Fresh Laundry', description: 'We return your garments clean, folded and ready to wear.' },
+  ]
+
+  const benefits = [
+    { title: 'Convenient Pickup and Delivery', description: 'Simple collection and return scheduling for busy households and offices.', icon: Truck },
+    { title: 'Professional Garment Care', description: 'Careful handling to keep your clothes fresh, neat and in great condition.', icon: ShieldCheck },
+    { title: 'Reliable Service', description: 'Punctual support from a team focused on dependable results.', icon: BadgeCheck },
+    { title: 'Customer Support', description: 'Friendly assistance whenever you need help with timing or service details.', icon: Phone },
+  ]
+
+  const gallery = [
+    'https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=900&q=80',
+    'https://images.unsplash.com/photo-1527515637462-cff94eecc1ac?auto=format&fit=crop&w=900&q=80',
+    'https://images.unsplash.com/photo-1556911220-bff31c812dba?auto=format&fit=crop&w=900&q=80',
+    'https://images.unsplash.com/photo-1600194992447-4db8f8f88a84?auto=format&fit=crop&w=900&q=80',
+    'https://images.unsplash.com/photo-1616628182505-3bd9fbdc2d0d?auto=format&fit=crop&w=900&q=80',
+    'https://images.unsplash.com/photo-1621007947382-bb3c3994e3fb?auto=format&fit=crop&w=900&q=80',
+  ]
+
+  const validateForm = () => {
+    const nextErrors: Record<string, string> = {}
+    const cleanedName = form.name.trim()
+    const cleanedEmail = form.email.trim()
+    const cleanedPhone = form.phone.trim()
+    const cleanedAddress = form.address.trim()
+
+    if (!cleanedName) nextErrors.name = 'Please enter your full name.'
+    if (!cleanedPhone) nextErrors.phone = 'Phone number is required.'
+    else {
+      const digits = cleanedPhone.replace(/\D/g, '')
+      const normalized = digits.startsWith('0') ? `254${digits.slice(1)}` : digits
+      if (!/^254[17]\d{8}$/.test(normalized)) nextErrors.phone = 'Use a valid Kenyan mobile number, for example 0712 345 678.'
+    }
+    if (!cleanedEmail) nextErrors.email = 'Email address is required.'
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanedEmail)) nextErrors.email = 'Enter a valid email address.'
+    if (!cleanedAddress) nextErrors.address = 'Please add your street or home address.'
+    if (!form.service) nextErrors.service = 'Please choose a service.'
+    if (!Number.isFinite(Number(form.quantity)) || Number(form.quantity) < 1) nextErrors.quantity = 'Enter a quantity of at least 1.'
+    if (!form.preferredDate) nextErrors.preferredDate = 'Choose a preferred pickup date.'
+    else if (form.preferredDate < new Date().toISOString().slice(0, 10)) nextErrors.preferredDate = 'Choose today or a future date.'
+    if (!form.preferredTime) nextErrors.preferredTime = 'Choose a preferred pickup time.'
+    setErrors(nextErrors)
+    return Object.keys(nextErrors).length === 0
+  }
+
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    setNotice('')
+    setBookingConfirmation(null)
+    if (!validateForm()) return
+
     const bookings = readStoredValue<LaundryBooking[]>(laundryBookingsStorageKey, [])
+    const reference = `LAUN-${new Date().toISOString().slice(2, 10).replaceAll('-', '')}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`
     const booking: LaundryBooking = {
-      id: `laundry-${Date.now()}`,
+      id: reference,
       name: form.name.trim(),
       phone: form.phone.trim(),
       email: form.email.trim(),
       location: form.location.trim() || settings.locationLabel,
       address: form.address.trim(),
       service: form.service,
-      notes: form.notes.trim(),
+      quantity: Number(form.quantity),
+      quantityUnit: form.quantityUnit,
+      preferredDate: form.preferredDate,
+      preferredTime: form.preferredTime,
+      notes: `${form.exactLocation ? `Exact pickup location: ${form.exactLocation}. ` : ''}${form.notes.trim()}`.trim(),
       createdAt: new Date().toISOString(),
       status: 'new',
     }
-    const next = [booking, ...bookings]
-    writeStoredValue(laundryBookingsStorageKey, next)
-    setNotice('Your pickup request has been sent. The admin team will contact you shortly.')
-    setForm({ name: '', phone: '', email: '', location: '', address: '', service: 'Wash & Fold', notes: '' })
+
+    setSubmitting(true)
+    try {
+      const next = [booking, ...bookings]
+      writeStoredValue(laundryBookingsStorageKey, next)
+      setBookingConfirmation(booking)
+      setNotice('Your pickup request has been received. Our team will contact you shortly to confirm the collection time.')
+      setForm({ name: '', phone: '', email: '', location: '', address: '', exactLocation: '', service: 'Wash & Fold', quantity: '1', quantityUnit: 'bag', preferredDate: '', preferredTime: '', notes: '' })
+      setErrors({})
+    } finally {
+      setSubmitting(false)
+    }
   }
+
+  const trackLaundryBooking = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setTrackedBooking(null)
+    setTrackingError('')
+    const normalizedPhone = normalizeWhatsAppNumber(trackingPhone)
+    if (!normalizedPhone || !trackingReference.trim()) {
+      setTrackingError('Enter the booking reference and the Kenyan mobile number used to book.')
+      return
+    }
+    const match = readStoredValue<LaundryBooking[]>(laundryBookingsStorageKey, []).find((booking) =>
+      booking.id.toLowerCase() === trackingReference.trim().toLowerCase()
+      && normalizeWhatsAppNumber(booking.phone) === normalizedPhone)
+    if (!match) {
+      setTrackingError('No matching booking was found in this browser. Check the details or contact support.')
+      return
+    }
+    setTrackedBooking(match)
+  }
+
+  const statusLabel = (status: LaundryBooking['status']) => ({ new: 'Pickup requested', confirmed: 'Pickup scheduled', ready: 'Ready for delivery' })[status]
 
   const mapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(settings.locationQuery)}`
 
   return <main className="laundry-page-shell">
-    <header className="marketplace-header laundry-topbar">
-      <Link to="/marketplace" className="market-brand" aria-label="Return to marketplace"><SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /></Link>
-      <nav aria-label="Laundry navigation"><Link className="market-home" to="/marketplace"><House size={15} />Home</Link><Link to="/laundry" aria-current="page">Laundry</Link></nav>
-      <div className="market-actions"><ThemeToggle /><Link className="sell-link" to="/marketplace#products">Browse listings</Link></div>
-    </header>
+    <header className="laundry-header">
+      <div className="laundry-header-inner">
+        <Link to="/marketplace" className="laundry-brand" aria-label="MATRIX home">
+          <SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" />
+        </Link>
 
-    <section className="laundry-hero" style={{ backgroundImage: `linear-gradient(135deg, rgba(7,31,61,0.8), rgba(16,80,157,0.72)), url(${settings.heroImage})` }}>
-      <div className="laundry-hero-copy">
-        <span className="hero-eyebrow"><Sparkles size={14} /> CLEAN. CAREFUL. CONVENIENT.</span>
-        <h1>{settings.title}</h1>
-        <p>{settings.subtitle}</p>
-        <div className="laundry-hero-meta">
-          <span><MapPin size={14} /> {settings.locationLabel}</span>
-          <span><Phone size={14} /> {settings.phone}</span>
+        <nav className="laundry-nav" aria-label="Laundry navigation">
+          <Link className="laundry-nav-link" to="/marketplace"><House size={15} />Home</Link>
+          <Link className="laundry-nav-link is-active" to="/laundry" aria-current="page">Laundry</Link>
+        </nav>
+
+        <div className="laundry-header-actions">
+          <ThemeToggle />
+          <Link className="laundry-browse-button" to="/marketplace#products">Browse listings</Link>
         </div>
       </div>
-      <div className="laundry-map-card">
-        <strong>Pickup zone</strong>
-        <span>{settings.locationLabel}</span>
-        <a href={mapUrl} target="_blank" rel="noreferrer">View location</a>
+    </header>
+
+    <main className="laundry-main">
+      <section className="laundry-hero">
+        <div className="laundry-hero-copy">
+          <span className="hero-kicker"><Sparkles size={14} /> MATRIX CLEAN SERVICE</span>
+          <h1>Laundry &amp; Dry Cleaning Made Easy</h1>
+          <p>Enjoy fresh, clean and neatly cared-for clothes with convenient laundry services, reliable pickup and delivery.</p>
+          <div className="laundry-hero-meta">
+            <span><MapPin size={14} /> {settings.locationLabel}</span>
+            <span><Phone size={14} /> {settings.phone}</span>
+          </div>
+          <div className="laundry-hero-actions">
+            <a className="primary-action" href="#booking">Book a Pickup</a>
+            <a className="secondary-action" href="#services">Explore Our Services</a>
+          </div>
+          <div className="laundry-hero-badges" aria-label="Service highlights">
+            <div><strong>Pickup</strong><small>Machakos Town</small></div>
+            <div><strong>Care</strong><small>Professional finish</small></div>
+            <div><strong>Support</strong><small>Friendly service</small></div>
+          </div>
+        </div>
+
+        <div className="laundry-hero-media" aria-label="Laundry equipment and folded clothes">
+          <img src={settings.heroImage || 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=1200&q=80'} alt="Clean laundry with baskets, detergents and folded towels" loading="eager" />
+          <div className="laundry-float-card">
+            <span className="status-pill">Pickup available</span>
+            <strong>{settings.locationLabel}</strong>
+            <small>Fast collection and return</small>
+          </div>
+        </div>
+      </section>
+
+      <section id="services" className="laundry-section">
+        <div className="section-heading">
+          <div>
+            <span className="section-kicker">OUR SERVICES</span>
+            <h2>Everything you need for clean, fresh clothes</h2>
+          </div>
+        </div>
+
+        <div className="service-grid">
+          {serviceCards.map(({ title, description, icon: Icon }) => (
+            <article className="service-card" key={title}>
+              <div className="service-icon"><Icon size={24} /></div>
+              <h3>{title}</h3>
+              <p>{description}</p>
+              <Link to="#booking">Book service <ArrowRight size={15} /></Link>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section id="pricing" className="laundry-section laundry-pricing-section">
+        <div className="section-heading">
+          <div>
+            <span className="section-kicker">PRICING</span>
+            <h2>Clear quote before we begin</h2>
+          </div>
+        </div>
+        <div className="pricing-notice">
+          <div className="service-icon"><BadgeCheck size={24} /></div>
+          <div><h3>We confirm the price with you first</h3><p>Current service rates have not been published. Send a pickup request or contact us for a quote; no charge is taken through this form.</p></div>
+          {whatsappUrl && <a className="primary-action" href={`${whatsappUrl}?text=${encodeURIComponent('Hello MATRIX Laundry, please share your current service prices.')}`} target="_blank" rel="noreferrer"><FaWhatsapp size={17} /> Request prices</a>}
+        </div>
+      </section>
+
+      <section className="laundry-section how-it-works">
+        <div className="section-heading center-heading">
+          <div>
+            <span className="section-kicker">HOW IT WORKS</span>
+            <h2>Simple steps to fresh laundry</h2>
+          </div>
+        </div>
+
+        <div className="steps-grid">
+          {steps.map((step, index) => (
+            <article className="step-card" key={step.title}>
+              <span className="step-number">0{index + 1}</span>
+              <h3>{step.title}</h3>
+              <p>{step.description}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section id="booking" className="laundry-booking-section">
+        <div className="booking-copy">
+          <span className="section-kicker">BOOKING</span>
+          <h2>Schedule Your Laundry Pickup</h2>
+          <p>Tell us what you need cleaned and where we should collect it.</p>
+          <div className="booking-summary">
+            <div><MapPin size={18} /><span>{settings.locationLabel}</span></div>
+            <div><Phone size={18} /><span>{settings.phone}</span></div>
+            <div><CalendarDays size={18} /><span>Flexible pickup scheduling</span></div>
+          </div>
+        </div>
+
+        <form className="laundry-booking-form" onSubmit={handleSubmit} noValidate>
+          <div className="booking-fields">
+            <div className="field-group">
+              <label htmlFor="laundry-name">Full Name</label>
+              <input id="laundry-name" name="name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Your full name" aria-invalid={Boolean(errors.name)} />
+              {errors.name && <small className="field-error">{errors.name}</small>}
+            </div>
+
+            <div className="field-group">
+              <label htmlFor="laundry-phone">Phone Number</label>
+              <input id="laundry-phone" name="phone" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="0712 345 678" inputMode="tel" aria-invalid={Boolean(errors.phone)} />
+              {errors.phone && <small className="field-error">{errors.phone}</small>}
+            </div>
+
+            <div className="field-group">
+              <label htmlFor="laundry-email">Email Address</label>
+              <input id="laundry-email" name="email" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="you@example.com" aria-invalid={Boolean(errors.email)} />
+              {errors.email && <small className="field-error">{errors.email}</small>}
+            </div>
+
+            <div className="field-group">
+              <label htmlFor="laundry-service">Laundry Service</label>
+              <select id="laundry-service" name="service" value={form.service} onChange={(event) => setForm({ ...form, service: event.target.value })} aria-invalid={Boolean(errors.service)}>
+                <option>Wash &amp; Fold</option>
+                <option>Dry Cleaning</option>
+                <option>Ironing</option>
+                <option>Express Laundry</option>
+                <option>Bedding &amp; Duvets</option>
+                <option>Pickup &amp; Delivery</option>
+              </select>
+              {errors.service && <small className="field-error">{errors.service}</small>}
+            </div>
+
+            <div className="field-group">
+              <label htmlFor="laundry-load">Estimated load size</label>
+              <div className="quantity-control">
+                <input id="laundry-load" name="quantity" type="number" min="1" step="1" value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })} aria-invalid={Boolean(errors.quantity)} />
+                <select aria-label="Quantity unit" value={form.quantityUnit} onChange={(event) => setForm({ ...form, quantityUnit: event.target.value })}>
+                  <option value="bag">Bags</option><option value="item">Items</option><option value="kg">Kilograms</option>
+                </select>
+              </div>
+              {errors.quantity && <small className="field-error">{errors.quantity}</small>}
+            </div>
+
+            <div className="field-group">
+              <label htmlFor="laundry-date">Preferred pickup date</label>
+              <input id="laundry-date" type="date" min={new Date().toISOString().slice(0, 10)} value={form.preferredDate} onChange={(event) => setForm({ ...form, preferredDate: event.target.value })} aria-invalid={Boolean(errors.preferredDate)} />
+              {errors.preferredDate && <small className="field-error">{errors.preferredDate}</small>}
+            </div>
+
+            <div className="field-group">
+              <label htmlFor="laundry-time">Preferred pickup time</label>
+              <input id="laundry-time" type="time" value={form.preferredTime} onChange={(event) => setForm({ ...form, preferredTime: event.target.value })} aria-invalid={Boolean(errors.preferredTime)} />
+              {errors.preferredTime && <small className="field-error">{errors.preferredTime}</small>}
+            </div>
+
+            <div className="field-group wide">
+              <label htmlFor="laundry-location">Pickup area</label>
+              <input id="laundry-location" value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} placeholder={settings.locationLabel} />
+            </div>
+
+            <div className="field-group wide">
+              <label htmlFor="laundry-address">Street / home address</label>
+              <input id="laundry-address" value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} placeholder="Exact pickup address" aria-invalid={Boolean(errors.address)} />
+              {errors.address && <small className="field-error">{errors.address}</small>}
+            </div>
+
+            <div className="field-group wide">
+              <label htmlFor="laundry-exact-location">Exact pickup location</label>
+              <input id="laundry-exact-location" value={form.exactLocation} onChange={(event) => setForm({ ...form, exactLocation: event.target.value })} placeholder="Gate, building name, landmark or room number" />
+            </div>
+
+            <div className="field-group wide">
+              <label htmlFor="laundry-notes">Additional instructions</label>
+              <textarea id="laundry-notes" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} rows={4} placeholder="Any special instructions or preferred timing" />
+            </div>
+          </div>
+
+          <div className="booking-submit-row">
+            <button type="submit" className="booking-button" disabled={submitting}>
+              {submitting ? <><LoaderCircle size={16} className="spinner" /> Sending request...</> : 'Request Laundry Pickup'}
+            </button>
+          </div>
+
+          {notice && bookingConfirmation && <div className="booking-message booking-confirmation" role="status" aria-live="polite">
+            <span className="status-pill confirmation-status">{statusLabel(bookingConfirmation.status)}</span>
+            <strong>Booking {bookingConfirmation.id}</strong>
+            <span>{notice}</span>
+            <dl>
+              <div><dt>Customer</dt><dd>{bookingConfirmation.name}</dd></div>
+              <div><dt>Service</dt><dd>{bookingConfirmation.service}</dd></div>
+              <div><dt>Pickup</dt><dd>{bookingConfirmation.location}, {bookingConfirmation.address}</dd></div>
+              <div><dt>Preferred time</dt><dd>{bookingConfirmation.preferredDate} at {bookingConfirmation.preferredTime}</dd></div>
+            </dl>
+            {whatsappUrl && <a className="booking-support-link" href={`${whatsappUrl}?text=${encodeURIComponent(`Hello MATRIX Laundry, I need help with booking ${bookingConfirmation.id}.`)}`} target="_blank" rel="noreferrer"><FaWhatsapp size={16} /> Contact support</a>}
+            <small>Keep this reference. This request is currently stored in this browser; it has not been sent by email or SMS.</small>
+          </div>}
+        </form>
+      </section>
+
+      <section id="track-booking" className="laundry-section tracking-section">
+        <div className="section-heading">
+          <div><span className="section-kicker">ORDER STATUS</span><h2>Track a laundry request</h2></div>
+        </div>
+        <div className="tracking-layout">
+          <form className="tracking-form" onSubmit={trackLaundryBooking}>
+            <p>Look up the latest status recorded by the laundry team using your booking reference and phone number.</p>
+            <div className="field-group"><label htmlFor="tracking-reference">Booking reference</label><input id="tracking-reference" value={trackingReference} onChange={(event) => setTrackingReference(event.target.value)} placeholder="LAUN-..." autoComplete="off" /></div>
+            <div className="field-group"><label htmlFor="tracking-phone">Booking phone number</label><input id="tracking-phone" type="tel" inputMode="tel" value={trackingPhone} onChange={(event) => setTrackingPhone(event.target.value)} placeholder="0712 345 678" /></div>
+            <button type="submit" className="booking-button">Check status</button>
+            <small>Tracking is available only in the browser where the request was made until online laundry booking storage is connected.</small>
+            {trackingError && <p className="field-error" role="alert">{trackingError}</p>}
+          </form>
+          {trackedBooking && <article className="tracking-result" aria-live="polite">
+            <span className="status-pill tracking-status">{statusLabel(trackedBooking.status)}</span>
+            <h3>{trackedBooking.id}</h3>
+            <p>{trackedBooking.service} · {trackedBooking.quantity} {trackedBooking.quantityUnit}</p>
+            <p>Pickup: {trackedBooking.preferredDate} at {trackedBooking.preferredTime}</p>
+            <ol className="status-timeline">
+              {(['new', 'confirmed', 'ready'] as const).map((status) => <li className={(['new', 'confirmed', 'ready'].indexOf(trackedBooking.status) >= ['new', 'confirmed', 'ready'].indexOf(status)) ? 'is-complete' : ''} key={status}><span />{statusLabel(status)}</li>)}
+            </ol>
+            {whatsappUrl && <a className="booking-support-link" href={`${whatsappUrl}?text=${encodeURIComponent(`Hello MATRIX Laundry, I need an update on booking ${trackedBooking.id}.`)}`} target="_blank" rel="noreferrer"><FaWhatsapp size={16} /> Contact support</a>}
+          </article>}
+        </div>
+      </section>
+
+      <section className="laundry-section">
+        <div className="section-heading">
+          <div>
+            <span className="section-kicker">WHY CHOOSE US</span>
+            <h2>Service built around convenience and care</h2>
+          </div>
+        </div>
+
+        <div className="benefits-grid">
+          {benefits.map(({ title, description, icon: Icon }) => (
+            <article className="benefit-card" key={title}>
+              <div className="benefit-icon"><Icon size={22} /></div>
+              <h3>{title}</h3>
+              <p>{description}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="laundry-section gallery-section">
+        <div className="section-heading">
+          <div>
+            <span className="section-kicker">GALLERY</span>
+            <h2>Clean, cared-for clothes and spotless essentials</h2>
+          </div>
+        </div>
+
+        <div className="gallery-grid">
+          {gallery.map((image, index) => (
+            <figure className="gallery-item" key={image + index}>
+              <img src={image} alt="Laundry service equipment and clean textiles" loading="lazy" decoding="async" />
+            </figure>
+          ))}
+        </div>
+      </section>
+
+      <section className="laundry-location-section">
+        <div className="location-card">
+          <div className="section-heading compact-heading">
+            <div>
+              <span className="section-kicker">LOCATION & CONTACT</span>
+              <h2>Serving {settings.locationLabel}</h2>
+            </div>
+          </div>
+
+          <div className="location-details">
+            <div className="detail-row"><MapPin size={18} /><span>{settings.locationLabel}</span></div>
+            <div className="detail-row"><Phone size={18} /><a href={`tel:${settings.phone}`}>{settings.phone}</a></div>
+            <div className="detail-row"><Mail size={18} /><a href={`mailto:${settings.email}`}>{settings.email}</a></div>
+          </div>
+
+          <div className="location-actions">
+            <a href={mapUrl} target="_blank" rel="noreferrer" className="primary-action">View location</a>
+            <a href={`tel:${settings.phone}`} className="secondary-action">Call us</a>
+          </div>
+        </div>
+
+        <div className="info-card">
+          <h3>Pickup coverage</h3>
+          <p>Our service is tailored to homes, apartments and businesses in and around {settings.locationLabel}.</p>
+          <ul>
+            <li>Reliable weekly or on-demand pickup</li>
+            <li>Flexible scheduling for busy routines</li>
+            <li>Friendly support and clear communication</li>
+          </ul>
+        </div>
+      </section>
+
+      <section className="laundry-section faq-section">
+        <div className="section-heading">
+          <div>
+            <span className="section-kicker">TRUST & SUPPORT</span>
+            <h2>Helpful answers before you book</h2>
+          </div>
+        </div>
+
+        <div className="faq-grid">
+          <article className="faq-card">
+            <Star size={18} />
+            <h3>How do I schedule a pickup?</h3>
+            <p>Fill in the booking form with your service, pickup area and preferred timing. We will confirm the collection details shortly.</p>
+          </article>
+          <article className="faq-card">
+            <Clock3 size={18} />
+            <h3>Do you offer flexible timing?</h3>
+            <p>Yes. You can share your preferred date and time in the form to help us plan the pickup around your schedule.</p>
+          </article>
+          <article className="faq-card">
+            <ShieldCheck size={18} />
+            <h3>How do you handle delicate items?</h3>
+            <p>Our dry cleaning and garment care service is designed for careful treatment of sensitive fabrics and special pieces.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer className="laundry-footer">
+      <div className="laundry-footer-brand">
+        <Link to="/marketplace" className="brand-lockup" aria-label="MATRIX home">
+          <SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" />
+        </Link>
+        <p>Fresh, reliable laundry care for busy households and professionals in Machakos.</p>
       </div>
-    </section>
 
-    <section className="laundry-content">
-      <article className="laundry-details">
-        <h2>Professional laundry service</h2>
-        <p>{settings.description}</p>
-        <ul>
-          <li>Pickup and return scheduling</li>
-          <li>Wash, dry, fold, and ironing options</li>
-          <li>Local delivery to your preferred area</li>
-        </ul>
-      </article>
-
-      <form className="laundry-booking-form" onSubmit={handleSubmit}>
-        <h3>Book a pickup</h3>
-        <label><span>Name</span><input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Your full name" required /></label>
-        <label><span>Phone</span><input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="+254 ..." required /></label>
-        <label><span>Email</span><input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="you@example.com" required /></label>
-        <label><span>Service</span><select value={form.service} onChange={(event) => setForm({ ...form, service: event.target.value })}><option>Wash &amp; Fold</option><option>Dry Cleaning</option><option>Ironing Only</option><option>Bulk Laundry</option></select></label>
-        <label><span>Pickup area</span><input value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} placeholder={settings.locationLabel} /></label>
-        <label><span>Street / home address</span><input value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} placeholder="Exact location for pickup" required /></label>
-        <label><span>Notes</span><textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} placeholder="Any special instructions or preferred timing" rows={3} /></label>
-        <button type="submit">Request pickup</button>
-        {notice && <p className="laundry-success">{notice}</p>}
-      </form>
-    </section>
+      <div className="laundry-footer-links">
+        <div>
+          <h3>Quick links</h3>
+          <Link to="/marketplace">Home</Link>
+          <Link to="/marketplace#products">Browse listings</Link>
+          <Link to="/laundry">Laundry</Link>
+        </div>
+        <div>
+          <h3>Services</h3>
+          <span>Wash &amp; Fold</span>
+          <span>Dry Cleaning</span>
+          <span>Ironing</span>
+        </div>
+        <div>
+          <h3>Contact</h3>
+          <a href={`tel:${settings.phone}`}>{settings.phone}</a>
+          <a href={`mailto:${settings.email}`}>{settings.email}</a>
+          <span>{settings.locationLabel}</span>
+        </div>
+      </div>
+    </footer>
+    {whatsappUrl && <a className="laundry-whatsapp-float" href={`${whatsappUrl}?text=${encodeURIComponent('Hello MATRIX Laundry, I have a question about your laundry service.')}`} target="_blank" rel="noreferrer" aria-label="Contact MATRIX Laundry on WhatsApp"><FaWhatsapp size={22} /><span>Chat with us</span></a>}
   </main>
 }
 
@@ -335,6 +764,8 @@ function LaundryAdminPage() {
             <p><MapPin size={12} /> {booking.location}</p>
             <p><strong>Address:</strong> {booking.address || 'Not provided'}</p>
             <p><strong>Service:</strong> {booking.service}</p>
+            <p><strong>Quantity:</strong> {booking.quantity ?? 1} {booking.quantityUnit ?? 'bag'}</p>
+            <p><strong>Preferred pickup:</strong> {booking.preferredDate || 'Not specified'} {booking.preferredTime ? `at ${booking.preferredTime}` : ''}</p>
             <p><strong>Notes:</strong> {booking.notes || 'No notes'}</p>
             <div className="booking-actions"><a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(booking.location || settings.locationQuery)}`} target="_blank" rel="noreferrer">View location</a><button type="button" onClick={() => toggleStatus(booking.id)}>{booking.status === 'ready' ? 'Reset status' : 'Mark ready'}</button></div>
           </article>)}
