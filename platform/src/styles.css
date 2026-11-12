@@ -63,29 +63,36 @@ button, input { font: inherit; }
 .landing-intro h1 span { color: #ee7400; background: linear-gradient(90deg, #ff9a00 8%, #ed5c00 49%, #6f1bc8 86%); background-clip: text; -webkit-text-fill-color: transparent; }
 .landing-subtitle { display: flex; align-items: center; justify-content: center; gap: 15px; margin: 9px 0 0; font-size: 13px; font-weight: 700; white-space: nowrap; }
 .landing-subtitle i, .landing-footer p i { width: 45px; height: 2px; background: #14284a; }
-.destination-grid { position: relative; z-index: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 22px; max-width: 1450px; margin: 0 auto; }
+.destination-grid { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; max-width: 1450px; margin: 0 auto; }
 .destination-card { min-height: 270px; border: 2px solid #fff; border-radius: 21px; overflow: hidden; position: relative; color: white; isolation: isolate; box-shadow: 0 9px 20px #061d4a36; animation: rise-in .8s both; }
 .destination-card:nth-child(2) { animation-delay: .12s; }
+.destination-card:nth-child(3) { animation-delay: .18s; }
 .destination-card > img { width: 100%; height: 100%; position: absolute; inset: 0; object-fit: cover; z-index: -2; transition: transform .6s cubic-bezier(.2,.8,.2,1); }
 .destination-card:hover > img { transform: scale(1.035); }
 .kits-card > img { object-position: center 58%; }
 .market-card > img { object-position: center 57%; }
+.laundry-card > img { object-position: center 55%; }
 .card-shade { position: absolute; z-index: -1; inset: 0; background: linear-gradient(90deg, #051c58f5 0%, #05236edb 39%, #05182e12 83%), linear-gradient(0deg, #04153238, transparent 38%); }
 .market-card .card-shade { background: linear-gradient(90deg, #003a1fec 0%, #006b29d9 43%, #00381809 83%), linear-gradient(0deg, #04291338, transparent 38%); }
+.laundry-card-shade { background: linear-gradient(90deg, rgba(40, 15, 77, 0.88) 0%, rgba(94, 55, 163, 0.82) 38%, rgba(7, 22, 49, 0.18) 100%), linear-gradient(0deg, rgba(11, 22, 32, 0.2), transparent 38%); }
 .destination-content { padding: 20px 24px; max-width: 59%; }
 .destination-tag { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: 20px; background: #ffffffeb; color: #003eb9; font-size: 12px; font-weight: 800; }
 .market-card .destination-tag { background: #07742f; color: white; border: 1px solid #a7ed8e; }
+.laundry-card .destination-tag { background: rgba(24, 12, 48, 0.75); color: #f6e8ff; border: 1px solid rgba(196, 160, 255, 0.55); }
 .football-mark { font-size: 13px; }
 .destination-content h2 { margin: 10px 0 5px; font: italic 700 clamp(30px, 4vw, 47px)/.89 'Space Grotesk', sans-serif; }
 .destination-content h2 em { color: #ffcb18; font-style: italic; }
 .market-card .destination-content { max-width: 65%; }
 .market-card .destination-content h2 { font-size: clamp(27px, 3.6vw, 44px); }
 .market-card .destination-content h2 em { color: #b6ff43; }
+.laundry-card .destination-content { max-width: 67%; }
+.laundry-card .destination-content h2 em { color: #f0d5ff; }
 .destination-content p { max-width: 250px; margin: 9px 0 12px; font-size: 13px; line-height: 1.35; font-weight: 500; }
 .destination-button { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 9px; padding: 0 17px; border: 1px solid #ffffffa6; border-radius: 999px; color: #091a28; font-size: 13px; font-weight: 800; box-shadow: 0 4px 11px #0618394a; transition: transform .2s, filter .2s; }
 .destination-button:hover { transform: translateY(-2px); filter: brightness(1.07); }
 .orange-button { background: linear-gradient(90deg, #ffad00, #ff7600); }
 .green-button { background: linear-gradient(90deg, #5fb0ff, #1b6fe7); }
+.purple-button { background: linear-gradient(90deg, #d9b8ff, #8b5cf6); color: #1d1130; }
 .card-index { position: absolute; right: 17px; bottom: 14px; color: #fffC; font-size: 10px; font-weight: 800; }
 .trust-strip { max-width: 1450px; margin: 18px auto 0; padding: 6px 18px; border-radius: 36px; display: grid; grid-template-columns: repeat(4, 1fr); background: #ffffffe0; box-shadow: 0 9px 25px #12346412; }
 .trust-strip > div { min-height: 43px; display: flex; align-items: center; justify-content: center; gap: 12px; border-right: 1px solid #9aa8be; }

@@ -620,7 +620,7 @@ function LandingPage() {
               Explore Selling Kits <ArrowRight size={17} />
             </a>
           </div>
-          <span className="card-index">01 / 02</span>
+          <span className="card-index">01 / 03</span>
         </article>
 
         <article className="destination-card market-card">
@@ -634,7 +634,21 @@ function LandingPage() {
               Explore Marketplace <ArrowRight size={17} />
             </Link>
           </div>
-          <span className="card-index">02 / 02</span>
+          <span className="card-index">02 / 03</span>
+        </article>
+
+        <article className="destination-card laundry-card">
+          <img src="https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=1200&q=80" alt="Laundry and dry cleaning service" loading="eager" decoding="async" fetchPriority="high" width="640" height="480" />
+          <div className="card-shade laundry-card-shade" />
+          <div className="destination-content">
+            <span className="destination-tag"><Sparkles size={14} /> Laundry</span>
+            <h2>Laundry &amp;<br /><em>Dry Cleaning</em></h2>
+            <p>Book pickup, washing, ironing and reliable delivery for everyday essentials.</p>
+            <Link className="destination-button purple-button" to="/laundry">
+              Book Laundry <ArrowRight size={17} />
+            </Link>
+          </div>
+          <span className="card-index">03 / 03</span>
         </article>
       </section>
 
