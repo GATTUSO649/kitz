@@ -9,14 +9,42 @@
   --orange: #ff9200;
   --green: #0a9c3c;
   --lime: #a9ef32;
+  --page-bg: #f5f8f6;
+  --page-surface: #ffffff;
+  --page-surface-alt: #edf5ff;
+  --page-text: #10271e;
+  --page-muted: #5f6e7d;
+  --header-gradient: linear-gradient(100deg, #071f3d, #0a2c5a 52%, #071f3d);
+  --button-primary: linear-gradient(90deg, #0d4da2, #1d6fe6);
+}
+
+:root[data-theme='dark'] {
+  --page-bg: #061522;
+  --page-surface: #122334;
+  --page-surface-alt: #0b1d2d;
+  --page-text: #edf6ff;
+  --page-muted: #a9bdd2;
+  --header-gradient: linear-gradient(100deg, #0a1730, #12315f 52%, #0a1730);
+  --button-primary: linear-gradient(90deg, #1b6fe6, #4dc4ff);
 }
 
 * { box-sizing: border-box; }
 html { min-width: 320px; scroll-behavior: smooth; }
-body { margin: 0; min-width: 320px; min-height: 100vh; }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--page-bg); color: var(--page-text); }
 a { color: inherit; text-decoration: none; }
 button, input { font: inherit; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+.theme-toggle { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; border: 1px solid rgba(255,255,255,0.2); border-radius: 999px; color: #edf5ff; background: rgba(255,255,255,0.06); cursor: pointer; font-size: 11px; font-weight: 700; }
+.theme-toggle svg { width: 14px; height: 14px; }
+
+.marketplace-shell, .laundry-page-shell, .laundry-admin-shell, .product-page, .sell-page, .service-error-page { background: var(--page-bg); }
+.marketplace-header, .market-footer, .laundry-topbar { background: var(--header-gradient); }
+.marketplace-header nav a, .sell-link, .market-login, .market-home, .laundry-preview-link, .market-actions { color: #edf5ff; }
+.listing-card, .filter-panel, .laundry-bookings-panel, .laundry-details, .laundry-booking-form, .admin-panel, .product-detail, .sell-form, .report-listing-form { background: var(--page-surface); color: var(--page-text); border-color: rgba(147, 176, 204, 0.25); }
+.laundry-market-card, .laundry-booking-item { background: var(--page-surface-alt); }
+.filter-panel label, .laundry-details p, .laundry-details ul, .laundry-booking-item p, .laundry-booking-form label, .laundry-booking-form input, .laundry-booking-form select, .laundry-booking-form textarea, .market-hero-copy > p, .listing-info small, .listing-info span, .listing-card small, .listing-card > a { color: var(--page-muted); }
+.laundry-details h2, .laundry-booking-form h3, .laundry-booking-item strong, .admin-panel h2 { color: var(--page-text); }
 
 .platform-shell { min-height: 100vh; background: linear-gradient(180deg, #dceaff, #f8fbff 76%); }
 .platform-header { height: 60px; padding: 0 clamp(20px, 4vw, 64px); display: flex; align-items: center; justify-content: space-between; color: white; background: linear-gradient(105deg, #061637, #092656 64%, #061637); box-shadow: 0 5px 18px #02133142; position: sticky; top: 0; z-index: 20; }

@@ -1,4 +1,4 @@
-import { ArrowRight, BadgeCheck, CircleHelp, Compass, House, LayoutGrid, List as ListIcon, LoaderCircle, Mail, MapPin, Phone, Search, ShieldCheck, ShoppingBag, SlidersHorizontal, Sparkles, X, Zap } from 'lucide-react'
+import { ArrowRight, BadgeCheck, CircleHelp, Compass, House, LayoutGrid, List as ListIcon, LoaderCircle, Mail, MapPin, Moon, Phone, Search, ShieldCheck, ShoppingBag, SlidersHorizontal, Sparkles, Sun, X, Zap } from 'lucide-react'
 import { FaFacebookF, FaWhatsapp, FaXTwitter, FaYoutube } from 'react-icons/fa6'
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -10,6 +10,9 @@ import { SellerForgotPasswordPage, SellerLoginPage, SellerPortalPage, SellerRese
 
 const kitzOrigin = import.meta.env.VITE_KITZ_ORIGIN || 'https://kitz.onrender.com'
 const matrixIntroStorageKey = 'matrix-intro-seen'
+const laundrySettingsStorageKey = 'laundry-page-settings'
+const laundryBookingsStorageKey = 'laundry-bookings'
+const themeStorageKey = 'markethub-theme'
 const formatKes = (value: number) => `KSh ${new Intl.NumberFormat('en-KE').format(value)}`
 const normalizeWhatsAppNumber = (value: string) => {
   const digits = value.replace(/\D/g, '')
@@ -36,10 +39,78 @@ type Listing = {
   contactUnlockFeeKes?: number
 }
 
+type LaundryPageSettings = {
+  title: string
+  subtitle: string
+  description: string
+  heroImage: string
+  locationLabel: string
+  locationQuery: string
+  phone: string
+  email: string
+}
+
+type LaundryBooking = {
+  id: string
+  name: string
+  phone: string
+  email: string
+  location: string
+  address: string
+  service: string
+  notes: string
+  createdAt: string
+  status: 'new' | 'confirmed' | 'ready'
+}
+
 type MarketplaceCategory = { id: string; name: string; slug: string; subcategories?: { id: string; name: string; slug: string }[] }
 type MarketplaceCounty = { code: string; name: string }
 type FooterSocialLinks = { facebookUrl: string | null; xUrl: string | null; youtubeUrl: string | null; whatsappUrl: string | null; whatsappPhone: string | null; contactEmail: string | null; contactPhone: string | null }
 type CatalogueFilters = { county: string; subcounty: string; town: string; condition: string; minPrice: string; maxPrice: string; publishedAfter: string; publishedBefore: string; negotiable: string; sort: string; featured: string; subcategory: string }
+
+const defaultLaundrySettings: LaundryPageSettings = {
+  title: 'Laundry & Dry Cleaning',
+  subtitle: 'Reliable washing, pickup, and delivery for busy households and professionals.',
+  description: 'From daily wear to weekend essentials, we help families and individuals keep their clothes fresh, neatly folded, and ready to wear. Choose a service, share your pickup details, and our team will schedule a pickup from your preferred location.',
+  heroImage: 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=1200&q=80',
+  locationLabel: 'Machakos Town',
+  locationQuery: 'Machakos Town, Kenya',
+  phone: '+254712345678',
+  email: 'hello@markethub.co.ke',
+}
+
+function readStoredValue<T>(key: string, fallback: T): T {
+  if (typeof window === 'undefined') return fallback
+  try {
+    const value = window.localStorage.getItem(key)
+    return value ? JSON.parse(value) as T : fallback
+  } catch {
+    return fallback
+  }
+}
+
+function writeStoredValue<T>(key: string, value: T) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    // storage may be disabled
+  }
+}
+
+function ThemeToggle() {
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => readStoredValue(themeStorageKey, 'light'))
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    writeStoredValue(themeStorageKey, theme)
+  }, [theme])
+
+  return <button type="button" className="theme-toggle" onClick={() => setTheme((current) => current === 'light' ? 'dark' : 'light')} aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}>
+    {theme === 'light' ? <Moon size={14} /> : <Sun size={14} />}
+    <span>{theme === 'light' ? 'Dark' : 'Light'}</span>
+  </button>
+}
 
 function safeSocialProfile(value: string, hosts: string[]): string | null {
   try {
@@ -115,6 +186,162 @@ function ProductResults({ search, category, filterQuery, page, view, onPageChang
     </article>)}</div>
     {pagination && pagination.total > pagination.limit && <nav className="catalogue-pagination" aria-label="Product pages"><button type="button" disabled={pagination.page <= 1} onClick={() => onPageChange(pagination.page - 1)}>Previous</button><span>Page {pagination.page} · {pagination.total} listings</span><button type="button" disabled={!pagination.hasMore} onClick={() => onPageChange(pagination.page + 1)}>Next</button></nav>}
   </>
+}
+
+function LaundryPage() {
+  const [settings, setSettings] = useState<LaundryPageSettings>(() => readStoredValue(laundrySettingsStorageKey, defaultLaundrySettings))
+  const [form, setForm] = useState({ name: '', phone: '', email: '', location: '', address: '', service: 'Wash & Fold', notes: '' })
+  const [notice, setNotice] = useState('')
+
+  useEffect(() => {
+    setSettings(readStoredValue(laundrySettingsStorageKey, defaultLaundrySettings))
+  }, [])
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const bookings = readStoredValue<LaundryBooking[]>(laundryBookingsStorageKey, [])
+    const booking: LaundryBooking = {
+      id: `laundry-${Date.now()}`,
+      name: form.name.trim(),
+      phone: form.phone.trim(),
+      email: form.email.trim(),
+      location: form.location.trim() || settings.locationLabel,
+      address: form.address.trim(),
+      service: form.service,
+      notes: form.notes.trim(),
+      createdAt: new Date().toISOString(),
+      status: 'new',
+    }
+    const next = [booking, ...bookings]
+    writeStoredValue(laundryBookingsStorageKey, next)
+    setNotice('Your pickup request has been sent. The admin team will contact you shortly.')
+    setForm({ name: '', phone: '', email: '', location: '', address: '', service: 'Wash & Fold', notes: '' })
+  }
+
+  const mapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(settings.locationQuery)}`
+
+  return <main className="laundry-page-shell">
+    <header className="marketplace-header laundry-topbar">
+      <Link to="/marketplace" className="market-brand" aria-label="Return to marketplace"><SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /></Link>
+      <nav aria-label="Laundry navigation"><Link className="market-home" to="/marketplace"><House size={15} />Home</Link><Link to="/laundry" aria-current="page">Laundry</Link></nav>
+      <div className="market-actions"><ThemeToggle /><Link className="sell-link" to="/marketplace#products">Browse listings</Link></div>
+    </header>
+
+    <section className="laundry-hero" style={{ backgroundImage: `linear-gradient(135deg, rgba(7,31,61,0.8), rgba(16,80,157,0.72)), url(${settings.heroImage})` }}>
+      <div className="laundry-hero-copy">
+        <span className="hero-eyebrow"><Sparkles size={14} /> CLEAN. CAREFUL. CONVENIENT.</span>
+        <h1>{settings.title}</h1>
+        <p>{settings.subtitle}</p>
+        <div className="laundry-hero-meta">
+          <span><MapPin size={14} /> {settings.locationLabel}</span>
+          <span><Phone size={14} /> {settings.phone}</span>
+        </div>
+      </div>
+      <div className="laundry-map-card">
+        <strong>Pickup zone</strong>
+        <span>{settings.locationLabel}</span>
+        <a href={mapUrl} target="_blank" rel="noreferrer">View location</a>
+      </div>
+    </section>
+
+    <section className="laundry-content">
+      <article className="laundry-details">
+        <h2>Professional laundry service</h2>
+        <p>{settings.description}</p>
+        <ul>
+          <li>Pickup and return scheduling</li>
+          <li>Wash, dry, fold, and ironing options</li>
+          <li>Local delivery to your preferred area</li>
+        </ul>
+      </article>
+
+      <form className="laundry-booking-form" onSubmit={handleSubmit}>
+        <h3>Book a pickup</h3>
+        <label><span>Name</span><input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Your full name" required /></label>
+        <label><span>Phone</span><input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="+254 ..." required /></label>
+        <label><span>Email</span><input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="you@example.com" required /></label>
+        <label><span>Service</span><select value={form.service} onChange={(event) => setForm({ ...form, service: event.target.value })}><option>Wash &amp; Fold</option><option>Dry Cleaning</option><option>Ironing Only</option><option>Bulk Laundry</option></select></label>
+        <label><span>Pickup area</span><input value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} placeholder={settings.locationLabel} /></label>
+        <label><span>Street / home address</span><input value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} placeholder="Exact location for pickup" required /></label>
+        <label><span>Notes</span><textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} placeholder="Any special instructions or preferred timing" rows={3} /></label>
+        <button type="submit">Request pickup</button>
+        {notice && <p className="laundry-success">{notice}</p>}
+      </form>
+    </section>
+  </main>
+}
+
+function LaundryAdminPage() {
+  const [settings, setSettings] = useState<LaundryPageSettings>(() => readStoredValue(laundrySettingsStorageKey, defaultLaundrySettings))
+  const [bookings, setBookings] = useState<LaundryBooking[]>(() => readStoredValue(laundryBookingsStorageKey, []))
+  const [notice, setNotice] = useState('')
+
+  useEffect(() => {
+    setSettings(readStoredValue(laundrySettingsStorageKey, defaultLaundrySettings))
+    setBookings(readStoredValue(laundryBookingsStorageKey, []))
+  }, [])
+
+  const updateSetting = <K extends keyof LaundryPageSettings>(key: K, value: LaundryPageSettings[K]) => {
+    const next = { ...settings, [key]: value }
+    setSettings(next)
+    writeStoredValue(laundrySettingsStorageKey, next)
+  }
+
+  const saveSettings = () => {
+    writeStoredValue(laundrySettingsStorageKey, settings)
+    setNotice('Laundry page updated successfully.')
+  }
+
+  const toggleStatus = (bookingId: string) => {
+    const next: LaundryBooking[] = bookings.map((booking) => {
+      if (booking.id !== bookingId) return booking
+      const status: LaundryBooking['status'] = booking.status === 'new' ? 'confirmed' : booking.status === 'confirmed' ? 'ready' : 'new'
+      return { ...booking, status }
+    })
+    setBookings(next)
+    writeStoredValue(laundryBookingsStorageKey, next)
+  }
+
+  return <main className="laundry-admin-shell">
+    <header className="admin-topbar laundry-admin-header"><div><span className="admin-kicker">LAUNDRY ADMIN</span><h1>Service management</h1></div><Link to="/laundry" className="laundry-preview-link">Preview page</Link></header>
+
+    <section className="laundry-admin-grid">
+      <div className="admin-panel laundry-edit-panel">
+        <header><h2>Page content</h2></header>
+        <div className="laundry-form-grid">
+          <label><span>Page title</span><input value={settings.title} onChange={(event) => updateSetting('title', event.target.value)} /></label>
+          <label><span>Subtitle</span><input value={settings.subtitle} onChange={(event) => updateSetting('subtitle', event.target.value)} /></label>
+          <label className="full-width"><span>Page description</span><textarea value={settings.description} onChange={(event) => updateSetting('description', event.target.value)} rows={4} /></label>
+          <label className="full-width"><span>Hero photo URL</span><input value={settings.heroImage} onChange={(event) => updateSetting('heroImage', event.target.value)} /></label>
+          <label><span>Service location</span><input value={settings.locationLabel} onChange={(event) => updateSetting('locationLabel', event.target.value)} /></label>
+          <label><span>Map query</span><input value={settings.locationQuery} onChange={(event) => updateSetting('locationQuery', event.target.value)} /></label>
+          <label><span>Phone</span><input value={settings.phone} onChange={(event) => updateSetting('phone', event.target.value)} /></label>
+          <label><span>Email</span><input value={settings.email} onChange={(event) => updateSetting('email', event.target.value)} /></label>
+        </div>
+        <button type="button" className="laundry-admin-save" onClick={saveSettings}>Save page content</button>
+        {notice && <p className="laundry-notice">{notice}</p>}
+      </div>
+
+      <div className="admin-panel laundry-bookings-panel">
+        <header><h2>Pickup bookings</h2></header>
+        <div className="laundry-bookings-list">
+          {bookings.length === 0 ? <p className="empty-state">No pickup requests yet.</p> : bookings.map((booking) => <article key={booking.id} className="laundry-booking-item">
+            <div className="laundry-booking-header">
+              <strong>{booking.name}</strong>
+              <span className={`booking-status ${booking.status}`}>{booking.status}</span>
+            </div>
+            <p><Mail size={12} /> {booking.email}</p>
+            <p><Phone size={12} /> {booking.phone}</p>
+            <p><MapPin size={12} /> {booking.location}</p>
+            <p><strong>Address:</strong> {booking.address || 'Not provided'}</p>
+            <p><strong>Service:</strong> {booking.service}</p>
+            <p><strong>Notes:</strong> {booking.notes || 'No notes'}</p>
+            <div className="booking-actions"><a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(booking.location || settings.locationQuery)}`} target="_blank" rel="noreferrer">View location</a><button type="button" onClick={() => toggleStatus(booking.id)}>{booking.status === 'ready' ? 'Reset status' : 'Mark ready'}</button></div>
+          </article>)}
+        </div>
+      </div>
+    </section>
+  </main>
 }
 
 function MarketplaceProductPage() {
@@ -538,7 +765,7 @@ function MarketplaceHome() {
     <header className="marketplace-header">
       <Link to="/" className="market-brand" aria-label="MATRIX home"><SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /></Link>
       <nav aria-label="Marketplace navigation"><Link className="market-home" to="/marketplace#top"><House size={15} />Home</Link><Link to="/marketplace?featured=all#products" aria-current={!search && filters.featured === 'all' ? 'page' : undefined}>All Products</Link><Link to="/marketplace?featured=false&sort=newest#products" aria-current={filters.featured === 'false' ? 'page' : undefined}>Recently Published</Link><Link to="/marketplace?featured=true#products" aria-current={filters.featured === 'true' ? 'page' : undefined}>Featured</Link></nav>
-      <div className="market-actions"><Link className="sell-link" to="/marketplace/seller/login">+ <span>Sell item</span></Link></div>
+      <div className="market-actions"><ThemeToggle /><Link className="sell-link" to="/marketplace/seller/login">+ <span>Sell item</span></Link></div>
     </header>
     <main>
       <section className="market-hero" id="top">
@@ -566,6 +793,19 @@ function MarketplaceHome() {
         </select>
         {categoryError && <button type="button" onClick={() => setCategoryRetry((value) => value + 1)}>Reload categories</button>}
       </section>
+
+      <section className="laundry-market-card">
+        <div className="laundry-market-copy">
+          <span className="hero-eyebrow"><Sparkles size={14} /> LAUNDRY SERVICES</span>
+          <h3>Freshly cleaned clothes, picked up and returned with ease.</h3>
+          <p>Book reliable laundry and dry-cleaning support from trusted local services.</p>
+          <Link className="laundry-market-button" to="/laundry">Book a pickup <ArrowRight size={15} /></Link>
+        </div>
+        <div className="laundry-market-visual" aria-hidden="true">
+          <img src="https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=900&q=80" alt="Laundry service" />
+        </div>
+      </section>
+
       <section className="market-content">
         <div className="listing-area" id="products">
           <div className="section-title"><span /> <h2>{search ? 'Search Results' : filters.featured === 'false' ? 'Recently Published' : filters.featured === 'true' ? 'Featured Listings' : 'All Listings'}</h2></div>
@@ -660,6 +900,8 @@ export function App() {
     <Route path="/" element={<LandingPage />} />
     <Route path="/kits/*" element={<KitsRedirect />} />
     <Route path="/marketplace" element={<MarketplaceHome />} />
+    <Route path="/laundry" element={<LaundryPage />} />
+    <Route path="/admin/laundry" element={<LaundryAdminPage />} />
     <Route path="/marketplace/sell" element={<SellListingPage />} />
     <Route path="/marketplace/seller/signup" element={<SellerSignupPage />} />
     <Route path="/marketplace/seller/login" element={<SellerLoginPage />} />
