@@ -46,6 +46,7 @@ type LaundryPageSettings = {
   heroImage: string
   locationLabel: string
   locationQuery: string
+  locations: string[]
   phone: string
   email: string
 }
@@ -54,15 +55,9 @@ type LaundryBooking = {
   id: string
   name: string
   phone: string
-  email: string
   location: string
-  address: string
-  service: string
-  quantity: number
-  quantityUnit: string
-  preferredDate: string
-  preferredTime: string
-  notes: string
+  locationLatitude?: number
+  locationLongitude?: number
   createdAt: string
   status: 'new' | 'confirmed' | 'ready'
 }
@@ -79,6 +74,7 @@ const defaultLaundrySettings: LaundryPageSettings = {
   heroImage: '/images/laundry-wash-fold.jpg',
   locationLabel: 'Machakos Town',
   locationQuery: 'Machakos Town, Kenya',
+  locations: ['Machakos Town'],
   phone: '',
   email: '',
 }
@@ -207,9 +203,7 @@ const laundryNavigation: { label: string; path: string; page: LaundryRoutePage }
 
 function LaundryPage({ page }: { page: LaundryRoutePage }) {
   const [settings, setSettings] = useState<LaundryPageSettings>(() => readStoredValue(laundrySettingsStorageKey, defaultLaundrySettings))
-  const [pageSearchParams] = useSearchParams()
-  const selectedService = pageSearchParams.get('service')
-  const [form, setForm] = useState({ name: '', phone: '', email: '', location: '', address: '', exactLocation: '', service: selectedService ?? 'Wash & Fold', quantity: '1', quantityUnit: 'bag', preferredDate: '', preferredTime: '', notes: '' })
+  const [form, setForm] = useState({ name: '', phone: '', location: '', locationLatitude: null as number | null, locationLongitude: null as number | null })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [notice, setNotice] = useState('')
   const [bookingConfirmation, setBookingConfirmation] = useState<LaundryBooking | null>(null)
@@ -224,15 +218,11 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
   const whatsappUrl = whatsappNumber ? `https://wa.me/${whatsappNumber}` : null
   const supportPhone = siteContent.platformContactPhone || settings.phone
   const supportEmail = siteContent.platformContactEmail || settings.email
+  const bookingLocations = (settings.locations ?? [settings.locationLabel]).map((location) => location.trim()).filter(Boolean)
 
   useEffect(() => {
     setSettings(readStoredValue(laundrySettingsStorageKey, defaultLaundrySettings))
   }, [])
-
-  useEffect(() => {
-    const supportedServices = ['Wash & Fold', 'Dry Cleaning', 'Ironing', 'Express Laundry', 'Bedding & Duvets', 'Pickup & Delivery']
-    if (selectedService && supportedServices.includes(selectedService)) setForm((current) => ({ ...current, service: selectedService }))
-  }, [selectedService])
 
   useEffect(() => {
     const titles: Record<LaundryRoutePage, string> = {
@@ -251,7 +241,7 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
       home: 'Convenient laundry pickup and garment care from MATRIX Laundry in Machakos.',
       services: 'Explore wash and fold, dry cleaning, ironing, bedding care and pickup services.',
       pricing: 'Request a laundry quotation from MATRIX. Current service prices are not yet published.',
-      book: 'Request laundry pickup by sharing your service, quantity, address and preferred schedule.',
+      book: 'Request laundry pickup with your name, phone number and pickup location.',
       track: 'Check the latest recorded status for your MATRIX Laundry booking.',
       'how-it-works': 'See how MATRIX Laundry pickup, garment care and return works.',
       gallery: 'View the MATRIX Laundry service and garment care gallery.',
@@ -310,9 +300,7 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
   const validateForm = () => {
     const nextErrors: Record<string, string> = {}
     const cleanedName = form.name.trim()
-    const cleanedEmail = form.email.trim()
     const cleanedPhone = form.phone.trim()
-    const cleanedAddress = form.address.trim()
 
     if (!cleanedName) nextErrors.name = 'Please enter your full name.'
     if (!cleanedPhone) nextErrors.phone = 'Phone number is required.'
@@ -321,14 +309,8 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
       const normalized = digits.startsWith('0') ? `254${digits.slice(1)}` : digits
       if (!/^254[17]\d{8}$/.test(normalized)) nextErrors.phone = 'Use a valid Kenyan mobile number, for example 0712 345 678.'
     }
-    if (!cleanedEmail) nextErrors.email = 'Email address is required.'
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanedEmail)) nextErrors.email = 'Enter a valid email address.'
-    if (!cleanedAddress) nextErrors.address = 'Please add your street or home address.'
-    if (!form.service) nextErrors.service = 'Please choose a service.'
-    if (!Number.isFinite(Number(form.quantity)) || Number(form.quantity) < 1) nextErrors.quantity = 'Enter a quantity of at least 1.'
-    if (!form.preferredDate) nextErrors.preferredDate = 'Choose a preferred pickup date.'
-    else if (form.preferredDate < new Date().toISOString().slice(0, 10)) nextErrors.preferredDate = 'Choose today or a future date.'
-    if (!form.preferredTime) nextErrors.preferredTime = 'Choose a preferred pickup time.'
+    const hasPinnedLocation = Number.isFinite(form.locationLatitude) && Number.isFinite(form.locationLongitude)
+    if (!hasPinnedLocation && !bookingLocations.includes(form.location)) nextErrors.location = 'Choose an admin-listed location or pin your current location.'
     setErrors(nextErrors)
     return Object.keys(nextErrors).length === 0
   }
@@ -345,15 +327,8 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
       id: reference,
       name: form.name.trim(),
       phone: form.phone.trim(),
-      email: form.email.trim(),
-      location: form.location.trim() || settings.locationLabel,
-      address: form.address.trim(),
-      service: form.service,
-      quantity: Number(form.quantity),
-      quantityUnit: form.quantityUnit,
-      preferredDate: form.preferredDate,
-      preferredTime: form.preferredTime,
-      notes: `${form.exactLocation ? `Exact pickup location: ${form.exactLocation}. ` : ''}${form.notes.trim()}`.trim(),
+      location: form.locationLatitude !== null && form.locationLongitude !== null ? 'Pinned location' : form.location,
+      ...(form.locationLatitude !== null && form.locationLongitude !== null ? { locationLatitude: form.locationLatitude, locationLongitude: form.locationLongitude } : {}),
       createdAt: new Date().toISOString(),
       status: 'new',
     }
@@ -364,7 +339,7 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
       writeStoredValue(laundryBookingsStorageKey, next)
       setBookingConfirmation(booking)
       setNotice('Your pickup request has been received. Our team will contact you shortly to confirm the collection time.')
-      setForm({ name: '', phone: '', email: '', location: '', address: '', exactLocation: '', service: 'Wash & Fold', quantity: '1', quantityUnit: 'bag', preferredDate: '', preferredTime: '', notes: '' })
+      setForm({ name: '', phone: '', location: '', locationLatitude: null, locationLongitude: null })
       setErrors({})
     } finally {
       setSubmitting(false)
@@ -423,7 +398,7 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
       {page !== 'home' && <section className="laundry-page-intro">
         <span className="section-kicker">MATRIX LAUNDRY / {page.replaceAll('-', ' ').toUpperCase()}</span>
         <h1>{({ services: 'Care for every kind of laundry', pricing: 'Know the price before we begin', book: 'Arrange your pickup', track: 'Your order, clearly tracked', 'how-it-works': 'From your door and back again', gallery: 'A closer look at our care', about: 'Laundry care with a local touch', contact: 'We are here to help', faqs: 'Answers before laundry day' } as Record<LaundryRoutePage, string>)[page]}</h1>
-        <p>{({ services: 'Choose a service for everyday garments, delicate pieces and household linens.', pricing: 'Our current prices are not published yet. Request a quotation and our team will confirm the amount before work begins.', book: 'Share your laundry needs and preferred pickup window. The team will confirm your collection.', track: 'Use your booking reference and phone number to check the latest recorded status.', 'how-it-works': 'A simple, thoughtful process from collection through cleaning and return.', gallery: 'The details that make laundry feel fresh, orderly and ready to wear.', about: 'Reliable pickup and careful garment handling for homes and professionals in Machakos.', contact: 'Ask a question, discuss a quote, or get help with an existing booking.', faqs: 'Find practical details about bookings, pickup, garment care and quotations.' } as Record<LaundryRoutePage, string>)[page]}</p>
+        <p>{({ services: 'Choose a service for everyday garments, delicate pieces and household linens.', pricing: 'Our current prices are not published yet. Request a quotation and our team will confirm the amount before work begins.', book: 'Enter your name and phone number, then select an admin-listed location or pin your current position.', track: 'Use your booking reference and phone number to check the latest recorded status.', 'how-it-works': 'A simple, thoughtful process from collection through cleaning and return.', gallery: 'The details that make laundry feel fresh, orderly and ready to wear.', about: 'Reliable pickup and careful garment handling for homes and professionals in Machakos.', contact: 'Ask a question, discuss a quote, or get help with an existing booking.', faqs: 'Find practical details about bookings, pickup, garment care and quotations.' } as Record<LaundryRoutePage, string>)[page]}</p>
       </section>}
       {page === 'home' && <section className="laundry-hero">
         <div className="laundry-hero-copy">
@@ -516,7 +491,7 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
         <div className="booking-copy">
           <span className="section-kicker">BOOKING</span>
           <h2>Schedule Your Laundry Pickup</h2>
-          <p>Tell us what you need cleaned and where we should collect it.</p>
+          <p>Enter your name and phone number, then choose a listed pickup location or pin your current location.</p>
           <div className="booking-summary">
             <div><MapPin size={18} /><span>{settings.locationLabel}</span></div>
             {supportPhone && <div><Phone size={18} /><span>{supportPhone}</span></div>}
@@ -538,67 +513,28 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
               {errors.phone && <small className="field-error">{errors.phone}</small>}
             </div>
 
-            <div className="field-group">
-              <label htmlFor="laundry-email">Email Address</label>
-              <input id="laundry-email" name="email" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="you@example.com" aria-invalid={Boolean(errors.email)} />
-              {errors.email && <small className="field-error">{errors.email}</small>}
-            </div>
-
-            <div className="field-group">
-              <label htmlFor="laundry-service">Laundry Service</label>
-              <select id="laundry-service" name="service" value={form.service} onChange={(event) => setForm({ ...form, service: event.target.value })} aria-invalid={Boolean(errors.service)}>
-                <option>Wash &amp; Fold</option>
-                <option>Dry Cleaning</option>
-                <option>Ironing</option>
-                <option>Express Laundry</option>
-                <option>Bedding &amp; Duvets</option>
-                <option>Pickup &amp; Delivery</option>
+            <div className="field-group wide">
+              <label htmlFor="laundry-location">Pickup location</label>
+              <select id="laundry-location" value={form.locationLatitude !== null ? '' : form.location} onChange={(event) => setForm({ ...form, location: event.target.value, locationLatitude: null, locationLongitude: null })} aria-invalid={Boolean(errors.location)}>
+                <option value="">Choose an admin-listed location</option>
+                {bookingLocations.map((location) => <option key={location} value={location}>{location}</option>)}
               </select>
-              {errors.service && <small className="field-error">{errors.service}</small>}
-            </div>
-
-            <div className="field-group">
-              <label htmlFor="laundry-load">Estimated load size</label>
-              <div className="quantity-control">
-                <input id="laundry-load" name="quantity" type="number" min="1" step="1" value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })} aria-invalid={Boolean(errors.quantity)} />
-                <select aria-label="Quantity unit" value={form.quantityUnit} onChange={(event) => setForm({ ...form, quantityUnit: event.target.value })}>
-                  <option value="bag">Bags</option><option value="item">Items</option><option value="kg">Kilograms</option>
-                </select>
-              </div>
-              {errors.quantity && <small className="field-error">{errors.quantity}</small>}
-            </div>
-
-            <div className="field-group">
-              <label htmlFor="laundry-date">Preferred pickup date</label>
-              <input id="laundry-date" type="date" min={new Date().toISOString().slice(0, 10)} value={form.preferredDate} onChange={(event) => setForm({ ...form, preferredDate: event.target.value })} aria-invalid={Boolean(errors.preferredDate)} />
-              {errors.preferredDate && <small className="field-error">{errors.preferredDate}</small>}
-            </div>
-
-            <div className="field-group">
-              <label htmlFor="laundry-time">Preferred pickup time</label>
-              <input id="laundry-time" type="time" value={form.preferredTime} onChange={(event) => setForm({ ...form, preferredTime: event.target.value })} aria-invalid={Boolean(errors.preferredTime)} />
-              {errors.preferredTime && <small className="field-error">{errors.preferredTime}</small>}
-            </div>
-
-            <div className="field-group wide">
-              <label htmlFor="laundry-location">Pickup area</label>
-              <input id="laundry-location" value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} placeholder={settings.locationLabel} />
-            </div>
-
-            <div className="field-group wide">
-              <label htmlFor="laundry-address">Street / home address</label>
-              <input id="laundry-address" value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} placeholder="Exact pickup address" aria-invalid={Boolean(errors.address)} />
-              {errors.address && <small className="field-error">{errors.address}</small>}
-            </div>
-
-            <div className="field-group wide">
-              <label htmlFor="laundry-exact-location">Exact pickup location</label>
-              <input id="laundry-exact-location" value={form.exactLocation} onChange={(event) => setForm({ ...form, exactLocation: event.target.value })} placeholder="Gate, building name, landmark or room number" />
-            </div>
-
-            <div className="field-group wide">
-              <label htmlFor="laundry-notes">Additional instructions</label>
-              <textarea id="laundry-notes" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} rows={4} placeholder="Any special instructions or preferred timing" />
+              <button type="button" className="secondary-action" onClick={() => {
+                if (!navigator.geolocation) {
+                  setErrors({ ...errors, location: 'Location pinning is not supported by this browser.' })
+                  return
+                }
+                navigator.geolocation.getCurrentPosition(
+                  ({ coords }) => {
+                    setForm((current) => ({ ...current, location: '', locationLatitude: coords.latitude, locationLongitude: coords.longitude }))
+                    setErrors((current) => ({ ...current, location: '' }))
+                  },
+                  () => setErrors((current) => ({ ...current, location: 'Could not get your location. Allow location access or choose a listed location.' })),
+                  { enableHighAccuracy: true, timeout: 10000 },
+                )
+              }}><MapPin size={16} /> Pin my current location</button>
+              {form.locationLatitude !== null && form.locationLongitude !== null && <small>Location pinned: {form.locationLatitude.toFixed(5)}, {form.locationLongitude.toFixed(5)}</small>}
+              {errors.location && <small className="field-error">{errors.location}</small>}
             </div>
           </div>
 
@@ -614,9 +550,7 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
             <span>{notice}</span>
             <dl>
               <div><dt>Customer</dt><dd>{bookingConfirmation.name}</dd></div>
-              <div><dt>Service</dt><dd>{bookingConfirmation.service}</dd></div>
-              <div><dt>Pickup</dt><dd>{bookingConfirmation.location}, {bookingConfirmation.address}</dd></div>
-              <div><dt>Preferred time</dt><dd>{bookingConfirmation.preferredDate} at {bookingConfirmation.preferredTime}</dd></div>
+              <div><dt>Pickup location</dt><dd>{bookingConfirmation.location}</dd></div>
             </dl>
             {whatsappUrl && <a className="booking-support-link" href={`${whatsappUrl}?text=${encodeURIComponent(`Hello MATRIX Laundry, I need help with booking ${bookingConfirmation.id}.`)}`} target="_blank" rel="noreferrer"><FaWhatsapp size={16} /> Contact support</a>}
             <small>Keep this reference. This request is currently stored in this browser; it has not been sent by email or SMS.</small>
@@ -640,8 +574,7 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
           {trackedBooking && <article className="tracking-result" aria-live="polite">
             <span className="status-pill tracking-status">{statusLabel(trackedBooking.status)}</span>
             <h3>{trackedBooking.id}</h3>
-            <p>{trackedBooking.service} · {trackedBooking.quantity} {trackedBooking.quantityUnit}</p>
-            <p>Pickup: {trackedBooking.preferredDate} at {trackedBooking.preferredTime}</p>
+            <p>Pickup location: {trackedBooking.location}</p>
             <ol className="status-timeline">
               {(['new', 'confirmed', 'ready'] as const).map((status) => <li className={(['new', 'confirmed', 'ready'].indexOf(trackedBooking.status) >= ['new', 'confirmed', 'ready'].indexOf(status)) ? 'is-complete' : ''} key={status}><span />{statusLabel(status)}</li>)}
             </ol>
@@ -838,6 +771,7 @@ function LaundryAdminPage() {
           <label className="full-width"><span>Hero photo URL</span><input value={settings.heroImage} onChange={(event) => updateSetting('heroImage', event.target.value)} /></label>
           <label><span>Service location</span><input value={settings.locationLabel} onChange={(event) => updateSetting('locationLabel', event.target.value)} /></label>
           <label><span>Map query</span><input value={settings.locationQuery} onChange={(event) => updateSetting('locationQuery', event.target.value)} /></label>
+          <label className="full-width"><span>Booking locations (one per line)</span><textarea value={(settings.locations ?? [settings.locationLabel]).join('\n')} onChange={(event) => updateSetting('locations', event.target.value.split('\n').map((location) => location.trim()).filter(Boolean))} rows={4} /></label>
           <label><span>Phone</span><input value={settings.phone} onChange={(event) => updateSetting('phone', event.target.value)} /></label>
           <label><span>Email</span><input value={settings.email} onChange={(event) => updateSetting('email', event.target.value)} /></label>
         </div>
@@ -853,15 +787,9 @@ function LaundryAdminPage() {
               <strong>{booking.name}</strong>
               <span className={`booking-status ${booking.status}`}>{booking.status}</span>
             </div>
-            <p><Mail size={12} /> {booking.email}</p>
             <p><Phone size={12} /> {booking.phone}</p>
             <p><MapPin size={12} /> {booking.location}</p>
-            <p><strong>Address:</strong> {booking.address || 'Not provided'}</p>
-            <p><strong>Service:</strong> {booking.service}</p>
-            <p><strong>Quantity:</strong> {booking.quantity ?? 1} {booking.quantityUnit ?? 'bag'}</p>
-            <p><strong>Preferred pickup:</strong> {booking.preferredDate || 'Not specified'} {booking.preferredTime ? `at ${booking.preferredTime}` : ''}</p>
-            <p><strong>Notes:</strong> {booking.notes || 'No notes'}</p>
-            <div className="booking-actions"><a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(booking.location || settings.locationQuery)}`} target="_blank" rel="noreferrer">View location</a><button type="button" onClick={() => toggleStatus(booking.id)}>{booking.status === 'ready' ? 'Reset status' : 'Mark ready'}</button></div>
+            <div className="booking-actions"><a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(booking.locationLatitude !== undefined && booking.locationLongitude !== undefined ? `${booking.locationLatitude},${booking.locationLongitude}` : booking.location || settings.locationQuery)}`} target="_blank" rel="noreferrer">View location</a><button type="button" onClick={() => toggleStatus(booking.id)}>{booking.status === 'ready' ? 'Reset status' : 'Mark ready'}</button></div>
           </article>)}
         </div>
       </div>
