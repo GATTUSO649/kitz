@@ -1,4 +1,4 @@
-import { ArrowRight, BadgeCheck, CalendarDays, CheckCircle2, CircleHelp, Clock3, Compass, House, LayoutGrid, List as ListIcon, LoaderCircle, Mail, MapPin, Moon, PackageCheck, Phone, Search, ShieldCheck, ShoppingBag, Shirt, SlidersHorizontal, Sparkles, Star, Sun, Truck, X, Zap } from 'lucide-react'
+import { ArrowRight, BadgeCheck, CalendarDays, CheckCircle2, CircleHelp, Clock3, Compass, House, LayoutGrid, List as ListIcon, LoaderCircle, Mail, MapPin, Moon, PackageCheck, Phone, Search, ShieldCheck, ShoppingBag, Shirt, SlidersHorizontal, Sparkles, Sun, Truck, X, Zap } from 'lucide-react'
 import { FaFacebookF, FaWhatsapp, FaXTwitter, FaYoutube } from 'react-icons/fa6'
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -76,11 +76,11 @@ const defaultLaundrySettings: LaundryPageSettings = {
   title: 'Laundry & Dry Cleaning',
   subtitle: 'Reliable washing, pickup, and delivery for busy households and professionals.',
   description: 'From daily wear to weekend essentials, we help families and individuals keep their clothes fresh, neatly folded, and ready to wear. Choose a service, share your pickup details, and our team will schedule a pickup from your preferred location.',
-  heroImage: 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=1200&q=80',
+  heroImage: '/images/laundry-wash-fold.jpg',
   locationLabel: 'Machakos Town',
   locationQuery: 'Machakos Town, Kenya',
-  phone: '+254712345678',
-  email: 'hello@markethub.co.ke',
+  phone: '',
+  email: '',
 }
 
 function readStoredValue<T>(key: string, fallback: T): T {
@@ -192,9 +192,24 @@ function ProductResults({ search, category, filterQuery, page, view, onPageChang
   </>
 }
 
-function LaundryPage() {
+type LaundryRoutePage = 'home' | 'services' | 'pricing' | 'book' | 'track' | 'how-it-works' | 'gallery' | 'about' | 'contact' | 'faqs'
+
+const laundryNavigation: { label: string; path: string; page: LaundryRoutePage }[] = [
+  { label: 'Home', path: '/laundry', page: 'home' },
+  { label: 'Services', path: '/laundry/services', page: 'services' },
+  { label: 'Pricing', path: '/laundry/pricing', page: 'pricing' },
+  { label: 'Book Pickup', path: '/laundry/book', page: 'book' },
+  { label: 'Track Booking', path: '/laundry/track', page: 'track' },
+  { label: 'Gallery', path: '/laundry/gallery', page: 'gallery' },
+  { label: 'About', path: '/laundry/about', page: 'about' },
+  { label: 'Contact', path: '/laundry/contact', page: 'contact' },
+]
+
+function LaundryPage({ page }: { page: LaundryRoutePage }) {
   const [settings, setSettings] = useState<LaundryPageSettings>(() => readStoredValue(laundrySettingsStorageKey, defaultLaundrySettings))
-  const [form, setForm] = useState({ name: '', phone: '', email: '', location: '', address: '', exactLocation: '', service: 'Wash & Fold', quantity: '1', quantityUnit: 'bag', preferredDate: '', preferredTime: '', notes: '' })
+  const [pageSearchParams] = useSearchParams()
+  const selectedService = pageSearchParams.get('service')
+  const [form, setForm] = useState({ name: '', phone: '', email: '', location: '', address: '', exactLocation: '', service: selectedService ?? 'Wash & Fold', quantity: '1', quantityUnit: 'bag', preferredDate: '', preferredTime: '', notes: '' })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [notice, setNotice] = useState('')
   const [bookingConfirmation, setBookingConfirmation] = useState<LaundryBooking | null>(null)
@@ -203,21 +218,65 @@ function LaundryPage() {
   const [trackedBooking, setTrackedBooking] = useState<LaundryBooking | null>(null)
   const [trackingError, setTrackingError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const siteContent = usePlatformSiteContent()
   const whatsappNumber = normalizeWhatsAppNumber(siteContent.platformWhatsappPhone ?? '')
   const whatsappUrl = whatsappNumber ? `https://wa.me/${whatsappNumber}` : null
+  const supportPhone = siteContent.platformContactPhone || settings.phone
+  const supportEmail = siteContent.platformContactEmail || settings.email
 
   useEffect(() => {
     setSettings(readStoredValue(laundrySettingsStorageKey, defaultLaundrySettings))
   }, [])
 
+  useEffect(() => {
+    const supportedServices = ['Wash & Fold', 'Dry Cleaning', 'Ironing', 'Express Laundry', 'Bedding & Duvets', 'Pickup & Delivery']
+    if (selectedService && supportedServices.includes(selectedService)) setForm((current) => ({ ...current, service: selectedService }))
+  }, [selectedService])
+
+  useEffect(() => {
+    const titles: Record<LaundryRoutePage, string> = {
+      home: 'MATRIX Laundry | Fresh care, collected and returned',
+      services: 'Laundry Services | MATRIX Laundry',
+      pricing: 'Pricing & Quotations | MATRIX Laundry',
+      book: 'Book a Pickup | MATRIX Laundry',
+      track: 'Track a Booking | MATRIX Laundry',
+      'how-it-works': 'How It Works | MATRIX Laundry',
+      gallery: 'Laundry Gallery | MATRIX Laundry',
+      about: 'About MATRIX Laundry',
+      contact: 'Contact MATRIX Laundry',
+      faqs: 'Laundry FAQs | MATRIX Laundry',
+    }
+    const descriptions: Record<LaundryRoutePage, string> = {
+      home: 'Convenient laundry pickup and garment care from MATRIX Laundry in Machakos.',
+      services: 'Explore wash and fold, dry cleaning, ironing, bedding care and pickup services.',
+      pricing: 'Request a laundry quotation from MATRIX. Current service prices are not yet published.',
+      book: 'Request laundry pickup by sharing your service, quantity, address and preferred schedule.',
+      track: 'Check the latest recorded status for your MATRIX Laundry booking.',
+      'how-it-works': 'See how MATRIX Laundry pickup, garment care and return works.',
+      gallery: 'View the MATRIX Laundry service and garment care gallery.',
+      about: 'Learn about MATRIX Laundry and our approach to convenient local garment care.',
+      contact: 'Contact MATRIX Laundry for booking, quotation and customer support.',
+      faqs: 'Answers to common MATRIX Laundry booking and service questions.',
+    }
+    document.title = titles[page]
+    let description = document.querySelector<HTMLMetaElement>('meta[name="description"]')
+    if (!description) {
+      description = document.createElement('meta')
+      description.name = 'description'
+      document.head.append(description)
+    }
+    description.content = descriptions[page]
+    window.scrollTo(0, 0)
+  }, [page])
+
   const serviceCards = [
-    { title: 'Wash & Fold', description: 'Fresh everyday laundry with careful washing, drying and neatly folded finishing.', icon: Shirt },
-    { title: 'Dry Cleaning', description: 'Professional garment care for delicate clothing, uniforms and special pieces.', icon: Sparkles },
-    { title: 'Ironing', description: 'Perfect finishing for shirts, dresses, workwear and household essentials.', icon: CheckCircle2 },
-    { title: 'Express Laundry', description: 'Quick turnaround for time-sensitive requests when you need items back fast.', icon: Clock3 },
-    { title: 'Bedding & Duvets', description: 'Deep cleaning for bed linens, duvet covers and large household textiles.', icon: PackageCheck },
-    { title: 'Pickup & Delivery', description: 'Convenient collection and return service for busy homes and offices.', icon: Truck },
+    { title: 'Wash & Fold', description: 'Fresh everyday laundry with careful washing, drying and neatly folded finishing.', icon: Shirt, image: '/images/laundry-ironing.jpg' },
+    { title: 'Dry Cleaning', description: 'Professional garment care for delicate clothing, uniforms and special pieces.', icon: Sparkles, image: '/images/laundry-dry-cleaning.jpg' },
+    { title: 'Ironing', description: 'Perfect finishing for shirts, dresses, workwear and household essentials.', icon: CheckCircle2, image: '/images/laundry-pickup.jpg' },
+    { title: 'Express Laundry', description: 'Quick turnaround for time-sensitive requests when you need items back fast.', icon: Clock3, image: '/images/laundry-express.jpg' },
+    { title: 'Bedding & Duvets', description: 'Deep cleaning for bed linens, duvet covers and large household textiles.', icon: PackageCheck, image: '/images/laundry-bedding.jpg' },
+    { title: 'Pickup & Delivery', description: 'Convenient collection and return service for busy homes and offices.', icon: Truck, image: '/images/laundry-wash-fold.jpg' },
   ]
 
   const steps = [
@@ -234,14 +293,7 @@ function LaundryPage() {
     { title: 'Customer Support', description: 'Friendly assistance whenever you need help with timing or service details.', icon: Phone },
   ]
 
-  const gallery = [
-    'https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=900&q=80',
-    'https://images.unsplash.com/photo-1527515637462-cff94eecc1ac?auto=format&fit=crop&w=900&q=80',
-    'https://images.unsplash.com/photo-1556911220-bff31c812dba?auto=format&fit=crop&w=900&q=80',
-    'https://images.unsplash.com/photo-1600194992447-4db8f8f88a84?auto=format&fit=crop&w=900&q=80',
-    'https://images.unsplash.com/photo-1616628182505-3bd9fbdc2d0d?auto=format&fit=crop&w=900&q=80',
-    'https://images.unsplash.com/photo-1621007947382-bb3c3994e3fb?auto=format&fit=crop&w=900&q=80',
-  ]
+  const gallery = serviceCards.map((service) => ({ src: service.image, alt: `${service.title} laundry service` }))
 
   const validateForm = () => {
     const nextErrors: Record<string, string> = {}
@@ -333,13 +385,17 @@ function LaundryPage() {
   return <main className="laundry-page-shell">
     <header className="laundry-header">
       <div className="laundry-header-inner">
-        <Link to="/marketplace" className="laundry-brand" aria-label="MATRIX home">
+        <Link to="/laundry" className="laundry-brand" aria-label="MATRIX Laundry home">
           <SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" />
         </Link>
 
-        <nav className="laundry-nav" aria-label="Laundry navigation">
-          <Link className="laundry-nav-link" to="/marketplace"><House size={15} />Home</Link>
-          <Link className="laundry-nav-link is-active" to="/laundry" aria-current="page">Laundry</Link>
+        <button className="laundry-menu-toggle" type="button" aria-expanded={menuOpen} aria-controls="laundry-navigation" onClick={() => setMenuOpen((open) => !open)}>
+          {menuOpen ? <X size={18} /> : <LayoutGrid size={18} />}<span>{menuOpen ? 'Close menu' : 'Menu'}</span>
+        </button>
+        <nav id="laundry-navigation" className={`laundry-nav${menuOpen ? ' is-open' : ''}`} aria-label="Laundry navigation">
+          {laundryNavigation.map((item) => <Link key={item.path} className={`laundry-nav-link${page === item.page ? ' is-active' : ''}`} to={item.path} aria-current={page === item.page ? 'page' : undefined} onClick={() => setMenuOpen(false)}>{item.label}</Link>)}
+          <Link className="laundry-nav-extra" to="/laundry/how-it-works" onClick={() => setMenuOpen(false)}>How it works</Link>
+          <Link className="laundry-nav-extra" to="/laundry/faqs" onClick={() => setMenuOpen(false)}>FAQs</Link>
         </nav>
 
         <div className="laundry-header-actions">
@@ -349,19 +405,24 @@ function LaundryPage() {
       </div>
     </header>
 
-    <main className="laundry-main">
-      <section className="laundry-hero">
+    <main className={`laundry-main laundry-page-${page}`}>
+      {page !== 'home' && <section className="laundry-page-intro">
+        <span className="section-kicker">MATRIX LAUNDRY / {page.replaceAll('-', ' ').toUpperCase()}</span>
+        <h1>{({ services: 'Care for every kind of laundry', pricing: 'Know the price before we begin', book: 'Arrange your pickup', track: 'Your order, clearly tracked', 'how-it-works': 'From your door and back again', gallery: 'A closer look at our care', about: 'Laundry care with a local touch', contact: 'We are here to help', faqs: 'Answers before laundry day' } as Record<LaundryRoutePage, string>)[page]}</h1>
+        <p>{({ services: 'Choose a service for everyday garments, delicate pieces and household linens.', pricing: 'Our current prices are not published yet. Request a quotation and our team will confirm the amount before work begins.', book: 'Share your laundry needs and preferred pickup window. The team will confirm your collection.', track: 'Use your booking reference and phone number to check the latest recorded status.', 'how-it-works': 'A simple, thoughtful process from collection through cleaning and return.', gallery: 'The details that make laundry feel fresh, orderly and ready to wear.', about: 'Reliable pickup and careful garment handling for homes and professionals in Machakos.', contact: 'Ask a question, discuss a quote, or get help with an existing booking.', faqs: 'Find practical details about bookings, pickup, garment care and quotations.' } as Record<LaundryRoutePage, string>)[page]}</p>
+      </section>}
+      {page === 'home' && <section className="laundry-hero">
         <div className="laundry-hero-copy">
           <span className="hero-kicker"><Sparkles size={14} /> MATRIX CLEAN SERVICE</span>
-          <h1>Laundry &amp; Dry Cleaning Made Easy</h1>
+          <h1>Fresh laundry, collected and returned with care.</h1>
           <p>Enjoy fresh, clean and neatly cared-for clothes with convenient laundry services, reliable pickup and delivery.</p>
           <div className="laundry-hero-meta">
             <span><MapPin size={14} /> {settings.locationLabel}</span>
-            <span><Phone size={14} /> {settings.phone}</span>
+            {supportPhone && <span><Phone size={14} /> {supportPhone}</span>}
           </div>
           <div className="laundry-hero-actions">
-            <a className="primary-action" href="#booking">Book a Pickup</a>
-            <a className="secondary-action" href="#services">Explore Our Services</a>
+            <Link className="primary-action" to="/laundry/book">Book a Pickup</Link>
+            <Link className="secondary-action" to="/laundry/services">Explore Our Services</Link>
           </div>
           <div className="laundry-hero-badges" aria-label="Service highlights">
             <div><strong>Pickup</strong><small>Machakos Town</small></div>
@@ -371,16 +432,16 @@ function LaundryPage() {
         </div>
 
         <div className="laundry-hero-media" aria-label="Laundry equipment and folded clothes">
-          <img src={settings.heroImage || 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=1200&q=80'} alt="Clean laundry with baskets, detergents and folded towels" loading="eager" />
+          <img src={settings.heroImage || '/images/laundry-wash-fold.jpg'} alt="Empty professional laundromat with washing machines" loading="eager" onError={(event) => { event.currentTarget.src = '/images/laundry-wash-fold.jpg' }} />
           <div className="laundry-float-card">
             <span className="status-pill">Pickup available</span>
             <strong>{settings.locationLabel}</strong>
             <small>Fast collection and return</small>
           </div>
         </div>
-      </section>
+      </section>}
 
-      <section id="services" className="laundry-section">
+      {(page === 'home' || page === 'services') && <section id="services" className="laundry-section">
         <div className="section-heading">
           <div>
             <span className="section-kicker">OUR SERVICES</span>
@@ -389,18 +450,20 @@ function LaundryPage() {
         </div>
 
         <div className="service-grid">
-          {serviceCards.map(({ title, description, icon: Icon }) => (
+          {(page === 'home' ? serviceCards.slice(0, 3) : serviceCards).map(({ title, description, icon: Icon, image }) => (
             <article className="service-card" key={title}>
+              <img className="service-card-image" src={image} alt={`${title} service`} loading="lazy" decoding="async" />
               <div className="service-icon"><Icon size={24} /></div>
               <h3>{title}</h3>
               <p>{description}</p>
-              <Link to="#booking">Book service <ArrowRight size={15} /></Link>
+              <Link to={`/laundry/book?service=${encodeURIComponent(title)}`}>Book service <ArrowRight size={15} /></Link>
             </article>
           ))}
         </div>
-      </section>
+        {page === 'home' && <Link className="text-action" to="/laundry/services">View all services <ArrowRight size={16} /></Link>}
+      </section>}
 
-      <section id="pricing" className="laundry-section laundry-pricing-section">
+      {page === 'pricing' && <section id="pricing" className="laundry-section laundry-pricing-section">
         <div className="section-heading">
           <div>
             <span className="section-kicker">PRICING</span>
@@ -410,11 +473,12 @@ function LaundryPage() {
         <div className="pricing-notice">
           <div className="service-icon"><BadgeCheck size={24} /></div>
           <div><h3>We confirm the price with you first</h3><p>Current service rates have not been published. Send a pickup request or contact us for a quote; no charge is taken through this form.</p></div>
+          <Link className="text-action" to="/laundry/book">Request a quotation <ArrowRight size={15} /></Link>
           {whatsappUrl && <a className="primary-action" href={`${whatsappUrl}?text=${encodeURIComponent('Hello MATRIX Laundry, please share your current service prices.')}`} target="_blank" rel="noreferrer"><FaWhatsapp size={17} /> Request prices</a>}
         </div>
-      </section>
+      </section>}
 
-      <section className="laundry-section how-it-works">
+      {(page === 'home' || page === 'how-it-works') && <section className="laundry-section how-it-works">
         <div className="section-heading center-heading">
           <div>
             <span className="section-kicker">HOW IT WORKS</span>
@@ -431,16 +495,17 @@ function LaundryPage() {
             </article>
           ))}
         </div>
-      </section>
+        {page === 'home' && <Link className="text-action" to="/laundry/how-it-works">See the full process <ArrowRight size={16} /></Link>}
+      </section>}
 
-      <section id="booking" className="laundry-booking-section">
+      {page === 'book' && <section id="booking" className="laundry-booking-section">
         <div className="booking-copy">
           <span className="section-kicker">BOOKING</span>
           <h2>Schedule Your Laundry Pickup</h2>
           <p>Tell us what you need cleaned and where we should collect it.</p>
           <div className="booking-summary">
             <div><MapPin size={18} /><span>{settings.locationLabel}</span></div>
-            <div><Phone size={18} /><span>{settings.phone}</span></div>
+            {supportPhone && <div><Phone size={18} /><span>{supportPhone}</span></div>}
             <div><CalendarDays size={18} /><span>Flexible pickup scheduling</span></div>
           </div>
         </div>
@@ -543,9 +608,9 @@ function LaundryPage() {
             <small>Keep this reference. This request is currently stored in this browser; it has not been sent by email or SMS.</small>
           </div>}
         </form>
-      </section>
+      </section>}
 
-      <section id="track-booking" className="laundry-section tracking-section">
+      {page === 'track' && <section id="track-booking" className="laundry-section tracking-section">
         <div className="section-heading">
           <div><span className="section-kicker">ORDER STATUS</span><h2>Track a laundry request</h2></div>
         </div>
@@ -569,9 +634,9 @@ function LaundryPage() {
             {whatsappUrl && <a className="booking-support-link" href={`${whatsappUrl}?text=${encodeURIComponent(`Hello MATRIX Laundry, I need an update on booking ${trackedBooking.id}.`)}`} target="_blank" rel="noreferrer"><FaWhatsapp size={16} /> Contact support</a>}
           </article>}
         </div>
-      </section>
+      </section>}
 
-      <section className="laundry-section">
+      {(page === 'home' || page === 'about') && <section className="laundry-section">
         <div className="section-heading">
           <div>
             <span className="section-kicker">WHY CHOOSE US</span>
@@ -588,9 +653,13 @@ function LaundryPage() {
             </article>
           ))}
         </div>
-      </section>
+        {page === 'about' && <div className="about-story-grid">
+          <article><span className="section-kicker">OUR MISSION</span><h3>Make laundry day feel lighter.</h3><p>We help homes and professionals reclaim time through convenient collection and attentive care for everyday clothing and household essentials.</p></article>
+          <article><span className="section-kicker">OUR APPROACH</span><h3>Care, clarity, and dependable service.</h3><p>We listen to your instructions, confirm the pickup plan, and keep communication straightforward from request to return.</p></article>
+        </div>}
+      </section>}
 
-      <section className="laundry-section gallery-section">
+      {page === 'gallery' && <section className="laundry-section gallery-section">
         <div className="section-heading">
           <div>
             <span className="section-kicker">GALLERY</span>
@@ -600,14 +669,14 @@ function LaundryPage() {
 
         <div className="gallery-grid">
           {gallery.map((image, index) => (
-            <figure className="gallery-item" key={image + index}>
-              <img src={image} alt="Laundry service equipment and clean textiles" loading="lazy" decoding="async" />
+            <figure className="gallery-item" key={image.src + index}>
+              <img src={image.src} alt={image.alt} loading="lazy" decoding="async" />
             </figure>
           ))}
         </div>
-      </section>
+      </section>}
 
-      <section className="laundry-location-section">
+      {page === 'contact' && <section className="laundry-location-section">
         <div className="location-card">
           <div className="section-heading compact-heading">
             <div>
@@ -618,13 +687,14 @@ function LaundryPage() {
 
           <div className="location-details">
             <div className="detail-row"><MapPin size={18} /><span>{settings.locationLabel}</span></div>
-            <div className="detail-row"><Phone size={18} /><a href={`tel:${settings.phone}`}>{settings.phone}</a></div>
-            <div className="detail-row"><Mail size={18} /><a href={`mailto:${settings.email}`}>{settings.email}</a></div>
+            {supportPhone && <div className="detail-row"><Phone size={18} /><a href={`tel:${supportPhone}`}>{supportPhone}</a></div>}
+            {supportEmail && <div className="detail-row"><Mail size={18} /><a href={`mailto:${supportEmail}`}>{supportEmail}</a></div>}
+            {!supportPhone && !supportEmail && !whatsappUrl && <p>Customer support contact details are not yet configured.</p>}
           </div>
 
           <div className="location-actions">
             <a href={mapUrl} target="_blank" rel="noreferrer" className="primary-action">View location</a>
-            <a href={`tel:${settings.phone}`} className="secondary-action">Call us</a>
+            {supportPhone && <a href={`tel:${supportPhone}`} className="secondary-action">Call us</a>}
           </div>
         </div>
 
@@ -637,9 +707,9 @@ function LaundryPage() {
             <li>Friendly support and clear communication</li>
           </ul>
         </div>
-      </section>
+      </section>}
 
-      <section className="laundry-section faq-section">
+      {page === 'faqs' && <section className="laundry-section faq-section">
         <div className="section-heading">
           <div>
             <span className="section-kicker">TRUST & SUPPORT</span>
@@ -648,28 +718,19 @@ function LaundryPage() {
         </div>
 
         <div className="faq-grid">
-          <article className="faq-card">
-            <Star size={18} />
-            <h3>How do I schedule a pickup?</h3>
-            <p>Fill in the booking form with your service, pickup area and preferred timing. We will confirm the collection details shortly.</p>
-          </article>
-          <article className="faq-card">
-            <Clock3 size={18} />
-            <h3>Do you offer flexible timing?</h3>
-            <p>Yes. You can share your preferred date and time in the form to help us plan the pickup around your schedule.</p>
-          </article>
-          <article className="faq-card">
-            <ShieldCheck size={18} />
-            <h3>How do you handle delicate items?</h3>
-            <p>Our dry cleaning and garment care service is designed for careful treatment of sensitive fabrics and special pieces.</p>
-          </article>
+          <details className="faq-card"><summary>How do I schedule a pickup?</summary><p>Fill in the booking form with your service, pickup area and preferred timing. We will confirm the collection details shortly.</p></details>
+          <details className="faq-card"><summary>Do you offer flexible timing?</summary><p>Share your preferred date and time in the form to help us plan the pickup around your schedule.</p></details>
+          <details className="faq-card"><summary>How do you handle delicate items?</summary><p>Tell us about delicate fabrics or special pieces in your booking instructions so the team can discuss suitable care.</p></details>
+          <details className="faq-card"><summary>Where can I see your prices?</summary><p>Rates have not yet been published online. Request a quotation before confirming service.</p><Link to="/laundry/pricing">Pricing &amp; quotations <ArrowRight size={14} /></Link></details>
+          <details className="faq-card"><summary>How can I follow my booking?</summary><p>Use your booking reference and booking phone number on the tracking page. Status is shown when the laundry team updates it.</p><Link to="/laundry/track">Track a booking <ArrowRight size={14} /></Link></details>
+          <details className="faq-card"><summary>How do I contact support?</summary><p>Call, email or message us using the contact details on our support page.</p><Link to="/laundry/contact">Contact support <ArrowRight size={14} /></Link></details>
         </div>
-      </section>
+      </section>}
     </main>
 
     <footer className="laundry-footer">
       <div className="laundry-footer-brand">
-        <Link to="/marketplace" className="brand-lockup" aria-label="MATRIX home">
+        <Link to="/laundry" className="brand-lockup" aria-label="MATRIX Laundry home">
           <SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" />
         </Link>
         <p>Fresh, reliable laundry care for busy households and professionals in Machakos.</p>
@@ -678,26 +739,43 @@ function LaundryPage() {
       <div className="laundry-footer-links">
         <div>
           <h3>Quick links</h3>
-          <Link to="/marketplace">Home</Link>
+          <Link to="/laundry">Home</Link>
+          <Link to="/laundry/how-it-works">How it works</Link>
+          <Link to="/laundry/faqs">FAQs</Link>
           <Link to="/marketplace#products">Browse listings</Link>
-          <Link to="/laundry">Laundry</Link>
         </div>
         <div>
           <h3>Services</h3>
-          <span>Wash &amp; Fold</span>
-          <span>Dry Cleaning</span>
-          <span>Ironing</span>
+          <Link to="/laundry/services">All services</Link>
+          <Link to="/laundry/pricing">Pricing &amp; quotations</Link>
+          <Link to="/laundry/track">Track booking</Link>
         </div>
         <div>
           <h3>Contact</h3>
-          <a href={`tel:${settings.phone}`}>{settings.phone}</a>
-          <a href={`mailto:${settings.email}`}>{settings.email}</a>
+          {supportPhone && <a href={`tel:${supportPhone}`}>{supportPhone}</a>}
+          {supportEmail && <a href={`mailto:${supportEmail}`}>{supportEmail}</a>}
           <span>{settings.locationLabel}</span>
         </div>
       </div>
     </footer>
     {whatsappUrl && <a className="laundry-whatsapp-float" href={`${whatsappUrl}?text=${encodeURIComponent('Hello MATRIX Laundry, I have a question about your laundry service.')}`} target="_blank" rel="noreferrer" aria-label="Contact MATRIX Laundry on WhatsApp"><FaWhatsapp size={22} /><span>Chat with us</span></a>}
   </main>
+}
+
+function LaundryHomePage() { return <LaundryPage page="home" /> }
+function LaundryServicesPage() { return <LaundryPage page="services" /> }
+function LaundryPricingPage() { return <LaundryPage page="pricing" /> }
+function LaundryBookingPage() { return <LaundryPage page="book" /> }
+function LaundryTrackingPage() { return <LaundryPage page="track" /> }
+function LaundryHowItWorksPage() { return <LaundryPage page="how-it-works" /> }
+function LaundryGalleryPage() { return <LaundryPage page="gallery" /> }
+function LaundryAboutPage() { return <LaundryPage page="about" /> }
+function LaundryContactPage() { return <LaundryPage page="contact" /> }
+function LaundryFaqsPage() { return <LaundryPage page="faqs" /> }
+
+function LaundryNotFoundPage() {
+  useEffect(() => { document.title = 'Page Not Found | MATRIX Laundry' }, [])
+  return <main className="laundry-page-shell laundry-not-found"><SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /><span className="section-kicker">MATRIX LAUNDRY</span><h1>We could not find that page.</h1><p>The page may have moved. Choose a section to continue.</p><Link className="primary-action" to="/laundry">Back to laundry home</Link></main>
 }
 
 function LaundryAdminPage() {
@@ -1069,7 +1147,7 @@ function LandingPage() {
         </article>
 
         <article className="destination-card laundry-card">
-          <img src="https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=1200&q=80" alt="Laundry and dry cleaning service" loading="eager" decoding="async" fetchPriority="high" width="640" height="480" />
+          <img src="/images/laundry-wash-fold.jpg" alt="A clean laundry with professional washing machines" loading="eager" decoding="async" fetchPriority="high" width="640" height="480" />
           <div className="card-shade laundry-card-shade" />
           <div className="destination-content">
             <span className="destination-tag"><Sparkles size={14} /> Laundry</span>
@@ -1239,18 +1317,6 @@ function MarketplaceHome() {
         {categoryError && <button type="button" onClick={() => setCategoryRetry((value) => value + 1)}>Reload categories</button>}
       </section>
 
-      <section className="laundry-market-card">
-        <div className="laundry-market-copy">
-          <span className="hero-eyebrow"><Sparkles size={14} /> LAUNDRY SERVICES</span>
-          <h3>Freshly cleaned clothes, picked up and returned with ease.</h3>
-          <p>Book reliable laundry and dry-cleaning support from trusted local services.</p>
-          <Link className="laundry-market-button" to="/laundry">Book a pickup <ArrowRight size={15} /></Link>
-        </div>
-        <div className="laundry-market-visual" aria-hidden="true">
-          <img src="https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=900&q=80" alt="Laundry service" />
-        </div>
-      </section>
-
       <section className="market-content">
         <div className="listing-area" id="products">
           <div className="section-title"><span /> <h2>{search ? 'Search Results' : filters.featured === 'false' ? 'Recently Published' : filters.featured === 'true' ? 'Featured Listings' : 'All Listings'}</h2></div>
@@ -1345,7 +1411,17 @@ export function App() {
     <Route path="/" element={<LandingPage />} />
     <Route path="/kits/*" element={<KitsRedirect />} />
     <Route path="/marketplace" element={<MarketplaceHome />} />
-    <Route path="/laundry" element={<LaundryPage />} />
+    <Route path="/laundry" element={<LaundryHomePage />} />
+    <Route path="/laundry/services" element={<LaundryServicesPage />} />
+    <Route path="/laundry/pricing" element={<LaundryPricingPage />} />
+    <Route path="/laundry/book" element={<LaundryBookingPage />} />
+    <Route path="/laundry/track" element={<LaundryTrackingPage />} />
+    <Route path="/laundry/how-it-works" element={<LaundryHowItWorksPage />} />
+    <Route path="/laundry/gallery" element={<LaundryGalleryPage />} />
+    <Route path="/laundry/about" element={<LaundryAboutPage />} />
+    <Route path="/laundry/contact" element={<LaundryContactPage />} />
+    <Route path="/laundry/faqs" element={<LaundryFaqsPage />} />
+    <Route path="/laundry/*" element={<LaundryNotFoundPage />} />
     <Route path="/admin/laundry" element={<LaundryAdminPage />} />
     <Route path="/marketplace/sell" element={<SellListingPage />} />
     <Route path="/marketplace/seller/signup" element={<SellerSignupPage />} />
