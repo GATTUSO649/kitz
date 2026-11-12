@@ -1,6 +1,6 @@
 import type { AdministratorRole } from '../../database/admin-schema.js'
 
-export const administratorRoles: AdministratorRole[] = ['super_admin', 'it_admin', 'sales_admin', 'finance_admin', 'inventory_admin', 'marketing_admin', 'content_admin', 'second_hand_admin', 'seller_support_admin', 'marketplace_finance_admin', 'marketplace_moderator']
+export const administratorRoles: AdministratorRole[] = ['super_admin', 'it_admin', 'sales_admin', 'finance_admin', 'inventory_admin', 'marketing_admin', 'content_admin', 'second_hand_admin', 'seller_support_admin', 'marketplace_finance_admin', 'marketplace_moderator', 'laundry_admin']
 export const marketplaceAdministratorRoles: ReadonlySet<AdministratorRole> = new Set(['second_hand_admin', 'seller_support_admin', 'marketplace_finance_admin', 'marketplace_moderator'])
 
 export function isMarketplaceRoleNumberActivation(input: { role: AdministratorRole | null; status: string; roleNumber: string | null; emailVerifiedAt: Date | null; password: string }): boolean {
@@ -98,6 +98,9 @@ export const administratorPermissions = [
   'marketplace.support.manage',
   'marketplace.moderation.manage',
   'marketplace.settings.manage',
+  'laundry.dashboard.view',
+  'laundry.bookings.manage',
+  'laundry.services.manage',
 ] as const
 
 export type AdministratorPermission = typeof administratorPermissions[number]
@@ -114,6 +117,7 @@ export const defaultAdministratorPermissions: Record<AdministratorRole, Readonly
   seller_support_admin: new Set(['marketplace.dashboard.read', 'marketplace.listings.read', 'marketplace.support.manage', 'audit.view']),
   marketplace_finance_admin: new Set(['marketplace.dashboard.read', 'marketplace.finance.read', 'marketplace.finance.reconcile', 'audit.view']),
   marketplace_moderator: new Set(['marketplace.dashboard.read', 'marketplace.listings.read', 'marketplace.moderation.manage', 'marketplace.support.manage', 'audit.view']),
+  laundry_admin: new Set(['laundry.dashboard.view', 'laundry.bookings.manage', 'laundry.services.manage', 'audit.view']),
 }
 
 export function hasAdministratorPermission(role: AdministratorRole | null | undefined, permission: AdministratorPermission) {
@@ -121,7 +125,7 @@ export function hasAdministratorPermission(role: AdministratorRole | null | unde
 }
 
 export function rolePrefix(role: AdministratorRole) {
-  return ({ super_admin: 'SUPER', it_admin: 'IT', sales_admin: 'SALES', finance_admin: 'FIN', inventory_admin: 'INV', marketing_admin: 'MKT', content_admin: 'CONTENT', second_hand_admin: 'SH', seller_support_admin: 'SS', marketplace_finance_admin: 'MF', marketplace_moderator: 'MM' })[role]
+  return ({ super_admin: 'SUPER', it_admin: 'IT', sales_admin: 'SALES', finance_admin: 'FIN', inventory_admin: 'INV', marketing_admin: 'MKT', content_admin: 'CONTENT', second_hand_admin: 'SH', seller_support_admin: 'SS', marketplace_finance_admin: 'MF', marketplace_moderator: 'MM', laundry_admin: 'LAUNDRY' })[role]
 }
 
 export function administratorPortal(role: AdministratorRole) {
@@ -137,6 +141,7 @@ export function administratorPortal(role: AdministratorRole) {
     seller_support_admin: '/marketplace-admin/support',
     marketplace_finance_admin: '/marketplace-admin/finance',
     marketplace_moderator: '/marketplace-admin/moderation',
+    laundry_admin: '/laundry-admin/dashboard',
   })[role]
 }
 
@@ -148,6 +153,7 @@ export function requiredAdministratorRole(requestPath: string, expectedRole?: Ad
     '/inventory-admin/login': 'inventory_admin',
     '/marketing-admin/login': 'marketing_admin',
     '/content-admin/login': 'content_admin',
+    '/laundry-admin/login': 'laundry_admin',
   }
   return loginRoles[requestPath] ?? expectedRole
 }

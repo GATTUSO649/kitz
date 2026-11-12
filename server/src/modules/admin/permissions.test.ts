@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { administratorPermissions, administratorPortal, defaultAdministratorPermissions, isMarketplaceRoleNumberActivation, isVerifiedPendingMarketplaceAdmin, requiredAdministratorRole } from './administration.js'
+import { administratorPermissions, administratorPortal, administratorRoles, defaultAdministratorPermissions, isMarketplaceRoleNumberActivation, isVerifiedPendingMarketplaceAdmin, requiredAdministratorRole, rolePrefix } from './administration.js'
 import { administratorPermissionsForRoute, administratorPortalPermission, hasAnyPermission, hasDedicatedAdministratorGuard, projectDashboardForRole } from './permission-routes.js'
 import { resolveAdministratorPermissions, validatePermissionSelection } from './permissions.js'
+import { adminLoginSchema } from './auth.js'
 
 test('permission resolver preserves default access until a role is configured', () => {
   const resolved = resolveAdministratorPermissions('sales_admin', [])
@@ -101,6 +102,7 @@ test('only self-profile, Operations, and role portal endpoints bypass the common
   assert.equal(hasDedicatedAdministratorGuard('/me'), true)
   assert.equal(hasDedicatedAdministratorGuard('/it/overview'), true)
   assert.equal(hasDedicatedAdministratorGuard('/portal/finance_admin'), true)
+  assert.equal(hasDedicatedAdministratorGuard('/portal/laundry_admin'), true)
   assert.equal(hasDedicatedAdministratorGuard('/settings'), false)
   assert.equal(hasDedicatedAdministratorGuard('/unreviewed-route'), false)
 })
@@ -130,6 +132,7 @@ test('dashboard projections honor stored permission overrides', () => {
 test('portal summary endpoints require the role-specific dashboard permission', () => {
   assert.equal(administratorPortalPermission('finance_admin'), 'finance.view')
   assert.equal(administratorPortalPermission('inventory_admin'), 'inventory.dashboard.view')
+  assert.equal(administratorPortalPermission('laundry_admin'), 'laundry.dashboard.view')
   assert.equal(administratorPortalPermission('unknown_role'), null)
 })
 
@@ -139,7 +142,21 @@ test('administrator portal destination and login role come from server policy', 
   assert.equal(requiredAdministratorRole('/login', 'super_admin'), 'sales_admin')
   assert.equal(requiredAdministratorRole('/finance-admin/login'), 'finance_admin')
   assert.equal(requiredAdministratorRole('/content-admin/login'), 'content_admin')
+  assert.equal(requiredAdministratorRole('/laundry-admin/login'), 'laundry_admin')
+  assert.equal(administratorPortal('laundry_admin'), '/laundry-admin/dashboard')
   assert.equal(requiredAdministratorRole('/login'), 'sales_admin')
+})
+
+test('Laundry Admin receives only laundry operations and audit permissions', () => {
+  assert.equal(adminLoginSchema.safeParse({ identity: 'LAUNDRY-0001', password: 'temporary-password', expectedRole: 'laundry_admin' }).success, true)
+  assert.equal(adminLoginSchema.safeParse({ identity: 'LAUNDRY-0001', password: 'temporary-password', expectedRole: 'unknown_admin' }).success, false)
+  assert.equal(administratorRoles.includes('laundry_admin'), true)
+  assert.equal(rolePrefix('laundry_admin'), 'LAUNDRY')
+  const permissions = defaultAdministratorPermissions.laundry_admin
+  assert.deepEqual([...permissions].sort(), ['audit.view', 'laundry.bookings.manage', 'laundry.dashboard.view', 'laundry.services.manage'])
+  assert.equal(permissions.has('sales.manage_orders'), false)
+  assert.equal(permissions.has('finance.view'), false)
+  assert.equal(permissions.has('marketplace.listings.manage'), false)
 })
 
 test('Marketplace administrator roles receive only their assigned capabilities', () => {

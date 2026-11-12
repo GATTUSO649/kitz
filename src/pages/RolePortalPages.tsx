@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, BarChart3, Boxes, Check, CircleDollarSign, FileText, Mail, Megaphone, Package, Receipt, Search, ShoppingBag, Users } from 'lucide-react'
+import { AlertTriangle, BarChart3, Boxes, Check, CircleDollarSign, FileText, Mail, Megaphone, Package, Receipt, Search, Shirt, ShoppingBag, Users } from 'lucide-react'
 import '../admin-theme.css'
 import '../role-portal-theme.css'
 
@@ -10,6 +10,7 @@ const roleConfig = {
   'inventory-admin': { role: 'inventory_admin', title: 'Inventory and Logistics', modules: ['Dashboard', 'Stock Management', 'Stock Movements', 'Low Stock', 'Out of Stock', 'Suppliers', 'Purchase Orders', 'Goods Receiving', 'Fulfillment', 'Returns', 'Analytics', 'Reports', 'Audit Logs', 'Notifications', 'Settings'], endpoints: { 'Stock Management': '/api/v1/admin/products', 'Stock Movements': '/api/v1/admin/inventory/movements', Fulfillment: '/api/v1/admin/orders', 'Audit Logs': '/api/v1/admin/audit' }, icon: Boxes },
   'marketing-admin': { role: 'marketing_admin', title: 'Marketing Operations', modules: ['Dashboard', 'Campaigns', 'Promotions', 'Coupons', 'Audiences', 'Email Marketing', 'Notifications', 'Content Promotion', 'Analytics', 'Reports', 'Audit Logs', 'Settings'], endpoints: { Campaigns: '/api/v1/admin/notifications', Notifications: '/api/v1/admin/notifications', 'Audit Logs': '/api/v1/admin/audit' }, icon: Megaphone },
   'content-admin': { role: 'content_admin', title: 'Products and Content', modules: ['Overview', 'Products', 'Categories', 'Homepage', 'Site Pages'], endpoints: { Products: '/api/v1/admin/products', Categories: '/api/v1/admin/categories', Homepage: '/api/v1/admin/homepage', 'Site Pages': '/api/v1/admin/homepage/site-content' }, icon: Package },
+  'laundry-admin': { role: 'laundry_admin', title: 'Laundry Admin', modules: ['Operations status'], endpoints: {}, icon: Shirt },
 } as const
 
 const portalByRole: Record<string, string> = {
@@ -20,6 +21,7 @@ const portalByRole: Record<string, string> = {
   inventory_admin: '/inventory-admin/dashboard',
   marketing_admin: '/marketing-admin/dashboard',
   content_admin: '/content-admin/dashboard',
+  laundry_admin: '/laundry-admin/dashboard',
 }
 const financeDefaultSettlementDate = new Date().toISOString().slice(0, 10)
 
@@ -706,6 +708,14 @@ function MarketingWorkspace({ prefix }: { prefix: keyof typeof roleConfig }) {
   return <main className="admin-it-page super-admin-page role-portal-shell marketing-portal-shell"><aside className="super-admin-sidebar role-portal-sidebar"><Link to="/" className="admin-brand" aria-label="MATRIX home"><img src="/matrix-logo.png" alt="MATRIX" /></Link><strong>{config.title}</strong><nav>{config.modules.map((module) => <button type="button" key={module} className={activeModule === module ? 'active' : ''} onClick={() => { setActiveModule(module); setError(''); setNotice('') }}>{module}</button>)}</nav><button type="button" className="admin-it-button role-portal-signout" onClick={() => void signOutRolePortal(navigate, prefix)}>Sign out</button></aside><section className="super-admin-main role-portal-main marketing-portal-main"><header><div><span className="admin-kicker">MARKETING MANAGEMENT CENTRE</span><h1>{activeModule}</h1><p className="marketing-header-copy">Campaign communication and measurable customer engagement for KitCulture.</p></div><Megaphone size={24} /></header>{portal.isError ? <div className="admin-empty admin-error">Marketing data is unavailable: {portal.error.message}</div> : panel}</section></main>
 }
 
+function LaundryAdminUnavailableWorkspace() {
+  const navigate = useNavigate()
+  return <main className="admin-it-page super-admin-page role-portal-shell">
+    <aside className="super-admin-sidebar role-portal-sidebar"><Link to="/" className="admin-brand" aria-label="MATRIX home"><img src="/matrix-logo.png" alt="MATRIX" /></Link><strong>Laundry Admin</strong><nav><button type="button" className="active">Operations status</button></nav><button type="button" className="admin-it-button role-portal-signout" onClick={() => void signOutRolePortal(navigate, 'laundry-admin')}>Sign out</button></aside>
+    <section className="super-admin-main role-portal-main"><header><div><span className="admin-kicker">LAUNDRY ADMIN</span><h1>Operations status</h1><p>Restricted administrator access</p></div><Shirt size={24} /></header><section className="admin-it-panel" role="status"><span className="admin-kicker">BACKEND INTEGRATION REQUIRED</span><h2>Booking tools are not connected yet</h2><p>The Laundry Admin role is assigned and sign-in is protected. Booking and service management are not available in the shared administrator API yet. Customer requests still reside in browser storage, so this portal cannot safely display or update booking records.</p></section></section>
+  </main>
+}
+
 export function RolePortalRoute() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -776,6 +786,7 @@ export function RolePortalRoute() {
   if (session.isError || (session.data?.user.role !== roleConfig[prefix].role && session.data?.user.role !== 'super_admin')) {
     return <main className="role-portal-auth-check" role="status">Redirecting to administrator sign in...</main>
   }
+  if (prefix === 'laundry-admin') return <LaundryAdminUnavailableWorkspace />
   return <RolePortalDashboard />
 }
 

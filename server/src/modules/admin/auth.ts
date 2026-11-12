@@ -18,7 +18,7 @@ export const adminLoginSchema = z.object({
   identity: z.string().trim().min(3).max(254).optional(),
   email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()).optional(),
   roleNumber: z.string().trim().min(4).max(40).optional(),
-  expectedRole: z.enum(['sales_admin', 'finance_admin', 'inventory_admin', 'marketing_admin', 'content_admin', 'it_admin', 'super_admin', 'second_hand_admin', 'seller_support_admin', 'marketplace_finance_admin', 'marketplace_moderator']).optional(),
+  expectedRole: z.enum(['sales_admin', 'finance_admin', 'inventory_admin', 'marketing_admin', 'content_admin', 'it_admin', 'super_admin', 'second_hand_admin', 'seller_support_admin', 'marketplace_finance_admin', 'marketplace_moderator', 'laundry_admin']).optional(),
   password: z.string().min(1).max(128),
 }).strict().refine((value) => Boolean(value.identity || value.email || value.roleNumber), { message: 'Enter an administrator email or role number.' })
 export const invalidAdminCredentialsMessage = 'The email address or password is incorrect. Please try again.'
@@ -207,6 +207,7 @@ adminAuthRouter.post('/finance-admin/login', adminLoginHandler)
 adminAuthRouter.post('/inventory-admin/login', adminLoginHandler)
 adminAuthRouter.post('/marketing-admin/login', adminLoginHandler)
 adminAuthRouter.post('/content-admin/login', adminLoginHandler)
+adminAuthRouter.post('/laundry-admin/login', adminLoginHandler)
 
 adminAuthRouter.get('/me', authenticateAdmin, async (request, response) => {
   const admin = authenticatedAdmin(request)

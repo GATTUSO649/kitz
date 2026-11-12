@@ -82,6 +82,9 @@ export const permissionDescriptions: Record<AdministratorPermission, string> = {
   'marketplace.support.manage': 'Manage marketplace seller support requests.',
   'marketplace.moderation.manage': 'Review and moderate marketplace listings and reports.',
   'marketplace.settings.manage': 'Manage MarketHub marketplace settings.',
+  'laundry.dashboard.view': 'View Laundry Admin access and dashboard information when the laundry API is available.',
+  'laundry.bookings.manage': 'Manage laundry bookings when the laundry API is available.',
+  'laundry.services.manage': 'Manage laundry services and quotations when the laundry API is available.',
 }
 
 const permissionSet = new Set<string>(administratorPermissions)

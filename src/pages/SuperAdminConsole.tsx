@@ -31,7 +31,7 @@ type Section = 'overview' | 'administrators' | 'roles' | 'systems' | 'security' 
 const roleChoices = [
   ['sales_admin', 'Sales and Customers'], ['finance_admin', 'Finance'], ['inventory_admin', 'Inventory and Logistics'],
   ['marketing_admin', 'Marketing'], ['content_admin', 'Products and Content'], ['it_admin', 'IT Operations'],
-  ['second_hand_admin', 'Second-Hand Admin'],
+  ['second_hand_admin', 'Second-Hand Admin'], ['laundry_admin', 'Laundry Admin'],
 ] as const
 const portalRoles = ['sales_admin', 'finance_admin', 'inventory_admin', 'marketing_admin', 'content_admin', 'it_admin'] as const
 const roleDescriptions: Record<string, string> = {
@@ -42,6 +42,7 @@ const roleDescriptions: Record<string, string> = {
   content_admin: 'Products, categories, and homepage content',
   it_admin: 'Infrastructure, monitoring, and security operations',
   second_hand_admin: 'Second-hand marketplace listings and moderation',
+  laundry_admin: 'Laundry administration access; booking APIs are not connected yet',
 }
 const moduleCoverage: Record<Section, CoverageItem[]> = {
   overview: [

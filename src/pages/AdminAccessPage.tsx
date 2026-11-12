@@ -15,7 +15,7 @@ const portals = [
   { title: 'Marketing Admin', detail: 'Campaigns and marketing activities', bullets: ['Campaign management', 'Customer notifications', 'Marketing analytics'], href: '/marketing-admin/login', icon: Megaphone, tone: 'pink' },
   { title: 'Content Admin', detail: 'Products and content operations', bullets: ['Catalogue content', 'Categories and taxonomy', 'Homepage content'], href: '/content-admin/login', icon: BarChart3, tone: 'indigo' },
   { title: 'Second-Hand Admin', detail: 'MarketHub marketplace operations', bullets: ['Listing moderation', 'Seller support', 'Marketplace payments'], href: marketHubAdminHref, icon: Store, tone: 'green' },
-  { title: 'Laundry Admin', detail: 'Laundry bookings and pickup operations', bullets: ['Pickup request management', 'Booking status updates', 'Laundry page information'], href: null, icon: Shirt, tone: 'blue' },
+  { title: 'Laundry Admin', detail: 'Laundry administration access', bullets: ['Role-bound sign-in', 'Laundry operations status', 'Booking tools pending API integration'], href: '/laundry-admin/login', icon: Shirt, tone: 'blue' },
 ] as const
 
 async function request<T>(path: string, body: Record<string, unknown>) {

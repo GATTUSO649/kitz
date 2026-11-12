@@ -258,7 +258,7 @@ function App() {
   const isOperationsPage = pagePath === '/operations'
   const isItAdminPage = /^\/it-admin(?:\/|$)/.test(pagePath)
   const isSuperAdminPage = pagePath.startsWith('/super-admin')
-  const roleAdminPage = /^\/((finance|inventory|marketing|content)-admin)(\/|$)/.test(pagePath)
+  const roleAdminPage = /^\/((finance|inventory|marketing|content)-admin|laundry-admin)(\/|$)/.test(pagePath)
   const isAdminPage = /^\/(?:admin|sales-admin)(?:\/|$)/.test(pagePath)
   const isHomePage = pagePath === '/'
   const isShopPage = pagePath === '/shop' || pagePath === '/new-arrivals' || pagePath.startsWith('/categories/')
@@ -279,7 +279,7 @@ function App() {
   const isPortalMarketplaceTeam = /^\/account\/marketplace\/teams\/[^/]+\/[^/]+$/.test(pagePath)
   const isPortalMarketplaceRoute = pagePath === '/account/marketplace' || isPortalMarketplaceProduct || isPortalMarketplaceTeam
   const isPortalPath = isAccountPage || pagePath === '/account/dashboard' || isOrdersPage || isAccountSubpage || isAccountCartRoute || isAccountCheckoutRoute || isPortalMarketplaceRoute
-  const isNotFoundPage = !isAdminPage && !isOperationsPage && !isHomePage && !isShopPage && !isMarketplacePage && !isProductPage && !isCustomerAuthRoute && !isCartPage && !isCheckoutPage && !isAccountPortalRoute
+  const isNotFoundPage = !isAdminPage && !roleAdminPage && !isOperationsPage && !isHomePage && !isShopPage && !isMarketplacePage && !isProductPage && !isCustomerAuthRoute && !isCartPage && !isCheckoutPage && !isAccountPortalRoute
   const whatsappNumber = useStoreWhatsAppNumber(isHomePage || pagePath === '/account' || pagePath === '/account/dashboard')
   const [cart, setCart] = useState<CartLine[]>(() => {
     try { return JSON.parse(localStorage.getItem('kitculture-cart') ?? '[]') as CartLine[] } catch { return [] }

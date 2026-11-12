@@ -15,8 +15,8 @@ async function adminApi<T>(path: string, init?: RequestInit): Promise<T> {
   return payload.data as T
 }
 
-const roles = ['it_admin', 'sales_admin', 'finance_admin', 'inventory_admin', 'marketing_admin', 'content_admin', 'second_hand_admin', 'seller_support_admin', 'marketplace_finance_admin', 'marketplace_moderator'] as const
-const roleLabels: Record<(typeof roles)[number], string> = { it_admin: 'IT', sales_admin: 'Sales and Customers', finance_admin: 'Finance', inventory_admin: 'Inventory and Logistics', marketing_admin: 'Marketing', content_admin: 'Products and Content', second_hand_admin: 'Second-Hand Admin', seller_support_admin: 'Seller Support Admin', marketplace_finance_admin: 'Marketplace Finance Admin', marketplace_moderator: 'Marketplace Moderator' }
+const roles = ['it_admin', 'sales_admin', 'finance_admin', 'inventory_admin', 'marketing_admin', 'content_admin', 'second_hand_admin', 'seller_support_admin', 'marketplace_finance_admin', 'marketplace_moderator', 'laundry_admin'] as const
+const roleLabels: Record<(typeof roles)[number], string> = { it_admin: 'IT', sales_admin: 'Sales and Customers', finance_admin: 'Finance', inventory_admin: 'Inventory and Logistics', marketing_admin: 'Marketing', content_admin: 'Products and Content', second_hand_admin: 'Second-Hand Admin', seller_support_admin: 'Seller Support Admin', marketplace_finance_admin: 'Marketplace Finance Admin', marketplace_moderator: 'Marketplace Moderator', laundry_admin: 'Laundry Admin' }
 const marketplaceRoles = new Set<string>(['second_hand_admin', 'seller_support_admin', 'marketplace_finance_admin', 'marketplace_moderator'])
 
 function SuperAdminAuthLayout({ eyebrow, title, description, variant, children }: { eyebrow: string; title: string; description?: string; variant: 'login' | 'setup' | 'verification'; children: ReactNode }) {
