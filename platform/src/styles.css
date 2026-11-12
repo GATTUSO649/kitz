@@ -2407,3 +2407,315 @@ details.faq-card {
   .destination-content { padding: 14px 16px; }
 }
 
+.laundry-page-intro {
+  margin: 4px 0 18px;
+  padding: 22px 26px;
+  border-radius: 12px;
+}
+
+.laundry-page-intro h1 {
+  font-size: clamp(1.65rem, 3vw, 2.35rem);
+}
+
+.laundry-page-intro p {
+  max-width: 640px;
+  margin-top: 8px;
+  font-size: .9rem;
+  line-height: 1.55;
+}
+
+.laundry-page-home .laundry-main {
+  max-width: none;
+  padding: 0 0 48px;
+}
+
+.laundry-page-home .laundry-hero {
+  display: block;
+  min-height: 310px;
+  padding: 0;
+  border-radius: 0;
+  background: #071f3d;
+  box-shadow: none;
+}
+
+.laundry-page-home .laundry-hero::before {
+  z-index: 2;
+  background: linear-gradient(90deg, #071f3d 0%, #071f3df0 34%, #071f3d44 64%, transparent 100%);
+}
+
+.laundry-page-home .laundry-hero::after {
+  content: '';
+  position: absolute;
+  z-index: 2;
+  right: -7%;
+  bottom: -42px;
+  width: 50%;
+  height: 66px;
+  border-radius: 50%;
+  background: #f5b526;
+  transform: rotate(-5deg);
+}
+
+.laundry-page-home .laundry-hero-copy {
+  z-index: 3;
+  width: min(62%, 720px);
+  padding: 28px clamp(26px, 6vw, 86px);
+}
+
+.laundry-page-home .laundry-hero-copy h1 {
+  max-width: 630px;
+  font-size: clamp(1.9rem, 3.4vw, 2.8rem);
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.laundry-page-home .laundry-hero-copy p {
+  max-width: 450px;
+  margin-top: 10px;
+  font-size: .92rem;
+  line-height: 1.5;
+}
+
+.laundry-page-home .laundry-hero-media {
+  position: absolute;
+  inset: 0 0 0 37%;
+  min-height: 0;
+  justify-content: flex-end;
+}
+
+.laundry-page-home .laundry-hero-media img {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  clip-path: ellipse(78% 145% at 75% 50%);
+}
+
+.laundry-page-home .laundry-float-card {
+  right: 4%;
+  bottom: 24px;
+  z-index: 3;
+  padding: 12px 14px;
+  border-radius: 10px;
+}
+
+.laundry-page-home .laundry-section {
+  max-width: 1320px;
+  margin: 26px auto 0;
+  padding: 18px clamp(18px, 3vw, 38px) 0;
+}
+
+.laundry-page-home .section-heading h2,
+.laundry-page-gallery .section-heading h2 {
+  font-size: clamp(1.35rem, 2vw, 1.8rem);
+}
+
+.laundry-page-home .laundry-hero-badges {
+  gap: 10px;
+  margin-top: 18px;
+  max-width: 500px;
+}
+
+.laundry-page-home .laundry-hero-badges div {
+  padding: 9px 10px;
+  border-radius: 10px;
+}
+
+.laundry-page-home .laundry-hero-badges strong {
+  font-size: .82rem;
+}
+
+.laundry-page-home .laundry-hero-badges small {
+  font-size: .72rem;
+}
+
+.laundry-page-home .laundry-hero-meta {
+  margin-top: 16px;
+  gap: 8px 14px;
+}
+
+.laundry-page-home .laundry-hero-meta span {
+  font-size: .82rem;
+}
+
+.laundry-page-home .laundry-hero-actions {
+  margin-top: 18px;
+  gap: 10px;
+}
+
+.laundry-page-home .primary-action,
+.laundry-page-home .secondary-action {
+  min-height: 40px;
+  padding: 10px 16px;
+  font-size: .82rem;
+}
+
+.laundry-page-home .service-card-image {
+  height: 112px;
+}
+
+.laundry-page-home .service-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+}
+
+.laundry-page-home .service-card {
+  padding: 16px;
+}
+
+.laundry-page-home .service-card-image {
+  width: calc(100% + 32px);
+  margin: -16px -16px 13px;
+}
+
+.laundry-page-home .section-heading h2,
+.laundry-page-gallery .section-heading h2 {
+  font-size: clamp(1.25rem, 1.8vw, 1.6rem);
+}
+
+.laundry-page-home .section-heading .section-kicker,
+.laundry-page-services .section-heading .section-kicker,
+.laundry-page-gallery .section-heading .section-kicker,
+.laundry-page-pricing .section-heading .section-kicker,
+.laundry-page-how-it-works .section-heading .section-kicker,
+.laundry-page-about .section-heading .section-kicker,
+.laundry-page-faqs .section-heading .section-kicker {
+  color: #0d4da2;
+}
+
+.service-card,
+.benefit-card,
+.step-card,
+.faq-card {
+  background: #fff;
+  border-color: #e1e7ef;
+  box-shadow: 0 5px 16px rgba(13, 36, 68, .07);
+}
+
+.laundry-page-gallery .gallery-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.laundry-page-gallery .gallery-item {
+  border-radius: 12px;
+  aspect-ratio: 1.5 / 1;
+  box-shadow: 0 7px 18px rgba(15, 39, 49, .08);
+}
+
+.service-card h3,
+.benefit-card h3,
+.step-card h3,
+.faq-card h3 {
+  font-size: 1.05rem;
+}
+
+.service-card p,
+.benefit-card p,
+.step-card p,
+.faq-card p {
+  font-size: .88rem;
+  line-height: 1.55;
+}
+
+@media (max-width: 1024px) {
+  .laundry-page-gallery .gallery-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .laundry-page-home .laundry-hero {
+    min-height: 0;
+  }
+
+  .laundry-page-home .laundry-hero::before {
+    background: linear-gradient(90deg, #071f3df2 0%, #071f3de8 62%, #071f3db8 100%);
+  }
+
+  .laundry-page-home .laundry-hero-copy {
+    width: 100%;
+    padding: 20px 18px 22px;
+  }
+
+  .laundry-page-home .laundry-hero-copy h1 {
+    max-width: 340px;
+    font-size: 1.7rem;
+    line-height: 1.08;
+  }
+
+  .laundry-page-home .laundry-hero-copy p {
+    max-width: 340px;
+    font-size: .82rem;
+    line-height: 1.5;
+  }
+
+  .laundry-page-home .laundry-float-card {
+    display: none;
+  }
+
+  .laundry-page-home .laundry-hero-media {
+    inset: 0;
+  }
+
+  .laundry-page-home .laundry-hero-media img {
+    clip-path: none;
+    opacity: .42;
+  }
+
+  .laundry-page-home .laundry-hero-badges {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+    margin-top: 12px;
+  }
+
+  .laundry-page-home .laundry-hero-badges div {
+    padding: 7px 8px;
+  }
+
+  .laundry-page-home .laundry-hero-badges strong {
+    font-size: .68rem;
+  }
+
+  .laundry-page-home .laundry-hero-badges small {
+    font-size: .62rem;
+    line-height: 1.25;
+  }
+
+  .laundry-page-home .laundry-hero-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 14px;
+  }
+
+  .laundry-page-home .primary-action,
+  .laundry-page-home .secondary-action {
+    width: 100%;
+    min-height: 38px;
+    padding: 8px 10px;
+    font-size: .72rem;
+  }
+
+  .laundry-page-home .laundry-section {
+    margin-top: 22px;
+    padding-top: 14px;
+  }
+
+  .laundry-page-gallery .gallery-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .laundry-page-gallery .gallery-item {
+    aspect-ratio: 1.35 / 1;
+  }
+
+  .laundry-page-intro {
+    padding: 18px;
+  }
+}
+
