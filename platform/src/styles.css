@@ -125,15 +125,15 @@ button, input { font: inherit; }
 
 .laundry-page-shell {
   min-height: 100vh;
-  background: linear-gradient(180deg, #f3f8f3 0%, #eef4f1 100%);
-  color: #13262a;
+  background: var(--page-bg);
+  color: #10271e;
 }
 
 .laundry-header {
   position: sticky;
   top: 0;
   z-index: 40;
-  background: linear-gradient(90deg, #0d2f4f 0%, #123f64 45%, #0e2446 100%);
+  background: var(--header-gradient);
   box-shadow: 0 10px 30px rgba(6, 24, 41, 0.16);
 }
 
@@ -244,9 +244,9 @@ button, input { font: inherit; }
 .laundry-browse-button,
 .primary-action,
 .booking-button {
-  background: linear-gradient(135deg, #d9b85d 0%, #f0cb73 28%, #d4a935 100%);
-  color: #142a30;
-  box-shadow: 0 10px 20px rgba(212, 169, 53, 0.3);
+  background: var(--button-primary);
+  color: #fff;
+  box-shadow: 0 8px 18px rgba(13, 77, 162, 0.22);
 }
 
 .laundry-browse-button {
@@ -300,13 +300,13 @@ button, input { font: inherit; }
   margin: 6px 0 24px;
   padding: clamp(24px, 4vw, 48px);
   border-radius: 28px;
-  background: linear-gradient(118deg, #0d4c3b 0%, #17664c 52%, #d2a83c 160%);
-  color: #f7fbf6;
-  box-shadow: 0 16px 38px rgba(13, 76, 59, 0.12);
+  background: linear-gradient(108deg, #071f3d 0%, #0a2c5a 65%, #0d4da2 125%);
+  color: #f7fbff;
+  box-shadow: 0 14px 32px rgba(7, 31, 61, 0.14);
 }
 
 .laundry-page-intro .section-kicker {
-  color: #f0d98c;
+  color: #f5b526;
 }
 
 .laundry-page-intro h1 {
@@ -386,10 +386,10 @@ button, input { font: inherit; }
   grid-template-columns: 1.1fr 0.9fr;
   align-items: center;
   gap: 36px;
-  padding: clamp(24px, 3vw, 40px);
-  border-radius: 32px;
-  background: linear-gradient(135deg, #0a314b 0%, #1d5872 50%, #264f6b 100%);
-  box-shadow: 0 18px 50px rgba(10, 49, 75, 0.12);
+  padding: clamp(20px, 2.5vw, 32px);
+  border-radius: 18px;
+  background: linear-gradient(112deg, #071f3d 0%, #0a2c5a 62%, #0d4da2 130%);
+  box-shadow: 0 14px 34px rgba(7, 31, 61, 0.14);
   overflow: hidden;
   position: relative;
 }
@@ -500,7 +500,7 @@ button, input { font: inherit; }
 .laundry-hero-media img {
   width: 100%;
   max-width: 620px;
-  height: 550px;
+  height: 440px;
   object-fit: cover;
   border-radius: 30px;
   border: 3px solid rgba(255, 255, 255, 0.2);
@@ -602,14 +602,15 @@ button, input { font: inherit; }
 
 .service-card {
   overflow: hidden;
-  padding: 24px;
+  padding: 18px;
+  border-radius: 12px;
 }
 
 .service-card-image {
   display: block;
-  width: calc(100% + 48px);
-  height: 190px;
-  margin: -24px -24px 20px;
+  width: calc(100% + 36px);
+  height: 148px;
+  margin: -18px -18px 16px;
   object-fit: cover;
   background: #dce9df;
 }
@@ -725,7 +726,7 @@ button, input { font: inherit; }
 .laundry-booking-form {
   background: #ffffff;
   border: 1px solid rgba(19, 52, 60, 0.08);
-  border-radius: 26px;
+  border-radius: 12px;
   box-shadow: 0 12px 28px rgba(18, 43, 55, 0.07);
   padding: 26px;
 }
@@ -2253,3 +2254,156 @@ details.faq-card {
 .seller-posting-menu-button { display: none; }
 @media (max-width: 1050px) { .seller-dashboard-sidebar { width: 210px; } }
 @media (max-width: 800px) { .seller-dashboard-sidebar { width: 250px; } .seller-posting-shell .seller-posting-menu-button { display: grid; } }
+
+.laundry-card-shade {
+  background: linear-gradient(90deg, #071f3df0 0%, #0a2c5ad9 42%, #0d4da21a 100%), linear-gradient(0deg, #06152f30, transparent 38%);
+}
+
+.laundry-card .destination-tag {
+  background: #0d4da2;
+  color: #fff;
+  border: 1px solid #f5b526;
+}
+
+.laundry-card .destination-content h2 em {
+  color: #f5b526;
+}
+
+.laundry-card .destination-button {
+  background: linear-gradient(90deg, #5fb0ff, #1b6fe7);
+  color: #fff;
+}
+
+.destination-grid {
+  max-width: 1320px;
+  gap: 16px;
+}
+
+.destination-card {
+  min-height: 210px;
+  border-radius: 14px;
+}
+
+.destination-content {
+  padding: 16px 19px;
+}
+
+.destination-content p {
+  margin: 7px 0 9px;
+  font-size: 12px;
+}
+
+.trust-strip {
+  margin-top: 14px;
+}
+
+.service-grid {
+  gap: 14px;
+}
+
+.service-card h3,
+.benefit-card h3,
+.step-card h3,
+.faq-card h3 {
+  margin-top: 12px;
+  font-size: 1.15rem;
+}
+
+.benefit-card,
+.step-card,
+.faq-card,
+.about-story-grid article {
+  padding: 17px;
+  border-radius: 12px;
+}
+
+.laundry-privacy-note {
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid rgba(13, 77, 162, .16);
+  border-radius: 12px;
+  background: #edf5ff;
+}
+
+.laundry-privacy-note strong {
+  color: #102b53;
+}
+
+.laundry-privacy-note p {
+  margin: 6px 0 10px;
+  color: #465474;
+  line-height: 1.55;
+}
+
+.laundry-privacy-note a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #0d4da2;
+  font-weight: 800;
+}
+
+@media (min-width: 1400px) {
+  .destination-card { min-height: 225px; }
+  .destination-content { padding: 18px 21px; }
+}
+
+@media (max-width: 720px) {
+  .laundry-header-inner { position: relative; z-index: 46; }
+
+  .laundry-nav {
+    display: none;
+    position: fixed;
+    inset: 0 0 0 auto;
+    z-index: 50;
+    width: min(86vw, 340px);
+    height: 100dvh;
+    max-height: none;
+    overflow: auto;
+    padding: 14px 18px 24px;
+    background: linear-gradient(180deg, #071f3d 0%, #0a2c5a 65%, #0d4da2 150%);
+    box-shadow: -16px 0 40px rgba(6, 24, 41, .3);
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .laundry-nav.is-open {
+    display: flex;
+  }
+
+  .laundry-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 49;
+    border: 0;
+    background: rgba(3, 13, 30, .58);
+  }
+
+  .laundry-nav-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 48px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, .16);
+    color: #f5b526;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: .12em;
+  }
+
+  .laundry-nav-heading button {
+    display: grid;
+    width: 40px;
+    height: 40px;
+    place-items: center;
+    border: 1px solid rgba(255, 255, 255, .2);
+    border-radius: 10px;
+    background: transparent;
+    color: #fff;
+  }
+
+  .destination-card { min-height: 180px; }
+  .destination-content { padding: 14px 16px; }
+}
+

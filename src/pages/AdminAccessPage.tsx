@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { BarChart3, Boxes, CircleDollarSign, Crown, LogIn, Megaphone, MonitorCog, ShoppingCart, ShieldCheck, Store } from 'lucide-react'
+import { BarChart3, Boxes, CircleDollarSign, Crown, LogIn, Megaphone, MonitorCog, Shirt, ShoppingCart, ShieldCheck, Store } from 'lucide-react'
 import '../admin-access.css'
 
 const marketHubOrigin = (import.meta.env.VITE_MARKETHUB_ORIGIN || (import.meta.env.DEV ? 'http://127.0.0.1:5173' : '')).replace(/\/+$/, '')
@@ -15,6 +15,7 @@ const portals = [
   { title: 'Marketing Admin', detail: 'Campaigns and marketing activities', bullets: ['Campaign management', 'Customer notifications', 'Marketing analytics'], href: '/marketing-admin/login', icon: Megaphone, tone: 'pink' },
   { title: 'Content Admin', detail: 'Products and content operations', bullets: ['Catalogue content', 'Categories and taxonomy', 'Homepage content'], href: '/content-admin/login', icon: BarChart3, tone: 'indigo' },
   { title: 'Second-Hand Admin', detail: 'MarketHub marketplace operations', bullets: ['Listing moderation', 'Seller support', 'Marketplace payments'], href: marketHubAdminHref, icon: Store, tone: 'green' },
+  { title: 'Laundry Admin', detail: 'Laundry bookings and pickup operations', bullets: ['Pickup request management', 'Booking status updates', 'Laundry page information'], href: null, icon: Shirt, tone: 'blue' },
 ] as const
 
 async function request<T>(path: string, body: Record<string, unknown>) {
@@ -30,7 +31,7 @@ function AccessCard({ portal }: { portal: typeof portals[number] }) {
     ? portal.href.startsWith('http')
       ? <a className="access-card-button" href={portal.href}><LogIn size={16} /> Login</a>
       : <Link className="access-card-button" to={portal.href}><LogIn size={16} /> Login</Link>
-    : <span className="access-card-button" aria-disabled="true">MarketHub URL not configured</span>
+    : <span className="access-card-button" aria-disabled="true">{portal.title === 'Second-Hand Admin' ? 'MarketHub URL not configured' : 'Secure access not available yet'}</span>
   return <article className={`access-card tone-${portal.tone}`}><div className="access-card-heading"><span className="access-card-icon"><Icon size={25} /></span><div><h2>{portal.title}</h2><p>{portal.detail}</p></div></div><ul>{portal.bullets.map((bullet) => <li key={bullet}><ShieldCheck size={14} />{bullet}</li>)}</ul>{login}</article>
 }
 

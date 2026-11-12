@@ -270,6 +270,18 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
     window.scrollTo(0, 0)
   }, [page])
 
+  useEffect(() => {
+    if (!menuOpen) return
+    const previousOverflow = document.body.style.overflow
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setMenuOpen(false) }
+    document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [menuOpen])
+
   const serviceCards = [
     { title: 'Wash & Fold', description: 'Fresh everyday laundry with careful washing, drying and neatly folded finishing.', icon: Shirt, image: '/images/laundry-ironing.jpg' },
     { title: 'Dry Cleaning', description: 'Professional garment care for delicate clothing, uniforms and special pieces.', icon: Sparkles, image: '/images/laundry-dry-cleaning.jpg' },
@@ -392,7 +404,9 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
         <button className="laundry-menu-toggle" type="button" aria-expanded={menuOpen} aria-controls="laundry-navigation" onClick={() => setMenuOpen((open) => !open)}>
           {menuOpen ? <X size={18} /> : <LayoutGrid size={18} />}<span>{menuOpen ? 'Close menu' : 'Menu'}</span>
         </button>
+        {menuOpen && <button className="laundry-menu-backdrop" type="button" aria-label="Close laundry navigation" onClick={() => setMenuOpen(false)} />}
         <nav id="laundry-navigation" className={`laundry-nav${menuOpen ? ' is-open' : ''}`} aria-label="Laundry navigation">
+          <div className="laundry-nav-heading"><span>LAUNDRY MENU</span><button type="button" aria-label="Close menu" onClick={() => setMenuOpen(false)}><X size={20} /></button></div>
           {laundryNavigation.map((item) => <Link key={item.path} className={`laundry-nav-link${page === item.page ? ' is-active' : ''}`} to={item.path} aria-current={page === item.page ? 'page' : undefined} onClick={() => setMenuOpen(false)}>{item.label}</Link>)}
           <Link className="laundry-nav-extra" to="/laundry/how-it-works" onClick={() => setMenuOpen(false)}>How it works</Link>
           <Link className="laundry-nav-extra" to="/laundry/faqs" onClick={() => setMenuOpen(false)}>FAQs</Link>
@@ -704,8 +718,9 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
           <ul>
             <li>Reliable weekly or on-demand pickup</li>
             <li>Flexible scheduling for busy routines</li>
-            <li>Friendly support and clear communication</li>
+            <li>We use your contact details to coordinate pickup and answer booking questions.</li>
           </ul>
+          <div className="laundry-privacy-note"><strong>Privacy for pickup requests</strong><p>Requests are currently saved in this browser on this device, not sent to a shared laundry system. Avoid adding sensitive information to your instructions.</p><Link to="/privacy">Read the Privacy Statement <ArrowRight size={14} /></Link></div>
         </div>
       </section>}
 
@@ -742,6 +757,7 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
           <Link to="/laundry">Home</Link>
           <Link to="/laundry/how-it-works">How it works</Link>
           <Link to="/laundry/faqs">FAQs</Link>
+          <Link to="/privacy">Privacy statement</Link>
           <Link to="/marketplace#products">Browse listings</Link>
         </div>
         <div>
@@ -1373,6 +1389,8 @@ function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
         <p>This statement explains what information MarketHub Kenya collects when you browse, create an account, publish or respond to a listing, make a payment, or contact us.</p>
         <h2>Information you provide</h2>
         <p>Depending on how you use MarketHub, this may include your name, email address, phone or WhatsApp number, general location, account details, listing descriptions and images, messages or reports you submit, and information needed to verify or support a payment.</p>
+        <h2>Laundry pickup requests</h2>
+        <p>Until a shared laundry booking service is available, a pickup request created on this site is stored in this browser on this device. It is not sent to a central laundry database and will not be available on another device. Browser data can be removed by clearing this site's storage. Do not include sensitive information in pickup instructions.</p>
         <h2>Information shown to other users</h2>
         <p>Published listings can show the item details, images, price, and general location supplied by the seller. Seller contact details are provided only through the contact feature when its stated requirements have been met. Do not include private or sensitive information in a public listing.</p>
         <h2>How information is used</h2>
