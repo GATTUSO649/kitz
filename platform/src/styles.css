@@ -89,15 +89,15 @@ button, input { font: inherit; }
 .footer-meta small { margin-left: 12px; color: #a8b8ce; }
 
 .marketplace-shell { min-height: 100vh; color: #10271e; background: #f5f8f6; }
-.marketplace-header { height: 62px; display: flex; align-items: center; gap: 28px; justify-content: space-between; padding: 0 clamp(18px, 4vw, 64px); background: #fff; box-shadow: 0 2px 10px #0f292414; position: sticky; top: 0; z-index: 20; }
+.marketplace-header { height: 62px; display: flex; align-items: center; gap: 28px; justify-content: space-between; padding: 0 clamp(18px, 4vw, 64px); background: linear-gradient(100deg, #071f3d, #0a2c5a 52%, #071f3d); box-shadow: 0 5px 18px rgba(7, 22, 49, 0.18); position: sticky; top: 0; z-index: 20; }
 .market-brand img { display: block; width: 166px; max-height: 48px; object-fit: contain; }
 .marketplace-header nav { display: flex; align-items: center; gap: clamp(14px, 2.2vw, 32px); height: 100%; font-size: 11px; font-weight: 700; }
-.marketplace-header nav a { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
-.marketplace-header nav .market-home { padding: 8px 13px; border-radius: 24px; color: white; background: #079842; }
-.marketplace-header nav a[aria-current="page"]:not(.market-home) { color: #078e3b; }
+.marketplace-header nav a { display: flex; align-items: center; gap: 5px; white-space: nowrap; color: #edf5ff; }
+.marketplace-header nav .market-home { padding: 8px 13px; border-radius: 24px; color: #f4f8ff; background: rgba(255, 255, 255, 0.08); }
+.marketplace-header nav a[aria-current="page"]:not(.market-home) { color: #ffc857; }
 .market-actions { display: flex; align-items: center; gap: 9px; }
-.sell-link { padding: 8px 13px; border-radius: 22px; color: white; background: #079842; font-size: 12px; font-weight: 700; }
-.market-login { padding: 7px 12px; border: 1px solid #d5ddd8; border-radius: 22px; font-size: 12px; font-weight: 700; }
+.sell-link { padding: 8px 16px; border: 1.5px solid #f5b526; border-radius: 999px; color: #f8fbff; background: transparent; font-size: 12px; font-weight: 700; box-shadow: 0 0 0 1px rgba(245, 181, 38, 0.2); }
+.market-login { padding: 7px 12px; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 22px; color: #edf5ff; background: rgba(255, 255, 255, 0.04); font-size: 12px; font-weight: 700; }
 .market-hero { position: relative; min-height: 270px; overflow: hidden; color: white; background: #00452b; }
 .market-hero-photo { position: absolute; inset: 0 0 0 37%; background: linear-gradient(90deg, #003920 0%, #00452212 45%), var(--site-image-platform-marketplace-card, url('/images/second%20hand.png')) center 56% / cover; clip-path: ellipse(78% 145% at 75% 50%); }
 .market-hero::after { content: ''; position: absolute; width: 50%; height: 70px; right: -7%; bottom: -42px; border-radius: 50%; background: #7edb13; transform: rotate(-5deg); }
@@ -189,9 +189,15 @@ button, input { font: inherit; }
 .market-trust svg { grid-row: span 2; color: white; width: 24px; height: 24px; }
 .market-trust b { font-size: 10px; }
 .market-trust small { font-size: 9px; }
-.market-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 3%; color: #53675c; font-size: 10px; }
+.market-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 3%; color: #edf5ff; font-size: 10px; background: linear-gradient(100deg, #071f3d, #0a2d5d 52%, #071f3d); border-top: 7px solid #f5b526; }
 .market-footer-brand img { display: block; width: 128px; max-height: 38px; object-fit: contain; }
 .market-footer span { display: flex; gap: 18px; }
+.market-footer a, .market-footer small { color: #edf5ff; }
+.market-footer-links a { display: inline-flex; align-items: center; gap: 5px; color: #edf5ff; }
+.market-footer-social a { width: 25px; height: 25px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: rgba(255, 255, 255, 0.12); }
+.market-footer-social a:nth-child(2) { background: rgba(255, 255, 255, 0.12); }
+.market-footer-social a:nth-child(3) { background: rgba(255, 255, 255, 0.12); }
+.market-footer-social a:nth-child(4) { background: rgba(255, 255, 255, 0.12); }
 .category-select-section { margin: 10px 2.4% 0; padding: 10px 13px; display: flex; align-items: center; gap: 10px; border: 1px solid #e1e9e3; border-radius: 7px; background: #fff; }
 .category-select-section label { color: #345744; font-size: 11px; font-weight: 800; }
 .category-select-section select { width: min(360px, 100%); min-height: 36px; padding: 0 10px; border: 1px solid #cddbd1; border-radius: 5px; color: #183527; background: white; font: 11px 'DM Sans', sans-serif; }
