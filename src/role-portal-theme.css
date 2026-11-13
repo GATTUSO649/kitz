@@ -940,52 +940,52 @@
   box-shadow: 8px 0 24px rgba(7, 27, 62, 0.12);
 }
 
-.role-portal-login.laundry-admin-login {
+.role-portal-login.deep-navy-admin-login {
   background: #f3f7fa;
 }
 
-.laundry-admin-login .role-portal-login-card {
+.deep-navy-admin-login .role-portal-login-card {
   border-color: #1d416b;
   border-radius: 12px;
   background: #071b3e;
   box-shadow: 0 24px 64px rgba(7, 27, 62, 0.24);
 }
 
-.laundry-admin-login .role-portal-login-brand,
-.laundry-admin-login .role-portal-login-card h1 {
+.deep-navy-admin-login .role-portal-login-brand,
+.deep-navy-admin-login .role-portal-login-card h1 {
   color: #f5f8fc;
 }
 
-.laundry-admin-login .role-portal-login-card > p,
-.laundry-admin-login .role-portal-login-card label {
+.deep-navy-admin-login .role-portal-login-card > p,
+.deep-navy-admin-login .role-portal-login-card label {
   color: #c3d2e3;
 }
 
-.laundry-admin-login .role-portal-login-card input {
+.deep-navy-admin-login .role-portal-login-card input {
   border-color: #315174;
   background: #102b4b;
   color: #f5f8fc;
 }
 
-.laundry-admin-login .role-portal-login-card input:focus {
+.deep-navy-admin-login .role-portal-login-card input:focus {
   border-color: #83b9ef;
   outline-color: rgba(131, 185, 239, 0.2);
 }
 
-.laundry-admin-login .role-portal-login-link {
+.deep-navy-admin-login .role-portal-login-link {
   color: #a9d2fa;
 }
 
-.laundry-admin-login .role-portal-login-card .admin-kicker {
+.deep-navy-admin-login .role-portal-login-card .admin-kicker {
   color: #18845d;
 }
 
-.laundry-admin-login .role-portal-button {
+.deep-navy-admin-login .role-portal-button {
   border-radius: 8px;
   background: #145da0;
 }
 
-.laundry-admin-login .role-portal-button:hover {
+.deep-navy-admin-login .role-portal-button:hover {
   background: #0f4e87;
 }
 

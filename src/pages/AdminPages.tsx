@@ -246,8 +246,8 @@ function AdminDashboardCharts({ data, showFinance }: { data: AdminRecord; showFi
   </section>
 }
 
-function AdminAuthLayout({ children }: { children: ReactNode }) {
-  return <main className="role-portal-login">{children}</main>
+function AdminAuthLayout({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <main className={`role-portal-login ${className}`}>{children}</main>
 }
 
 export function AdminLoginPage() {
@@ -276,7 +276,7 @@ export function AdminLoginPage() {
       setBusy(false)
     }
   }
-  return <AdminAuthLayout><form className="role-portal-login-card" onSubmit={(event) => void submit(event)}>
+  return <AdminAuthLayout className="deep-navy-admin-login"><form className="role-portal-login-card" onSubmit={(event) => void submit(event)}>
     <Link to="/" className="role-portal-login-brand" aria-label="MATRIX home"><img src="/matrix-logo.png" alt="MATRIX" /></Link><span className="admin-kicker">RESTRICTED ADMIN ACCESS</span><h1>Administrator sign in</h1>
     <p>Sign in with your email address or assigned role number and password.</p>
     {new URLSearchParams(location.search).get('verified') === '1' && <p className="admin-success" role="status">Administrator email verified. You can sign in now.</p>}
