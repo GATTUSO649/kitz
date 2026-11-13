@@ -41,6 +41,26 @@ async function roleApi<T>(path: string, init?: RequestInit): Promise<T> {
   return payload.data as T
 }
 
+type LaundryPageResponse<T> = { data: T; pagination: { page: number; limit: number; total: number } }
+
+async function roleApiPage<T>(path: string): Promise<LaundryPageResponse<T>> {
+  const response = await fetch(path, { credentials: 'include' })
+  if (response.status === 401) window.dispatchEvent(new Event('kitculture:admin-session-expired'))
+  const payload = await response.json().catch(() => ({})) as {
+    data?: T
+    pagination?: LaundryPageResponse<T>['pagination']
+    error?: { message?: string }
+  }
+  if (!response.ok) throw new Error(payload.error?.message ?? 'The laundry records are unavailable.')
+  if (!Array.isArray(payload.data) || !payload.pagination
+    || !Number.isFinite(payload.pagination.page)
+    || !Number.isFinite(payload.pagination.limit)
+    || !Number.isFinite(payload.pagination.total)) {
+    throw new Error('The laundry records response is incomplete. Refresh the page and try again.')
+  }
+  return payload as LaundryPageResponse<T>
+}
+
 export function RolePortalLoginPage() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -764,7 +784,7 @@ function LaundryOperationsPanel({ mode }: { mode: 'pickups' | 'processing' | 'de
 
   const queue = useQuery({
     queryKey: ['laundry-queue', mode, params.toString()],
-    queryFn: () => roleApi<{ data: LaundryAdminBooking[]; pagination: { page: number; limit: number; total: number } }>(`/api/v1/admin/laundry/${mode}?${params}`),
+    queryFn: () => roleApiPage<LaundryAdminBooking[]>(`/api/v1/admin/laundry/${mode}?${params}`),
     retry: false,
   })
 
@@ -790,7 +810,7 @@ function LaundryCustomersPanel() {
 
   const customers = useQuery({
     queryKey: ['laundry-customers', params.toString()],
-    queryFn: () => roleApi<{ data: LaundryCustomer[]; pagination: { page: number; limit: number; total: number } }>(`/api/v1/admin/laundry/customers?${params}`),
+    queryFn: () => roleApiPage<LaundryCustomer[]>(`/api/v1/admin/laundry/customers?${params}`),
     retry: false,
   })
 
@@ -848,7 +868,7 @@ function LaundryAdminUnavailableWorkspace() {
   if (from) dashboardParams.set('from', from)
   if (to) dashboardParams.set('to', to)
   const dashboard = useQuery({ queryKey: ['laundry-dashboard', from, to], queryFn: () => roleApi<LaundryDashboardData>(`/api/v1/admin/laundry/dashboard${dashboardParams.size ? `?${dashboardParams}` : ''}`), enabled: activeLabel === 'Dashboard', retry: false })
-  const bookings = useQuery({ queryKey: ['laundry-bookings', params.toString()], queryFn: () => roleApi<{ data: LaundryAdminBooking[]; pagination: { page: number; limit: number; total: number } }>(`/api/v1/admin/laundry/bookings?${params}`), enabled: activeLabel === 'Bookings' || activeLabel === 'Payments' || activeLabel === 'Dashboard', retry: false })
+  const bookings = useQuery({ queryKey: ['laundry-bookings', params.toString()], queryFn: () => roleApiPage<LaundryAdminBooking[]>(`/api/v1/admin/laundry/bookings?${params}`), enabled: activeLabel === 'Bookings' || activeLabel === 'Payments' || activeLabel === 'Dashboard', retry: false })
   const detail = useQuery({ queryKey: ['laundry-booking', bookingDetail?.[1]], queryFn: () => roleApi<LaundryBookingDetails>(`/api/v1/admin/laundry/bookings/${bookingDetail?.[1]}`), enabled: Boolean(bookingDetail), retry: false })
   const locations = useQuery({ queryKey: ['laundry-locations'], queryFn: () => roleApi<LaundryLocation[]>('/api/v1/admin/laundry/locations'), enabled: activeLabel === 'Pickup Locations', retry: false })
   const [locationText, setLocationText] = useState<string | null>(null)
@@ -955,7 +975,7 @@ function LaundryAdminUnavailableWorkspace() {
     {bookings.isError ? <div className="admin-empty admin-error">Payments unavailable: {bookings.error.message}</div> : <LaundryBookingTable rows={listRows} onOpen={(id) => navigate(`/laundry-admin/bookings/${id}`)} showPayments />}
   </section> : <section className="finance-panel"><header><div><span className="admin-kicker">ADMIN-MANAGED BOOKING AREAS</span><h2>Pickup Locations</h2></div><MapPin size={19} /></header>{locations.isError && <p className="marketing-error" role="alert">Locations unavailable: {locations.error.message}</p>}<form className="laundry-admin-form laundry-location-form" onSubmit={(event) => void saveLocations(event)}><label>Active locations, one per line<textarea rows={8} value={locationText ?? (locations.data ?? []).filter((item) => item.active).map((item) => item.name).join('\n')} onChange={(event) => setLocationText(event.target.value)} /></label><button className="role-portal-button" type="submit">Save pickup locations</button></form></section>
 
-  return <main className="admin-it-page super-admin-page role-portal-shell">
+  return <main className="admin-it-page super-admin-page role-portal-shell laundry-admin-shell">
     <aside className="super-admin-sidebar role-portal-sidebar"><Link to="/" className="admin-brand" aria-label="MATRIX home"><img src="/matrix-logo.png" alt="MATRIX" /></Link><strong>Laundry Admin</strong><nav>{laundryNavigation.map((item) => <Link key={item.path} to={item.path} className={activePath === item.path ? 'active' : ''}>{item.label}</Link>)}</nav><button type="button" className="admin-it-button role-portal-signout" onClick={() => void signOutRolePortal(navigate, 'laundry-admin')}>Sign out</button></aside>
     <section className="super-admin-main role-portal-main laundry-portal-main"><header><div><span className="admin-kicker">MATRIX LAUNDRY OPERATIONS</span><h1>{bookingDetail ? 'Booking details' : activeLabel}</h1><p>Live records from the Laundry operations database.</p></div><Shirt size={24} /></header>{error && <p className="marketing-error" role="alert">{error}</p>}{notice && <p className="marketing-notice" role="status">{notice}</p>}{panel}</section>
   </main>

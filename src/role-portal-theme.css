@@ -916,3 +916,428 @@
     grid-template-columns: minmax(70px, 1fr) minmax(60px, 2fr) 28px;
   }
 }
+
+.laundry-admin-shell {
+  --laundry-ink: #172a3d;
+  --laundry-muted: #61758a;
+  --laundry-line: #dce6ef;
+  --laundry-blue: #145da0;
+  --laundry-blue-light: #edf5fd;
+  --laundry-green: #18845d;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 0;
+  min-height: 100vh;
+  background: #f3f7fa;
+  color: var(--laundry-ink);
+}
+
+.laundry-admin-shell .role-portal-sidebar {
+  z-index: 2;
+  gap: 16px;
+  border-right: 1px solid var(--laundry-line);
+  background: #fff;
+  padding: 22px 16px 16px;
+  box-shadow: 8px 0 24px rgba(28, 54, 75, 0.035);
+}
+
+.laundry-admin-shell .role-portal-sidebar .admin-brand {
+  min-height: 54px;
+  padding: 0 8px 10px;
+}
+
+.laundry-admin-shell .role-portal-sidebar > strong {
+  margin: 0;
+  padding: 13px 10px 4px;
+  border-top: 1px solid #e8eef3;
+  color: #60758a;
+  font-size: 10px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.laundry-admin-shell .role-portal-sidebar nav {
+  gap: 5px;
+}
+
+.laundry-admin-shell .role-portal-sidebar nav a {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  padding: 0 12px;
+  color: #3e566c;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+}
+
+.laundry-admin-shell .role-portal-sidebar nav a:hover {
+  border-color: #e1ebf3;
+  background: #f7fafc;
+  color: var(--laundry-blue);
+}
+
+.laundry-admin-shell .role-portal-sidebar nav a.active {
+  border-color: #d5e6f5;
+  background: var(--laundry-blue-light);
+  color: var(--laundry-blue);
+  font-weight: 700;
+}
+
+.laundry-admin-shell .role-portal-signout {
+  min-height: 40px;
+  border: 1px solid #dce6ef;
+  border-radius: 9px;
+  background: #fff;
+  color: #40586e;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.laundry-admin-shell .role-portal-signout:hover {
+  border-color: #c8d8e6;
+  background: #f7fafc;
+}
+
+.laundry-admin-shell .laundry-portal-main {
+  min-width: 0;
+  padding: 30px clamp(18px, 3.2vw, 46px) 48px;
+  background: #f3f7fa;
+}
+
+.laundry-admin-shell .laundry-portal-main > header {
+  min-height: 92px;
+  align-items: center;
+  margin-bottom: 22px;
+  padding: 0 0 18px;
+  border: 0;
+  border-bottom: 1px solid #dce6ef;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.laundry-admin-shell .laundry-portal-main > header .admin-kicker {
+  color: var(--laundry-green);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.laundry-admin-shell .laundry-portal-main > header h1 {
+  margin-top: 7px;
+  color: var(--laundry-ink);
+  font-size: 27px;
+  font-weight: 650;
+}
+
+.laundry-admin-shell .laundry-portal-main > header p {
+  margin: 5px 0 0;
+  color: var(--laundry-muted);
+  font-size: 12px;
+}
+
+.laundry-admin-shell .finance-panel {
+  margin-bottom: 16px;
+  border: 1px solid var(--laundry-line);
+  border-radius: 10px;
+  background: #fff;
+  padding: 18px;
+  box-shadow: 0 4px 14px rgba(27, 55, 78, 0.035);
+}
+
+.laundry-admin-shell .finance-panel > header {
+  margin-bottom: 16px;
+  color: var(--laundry-blue);
+}
+
+.laundry-admin-shell .finance-panel > header .admin-kicker {
+  color: var(--laundry-green);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.laundry-admin-shell .finance-panel > header h2 {
+  margin-top: 5px;
+  color: var(--laundry-ink);
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.laundry-admin-shell .laundry-kpi-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.laundry-admin-shell .laundry-kpi-grid article {
+  min-height: 82px;
+  align-content: space-between;
+  border: 1px solid #e2eaf1;
+  border-radius: 8px;
+  background: #fbfdff;
+  padding: 12px;
+  box-shadow: none;
+}
+
+.laundry-admin-shell .laundry-kpi-grid article span {
+  color: #6a7f93;
+  font-size: 9px;
+  letter-spacing: 0;
+}
+
+.laundry-admin-shell .laundry-kpi-grid article strong {
+  color: var(--laundry-ink);
+  font-size: 19px;
+}
+
+.laundry-admin-shell .laundry-date-filter,
+.laundry-admin-shell .laundry-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 11px;
+  margin: 0 0 15px;
+}
+
+.laundry-admin-shell .laundry-date-filter label,
+.laundry-admin-shell .laundry-filter-row label,
+.laundry-admin-shell .laundry-admin-form label {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  color: #536b81;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.laundry-admin-shell .laundry-date-filter input,
+.laundry-admin-shell .laundry-filter-row input,
+.laundry-admin-shell .laundry-filter-row select,
+.laundry-admin-shell .laundry-admin-form input,
+.laundry-admin-shell .laundry-admin-form select,
+.laundry-admin-shell .laundry-admin-form textarea {
+  min-width: 0;
+  min-height: 38px;
+  border: 1px solid #d7e2ec;
+  border-radius: 7px;
+  background: #fff;
+  padding: 0 10px;
+  color: var(--laundry-ink);
+  font: inherit;
+  font-size: 11px;
+}
+
+.laundry-admin-shell .laundry-date-filter input:focus,
+.laundry-admin-shell .laundry-filter-row :is(input, select):focus,
+.laundry-admin-shell .laundry-admin-form :is(input, select, textarea):focus {
+  border-color: #7eadd3;
+  outline: 2px solid rgba(20, 93, 160, 0.12);
+}
+
+.laundry-admin-shell .laundry-filter-row label:first-child {
+  flex: 1 1 240px;
+}
+
+.laundry-admin-shell .laundry-date-filter label {
+  flex: 0 1 210px;
+}
+
+.laundry-admin-shell .laundry-admin-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: 13px;
+}
+
+.laundry-admin-shell .laundry-admin-form textarea {
+  min-height: 110px;
+  padding: 10px;
+  resize: vertical;
+}
+
+.laundry-admin-shell .laundry-admin-form button,
+.laundry-admin-shell .laundry-export {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: var(--laundry-blue);
+  padding: 0 14px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.laundry-admin-shell .laundry-admin-form button:hover,
+.laundry-admin-shell .laundry-export:hover {
+  background: #0f4e87;
+}
+
+.laundry-admin-shell .laundry-admin-table {
+  min-width: 680px;
+  color: var(--laundry-ink);
+  font-size: 10px;
+}
+
+.laundry-admin-shell .laundry-admin-table th {
+  background: #f7fafc;
+  color: #60768a;
+  font-size: 9px;
+  font-weight: 750;
+}
+
+.laundry-admin-shell .laundry-admin-table :is(th, td) {
+  padding: 11px 10px;
+  border-bottom: 1px solid #e7edf2;
+}
+
+.laundry-admin-shell .laundry-admin-table tbody tr:hover {
+  background: #f8fbfd;
+}
+
+.laundry-admin-shell .laundry-table-link {
+  color: var(--laundry-blue);
+  font-weight: 700;
+}
+
+.laundry-admin-shell .admin-empty {
+  min-height: 110px;
+  border-color: #dce6ef;
+  background: #f9fbfd;
+  color: var(--laundry-muted);
+  font-size: 11px;
+}
+
+.laundry-admin-shell .admin-empty.admin-error,
+.laundry-admin-shell .marketing-error {
+  border: 1px solid #f1d2d0;
+  border-radius: 8px;
+  background: #fff8f7;
+  color: #a63f39;
+}
+
+.laundry-admin-shell .marketing-notice {
+  margin: 0 0 14px;
+  border: 1px solid #cde8dc;
+  border-radius: 8px;
+  background: #f4fbf7;
+  color: #237354;
+}
+
+.laundry-admin-shell .laundry-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  color: var(--laundry-muted);
+  font-size: 10px;
+}
+
+.laundry-admin-shell .laundry-pagination button,
+.laundry-admin-shell .admin-it-button {
+  min-height: 32px;
+  border: 1px solid #d7e2ec;
+  border-radius: 7px;
+  background: #fff;
+  padding: 0 11px;
+  color: #3e566c;
+  font-size: 10px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.laundry-admin-shell .laundry-pagination button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.laundry-admin-shell .laundry-detail-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.laundry-admin-shell .laundry-detail-grid > div {
+  border-color: #e2eaf1;
+  border-radius: 8px;
+  background: #fbfdff;
+}
+
+.laundry-admin-shell .laundry-record-list > article {
+  border-color: #e7edf2;
+}
+
+.laundry-admin-shell .laundry-payment-status {
+  border-radius: 999px;
+  background: #edf3f8;
+}
+
+@media (max-width: 900px) {
+  .laundry-admin-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .laundry-admin-shell .role-portal-sidebar {
+    position: relative;
+    height: auto;
+    min-height: 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--laundry-line);
+    box-shadow: 0 6px 18px rgba(28, 54, 75, 0.04);
+  }
+
+  .laundry-admin-shell .role-portal-sidebar nav {
+    flex-wrap: nowrap;
+  }
+
+  .laundry-admin-shell .role-portal-sidebar nav a {
+    min-width: max-content;
+    min-height: 36px;
+  }
+
+  .laundry-admin-shell .role-portal-signout {
+    width: max-content;
+  }
+}
+
+@media (max-width: 680px) {
+  .laundry-admin-shell .laundry-portal-main {
+    padding: 20px 14px 30px;
+  }
+
+  .laundry-admin-shell .laundry-portal-main > header {
+    min-height: 0;
+    align-items: flex-start;
+    flex-direction: row;
+  }
+
+  .laundry-admin-shell .laundry-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .laundry-admin-shell .laundry-admin-form,
+  .laundry-admin-shell .laundry-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .laundry-admin-shell .finance-panel {
+    padding: 14px;
+  }
+}
+
+@media (max-width: 420px) {
+  .laundry-admin-shell .laundry-kpi-grid,
+  .laundry-admin-shell .laundry-admin-form,
+  .laundry-admin-shell .laundry-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .laundry-admin-shell .laundry-portal-main > header h1 {
+    font-size: 23px;
+  }
+}
