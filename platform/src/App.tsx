@@ -62,6 +62,20 @@ type LaundryBooking = {
   status: 'new' | 'confirmed' | 'ready'
 }
 
+type PersistedLaundryBooking = {
+  id: number
+  reference: string
+  name: string
+  phone: string
+  location: string
+  locationLatitude?: number
+  locationLongitude?: number
+  createdAt: string
+  status: 'new' | 'confirmed' | 'pickup_scheduled' | 'collected' | 'washing' | 'drying' | 'ironing_folding' | 'ready_for_delivery' | 'out_for_delivery' | 'completed' | 'cancelled'
+}
+
+type LaundryLocation = { id: number; name: string }
+
 type MarketplaceCategory = { id: string; name: string; slug: string; subcategories?: { id: string; name: string; slug: string }[] }
 type MarketplaceCounty = { code: string; name: string }
 type FooterSocialLinks = { facebookUrl: string | null; xUrl: string | null; youtubeUrl: string | null; whatsappUrl: string | null; whatsappPhone: string | null; contactEmail: string | null; contactPhone: string | null }
@@ -204,12 +218,15 @@ const laundryNavigation: { label: string; path: string; page: LaundryRoutePage }
 function LaundryPage({ page }: { page: LaundryRoutePage }) {
   const [settings, setSettings] = useState<LaundryPageSettings>(() => readStoredValue(laundrySettingsStorageKey, defaultLaundrySettings))
   const [form, setForm] = useState({ name: '', phone: '', location: '', locationLatitude: null as number | null, locationLongitude: null as number | null })
+  const [bookingLocations, setBookingLocations] = useState<LaundryLocation[]>([])
+  const [locationsError, setLocationsError] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [notice, setNotice] = useState('')
-  const [bookingConfirmation, setBookingConfirmation] = useState<LaundryBooking | null>(null)
+  const [bookingError, setBookingError] = useState('')
+  const [bookingConfirmation, setBookingConfirmation] = useState<PersistedLaundryBooking | null>(null)
   const [trackingReference, setTrackingReference] = useState('')
   const [trackingPhone, setTrackingPhone] = useState('')
-  const [trackedBooking, setTrackedBooking] = useState<LaundryBooking | null>(null)
+  const [trackedBooking, setTrackedBooking] = useState<PersistedLaundryBooking | LaundryBooking | null>(null)
   const [trackingError, setTrackingError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -218,10 +235,23 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
   const whatsappUrl = whatsappNumber ? `https://wa.me/${whatsappNumber}` : null
   const supportPhone = siteContent.platformContactPhone || settings.phone
   const supportEmail = siteContent.platformContactEmail || settings.email
-  const bookingLocations = (settings.locations ?? [settings.locationLabel]).map((location) => location.trim()).filter(Boolean)
-
   useEffect(() => {
     setSettings(readStoredValue(laundrySettingsStorageKey, defaultLaundrySettings))
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch(new URL('/api/v1/laundry/locations', kitzOrigin), { signal: controller.signal, credentials: 'omit' })
+      .then(async (response) => {
+        const result = await response.json() as { data?: LaundryLocation[]; error?: { message?: string } }
+        if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Pickup locations are unavailable.')
+        setBookingLocations(result.data)
+        setLocationsError('')
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setLocationsError('Pickup locations could not be loaded. You can still pin your location.')
+      })
+    return () => controller.abort()
   }, [])
 
   useEffect(() => {
@@ -310,43 +340,53 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
       if (!/^254[17]\d{8}$/.test(normalized)) nextErrors.phone = 'Use a valid Kenyan mobile number, for example 0712 345 678.'
     }
     const hasPinnedLocation = Number.isFinite(form.locationLatitude) && Number.isFinite(form.locationLongitude)
-    if (!hasPinnedLocation && !bookingLocations.includes(form.location)) nextErrors.location = 'Choose an admin-listed location or pin your current location.'
+    if (!hasPinnedLocation && !bookingLocations.some((location) => location.name === form.location)) nextErrors.location = 'Choose an admin-listed location or pin your current location.'
     setErrors(nextErrors)
     return Object.keys(nextErrors).length === 0
   }
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setNotice('')
+    setBookingError('')
     setBookingConfirmation(null)
     if (!validateForm()) return
-
-    const bookings = readStoredValue<LaundryBooking[]>(laundryBookingsStorageKey, [])
-    const reference = `LAUN-${new Date().toISOString().slice(2, 10).replaceAll('-', '')}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`
-    const booking: LaundryBooking = {
-      id: reference,
-      name: form.name.trim(),
-      phone: form.phone.trim(),
-      location: form.locationLatitude !== null && form.locationLongitude !== null ? 'Pinned location' : form.location,
-      ...(form.locationLatitude !== null && form.locationLongitude !== null ? { locationLatitude: form.locationLatitude, locationLongitude: form.locationLongitude } : {}),
-      createdAt: new Date().toISOString(),
-      status: 'new',
-    }
-
     setSubmitting(true)
     try {
-      const next = [booking, ...bookings]
-      writeStoredValue(laundryBookingsStorageKey, next)
-      setBookingConfirmation(booking)
+      const selectedLocation = bookingLocations.find((location) => location.name === form.location)
+      const payload = {
+        name: form.name.trim(),
+        phone: form.phone.trim(),
+        ...(form.locationLatitude !== null && form.locationLongitude !== null
+          ? { locationLatitude: form.locationLatitude, locationLongitude: form.locationLongitude }
+          : { areaId: selectedLocation!.id }),
+      }
+      const response = await fetch(new URL('/api/v1/laundry/bookings', kitzOrigin), {
+        method: 'POST',
+        credentials: 'omit',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+        body: JSON.stringify(payload),
+      })
+      const result = await response.json() as { data?: Pick<PersistedLaundryBooking, 'id' | 'reference' | 'status' | 'createdAt'>; error?: { message?: string } }
+      if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Your pickup request could not be saved.')
+      setBookingConfirmation({
+        ...result.data,
+        name: form.name.trim(),
+        phone: form.phone.trim(),
+        location: form.locationLatitude !== null ? 'Pinned location' : form.location,
+        ...(form.locationLatitude !== null && form.locationLongitude !== null ? { locationLatitude: form.locationLatitude, locationLongitude: form.locationLongitude } : {}),
+      })
       setNotice('Your pickup request has been received. Our team will contact you shortly to confirm the collection time.')
       setForm({ name: '', phone: '', location: '', locationLatitude: null, locationLongitude: null })
       setErrors({})
+    } catch (issue) {
+      setBookingError(issue instanceof Error ? issue.message : 'Your pickup request could not be saved.')
     } finally {
       setSubmitting(false)
     }
   }
 
-  const trackLaundryBooking = (event: FormEvent<HTMLFormElement>) => {
+  const trackLaundryBooking = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setTrackedBooking(null)
     setTrackingError('')
@@ -355,17 +395,29 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
       setTrackingError('Enter the booking reference and the Kenyan mobile number used to book.')
       return
     }
-    const match = readStoredValue<LaundryBooking[]>(laundryBookingsStorageKey, []).find((booking) =>
-      booking.id.toLowerCase() === trackingReference.trim().toLowerCase()
-      && normalizeWhatsAppNumber(booking.phone) === normalizedPhone)
-    if (!match) {
-      setTrackingError('No matching booking was found in this browser. Check the details or contact support.')
-      return
+    try {
+      const response = await fetch(new URL('/api/v1/laundry/track', kitzOrigin), {
+        method: 'POST',
+        credentials: 'omit',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reference: trackingReference.trim(), phone: trackingPhone.trim() }),
+      })
+      const result = await response.json() as { data?: PersistedLaundryBooking; error?: { message?: string } }
+      if (response.ok && result.data) {
+        setTrackedBooking(result.data)
+        return
+      }
+      if (response.status !== 404) throw new Error(result.error?.message ?? 'Booking tracking is unavailable.')
+    } catch {
+      // Fall through to locally stored references created before database booking was connected.
     }
-    setTrackedBooking(match)
+    const legacy = readStoredValue<LaundryBooking[]>(laundryBookingsStorageKey, []).find((booking) => booking.id.toLowerCase() === trackingReference.trim().toLowerCase() && normalizeWhatsAppNumber(booking.phone) === normalizedPhone)
+    if (!legacy) return setTrackingError('No matching booking was found. Check the details or contact support.')
+    setTrackedBooking(legacy)
   }
 
-  const statusLabel = (status: LaundryBooking['status']) => ({ new: 'Pickup requested', confirmed: 'Pickup scheduled', ready: 'Ready for delivery' })[status]
+  const statusLabel = (status: LaundryBooking['status'] | PersistedLaundryBooking['status']) => ({ new: 'Pickup requested', confirmed: 'Confirmed', pickup_scheduled: 'Pickup scheduled', collected: 'Collected', washing: 'Washing', drying: 'Drying', ironing_folding: 'Ironing and folding', ready: 'Ready for delivery', ready_for_delivery: 'Ready for delivery', out_for_delivery: 'Out for delivery', completed: 'Completed', cancelled: 'Cancelled' })[status]
+  const laundryTimeline = ['new', 'confirmed', 'pickup_scheduled', 'collected', 'washing', 'drying', 'ironing_folding', 'ready_for_delivery', 'out_for_delivery', 'completed'] as const
 
   const mapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(settings.locationQuery)}`
 
@@ -517,8 +569,9 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
               <label htmlFor="laundry-location">Pickup location</label>
               <select id="laundry-location" value={form.locationLatitude !== null ? '' : form.location} onChange={(event) => setForm({ ...form, location: event.target.value, locationLatitude: null, locationLongitude: null })} aria-invalid={Boolean(errors.location)}>
                 <option value="">Choose an admin-listed location</option>
-                {bookingLocations.map((location) => <option key={location} value={location}>{location}</option>)}
+                {bookingLocations.map((location) => <option key={location.id} value={location.name}>{location.name}</option>)}
               </select>
+              {locationsError && <small>{locationsError}</small>}
               <button type="button" className="secondary-action" onClick={() => {
                 if (!navigator.geolocation) {
                   setErrors({ ...errors, location: 'Location pinning is not supported by this browser.' })
@@ -543,17 +596,18 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
               {submitting ? <><LoaderCircle size={16} className="spinner" /> Sending request...</> : 'Request Laundry Pickup'}
             </button>
           </div>
+          {bookingError && <p className="field-error" role="alert">{bookingError}</p>}
 
           {notice && bookingConfirmation && <div className="booking-message booking-confirmation" role="status" aria-live="polite">
             <span className="status-pill confirmation-status">{statusLabel(bookingConfirmation.status)}</span>
-            <strong>Booking {bookingConfirmation.id}</strong>
+            <strong>Booking {bookingConfirmation.reference}</strong>
             <span>{notice}</span>
             <dl>
               <div><dt>Customer</dt><dd>{bookingConfirmation.name}</dd></div>
               <div><dt>Pickup location</dt><dd>{bookingConfirmation.location}</dd></div>
             </dl>
-            {whatsappUrl && <a className="booking-support-link" href={`${whatsappUrl}?text=${encodeURIComponent(`Hello MATRIX Laundry, I need help with booking ${bookingConfirmation.id}.`)}`} target="_blank" rel="noreferrer"><FaWhatsapp size={16} /> Contact support</a>}
-            <small>Keep this reference. This request is currently stored in this browser; it has not been sent by email or SMS.</small>
+            {whatsappUrl && <a className="booking-support-link" href={`${whatsappUrl}?text=${encodeURIComponent(`Hello MATRIX Laundry, I need help with booking ${bookingConfirmation.reference}.`)}`} target="_blank" rel="noreferrer"><FaWhatsapp size={16} /> Contact support</a>}
+            <small>Keep this reference. Your booking is saved in the laundry system; email and SMS confirmations are not configured.</small>
           </div>}
         </form>
       </section>}
@@ -568,17 +622,17 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
             <div className="field-group"><label htmlFor="tracking-reference">Booking reference</label><input id="tracking-reference" value={trackingReference} onChange={(event) => setTrackingReference(event.target.value)} placeholder="LAUN-..." autoComplete="off" /></div>
             <div className="field-group"><label htmlFor="tracking-phone">Booking phone number</label><input id="tracking-phone" type="tel" inputMode="tel" value={trackingPhone} onChange={(event) => setTrackingPhone(event.target.value)} placeholder="0712 345 678" /></div>
             <button type="submit" className="booking-button">Check status</button>
-            <small>Tracking is available only in the browser where the request was made until online laundry booking storage is connected.</small>
+            <small>Use the booking reference and phone number provided when the request was saved.</small>
             {trackingError && <p className="field-error" role="alert">{trackingError}</p>}
           </form>
           {trackedBooking && <article className="tracking-result" aria-live="polite">
             <span className="status-pill tracking-status">{statusLabel(trackedBooking.status)}</span>
-            <h3>{trackedBooking.id}</h3>
+            <h3>{'reference' in trackedBooking ? trackedBooking.reference : trackedBooking.id}</h3>
             <p>Pickup location: {trackedBooking.location}</p>
             <ol className="status-timeline">
-              {(['new', 'confirmed', 'ready'] as const).map((status) => <li className={(['new', 'confirmed', 'ready'].indexOf(trackedBooking.status) >= ['new', 'confirmed', 'ready'].indexOf(status)) ? 'is-complete' : ''} key={status}><span />{statusLabel(status)}</li>)}
+              {laundryTimeline.map((status) => <li className={laundryTimeline.indexOf(trackedBooking.status === 'ready' ? 'ready_for_delivery' : trackedBooking.status as typeof laundryTimeline[number]) >= laundryTimeline.indexOf(status) ? 'is-complete' : ''} key={status}><span />{statusLabel(status)}</li>)}
             </ol>
-            {whatsappUrl && <a className="booking-support-link" href={`${whatsappUrl}?text=${encodeURIComponent(`Hello MATRIX Laundry, I need an update on booking ${trackedBooking.id}.`)}`} target="_blank" rel="noreferrer"><FaWhatsapp size={16} /> Contact support</a>}
+            {whatsappUrl && <a className="booking-support-link" href={`${whatsappUrl}?text=${encodeURIComponent(`Hello MATRIX Laundry, I need an update on booking ${'reference' in trackedBooking ? trackedBooking.reference : trackedBooking.id}.`)}`} target="_blank" rel="noreferrer"><FaWhatsapp size={16} /> Contact support</a>}
           </article>}
         </div>
       </section>}

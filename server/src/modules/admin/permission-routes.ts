@@ -37,6 +37,13 @@ const rules: PermissionRule[] = [
   { path: /^\/marketing\/audiences\/?$/, read: ['marketing.audiences.view'] },
   { path: /^\/marketing\/email-campaigns\/?$/, read: ['marketing.email.view'], write: ['marketing.email.send'] },
   { path: /^\/settings\/?$/, read: ['application.manage_settings'], write: ['application.manage_settings'] },
+  { path: /^\/laundry\/dashboard\/?$/, read: ['laundry.dashboard.view'] },
+  { path: /^\/laundry\/bookings\/[^/]+\/payments(?:\/|$)/, read: ['laundry.payments.view'], write: ['laundry.payments.manage'] },
+  { path: /^\/laundry\/bookings(?:\/|$)/, read: ['laundry.bookings.view'], write: ['laundry.bookings.manage'] },
+  { path: /^\/laundry\/payments(?:\/|$)/, read: ['laundry.payments.view'], write: ['laundry.payments.manage'] },
+  { path: /^\/laundry\/locations(?:\/|$)/, read: ['laundry.services.manage'], write: ['laundry.services.manage'] },
+  { path: /^\/laundry\/services(?:\/|$)/, read: ['laundry.services.manage'], write: ['laundry.services.manage'] },
+  { path: /^\/laundry\/(?:pickups|processing|deliveries|customers|reports|settings|staff)(?:\/|$)/, read: ['laundry.dashboard.view'], write: ['laundry.operations.manage'] },
   { path: /^\/audit\/?$/, read: ['audit.view', 'inventory.audit.view', 'marketing.audit.view'] },
 ]
 

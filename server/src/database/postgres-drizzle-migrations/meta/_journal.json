@@ -78,6 +78,20 @@
       "when": 1793831090832,
       "tag": "0010_sloppy_hannibal_king",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794525863847,
+      "tag": "0011_cheerful_lester",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794551993430,
+      "tag": "0012_melted_flatman",
+      "breakpoints": true
     }
   ]
 }

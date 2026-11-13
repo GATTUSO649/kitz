@@ -153,7 +153,7 @@ test('Laundry Admin receives only laundry operations and audit permissions', () 
   assert.equal(administratorRoles.includes('laundry_admin'), true)
   assert.equal(rolePrefix('laundry_admin'), 'LAUNDRY')
   const permissions = defaultAdministratorPermissions.laundry_admin
-  assert.deepEqual([...permissions].sort(), ['audit.view', 'laundry.bookings.manage', 'laundry.dashboard.view', 'laundry.services.manage'])
+  assert.deepEqual([...permissions].sort(), ['audit.view', 'laundry.bookings.manage', 'laundry.bookings.view', 'laundry.dashboard.view', 'laundry.operations.manage', 'laundry.payments.manage', 'laundry.payments.view', 'laundry.services.manage'])
   assert.equal(permissions.has('sales.manage_orders'), false)
   assert.equal(permissions.has('finance.view'), false)
   assert.equal(permissions.has('marketplace.listings.manage'), false)

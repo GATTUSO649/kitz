@@ -20,6 +20,7 @@ import { getRequestMetrics } from '../../middleware/request-metrics.js'
 import { loadAdministratorPermissions, isAdministratorRole } from './permissions.js'
 import { administratorPermissionsForRoute, hasAnyPermission, hasDedicatedAdministratorGuard, projectDashboardForRole } from './permission-routes.js'
 import { adminWorkflowsRouter } from './workflows.js'
+import { adminLaundryRouter } from '../laundry/routes.js'
 
 export const adminRouter = Router()
 adminRouter.use((request, response, next) => {
@@ -65,6 +66,7 @@ adminRouter.use(async (request, response, next) => {
 })
 
 adminRouter.use(adminWorkflowsRouter)
+adminRouter.use('/laundry', adminLaundryRouter)
 
 adminRouter.get('/me', (request, response) => {
   const actor = authenticatedAdmin(request)

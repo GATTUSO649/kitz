@@ -99,8 +99,12 @@ export const administratorPermissions = [
   'marketplace.moderation.manage',
   'marketplace.settings.manage',
   'laundry.dashboard.view',
+  'laundry.bookings.view',
   'laundry.bookings.manage',
+  'laundry.payments.view',
+  'laundry.payments.manage',
   'laundry.services.manage',
+  'laundry.operations.manage',
 ] as const
 
 export type AdministratorPermission = typeof administratorPermissions[number]
@@ -117,7 +121,7 @@ export const defaultAdministratorPermissions: Record<AdministratorRole, Readonly
   seller_support_admin: new Set(['marketplace.dashboard.read', 'marketplace.listings.read', 'marketplace.support.manage', 'audit.view']),
   marketplace_finance_admin: new Set(['marketplace.dashboard.read', 'marketplace.finance.read', 'marketplace.finance.reconcile', 'audit.view']),
   marketplace_moderator: new Set(['marketplace.dashboard.read', 'marketplace.listings.read', 'marketplace.moderation.manage', 'marketplace.support.manage', 'audit.view']),
-  laundry_admin: new Set(['laundry.dashboard.view', 'laundry.bookings.manage', 'laundry.services.manage', 'audit.view']),
+  laundry_admin: new Set(['laundry.dashboard.view', 'laundry.bookings.view', 'laundry.bookings.manage', 'laundry.payments.view', 'laundry.payments.manage', 'laundry.services.manage', 'laundry.operations.manage', 'audit.view']),
 }
 
 export function hasAdministratorPermission(role: AdministratorRole | null | undefined, permission: AdministratorPermission) {

@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, BarChart3, Boxes, Check, CircleDollarSign, FileText, Mail, Megaphone, Package, Receipt, Search, Shirt, ShoppingBag, Users } from 'lucide-react'
+import { AlertTriangle, BarChart3, Boxes, CalendarDays, Check, CircleDollarSign, Clock3, FileText, Mail, MapPin, Megaphone, Package, Receipt, Search, Shirt, ShoppingBag, Users } from 'lucide-react'
 import '../admin-theme.css'
 import '../role-portal-theme.css'
 
@@ -10,7 +10,7 @@ const roleConfig = {
   'inventory-admin': { role: 'inventory_admin', title: 'Inventory and Logistics', modules: ['Dashboard', 'Stock Management', 'Stock Movements', 'Low Stock', 'Out of Stock', 'Suppliers', 'Purchase Orders', 'Goods Receiving', 'Fulfillment', 'Returns', 'Analytics', 'Reports', 'Audit Logs', 'Notifications', 'Settings'], endpoints: { 'Stock Management': '/api/v1/admin/products', 'Stock Movements': '/api/v1/admin/inventory/movements', Fulfillment: '/api/v1/admin/orders', 'Audit Logs': '/api/v1/admin/audit' }, icon: Boxes },
   'marketing-admin': { role: 'marketing_admin', title: 'Marketing Operations', modules: ['Dashboard', 'Campaigns', 'Promotions', 'Coupons', 'Audiences', 'Email Marketing', 'Notifications', 'Content Promotion', 'Analytics', 'Reports', 'Audit Logs', 'Settings'], endpoints: { Campaigns: '/api/v1/admin/notifications', Notifications: '/api/v1/admin/notifications', 'Audit Logs': '/api/v1/admin/audit' }, icon: Megaphone },
   'content-admin': { role: 'content_admin', title: 'Products and Content', modules: ['Overview', 'Products', 'Categories', 'Homepage', 'Site Pages'], endpoints: { Products: '/api/v1/admin/products', Categories: '/api/v1/admin/categories', Homepage: '/api/v1/admin/homepage', 'Site Pages': '/api/v1/admin/homepage/site-content' }, icon: Package },
-  'laundry-admin': { role: 'laundry_admin', title: 'Laundry Admin', modules: ['Operations status'], endpoints: {}, icon: Shirt },
+  'laundry-admin': { role: 'laundry_admin', title: 'Laundry Admin', modules: ['Dashboard', 'Bookings', 'Payments', 'Pickup Locations'], endpoints: {}, icon: Shirt },
 } as const
 
 const portalByRole: Record<string, string> = {
@@ -708,12 +708,262 @@ function MarketingWorkspace({ prefix }: { prefix: keyof typeof roleConfig }) {
   return <main className="admin-it-page super-admin-page role-portal-shell marketing-portal-shell"><aside className="super-admin-sidebar role-portal-sidebar"><Link to="/" className="admin-brand" aria-label="MATRIX home"><img src="/matrix-logo.png" alt="MATRIX" /></Link><strong>{config.title}</strong><nav>{config.modules.map((module) => <button type="button" key={module} className={activeModule === module ? 'active' : ''} onClick={() => { setActiveModule(module); setError(''); setNotice('') }}>{module}</button>)}</nav><button type="button" className="admin-it-button role-portal-signout" onClick={() => void signOutRolePortal(navigate, prefix)}>Sign out</button></aside><section className="super-admin-main role-portal-main marketing-portal-main"><header><div><span className="admin-kicker">MARKETING MANAGEMENT CENTRE</span><h1>{activeModule}</h1><p className="marketing-header-copy">Campaign communication and measurable customer engagement for KitCulture.</p></div><Megaphone size={24} /></header>{portal.isError ? <div className="admin-empty admin-error">Marketing data is unavailable: {portal.error.message}</div> : panel}</section></main>
 }
 
-function LaundryAdminUnavailableWorkspace() {
+type LaundryAdminBooking = {
+  id: number
+  reference: string
+  name: string
+  phone: string
+  location: string
+  locationLatitude: string | null
+  locationLongitude: string | null
+  serviceName: string | null
+  quantity: string | null
+  quantityUnit: string | null
+  pickupAddress: string | null
+  preferredPickupAt: string | null
+  deliveryAddress: string | null
+  preferredDeliveryAt: string | null
+  amountDue: string
+  amountPaid: string
+  balance: string
+  paymentStatus: 'PAID' | 'UNPAID' | 'PENDING'
+  latestPaymentMethod: string | null
+  latestPaymentDate: string | null
+  status: string
+  createdAt: string
+}
+
+type LaundryPayment = {
+  id: number
+  bookingId: number
+  amount: string
+  method: 'cash' | 'mpesa' | 'bank_transfer' | 'other'
+  paymentDate: string
+  transactionReference: string | null
+  notes: string | null
+  status: 'pending' | 'confirmed' | 'reversed'
+  recordedByAdminId: number
+  createdAt: string
+}
+
+type LaundryBookingDetails = LaundryAdminBooking & { payments: LaundryPayment[]; events: { id: number; previousStatus: string | null; newStatus: string; note: string | null; createdAt: string }[] }
+type LaundryDashboardData = Record<string, number | string | { date: string; amount: string }[]>
+type LaundryLocation = { id: number; name: string; active: boolean; sortOrder: number }
+type LaundryCustomer = { name: string; phone: string; totalBookings: number; completedBookings: number; amountDue: string; amountPaid: string; balance: string; lastBookingAt: string }
+
+function LaundryOperationsPanel({ mode }: { mode: 'pickups' | 'processing' | 'deliveries' }) {
   const navigate = useNavigate()
+  const [page, setPage] = useState(1)
+  const [search, setSearch] = useState('')
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const params = new URLSearchParams({ page: String(page), limit: '50' })
+  if (search.trim()) params.set('search', search.trim())
+  if (from) params.set('from', from)
+  if (to) params.set('to', to)
+
+  const queue = useQuery({
+    queryKey: ['laundry-queue', mode, params.toString()],
+    queryFn: () => roleApi<{ data: LaundryAdminBooking[]; pagination: { page: number; limit: number; total: number } }>(`/api/v1/admin/laundry/${mode}?${params}`),
+    retry: false,
+  })
+
+  return <section className="finance-panel">
+    <header><div><span className="admin-kicker">{mode.toUpperCase()} WORKFLOW</span><h2>{mode === 'pickups' ? 'Pickup queue' : mode === 'processing' ? 'Processing queue' : 'Delivery queue'}</h2></div>{mode === 'pickups' ? <CalendarDays size={19} /> : mode === 'processing' ? <Clock3 size={19} /> : <MapPin size={19} />}</header>
+    <div className="laundry-filter-row">
+      <label>Search reference, customer or phone<input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} /></label>
+      <label>From date<input type="date" value={from} onChange={(event) => { setFrom(event.target.value); setPage(1) }} /></label>
+      <label>To date<input type="date" value={to} onChange={(event) => { setTo(event.target.value); setPage(1) }} /></label>
+    </div>
+    {queue.isError ? <div className="admin-empty admin-error">Queue unavailable: {queue.error.message}</div> : <>
+      <LaundryBookingTable rows={queue.data?.data ?? []} onOpen={(id) => navigate(`/laundry-admin/bookings/${id}`)} />
+      {queue.data && <div className="laundry-pagination"><button type="button" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Previous</button><span>Page {page} · {queue.data.pagination.total} records</span><button type="button" disabled={page * queue.data.pagination.limit >= queue.data.pagination.total} onClick={() => setPage((value) => value + 1)}>Next</button></div>}
+    </>}
+  </section>
+}
+
+function LaundryCustomersPanel() {
+  const [page, setPage] = useState(1)
+  const [search, setSearch] = useState('')
+  const params = new URLSearchParams({ page: String(page), limit: '25' })
+  if (search.trim()) params.set('search', search.trim())
+
+  const customers = useQuery({
+    queryKey: ['laundry-customers', params.toString()],
+    queryFn: () => roleApi<{ data: LaundryCustomer[]; pagination: { page: number; limit: number; total: number } }>(`/api/v1/admin/laundry/customers?${params}`),
+    retry: false,
+  })
+
+  return <section className="finance-panel">
+    <header><div><span className="admin-kicker">CUSTOMER RECORDS</span><h2>Laundry customers</h2></div><Users size={19} /></header>
+    <div className="laundry-filter-row">
+      <label>Search name or phone<input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} /></label>
+    </div>
+    {customers.isError ? <div className="admin-empty admin-error">Customer records unavailable: {customers.error.message}</div> : <>
+      <div className="admin-it-table-wrap"><table className="admin-it-table laundry-admin-table"><thead><tr><th>Name</th><th>Phone</th><th>Bookings</th><th>Completed</th><th>Due</th><th>Paid</th><th>Balance</th><th>Last visit</th></tr></thead><tbody>{(customers.data?.data ?? []).map((customer) => <tr key={customer.phone}><td>{customer.name}</td><td>{customer.phone}</td><td>{customer.totalBookings}</td><td>{customer.completedBookings}</td><td>{currency(customer.amountDue)}</td><td>{currency(customer.amountPaid)}</td><td>{currency(customer.balance)}</td><td>{customer.lastBookingAt ? new Date(customer.lastBookingAt).toLocaleDateString() : '—'}</td></tr>)}</tbody></table></div>
+      {customers.data && <div className="laundry-pagination"><button type="button" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Previous</button><span>Page {page} · {customers.data.pagination.total} customers</span><button type="button" disabled={page * customers.data.pagination.limit >= customers.data.pagination.total} onClick={() => setPage((value) => value + 1)}>Next</button></div>}
+      {!customers.data?.data.length && <div className="admin-empty">No customer records match this search.</div>}
+    </>}
+  </section>
+}
+
+const laundryNavigation = [
+  { label: 'Dashboard', path: '/laundry-admin/dashboard' },
+  { label: 'Bookings', path: '/laundry-admin/bookings' },
+  { label: 'Pickups', path: '/laundry-admin/pickups' },
+  { label: 'Processing', path: '/laundry-admin/processing' },
+  { label: 'Deliveries', path: '/laundry-admin/deliveries' },
+  { label: 'Customers', path: '/laundry-admin/customers' },
+  { label: 'Payments', path: '/laundry-admin/payments' },
+  { label: 'Pickup Locations', path: '/laundry-admin/locations' },
+]
+
+function LaundryAdminUnavailableWorkspace() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const route = location.pathname
+  const bookingDetail = /^\/laundry-admin\/bookings\/(\d+)$/.exec(route)
+  const activePath = bookingDetail ? '/laundry-admin/bookings' : route
+  const activeLabel = laundryNavigation.find((item) => item.path === activePath)?.label ?? 'Dashboard'
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [paymentFilter, setPaymentFilter] = useState('')
+  const [methodFilter, setMethodFilter] = useState('')
+  const [page, setPage] = useState(1)
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const params = new URLSearchParams({ page: String(page), limit: '25' })
+  if ((activeLabel === 'Bookings' || activeLabel === 'Payments') && search.trim()) params.set('search', search.trim())
+  if (activeLabel === 'Bookings' && statusFilter) params.set('status', statusFilter)
+  if (activeLabel === 'Payments') {
+    if (paymentFilter) params.set('status', paymentFilter)
+    if (methodFilter) params.set('method', methodFilter)
+    if (from) params.set('from', from)
+    if (to) params.set('to', to)
+  }
+  const dashboardParams = new URLSearchParams()
+  if (from) dashboardParams.set('from', from)
+  if (to) dashboardParams.set('to', to)
+  const dashboard = useQuery({ queryKey: ['laundry-dashboard', from, to], queryFn: () => roleApi<LaundryDashboardData>(`/api/v1/admin/laundry/dashboard${dashboardParams.size ? `?${dashboardParams}` : ''}`), enabled: activeLabel === 'Dashboard', retry: false })
+  const bookings = useQuery({ queryKey: ['laundry-bookings', params.toString()], queryFn: () => roleApi<{ data: LaundryAdminBooking[]; pagination: { page: number; limit: number; total: number } }>(`/api/v1/admin/laundry/bookings?${params}`), enabled: activeLabel === 'Bookings' || activeLabel === 'Payments' || activeLabel === 'Dashboard', retry: false })
+  const detail = useQuery({ queryKey: ['laundry-booking', bookingDetail?.[1]], queryFn: () => roleApi<LaundryBookingDetails>(`/api/v1/admin/laundry/bookings/${bookingDetail?.[1]}`), enabled: Boolean(bookingDetail), retry: false })
+  const locations = useQuery({ queryKey: ['laundry-locations'], queryFn: () => roleApi<LaundryLocation[]>('/api/v1/admin/laundry/locations'), enabled: activeLabel === 'Pickup Locations', retry: false })
+  const [locationText, setLocationText] = useState<string | null>(null)
+
+  async function refreshLaundryData() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['laundry-dashboard'] }),
+      queryClient.invalidateQueries({ queryKey: ['laundry-bookings'] }),
+      queryClient.invalidateQueries({ queryKey: ['laundry-booking'] }),
+      queryClient.invalidateQueries({ queryKey: ['laundry-locations'] }),
+    ])
+  }
+
+  async function updateBooking(id: number, body: Record<string, unknown>, successMessage: string) {
+    setError(''); setNotice('')
+    try {
+      await roleApi(`/api/v1/admin/laundry/bookings/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
+      setNotice(successMessage)
+      await refreshLaundryData()
+    } catch (issue) { setError(issue instanceof Error ? issue.message : 'Booking could not be updated.') }
+  }
+
+  async function recordPayment(event: FormEvent<HTMLFormElement>, booking: LaundryBookingDetails) {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    setError(''); setNotice('')
+    try {
+      await roleApi(`/api/v1/admin/laundry/bookings/${booking.id}/payments`, { method: 'POST', body: JSON.stringify({
+        amount: form.get('amount'), method: form.get('method'), paymentDate: form.get('paymentDate'),
+        transactionReference: form.get('transactionReference') || undefined, notes: form.get('notes') || undefined,
+        status: form.get('status'), idempotencyKey: crypto.randomUUID(),
+      }) })
+      formElement.reset()
+      setNotice('Customer payment recorded.')
+      await refreshLaundryData()
+    } catch (issue) { setError(issue instanceof Error ? issue.message : 'Payment could not be recorded.') }
+  }
+
+  async function updatePayment(event: FormEvent<HTMLFormElement>, paymentId: number) {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    setError(''); setNotice('')
+    try {
+      await roleApi(`/api/v1/admin/laundry/payments/${paymentId}`, { method: 'PATCH', body: JSON.stringify({ amount: form.get('amount'), method: form.get('method'), paymentDate: form.get('paymentDate'), transactionReference: form.get('transactionReference') || null, notes: form.get('notes') || null, status: form.get('status') }) })
+      setNotice('Payment correction saved in the audit history.')
+      await refreshLaundryData()
+    } catch (issue) { setError(issue instanceof Error ? issue.message : 'Payment could not be updated.') }
+  }
+
+  async function saveLocations(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const values = (locationText ?? (locations.data ?? []).filter((item) => item.active).map((item) => item.name).join('\n')).split('\n').map((item) => item.trim()).filter(Boolean)
+    setError(''); setNotice('')
+    try {
+      await roleApi('/api/v1/admin/laundry/locations', { method: 'PUT', body: JSON.stringify({ locations: values }) })
+      setNotice('Pickup locations saved.')
+      await refreshLaundryData()
+      setLocationText(null)
+    } catch (issue) { setError(issue instanceof Error ? issue.message : 'Pickup locations could not be saved.') }
+  }
+
+  const dashboardMetrics = dashboard.data ? [
+    ['Total Bookings', dashboard.data.totalBookings], ['New Requests', dashboard.data.newRequests], ['Confirmed', dashboard.data.confirmedBookings],
+    ['Revenue Received', currency(String(dashboard.data.totalRevenueReceived))], ['Total Amount Due', currency(String(dashboard.data.totalAmountDue))],
+    ['Outstanding Balance', currency(String(dashboard.data.totalOutstandingBalance))], ['Paid Bookings', dashboard.data.paidBookings],
+    ['Unpaid Bookings', dashboard.data.unpaidBookings], ['Pending Payments', dashboard.data.pendingPayments],
+    ['Transactions', dashboard.data.totalTransactions], ['Received Today', currency(String(dashboard.data.paymentsReceivedToday))],
+    ['Received This Month', currency(String(dashboard.data.paymentsReceivedThisMonth))],
+  ] : []
+  const collectionRows = Array.isArray(dashboard.data?.collections) ? dashboard.data.collections as { date: string; amount: string }[] : []
+  const maxCollection = Math.max(1, ...collectionRows.map((row) => Number(row.amount)))
+  const listRows = bookings.data?.data ?? []
+
+  const panel = activeLabel === 'Pickups' ? <LaundryOperationsPanel mode="pickups" />
+    : activeLabel === 'Processing' ? <LaundryOperationsPanel mode="processing" />
+      : activeLabel === 'Deliveries' ? <LaundryOperationsPanel mode="deliveries" />
+        : activeLabel === 'Customers' ? <LaundryCustomersPanel />
+          : bookingDetail ? <>
+    {detail.isPending ? <div className="admin-empty">Loading booking details…</div> : detail.isError ? <div className="admin-empty admin-error">Booking details unavailable: {detail.error.message}</div> : detail.data && <>
+      <section className="finance-panel"><header><div><span className="admin-kicker">BOOKING RECORD</span><h2>{detail.data.reference}</h2></div><span className={`laundry-payment-status ${detail.data.paymentStatus.toLowerCase()}`}>{detail.data.paymentStatus}</span></header>
+        <div className="laundry-detail-grid"><div><span>Customer</span><strong>{detail.data.name}</strong></div><div><span>Phone</span><strong>{detail.data.phone}</strong></div><div><span>Pickup location</span><strong>{detail.data.location}</strong></div><div><span>Booking status</span><strong>{detail.data.status.replaceAll('_', ' ')}</strong></div><div><span>Amount due</span><strong>{currency(detail.data.amountDue)}</strong></div><div><span>Amount paid</span><strong>{currency(detail.data.amountPaid)}</strong></div><div><span>Outstanding balance</span><strong>{currency(detail.data.balance)}</strong></div><div><span>Created</span><strong>{new Date(detail.data.createdAt).toLocaleString()}</strong></div></div>
+        {(detail.data.locationLatitude && detail.data.locationLongitude) && <a className="laundry-inline-link" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${detail.data.locationLatitude},${detail.data.locationLongitude}`)}`} target="_blank" rel="noreferrer">Open pinned pickup in Google Maps</a>}
+      </section>
+      <section className="finance-panel"><header><div><span className="admin-kicker">BOOKING CONTROL</span><h2>Update booking</h2></div><CalendarDays size={19} /></header><form className="laundry-admin-form" onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget); void updateBooking(detail.data!.id, { status: data.get('status'), amountDue: data.get('amountDue'), pickupAddress: data.get('pickupAddress') || null, preferredPickupAt: data.get('preferredPickupAt') ? new Date(String(data.get('preferredPickupAt'))).toISOString() : null, note: data.get('note') || undefined }, 'Booking updated.') }}><label>Status<select name="status" defaultValue={detail.data.status}><option value="new">New request</option><option value="confirmed">Confirmed</option><option value="pickup_scheduled">Pickup scheduled</option><option value="collected">Collected</option><option value="washing">Washing</option><option value="drying">Drying</option><option value="ironing_folding">Ironing and folding</option><option value="ready_for_delivery">Ready for delivery</option><option value="out_for_delivery">Out for delivery</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></label><label>Total amount due (KES)<input name="amountDue" type="number" min="0" step="0.01" required defaultValue={detail.data.amountDue} /></label><label>Pickup address (optional)<input name="pickupAddress" maxLength={500} defaultValue={detail.data.pickupAddress ?? ''} /></label><label>Pickup date and time<input name="preferredPickupAt" type="datetime-local" defaultValue={detail.data.preferredPickupAt ? new Date(detail.data.preferredPickupAt).toISOString().slice(0, 16) : ''} /></label><label>Internal status note<input name="note" maxLength={500} /></label><button className="role-portal-button" type="submit">Save booking</button></form></section>
+      <section className="finance-panel"><header><div><span className="admin-kicker">MANUAL CUSTOMER PAYMENT</span><h2>Record Customer Payment</h2></div><Receipt size={19} /></header><form className="laundry-admin-form" onSubmit={(event) => void recordPayment(event, detail.data!)}><label>Amount received (KES)<input name="amount" type="number" min="0.01" step="0.01" required max={detail.data.balance} /></label><label>Payment method<select name="method" defaultValue="cash"><option value="cash">Cash</option><option value="mpesa">M-Pesa (manual)</option><option value="bank_transfer">Bank Transfer</option><option value="other">Other</option></select></label><label>Payment date<input name="paymentDate" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} /></label><label>Payment status<select name="status" defaultValue="confirmed"><option value="confirmed">Confirmed received</option><option value="pending">Pending confirmation</option></select></label><label>Transaction reference (optional)<input name="transactionReference" maxLength={120} /></label><label>Notes (optional)<input name="notes" maxLength={1000} /></label><button className="role-portal-button" type="submit" disabled={Number(detail.data.balance) <= 0}>Save Payment</button></form></section>
+      <section className="finance-panel"><header><div><span className="admin-kicker">IMMUTABLE HISTORY</span><h2>Payment history</h2></div><FileText size={19} /></header>{detail.data.payments.length ? <div className="laundry-record-list">{detail.data.payments.map((payment) => <article key={payment.id}><div><strong>{currency(payment.amount)} · {payment.method.replaceAll('_', ' ')}</strong><span className={`laundry-payment-status ${payment.status}`}>{payment.status}</span><small>{new Date(payment.paymentDate).toLocaleDateString()} · {payment.transactionReference || 'No transaction reference'} · Recorded by admin {payment.recordedByAdminId}</small>{payment.notes && <small>{payment.notes}</small>}</div><details><summary>Correct record</summary><form className="laundry-admin-form" onSubmit={(event) => void updatePayment(event, payment.id)}><label>Amount<input name="amount" type="number" min="0.01" step="0.01" required defaultValue={payment.amount} /></label><label>Method<select name="method" defaultValue={payment.method}><option value="cash">Cash</option><option value="mpesa">M-Pesa</option><option value="bank_transfer">Bank Transfer</option><option value="other">Other</option></select></label><label>Date<input name="paymentDate" type="date" required defaultValue={payment.paymentDate.slice(0, 10)} /></label><label>Status<select name="status" defaultValue={payment.status}><option value="pending">Pending</option><option value="confirmed">Confirmed</option><option value="reversed">Reverse payment</option></select></label><label>Reference<input name="transactionReference" defaultValue={payment.transactionReference ?? ''} maxLength={120} /></label><label>Notes<input name="notes" defaultValue={payment.notes ?? ''} maxLength={1000} /></label><button className="role-portal-button" type="submit">Save correction</button></form></details></article>)}</div> : <div className="admin-empty">No payments recorded for this booking.</div>}</section>
+      <section className="finance-panel"><header><div><span className="admin-kicker">BOOKING HISTORY</span><h2>Status events</h2></div><Clock3 size={19} /></header>{detail.data.events.length ? <div className="laundry-record-list">{detail.data.events.map((event) => <article key={event.id}><strong>{event.previousStatus ? `${event.previousStatus.replaceAll('_', ' ')} → ` : ''}{event.newStatus.replaceAll('_', ' ')}</strong><small>{new Date(event.createdAt).toLocaleString()}{event.note ? ` · ${event.note}` : ''}</small></article>)}</div> : <div className="admin-empty">No status history is available.</div>}</section>
+    </>}
+  </> : activeLabel === 'Dashboard' ? <>
+    <section className="finance-panel"><header><div><span className="admin-kicker">LIVE DATABASE TOTALS</span><h2>Business overview</h2></div><Shirt size={19} /></header><form className="laundry-date-filter" onSubmit={(event) => { event.preventDefault(); void dashboard.refetch() }}><label>From<input type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label><label>To<input type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label></form>{dashboard.isPending ? <div className="admin-empty">Loading live totals…</div> : dashboard.isError ? <div className="admin-empty admin-error">Dashboard unavailable: {dashboard.error.message}</div> : <div className="finance-kpi-grid laundry-kpi-grid">{dashboardMetrics.map(([label, value]) => <article key={String(label)}><span>{String(label)}</span><strong>{String(value)}</strong></article>)}</div>}</section>
+    <section className="finance-panel"><header><div><span className="admin-kicker">CONFIRMED RECEIPTS · KES</span><h2>Collections by day</h2></div><BarChart3 size={19} /></header>{collectionRows.length ? <div className="finance-bars">{collectionRows.map((row) => <div key={row.date}><span>{row.date}</span><i><b style={{ width: `${Math.max(3, Number(row.amount) / maxCollection * 100)}%` }} /></i><strong>{Number(row.amount).toLocaleString('en-KE')}</strong></div>)}</div> : <div className="admin-empty">No confirmed payments in this date range.</div>}</section>
+    <section className="finance-panel"><header><div><span className="admin-kicker">LATEST CUSTOMER REQUESTS</span><h2>Recent bookings</h2></div><ShoppingBag size={19} /></header><LaundryBookingTable rows={listRows.slice(0, 8)} onOpen={(id) => navigate(`/laundry-admin/bookings/${id}`)} /></section>
+  </> : activeLabel === 'Bookings' ? <section className="finance-panel"><header><div><span className="admin-kicker">CUSTOMER PICKUP REQUESTS</span><h2>Bookings</h2></div><ShoppingBag size={19} /></header><div className="laundry-filter-row"><label>Search reference, customer or phone<input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} /></label><label>Status<select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPage(1) }}><option value="">All statuses</option>{['new', 'confirmed', 'pickup_scheduled', 'collected', 'washing', 'drying', 'ironing_folding', 'ready_for_delivery', 'out_for_delivery', 'completed', 'cancelled'].map((value) => <option key={value} value={value}>{value.replaceAll('_', ' ')}</option>)}</select></label></div>{bookings.isError ? <div className="admin-empty admin-error">Bookings unavailable: {bookings.error.message}</div> : <LaundryBookingTable rows={listRows} onOpen={(id) => navigate(`/laundry-admin/bookings/${id}`)} />}{bookings.data && <div className="laundry-pagination"><button type="button" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Previous</button><span>Page {page} · {bookings.data.pagination.total} bookings</span><button type="button" disabled={page * bookings.data.pagination.limit >= bookings.data.pagination.total} onClick={() => setPage((value) => value + 1)}>Next</button></div>}</section> : activeLabel === 'Payments' ? <section className="finance-panel">
+    <header><div><span className="admin-kicker">MANUAL RECEIPTS · KES</span><h2>Payments</h2></div><Receipt size={19} /></header>
+    <div className="laundry-filter-row">
+      <label>Search customer, phone or booking<input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} /></label>
+      <label>Payment status<select value={paymentFilter} onChange={(event) => { setPaymentFilter(event.target.value); setPage(1) }}><option value="">All payment statuses</option><option value="PAID">Paid</option><option value="UNPAID">Unpaid</option><option value="PENDING">Pending</option></select></label>
+      <label>Payment method<select value={methodFilter} onChange={(event) => { setMethodFilter(event.target.value); setPage(1) }}><option value="">All methods</option><option value="cash">Cash</option><option value="mpesa">M-Pesa</option><option value="bank_transfer">Bank Transfer</option><option value="other">Other</option></select></label>
+      <label>From date<input type="date" value={from} onChange={(event) => { setFrom(event.target.value); setPage(1) }} /></label>
+      <label>To date<input type="date" value={to} onChange={(event) => { setTo(event.target.value); setPage(1) }} /></label>
+      <a className="role-portal-button laundry-export" href="/api/v1/admin/laundry/payments/export.csv">Export CSV</a>
+    </div>
+    {bookings.isError ? <div className="admin-empty admin-error">Payments unavailable: {bookings.error.message}</div> : <LaundryBookingTable rows={listRows} onOpen={(id) => navigate(`/laundry-admin/bookings/${id}`)} showPayments />}
+  </section> : <section className="finance-panel"><header><div><span className="admin-kicker">ADMIN-MANAGED BOOKING AREAS</span><h2>Pickup Locations</h2></div><MapPin size={19} /></header>{locations.isError && <p className="marketing-error" role="alert">Locations unavailable: {locations.error.message}</p>}<form className="laundry-admin-form laundry-location-form" onSubmit={(event) => void saveLocations(event)}><label>Active locations, one per line<textarea rows={8} value={locationText ?? (locations.data ?? []).filter((item) => item.active).map((item) => item.name).join('\n')} onChange={(event) => setLocationText(event.target.value)} /></label><button className="role-portal-button" type="submit">Save pickup locations</button></form></section>
+
   return <main className="admin-it-page super-admin-page role-portal-shell">
-    <aside className="super-admin-sidebar role-portal-sidebar"><Link to="/" className="admin-brand" aria-label="MATRIX home"><img src="/matrix-logo.png" alt="MATRIX" /></Link><strong>Laundry Admin</strong><nav><button type="button" className="active">Operations status</button></nav><button type="button" className="admin-it-button role-portal-signout" onClick={() => void signOutRolePortal(navigate, 'laundry-admin')}>Sign out</button></aside>
-    <section className="super-admin-main role-portal-main"><header><div><span className="admin-kicker">LAUNDRY ADMIN</span><h1>Operations status</h1><p>Restricted administrator access</p></div><Shirt size={24} /></header><section className="admin-it-panel" role="status"><span className="admin-kicker">BACKEND INTEGRATION REQUIRED</span><h2>Booking tools are not connected yet</h2><p>The Laundry Admin role is assigned and sign-in is protected. Booking and service management are not available in the shared administrator API yet. Customer requests still reside in browser storage, so this portal cannot safely display or update booking records.</p></section></section>
+    <aside className="super-admin-sidebar role-portal-sidebar"><Link to="/" className="admin-brand" aria-label="MATRIX home"><img src="/matrix-logo.png" alt="MATRIX" /></Link><strong>Laundry Admin</strong><nav>{laundryNavigation.map((item) => <Link key={item.path} to={item.path} className={activePath === item.path ? 'active' : ''}>{item.label}</Link>)}</nav><button type="button" className="admin-it-button role-portal-signout" onClick={() => void signOutRolePortal(navigate, 'laundry-admin')}>Sign out</button></aside>
+    <section className="super-admin-main role-portal-main laundry-portal-main"><header><div><span className="admin-kicker">MATRIX LAUNDRY OPERATIONS</span><h1>{bookingDetail ? 'Booking details' : activeLabel}</h1><p>Live records from the Laundry operations database.</p></div><Shirt size={24} /></header>{error && <p className="marketing-error" role="alert">{error}</p>}{notice && <p className="marketing-notice" role="status">{notice}</p>}{panel}</section>
   </main>
+}
+
+function LaundryBookingTable({ rows, onOpen, showPayments = false }: { rows: LaundryAdminBooking[]; onOpen: (id: number) => void; showPayments?: boolean }) {
+  if (!rows.length) return <div className="admin-empty">No booking records match these filters.</div>
+  return <div className="admin-it-table-wrap"><table className="admin-it-table laundry-admin-table"><thead><tr><th>Reference</th><th>Customer</th><th>Phone</th><th>Location</th><th>Status</th>{showPayments && <><th>Due</th><th>Paid</th><th>Balance</th><th>Payment</th><th>Method / Date</th></>}<th>Created</th><th /></tr></thead><tbody>{rows.map((booking) => <tr key={booking.id}><td><button className="laundry-table-link" type="button" onClick={() => onOpen(booking.id)}>{booking.reference}</button></td><td>{booking.name}</td><td>{booking.phone}</td><td>{booking.location}</td><td>{booking.status.replaceAll('_', ' ')}</td>{showPayments && <><td>{currency(booking.amountDue)}</td><td>{currency(booking.amountPaid)}</td><td>{currency(booking.balance)}</td><td><span className={`laundry-payment-status ${booking.paymentStatus.toLowerCase()}`}>{booking.paymentStatus}</span></td><td>{booking.latestPaymentMethod?.replaceAll('_', ' ') ?? '—'}{booking.latestPaymentDate ? ` · ${new Date(booking.latestPaymentDate).toLocaleDateString()}` : ''}</td></>}<td>{new Date(booking.createdAt).toLocaleDateString()}</td><td><button className="admin-it-button" type="button" onClick={() => onOpen(booking.id)}>View</button></td></tr>)}</tbody></table></div>
 }
 
 export function RolePortalRoute() {

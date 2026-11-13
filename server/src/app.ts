@@ -18,6 +18,7 @@ import { adminAuthRouter } from './modules/admin/auth.js'
 import { adminRouter } from './modules/admin/routes.js'
 import { operationsRouter } from './modules/operations/routes.js'
 import { adminEcosystemRouter } from './modules/admin/ecosystem.js'
+import { publicLaundryRouter } from './modules/laundry/routes.js'
 import { publicApiCache } from './middleware/public-cache.js'
 import { createOriginAuthentication } from './middleware/origin-auth.js'
 import { requestMetrics } from './middleware/request-metrics.js'
@@ -54,10 +55,16 @@ app.use(helmet({
   referrerPolicy: { policy: 'no-referrer' },
 }))
 app.use(compression())
-app.use(cors({
-  origin: (origin, callback) => callback(null, !origin || isAllowedClientOrigin(origin)),
-  credentials: true,
-  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+app.use(cors((request, callback) => {
+  const origin = request.get('origin')
+  const publicLaundryRequest = /^\/api\/v1\/laundry(?:\/|$)/.test(request.path)
+  const allowedClient = isAllowedClientOrigin(origin)
+  const allowedLaundryClient = publicLaundryRequest && isAllowedSiteImageOrigin(origin)
+  callback(null, {
+    origin: allowedClient || allowedLaundryClient ? origin : false,
+    credentials: allowedClient,
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  })
 }))
 app.use(['/api/v1/store/site-images', '/api/v1/store/site-content'], (request, response, next) => {
   const origin = request.get('origin')
@@ -135,7 +142,7 @@ app.use('/api/v1', publicApiCache)
 app.use('/api/v1/auth', authLimiter, authRouter)
 app.use('/api/v1/account', accountRouter)
 app.use('/api/v1/admin', (request, response, next) => {
-  if (request.method === 'POST' && /^\/api\/v1\/admin\/(?:verify|login|(?:super-admin|finance-admin|inventory-admin|marketing-admin|content-admin)\/login)\/?(?:\?|$)/.test(request.originalUrl)) {
+  if (request.method === 'POST' && /^\/api\/v1\/admin\/(?:verify|login|(?:super-admin|finance-admin|inventory-admin|marketing-admin|content-admin|laundry-admin)\/login)\/?(?:\?|$)/.test(request.originalUrl)) {
     authLimiter(request, response, next)
     return
   }
@@ -144,6 +151,7 @@ app.use('/api/v1/admin', (request, response, next) => {
 app.use('/api/v1/admin', adminEcosystemRouter)
 app.use('/api/v1/operations', operationsRouter)
 app.use('/api/v1/admin', adminRouter)
+app.use('/api/v1/laundry', publicLaundryRouter)
 app.use('/api/v1', catalogueRouter)
 app.use('/api/v1', ordersRouter)
 

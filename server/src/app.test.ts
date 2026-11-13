@@ -153,6 +153,25 @@ test('guest checkout endpoints validate publicly without requiring a customer se
   assert.equal((await paymentResponse.json() as { error: { code: string } }).error.code, 'INVALID_PAYMENT_REQUEST')
 })
 
+test('MarketHub origin can submit public Laundry requests without credentialed admin CORS access', async () => {
+  const platformOrigin = process.env.MARKETHUB_PUBLIC_URL!
+  const bookingResponse = await fetch(`${baseUrl}/api/v1/laundry/bookings`, {
+    method: 'POST',
+    headers: { origin: platformOrigin, 'content-type': 'application/json' },
+    body: JSON.stringify({}),
+  })
+  assert.equal(bookingResponse.status, 400)
+  assert.equal(bookingResponse.headers.get('access-control-allow-origin'), platformOrigin)
+  assert.equal(bookingResponse.headers.get('access-control-allow-credentials'), null)
+
+  const adminPreflight = await fetch(`${baseUrl}/api/v1/admin/laundry/bookings`, {
+    method: 'OPTIONS',
+    headers: { origin: platformOrigin, 'access-control-request-method': 'GET' },
+  })
+  assert.equal(adminPreflight.headers.get('access-control-allow-origin'), null)
+  assert.equal(adminPreflight.headers.get('access-control-allow-credentials'), null)
+})
+
 test('guest order management requires administrator authentication', async () => {
   const response = await fetch(`${baseUrl}/api/v1/admin/guest-orders`)
   assert.equal(response.status, 401)

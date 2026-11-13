@@ -5,6 +5,7 @@ import {
   numeric as decimal,
   index,
   integer as int,
+  jsonb,
   pgTable as mysqlTable,
   primaryKey,
   text,
@@ -12,6 +13,7 @@ import {
   unique,
   varchar,
 } from 'drizzle-orm/pg-core'
+import { adminUsers } from './admin-schema.js'
 
 const timestamp = (name: string) => pgTimestamp(name, { withTimezone: true, mode: 'date' })
 const datetime = (name: string) => pgTimestamp(name, { withTimezone: false, mode: 'date' })
@@ -372,6 +374,87 @@ export const paymentReconciliations = mysqlTable('payment_reconciliations', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
 }, (table) => [index('payment_reconciliations_date_idx').on(table.settlementDate)])
+
+export const laundryServiceAreas = mysqlTable('laundry_service_areas', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  name: varchar('name', { length: 160 }).notNull().unique(),
+  active: boolean('active').default(true).notNull(),
+  sortOrder: int('sort_order').default(0).notNull(),
+  createdByAdminId: int('created_by_admin_id').references(() => adminUsers.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
+}, (table) => [index('laundry_service_areas_active_order_idx').on(table.active, table.sortOrder)])
+
+export const laundryBookings = mysqlTable('laundry_bookings', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  reference: varchar('reference', { length: 40 }).notNull().unique(),
+  idempotencyKey: varchar('idempotency_key', { length: 100 }).unique(),
+  name: varchar('name', { length: 160 }).notNull(),
+  phone: varchar('phone', { length: 20 }).notNull(),
+  location: varchar('location', { length: 240 }).notNull(),
+  locationLatitude: decimal('location_latitude', { precision: 10, scale: 7 }),
+  locationLongitude: decimal('location_longitude', { precision: 10, scale: 7 }),
+  serviceName: varchar('service_name', { length: 120 }),
+  quantity: decimal('quantity', { precision: 10, scale: 2 }),
+  quantityUnit: varchar('quantity_unit', { length: 24 }),
+  pickupAddress: varchar('pickup_address', { length: 500 }),
+  preferredPickupAt: timestamp('preferred_pickup_at'),
+  deliveryAddress: varchar('delivery_address', { length: 500 }),
+  preferredDeliveryAt: timestamp('preferred_delivery_at'),
+  amountDue: decimal('amount_due', { precision: 12, scale: 2 }).default('0.00').notNull(),
+  status: enumText<'new' | 'confirmed' | 'pickup_scheduled' | 'collected' | 'washing' | 'drying' | 'ironing_folding' | 'ready_for_delivery' | 'out_for_delivery' | 'completed' | 'cancelled'>('status', 32).default('new').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
+}, (table) => [
+  index('laundry_bookings_status_created_idx').on(table.status, table.createdAt),
+  index('laundry_bookings_phone_created_idx').on(table.phone, table.createdAt),
+  check('laundry_bookings_status_check', sql`${table.status} IN ('new', 'confirmed', 'pickup_scheduled', 'collected', 'washing', 'drying', 'ironing_folding', 'ready_for_delivery', 'out_for_delivery', 'completed', 'cancelled')`),
+  check('laundry_bookings_amount_due_check', sql`${table.amountDue} >= 0`),
+  check('laundry_bookings_location_pair_check', sql`(${table.locationLatitude} IS NULL) = (${table.locationLongitude} IS NULL)`),
+])
+
+export const laundryBookingEvents = mysqlTable('laundry_booking_events', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  bookingId: int('booking_id').notNull().references(() => laundryBookings.id, { onDelete: 'cascade' }),
+  previousStatus: varchar('previous_status', { length: 32 }),
+  newStatus: varchar('new_status', { length: 32 }).notNull(),
+  actorType: enumText<'customer' | 'admin' | 'system'>('actor_type', 16).notNull(),
+  actorAdminUserId: int('actor_admin_user_id').references(() => adminUsers.id, { onDelete: 'set null' }),
+  note: varchar('note', { length: 500 }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [index('laundry_booking_events_booking_created_idx').on(table.bookingId, table.createdAt)])
+
+export const laundryPayments = mysqlTable('laundry_payments', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  bookingId: int('booking_id').notNull().references(() => laundryBookings.id),
+  idempotencyKey: varchar('idempotency_key', { length: 100 }).unique(),
+  amount: decimal('amount', { precision: 12, scale: 2 }).notNull(),
+  method: enumText<'cash' | 'mpesa' | 'bank_transfer' | 'other'>('method', 20).notNull(),
+  paymentDate: timestamp('payment_date').notNull(),
+  transactionReference: varchar('transaction_reference', { length: 120 }),
+  notes: varchar('notes', { length: 1000 }),
+  status: enumText<'pending' | 'confirmed' | 'reversed'>('status', 16).default('confirmed').notNull(),
+  recordedByAdminId: int('recorded_by_admin_id').notNull().references(() => adminUsers.id),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
+}, (table) => [
+  index('laundry_payments_booking_status_idx').on(table.bookingId, table.status),
+  index('laundry_payments_date_status_idx').on(table.paymentDate, table.status),
+  check('laundry_payments_amount_check', sql`${table.amount} > 0`),
+  check('laundry_payments_method_check', sql`${table.method} IN ('cash', 'mpesa', 'bank_transfer', 'other')`),
+  check('laundry_payments_status_check', sql`${table.status} IN ('pending', 'confirmed', 'reversed')`),
+])
+
+export const laundryPaymentEvents = mysqlTable('laundry_payment_events', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  paymentId: int('payment_id').notNull().references(() => laundryPayments.id),
+  bookingId: int('booking_id').notNull().references(() => laundryBookings.id),
+  actorAdminUserId: int('actor_admin_user_id').references(() => adminUsers.id, { onDelete: 'set null' }),
+  eventType: enumText<'recorded' | 'updated' | 'status_changed' | 'reversed'>('event_type', 20).notNull(),
+  before: jsonb('before').$type<Record<string, unknown> | null>(),
+  after: jsonb('after').$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [index('laundry_payment_events_payment_created_idx').on(table.paymentId, table.createdAt)])
 
 export const inventorySuppliers = mysqlTable('inventory_suppliers', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
