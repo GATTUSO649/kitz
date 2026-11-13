@@ -431,11 +431,6 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
     </header>
 
     <main className={`laundry-main laundry-page-${page}`}>
-      {page !== 'home' && <section className="laundry-page-intro">
-        <span className="section-kicker">MATRIX LAUNDRY / {page.replaceAll('-', ' ').toUpperCase()}</span>
-        <h1>{({ services: 'Care for every kind of laundry', pricing: 'Know the price before we begin', book: 'Arrange your pickup', track: 'Your order, clearly tracked', 'how-it-works': 'From your door and back again', gallery: 'A closer look at our care', about: 'Laundry care with a local touch', contact: 'We are here to help', faqs: 'Answers before laundry day' } as Record<LaundryRoutePage, string>)[page]}</h1>
-        <p>{({ services: 'Choose a service for everyday garments, delicate pieces and household linens.', pricing: 'Our current prices are not published yet. Request a quotation and our team will confirm the amount before work begins.', book: 'Enter your name and phone number, then select an admin-listed location or pin your current position.', track: 'Use your booking reference and phone number to check the latest recorded status.', 'how-it-works': 'A simple, thoughtful process from collection through cleaning and return.', gallery: 'The details that make laundry feel fresh, orderly and ready to wear.', about: 'Reliable pickup and careful garment handling for homes and professionals in Machakos.', contact: 'Ask a question, discuss a quote, or get help with an existing booking.', faqs: 'Find practical details about bookings, pickup, garment care and quotations.' } as Record<LaundryRoutePage, string>)[page]}</p>
-      </section>}
       {page === 'home' && <section className="laundry-hero">
         <div className="laundry-hero-copy">
           <span className="hero-kicker"><Sparkles size={14} /> MATRIX CLEAN SERVICE</span>
@@ -1270,7 +1265,7 @@ function MarketplaceHome() {
     <header className="marketplace-header">
       <Link to="/" className="market-brand" aria-label="MATRIX home"><SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /></Link>
       <nav aria-label="Marketplace navigation"><Link className="market-home" to="/marketplace#top"><House size={15} />Home</Link><Link to="/marketplace?featured=all#products" aria-current={!search && filters.featured === 'all' ? 'page' : undefined}>All Products</Link><Link to="/marketplace?featured=false&sort=newest#products" aria-current={filters.featured === 'false' ? 'page' : undefined}>Recently Published</Link><Link to="/marketplace?featured=true#products" aria-current={filters.featured === 'true' ? 'page' : undefined}>Featured</Link></nav>
-      <div className="market-actions"><ThemeToggle /><Link className="sell-link" to="/marketplace/seller/login">+ <span>Sell item</span></Link></div>
+      <div className="market-actions"><Link className="sell-link" to="/marketplace/seller/login">+ <span>Sell item</span></Link></div>
     </header>
     <main>
       <section className="market-hero" id="top">
