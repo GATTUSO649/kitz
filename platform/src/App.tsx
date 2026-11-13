@@ -423,9 +423,6 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
           <Link className="laundry-nav-extra" to="/laundry/faqs" onClick={() => setMenuOpen(false)}>FAQs</Link>
         </nav>
 
-        <div className="laundry-header-actions">
-          <Link className="laundry-browse-button" to="/marketplace#products">Browse listings</Link>
-        </div>
       </div>
     </header>
 
@@ -723,7 +720,6 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
           <Link to="/laundry/how-it-works">How it works</Link>
           <Link to="/laundry/faqs">FAQs</Link>
           <Link to="/privacy">Privacy statement</Link>
-          <Link to="/marketplace#products">Browse listings</Link>
         </div>
         <div>
           <h3>Services</h3>
