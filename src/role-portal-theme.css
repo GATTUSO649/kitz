@@ -940,6 +940,29 @@
   box-shadow: 8px 0 24px rgba(7, 27, 62, 0.12);
 }
 
+.role-portal-login.laundry-admin-login {
+  background: linear-gradient(145deg, #071b3e 0%, #0b2d53 58%, #123d65 100%);
+}
+
+.laundry-admin-login .role-portal-login-card {
+  border-color: rgba(215, 231, 248, 0.78);
+  border-radius: 12px;
+  box-shadow: 0 24px 64px rgba(0, 10, 28, 0.32);
+}
+
+.laundry-admin-login .role-portal-login-card .admin-kicker {
+  color: #18845d;
+}
+
+.laundry-admin-login .role-portal-button {
+  border-radius: 8px;
+  background: #145da0;
+}
+
+.laundry-admin-login .role-portal-button:hover {
+  background: #0f4e87;
+}
+
 .laundry-admin-shell .role-portal-sidebar .admin-brand {
   min-height: 54px;
   padding: 0 8px 10px;
