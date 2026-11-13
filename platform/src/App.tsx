@@ -414,11 +414,10 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
         </Link>
 
         <button className="laundry-menu-toggle" type="button" aria-expanded={menuOpen} aria-controls="laundry-navigation" onClick={() => setMenuOpen((open) => !open)}>
-          {menuOpen ? <X size={18} /> : <LayoutGrid size={18} />}<span>{menuOpen ? 'Close menu' : 'Menu'}</span>
+          <LayoutGrid size={18} /><span>{menuOpen ? 'Close menu' : 'Menu'}</span>
         </button>
         {menuOpen && <button className="laundry-menu-backdrop" type="button" aria-label="Close laundry navigation" onClick={() => setMenuOpen(false)} />}
         <nav id="laundry-navigation" className={`laundry-nav${menuOpen ? ' is-open' : ''}`} aria-label="Laundry navigation">
-          <div className="laundry-nav-heading"><button type="button" aria-label="Close menu" onClick={() => setMenuOpen(false)}><X size={20} /></button></div>
           {laundryNavigation.map((item) => <Link key={item.path} className={`laundry-nav-link${page === item.page ? ' is-active' : ''}`} to={item.path} aria-current={page === item.page ? 'page' : undefined} onClick={() => setMenuOpen(false)}>{item.label}</Link>)}
           <Link className="laundry-nav-extra" to="/laundry/how-it-works" onClick={() => setMenuOpen(false)}>How it works</Link>
           <Link className="laundry-nav-extra" to="/laundry/faqs" onClick={() => setMenuOpen(false)}>FAQs</Link>
