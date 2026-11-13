@@ -418,7 +418,7 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
         </button>
         {menuOpen && <button className="laundry-menu-backdrop" type="button" aria-label="Close laundry navigation" onClick={() => setMenuOpen(false)} />}
         <nav id="laundry-navigation" className={`laundry-nav${menuOpen ? ' is-open' : ''}`} aria-label="Laundry navigation">
-          <div className="laundry-nav-heading"><span>LAUNDRY MENU</span><button type="button" aria-label="Close menu" onClick={() => setMenuOpen(false)}><X size={20} /></button></div>
+          <div className="laundry-nav-heading"><button type="button" aria-label="Close menu" onClick={() => setMenuOpen(false)}><X size={20} /></button></div>
           {laundryNavigation.map((item) => <Link key={item.path} className={`laundry-nav-link${page === item.page ? ' is-active' : ''}`} to={item.path} aria-current={page === item.page ? 'page' : undefined} onClick={() => setMenuOpen(false)}>{item.label}</Link>)}
           <Link className="laundry-nav-extra" to="/laundry/how-it-works" onClick={() => setMenuOpen(false)}>How it works</Link>
           <Link className="laundry-nav-extra" to="/laundry/faqs" onClick={() => setMenuOpen(false)}>FAQs</Link>
