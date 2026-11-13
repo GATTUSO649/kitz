@@ -2391,11 +2391,16 @@ details.faq-card {
   padding: 28px clamp(26px, 6vw, 86px);
 }
 
+.laundry-page-home .laundry-hero-copy .hero-kicker {
+  color: #f5b526;
+}
+
 .laundry-page-home .laundry-hero-copy h1 {
   max-width: 630px;
   font-size: clamp(1.9rem, 3.4vw, 2.8rem);
   line-height: 1;
   letter-spacing: 0;
+  color: #fff;
 }
 
 .laundry-page-home .laundry-hero-copy p {
@@ -2403,6 +2408,7 @@ details.faq-card {
   margin-top: 10px;
   font-size: .92rem;
   line-height: 1.5;
+  color: rgba(245, 249, 255, 0.9);
 }
 
 .laundry-page-home .laundry-hero-media {
@@ -2467,6 +2473,7 @@ details.faq-card {
 
 .laundry-page-home .laundry-hero-meta span {
   font-size: .82rem;
+  color: #f4f8ff;
 }
 
 .laundry-page-home .laundry-hero-actions {
