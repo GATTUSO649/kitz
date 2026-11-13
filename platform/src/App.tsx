@@ -1,4 +1,4 @@
-import { ArrowRight, BadgeCheck, CalendarDays, CheckCircle2, CircleHelp, Clock3, Compass, House, LayoutGrid, List as ListIcon, LoaderCircle, Mail, MapPin, Moon, PackageCheck, Phone, Search, ShieldCheck, ShoppingBag, Shirt, SlidersHorizontal, Sparkles, Sun, Truck, X, Zap } from 'lucide-react'
+import { ArrowRight, BadgeCheck, CalendarDays, CheckCircle2, CircleHelp, Clock3, Compass, House, LayoutGrid, List as ListIcon, LoaderCircle, Mail, MapPin, PackageCheck, Phone, Search, ShieldCheck, ShoppingBag, Shirt, SlidersHorizontal, Sparkles, Truck, X, Zap } from 'lucide-react'
 import { FaFacebookF, FaWhatsapp, FaXTwitter, FaYoutube } from 'react-icons/fa6'
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -12,7 +12,6 @@ const kitzOrigin = import.meta.env.VITE_KITZ_ORIGIN || 'https://kitz.onrender.co
 const matrixIntroStorageKey = 'matrix-intro-seen'
 const laundrySettingsStorageKey = 'laundry-page-settings'
 const laundryBookingsStorageKey = 'laundry-bookings'
-const themeStorageKey = 'markethub-theme'
 const formatKes = (value: number) => `KSh ${new Intl.NumberFormat('en-KE').format(value)}`
 const normalizeWhatsAppNumber = (value: string) => {
   const digits = value.replace(/\D/g, '')
@@ -110,20 +109,6 @@ function writeStoredValue<T>(key: string, value: T) {
   } catch {
     // storage may be disabled
   }
-}
-
-function ThemeToggle() {
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => readStoredValue(themeStorageKey, 'light'))
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
-    writeStoredValue(themeStorageKey, theme)
-  }, [theme])
-
-  return <button type="button" className="theme-toggle" onClick={() => setTheme((current) => current === 'light' ? 'dark' : 'light')} aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}>
-    {theme === 'light' ? <Moon size={14} /> : <Sun size={14} />}
-    <span>{theme === 'light' ? 'Dark' : 'Light'}</span>
-  </button>
 }
 
 function safeSocialProfile(value: string, hosts: string[]): string | null {
@@ -440,7 +425,6 @@ function LaundryPage({ page }: { page: LaundryRoutePage }) {
         </nav>
 
         <div className="laundry-header-actions">
-          <ThemeToggle />
           <Link className="laundry-browse-button" to="/marketplace#products">Browse listings</Link>
         </div>
       </div>
