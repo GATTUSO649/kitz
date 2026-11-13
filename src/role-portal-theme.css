@@ -934,10 +934,10 @@
 .laundry-admin-shell .role-portal-sidebar {
   z-index: 2;
   gap: 16px;
-  border-right: 1px solid var(--laundry-line);
-  background: #fff;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  background: #071b3e;
   padding: 22px 16px 16px;
-  box-shadow: 8px 0 24px rgba(28, 54, 75, 0.035);
+  box-shadow: 8px 0 24px rgba(7, 27, 62, 0.12);
 }
 
 .laundry-admin-shell .role-portal-sidebar .admin-brand {
@@ -948,8 +948,8 @@
 .laundry-admin-shell .role-portal-sidebar > strong {
   margin: 0;
   padding: 13px 10px 4px;
-  border-top: 1px solid #e8eef3;
-  color: #60758a;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  color: #b7c8dc;
   font-size: 10px;
   letter-spacing: 0;
   text-transform: uppercase;
@@ -966,7 +966,7 @@
   border: 1px solid transparent;
   border-radius: 9px;
   padding: 0 12px;
-  color: #3e566c;
+  color: #d3deeb;
   font-size: 12px;
   font-weight: 600;
   text-decoration: none;
@@ -974,31 +974,31 @@
 }
 
 .laundry-admin-shell .role-portal-sidebar nav a:hover {
-  border-color: #e1ebf3;
-  background: #f7fafc;
-  color: var(--laundry-blue);
+  border-color: rgba(167, 202, 242, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
 }
 
 .laundry-admin-shell .role-portal-sidebar nav a.active {
-  border-color: #d5e6f5;
-  background: var(--laundry-blue-light);
-  color: var(--laundry-blue);
+  border-color: rgba(143, 190, 245, 0.28);
+  background: rgba(45, 114, 190, 0.32);
+  color: #fff;
   font-weight: 700;
 }
 
 .laundry-admin-shell .role-portal-signout {
   min-height: 40px;
-  border: 1px solid #dce6ef;
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 9px;
-  background: #fff;
-  color: #40586e;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e6eef8;
   font-size: 11px;
   font-weight: 700;
 }
 
 .laundry-admin-shell .role-portal-signout:hover {
-  border-color: #c8d8e6;
-  background: #f7fafc;
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .laundry-admin-shell .laundry-portal-main {
