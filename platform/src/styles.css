@@ -1166,6 +1166,7 @@ details.faq-card {
 .laundry-footer-brand p {
   max-width: 420px;
   margin: 0;
+  color: rgba(231, 241, 245, 0.9);
   line-height: 1.7;
 }
 
