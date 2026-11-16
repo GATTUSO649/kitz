@@ -1,27 +1,29 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lt, lte, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gt, gte, ilike, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm'
 import { Router, type NextFunction, type Request, type Response } from 'express'
 import { z } from 'zod'
 import { createAccountRateLimiter } from '../../security/distributed-rate-limit.js'
-import { adminDb, adminPool, pool } from '../../config/database.js'
+import { adminDb, adminPool, db, pool } from '../../config/database.js'
 import { inspectDatabaseError } from '../../config/database-diagnostics.js'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { verifyPassword } from '../../config/password-policy.js'
 import { nextSessionExpiry, operationsSessionAbsoluteLifetimeMs, operationsSessionIdleTimeoutMs } from '../../config/session-policy.js'
-import { adminUsers, monitoringAlerts, monitoringDetectionRules, monitoringEvents, monitoringWorkerState, operationsAuditEvents, operationsIncidentEvents, operationsIncidents, operationsSessions, operationsUsers } from '../../database/admin-schema.js'
+import { adminSessions, adminUsers, monitoringAlerts, monitoringDetectionRules, monitoringEvents, monitoringWorkerState, operationsAuditEvents, operationsIncidentEvents, operationsIncidents, operationsOperators, operationsSessions, operationsUsers, securityScanSchedules } from '../../database/admin-schema.js'
 import { getTelemetryQueueState } from './telemetry-store.js'
 import { cancelSecurityScan, dependencyScannerAvailability, getSecurityOverview, getSecurityScan, listSecurityFindings, listSecurityScans, startSecurityScan, updateSecurityFinding, type ScannerModule } from '../security/scanner-engine.js'
 import { getRequestMetrics } from '../../middleware/request-metrics.js'
 import { loadPersistedSecurityScans, persistSecurityScan } from '../security/scanner-persistence.js'
+import { dependencyScanScheduleId, nextDailyRunAt } from '../security/scheduled-scanner.js'
 import { summarizeDatabaseAggregates } from './database-performance.js'
 import { hasItPermission, hasOperationsRoutePermission, itPermissions, type ItPermission } from '../admin/it-access.js'
 import { itAccessRoles, type ItAccessRole } from '../../database/admin-schema.js'
+import { orders, payments } from '../../database/schema.js'
 
 export const operationsRouter = Router()
 const operationsCookieName = 'kc_ops_session'
 const operationsLoginLimiter = createAccountRateLimiter('operations.login.account', { windowMs: 15 * 60_000, limit: 8 }, (request) => request.body?.email)
 
-type OperationsUser = { id: number; email: string; fullName: string; role: ItAccessRole }
+type OperationsUser = { id: number; email: string; fullName: string; role: ItAccessRole; adminUserId?: number }
 type OperationsRequest = Request & { operationsUser?: OperationsUser }
 
 function hashOperationsToken(token: string) {
@@ -124,6 +126,8 @@ const authenticateOperations = async (request: Request, response: Response, next
     const [session] = await adminDb.select({
       id: operationsSessions.id,
       operationsUserId: operationsSessions.operationsUserId,
+      adminUserId: operationsSessions.adminUserId,
+      adminSessionId: operationsSessions.adminSessionId,
       createdAt: operationsSessions.createdAt,
       expiresAt: operationsSessions.expiresAt,
     }).from(operationsSessions)
@@ -135,14 +139,6 @@ const authenticateOperations = async (request: Request, response: Response, next
       response.status(401).json({ error: { code: 'OPERATIONS_UNAUTHENTICATED', message: 'Operations sign in is required.' } })
       return
     }
-    const [user] = await adminDb.select({ id: operationsUsers.id, email: operationsUsers.email, fullName: operationsUsers.fullName, role: operationsUsers.role, disabledAt: operationsUsers.disabledAt })
-      .from(operationsUsers).where(eq(operationsUsers.id, session.operationsUserId)).limit(1)
-    if (!user || user.disabledAt) {
-      await adminDb.delete(operationsSessions).where(eq(operationsSessions.id, session.id))
-      clearOperationsCookie(response)
-      response.status(401).json({ error: { code: 'OPERATIONS_UNAUTHENTICATED', message: 'Operations sign in is required.' } })
-      return
-    }
     const expiry = nextSessionExpiry(session.createdAt, now, operationsSessionIdleTimeoutMs, operationsSessionAbsoluteLifetimeMs)
     if (!expiry) {
       await adminDb.delete(operationsSessions).where(eq(operationsSessions.id, session.id))
@@ -150,8 +146,58 @@ const authenticateOperations = async (request: Request, response: Response, next
       response.status(401).json({ error: { code: 'OPERATIONS_UNAUTHENTICATED', message: 'Operations sign in is required.' } })
       return
     }
-    ;(request as OperationsRequest).operationsUser = { id: user.id, email: user.email, fullName: user.fullName, role: user.role }
-    next()
+
+    if (session.adminUserId === null && session.adminSessionId === null && session.operationsUserId !== null) {
+      const [user] = await adminDb.select({ id: operationsUsers.id, email: operationsUsers.email, fullName: operationsUsers.fullName, role: operationsUsers.role, disabledAt: operationsUsers.disabledAt })
+        .from(operationsUsers).where(eq(operationsUsers.id, session.operationsUserId)).limit(1)
+      if (!user || user.disabledAt) {
+        await adminDb.delete(operationsSessions).where(eq(operationsSessions.id, session.id))
+        clearOperationsCookie(response)
+        response.status(401).json({ error: { code: 'OPERATIONS_UNAUTHENTICATED', message: 'Operations sign in is required.' } })
+        return
+      }
+      ;(request as OperationsRequest).operationsUser = { id: user.id, email: user.email, fullName: user.fullName, role: user.role }
+      next()
+      return
+    }
+
+    if (session.adminUserId !== null && session.adminSessionId !== null) {
+      const [identity] = await adminDb.select({
+        id: operationsUsers.id,
+        adminUserId: adminUsers.id,
+        email: operationsUsers.email,
+        fullName: operationsUsers.fullName,
+        status: adminUsers.status,
+        role: operationsOperators.role,
+      }).from(adminSessions)
+        .innerJoin(adminUsers, eq(adminUsers.id, adminSessions.adminUserId))
+        .innerJoin(operationsOperators, and(eq(operationsOperators.adminUserId, adminUsers.id), isNull(operationsOperators.revokedAt)))
+        .innerJoin(operationsUsers, and(eq(operationsUsers.adminUserId, adminUsers.id), isNull(operationsUsers.disabledAt)))
+        .where(and(
+          eq(adminSessions.id, session.adminSessionId),
+          eq(adminUsers.id, session.adminUserId),
+          eq(operationsUsers.id, session.operationsUserId!),
+          gt(adminSessions.expiresAt, now),
+        )).limit(1)
+      if (identity && identity.status !== 'disabled' && identity.status !== 'suspended'
+        && (identity.role === 'chief_security_operator' || identity.role === 'super_admin')) {
+        ;(request as OperationsRequest).operationsUser = { id: identity.id, adminUserId: identity.adminUserId, email: identity.email, fullName: identity.fullName, role: identity.role }
+        next()
+        return
+      }
+      await adminDb.delete(operationsSessions).where(eq(operationsSessions.id, session.id))
+      await adminDb.insert(operationsAuditEvents).values({
+        actorAdminUserId: session.adminUserId,
+        actorType: 'admin',
+        action: 'operations.session.authorization_denied',
+        targetType: 'operations_session',
+        targetId: String(session.id),
+      })
+    } else {
+      await adminDb.delete(operationsSessions).where(eq(operationsSessions.id, session.id))
+    }
+    clearOperationsCookie(response)
+    response.status(401).json({ error: { code: 'OPERATIONS_UNAUTHENTICATED', message: 'Operations authorization is no longer active.' } })
   } catch (error) {
     next(error)
   }
@@ -173,10 +219,10 @@ operationsRouter.post('/login', operationsLoginLimiter, async (request, response
   if (!adminDb) return operationsUnavailable(response)
   const input = loginSchema.safeParse(request.body)
   if (!input.success) return response.status(400).json({ error: { code: 'INVALID_OPERATIONS_LOGIN', message: 'Enter a valid operations email and password.' } })
-  const [user] = await adminDb.select({ id: operationsUsers.id, email: operationsUsers.email, fullName: operationsUsers.fullName, role: operationsUsers.role, passwordHash: operationsUsers.passwordHash, disabledAt: operationsUsers.disabledAt })
+  const [user] = await adminDb.select({ id: operationsUsers.id, email: operationsUsers.email, fullName: operationsUsers.fullName, role: operationsUsers.role, passwordHash: operationsUsers.passwordHash, adminUserId: operationsUsers.adminUserId, disabledAt: operationsUsers.disabledAt })
     .from(operationsUsers).where(eq(operationsUsers.email, input.data.email)).limit(1)
-  const passwordMatches = await verifyPassword(input.data.password, user?.passwordHash)
-  if (!user || user.disabledAt || !passwordMatches) {
+  const passwordMatches = await verifyPassword(input.data.password, user?.passwordHash ?? undefined)
+  if (!user || user.adminUserId !== null || user.disabledAt || !passwordMatches) {
     response.status(401).json({ error: { code: 'INVALID_OPERATIONS_CREDENTIALS', message: 'The operations email or password is incorrect.' } })
     return
   }
@@ -226,9 +272,18 @@ operationsRouter.post('/session/activity', authenticateOperations, async (reques
     return
   }
   const now = new Date()
-  const [session] = await adminDb.select({ id: operationsSessions.id, createdAt: operationsSessions.createdAt, expiresAt: operationsSessions.expiresAt })
+  const [session] = await adminDb.select({ id: operationsSessions.id, adminSessionId: operationsSessions.adminSessionId, createdAt: operationsSessions.createdAt, expiresAt: operationsSessions.expiresAt })
     .from(operationsSessions).where(and(eq(operationsSessions.tokenHash, hashOperationsToken(token)), gt(operationsSessions.expiresAt, now))).limit(1)
-  const expiry = session ? nextSessionExpiry(session.createdAt, now, operationsSessionIdleTimeoutMs, operationsSessionAbsoluteLifetimeMs) : null
+  const sessionExpiry = session ? nextSessionExpiry(session.createdAt, now, operationsSessionIdleTimeoutMs, operationsSessionAbsoluteLifetimeMs) : null
+  let sourceExpiry: Date | null = null
+  if (session?.adminSessionId !== null && session?.adminSessionId !== undefined) {
+    const [sourceSession] = await adminDb.select({ expiresAt: adminSessions.expiresAt }).from(adminSessions)
+      .where(and(eq(adminSessions.id, session.adminSessionId), gt(adminSessions.expiresAt, now))).limit(1)
+    sourceExpiry = sourceSession?.expiresAt ?? null
+  }
+  const expiry = sessionExpiry && (session.adminSessionId === null || sourceExpiry)
+    ? sourceExpiry && sourceExpiry < sessionExpiry ? sourceExpiry : sessionExpiry
+    : null
   if (!session || !expiry) {
     if (session) await adminDb.delete(operationsSessions).where(eq(operationsSessions.id, session.id))
     clearOperationsCookie(response)
@@ -293,6 +348,7 @@ operationsRouter.get('/operators', async (request, response) => {
 
 const roleDescriptions: Record<ItAccessRole, string> = {
   super_admin: 'Full IT operations access and role administration.',
+  chief_security_operator: 'Security operations, investigations, vulnerability scans, infrastructure visibility, and audit review without role administration.',
   security_analyst: 'Security monitoring, incidents, audit review, and scanner operations.',
   it_support: 'Operations, incidents, and incident workflow access.',
   database_admin: 'Database operations plus incidents and audit review.',
@@ -325,9 +381,10 @@ operationsRouter.patch('/permissions/users/:id/role', async (request, response) 
   const result = await adminDb.transaction(async (transaction) => {
     const [grantor] = await transaction.select({ role: operationsUsers.role }).from(operationsUsers).where(eq(operationsUsers.id, actor.id)).for('update').limit(1)
     if (grantor?.role !== 'super_admin') return { status: 403 as const, code: 'OPERATIONS_PERMISSION_REQUIRED', message: 'Only an IT super-admin can manage roles.' }
-    const [target] = await transaction.select({ id: operationsUsers.id, fullName: operationsUsers.fullName, role: operationsUsers.role }).from(operationsUsers)
+    const [target] = await transaction.select({ id: operationsUsers.id, fullName: operationsUsers.fullName, role: operationsUsers.role, adminUserId: operationsUsers.adminUserId }).from(operationsUsers)
       .where(and(eq(operationsUsers.id, input.data.userId), isNull(operationsUsers.disabledAt))).for('update').limit(1)
     if (!target) return { status: 404 as const, code: 'OPERATIONS_USER_NOT_FOUND', message: 'Active operations user not found.' }
+    if (target.adminUserId !== null) return { status: 409 as const, code: 'CENTRAL_ROLE_MANAGED', message: 'This linked identity is managed by central IT role assignment.' }
     if (target.role === 'super_admin' && input.data.role !== 'super_admin') {
       const [{ total }] = await transaction.select({ total: count() }).from(operationsUsers).where(and(eq(operationsUsers.role, 'super_admin'), isNull(operationsUsers.disabledAt)))
       if (Number(total) <= 1) return { status: 409 as const, code: 'LAST_OPERATIONS_SUPER_ADMIN', message: 'The last operations super-admin cannot be changed.' }
@@ -881,6 +938,54 @@ operationsRouter.get('/overview', async (request, response) => {
   } })
 })
 
+const operationsPaymentQuery = z.object({
+  application: z.enum(['KITZ', 'MARKETHUB']).default('KITZ'),
+  status: z.enum(['initiated', 'pending', 'succeeded', 'failed', 'cancelled', 'expired', 'requires_review', 'refunded']).optional(),
+  search: z.string().trim().min(1).max(80).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+  cursor: z.coerce.number().int().positive().optional(),
+}).strict()
+
+operationsRouter.get('/payments', async (request, response) => {
+  const query = operationsPaymentQuery.safeParse(request.query)
+  if (!query.success) return response.status(400).json({ error: { code: 'INVALID_PAYMENT_QUERY', message: 'Payment filters are invalid.' } })
+  if (query.data.application !== 'KITZ') return response.status(409).json({ error: { code: 'PAYMENT_APPLICATION_UNAVAILABLE', message: 'MarketHub payment records are not connected to this Operations service.' } })
+  if (!db) return response.status(503).json({ error: { code: 'PAYMENT_DATABASE_UNAVAILABLE', message: 'Kitz payment records are unavailable.' } })
+  const rows = await db.select({
+    id: payments.id,
+    orderReference: orders.orderNumber,
+    provider: payments.provider,
+    providerRequestId: payments.providerRequestId,
+    merchantRequestId: payments.merchantRequestId,
+    providerReceipt: payments.providerReceipt,
+    amount: payments.amount,
+    status: payments.status,
+    providerResultCode: payments.providerResultCode,
+    createdAt: payments.createdAt,
+    updatedAt: payments.updatedAt,
+    transactionAt: payments.transactionAt,
+  }).from(payments).innerJoin(orders, eq(payments.orderId, orders.id)).where(and(
+    eq(payments.applicationId, 'KITZ'),
+    query.data.status ? eq(payments.status, query.data.status) : undefined,
+    query.data.cursor ? lt(payments.id, query.data.cursor) : undefined,
+    query.data.search ? or(
+      ilike(orders.orderNumber, `%${query.data.search}%`),
+      ilike(payments.providerRequestId, `%${query.data.search}%`),
+      ilike(payments.merchantRequestId, `%${query.data.search}%`),
+      ilike(payments.providerReceipt, `%${query.data.search}%`),
+    ) : undefined,
+  )).orderBy(desc(payments.id)).limit(query.data.limit + 1)
+  const hasMore = rows.length > query.data.limit
+  const records = rows.slice(0, query.data.limit)
+  response.setHeader('Cache-Control', 'no-store')
+  response.json({ data: {
+    application: 'KITZ',
+    records,
+    pagination: { nextCursor: hasMore ? records.at(-1)?.id ?? null : null, hasMore },
+    limitations: ['Provider callback payloads and payer phone numbers are not exposed by this endpoint.', 'MarketHub uses an isolated database and is not connected here.'],
+  } })
+})
+
 const incidentListQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(25),
   cursor: z.coerce.number().int().positive().optional(),
@@ -1247,4 +1352,57 @@ operationsRouter.use((error: unknown, request: Request, response: Response, next
     message: failure.message,
     requestId: String(request.id),
   } })
+})
+
+operationsRouter.get('/security/schedule', async (_request, response) => {
+  if (!adminDb) return operationsUnavailable(response, String(_request.id))
+  const [schedule] = await adminDb.select({
+    enabled: securityScanSchedules.enabled,
+    cronExpression: securityScanSchedules.cronExpression,
+    nextRunAt: securityScanSchedules.nextRunAt,
+    lastRunAt: securityScanSchedules.lastRunAt,
+  }).from(securityScanSchedules).where(eq(securityScanSchedules.scheduleId, dependencyScanScheduleId)).limit(1)
+  const dailyAt = schedule?.cronExpression.match(/^daily@(\d{2}:\d{2})Z$/)?.[1] ?? '02:00'
+  response.json({ data: {
+    enabled: schedule?.enabled ?? false,
+    dailyAt,
+    nextRunAt: schedule?.nextRunAt?.toISOString() ?? null,
+    lastRunAt: schedule?.lastRunAt?.toISOString() ?? null,
+    worker: 'dependency-scanner',
+  } })
+})
+
+const securityScheduleSchema = z.object({ enabled: z.boolean(), dailyAt: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/) }).strict()
+operationsRouter.put('/security/schedule', async (request, response) => {
+  const actor = await requireSecurityAction(request, response, 'dependencies.manage')
+  if (!actor) return
+  const input = securityScheduleSchema.safeParse(request.body)
+  if (!input.success) return response.status(400).json({ error: { code: 'INVALID_SECURITY_SCHEDULE', message: 'Provide a valid UTC time for the daily dependency scan.' } })
+  if (!adminDb) return operationsUnavailable(response, String(request.id))
+  const expression = `daily@${input.data.dailyAt}Z`
+  const now = new Date()
+  const nextRunAt = input.data.enabled ? nextDailyRunAt(expression, now) : null
+  const schedule = await adminDb.transaction(async (transaction) => {
+    const [saved] = await transaction.insert(securityScanSchedules).values({
+      scheduleId: dependencyScanScheduleId,
+      enabled: input.data.enabled,
+      scope: 'dependency',
+      cronExpression: expression,
+      nextRunAt,
+      updatedAt: now,
+    }).onConflictDoUpdate({
+      target: securityScanSchedules.scheduleId,
+      set: { enabled: input.data.enabled, scope: 'dependency', cronExpression: expression, nextRunAt, updatedAt: now },
+    }).returning({ enabled: securityScanSchedules.enabled, nextRunAt: securityScanSchedules.nextRunAt })
+    await transaction.insert(operationsAuditEvents).values({
+      actorOperationsUserId: actor.id,
+      actorType: 'operations_user',
+      action: input.data.enabled ? 'security.dependency_scan.scheduled' : 'security.dependency_scan.schedule_disabled',
+      targetType: 'security_scan_schedule',
+      targetId: dependencyScanScheduleId,
+      details: JSON.stringify({ dailyAt: input.data.dailyAt, enabled: input.data.enabled }),
+    })
+    return saved
+  })
+  response.json({ data: { enabled: schedule.enabled, dailyAt: input.data.dailyAt, nextRunAt: schedule.nextRunAt?.toISOString() ?? null } })
 })

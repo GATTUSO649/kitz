@@ -1,11 +1,12 @@
-import { randomBytes } from 'node:crypto'
-import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, sql, sum } from 'drizzle-orm'
+import { createHash, randomBytes } from 'node:crypto'
+import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, sql, sum } from 'drizzle-orm'
 import { Router } from 'express'
 import express from 'express'
 import { z } from 'zod'
 import { adminDb, adminPool, db, pool } from '../../config/database.js'
-import { isAllowedClientOrigin } from '../../config/env.js'
-import { adminAuditLogs, adminUsers, itAccessRoles, operationsAuditEvents, operationsIncidentEvents, operationsIncidents, operationsOperators, operationsUsers } from '../../database/admin-schema.js'
+import { env, isAllowedClientOrigin } from '../../config/env.js'
+import { adminAuditLogs, adminSessions, adminUsers, itAccessRoles, operationsAuditEvents, operationsIncidentEvents, operationsIncidents, operationsOperators, operationsSessions, operationsUsers } from '../../database/admin-schema.js'
+import { nextSessionExpiry, operationsSessionAbsoluteLifetimeMs, operationsSessionIdleTimeoutMs } from '../../config/session-policy.js'
 import { logger } from '../../config/logger.js'
 import { applicationSettings, categories, deliveryZones, expenseCategories, expenses, homepageSlides, inventoryMovements, jerseyCategories, leagues, notificationCampaigns, notificationRecipients, orderItems, orders, payments, productImages, productVariants, productVideos, products, supportMessages, supportRequests, teams, users } from '../../database/schema.js'
 import { authenticateAdmin, authenticatedAdmin } from '../../middleware/authenticate.js'
@@ -15,7 +16,7 @@ import { deleteProductImage, ImageStorageError, uploadBrandLogoImage, uploadHome
 import { isSiteImageUrl, siteImageSlotKeys } from '../site-images.js'
 import { isSiteContentField, siteContentSchema } from '../site-content.js'
 import { buildAdminDashboardReport, reportPeriods, resolveOptionalDateRange, resolveReportingRange } from './reporting.js'
-import { hasItPermission, itPermissions, type ItPermission } from './it-access.js'
+import { canUseOperationsIdentityBridge, hasItPermission, itPermissions, type ItPermission } from './it-access.js'
 import { getRequestMetrics } from '../../middleware/request-metrics.js'
 import { loadAdministratorPermissions, isAdministratorRole } from './permissions.js'
 import { administratorPermissionsForRoute, hasAnyPermission, hasDedicatedAdministratorGuard, projectDashboardForRole } from './permission-routes.js'
@@ -1464,6 +1465,109 @@ async function requireItPermission(request: import('express').Request, response:
   }
   return grant.role
 }
+
+const operationsBridgeTokenHash = (token: string) => createHash('sha256').update(token).digest('hex')
+
+adminRouter.post('/it/operations-session', async (request, response) => {
+  const actor = authenticatedAdmin(request)
+  if (!actor || !adminDb) return response.status(503).json({ error: { code: 'IT_ACCESS_UNAVAILABLE', message: 'IT access is unavailable.' } })
+
+  const token = randomBytes(32).toString('base64url')
+  const now = new Date()
+  const result = await adminDb.transaction(async (transaction) => {
+    const [source] = await transaction.select({
+      sessionId: adminSessions.id,
+      expiresAt: adminSessions.expiresAt,
+      adminId: adminUsers.id,
+      email: adminUsers.email,
+      fullName: adminUsers.fullName,
+      status: adminUsers.status,
+      emailVerifiedAt: adminUsers.emailVerifiedAt,
+    }).from(adminSessions).innerJoin(adminUsers, eq(adminUsers.id, adminSessions.adminUserId))
+      .where(and(
+        eq(adminSessions.id, actor.sessionId),
+        eq(adminUsers.id, actor.id),
+        gt(adminSessions.expiresAt, now),
+      )).limit(1).for('update')
+
+    const [grant] = source ? await transaction.select({ role: operationsOperators.role }).from(operationsOperators)
+      .where(and(eq(operationsOperators.adminUserId, actor.id), isNull(operationsOperators.revokedAt))).limit(1).for('update') : []
+    const authorized = canUseOperationsIdentityBridge(grant?.role ?? null, source?.status ?? '', source?.emailVerifiedAt !== null && source?.emailVerifiedAt !== undefined)
+    if (!source || !authorized || !grant?.role) {
+      await transaction.insert(operationsAuditEvents).values({
+        actorAdminUserId: actor.id,
+        actorType: 'admin',
+        action: 'operations.session.authorization_denied',
+        targetType: 'admin_user',
+        targetId: String(actor.id),
+        details: JSON.stringify({ reason: !source ? 'source_session_unavailable' : 'active_security_grant_required' }),
+      })
+      await transaction.insert(adminAuditLogs).values({ adminUserId: actor.id, action: 'operations.session.authorization_denied', targetType: 'admin_user', targetId: String(actor.id) })
+      return { status: 403 as const, code: 'IT_PERMISSION_REQUIRED' as const }
+    }
+
+    const [existing] = await transaction.select({
+      id: operationsUsers.id,
+      adminUserId: operationsUsers.adminUserId,
+      disabledAt: operationsUsers.disabledAt,
+    }).from(operationsUsers).where(eq(operationsUsers.email, source.email)).limit(1).for('update')
+    if (existing && (existing.adminUserId !== actor.id || existing.disabledAt)) {
+      await transaction.insert(operationsAuditEvents).values({
+        actorAdminUserId: actor.id,
+        actorType: 'admin',
+        action: 'operations.session.identity_conflict',
+        targetType: 'admin_user',
+        targetId: String(actor.id),
+      })
+      await transaction.insert(adminAuditLogs).values({ adminUserId: actor.id, action: 'operations.session.identity_conflict', targetType: 'admin_user', targetId: String(actor.id) })
+      return { status: 409 as const, code: 'OPERATIONS_IDENTITY_CONFLICT' as const }
+    }
+
+    const [operationsUser] = existing
+      ? await transaction.update(operationsUsers).set({ fullName: source.fullName, role: grant.role })
+        .where(eq(operationsUsers.id, existing.id)).returning({ id: operationsUsers.id })
+      : await transaction.insert(operationsUsers).values({
+        email: source.email,
+        passwordHash: null,
+        adminUserId: actor.id,
+        fullName: source.fullName,
+        role: grant.role,
+      }).returning({ id: operationsUsers.id })
+
+    const operationsExpiry = nextSessionExpiry(now, now, operationsSessionIdleTimeoutMs, operationsSessionAbsoluteLifetimeMs)!
+    const expiresAt = operationsExpiry < source.expiresAt ? operationsExpiry : source.expiresAt
+    await transaction.delete(operationsSessions).where(eq(operationsSessions.adminSessionId, source.sessionId))
+    await transaction.insert(operationsSessions).values({
+      operationsUserId: operationsUser.id,
+      adminUserId: actor.id,
+      adminSessionId: source.sessionId,
+      tokenHash: operationsBridgeTokenHash(token),
+      createdAt: now,
+      expiresAt,
+    })
+    await transaction.insert(operationsAuditEvents).values({
+      actorAdminUserId: actor.id,
+      actorType: 'admin',
+      action: 'operations.session.issued',
+      targetType: 'operations_session',
+      targetId: String(operationsUser.id),
+      details: JSON.stringify({ role: grant.role, expiresAt: expiresAt.toISOString() }),
+    })
+    await transaction.insert(adminAuditLogs).values({ adminUserId: actor.id, action: 'operations.session.issued', targetType: 'operations_session', targetId: String(operationsUser.id) })
+    return { status: 200 as const, operationsUserId: operationsUser.id, email: source.email, fullName: source.fullName, role: grant.role, expiresAt }
+  })
+
+  if (result.status !== 200) return response.status(result.status).json({ error: { code: result.code, message: result.status === 409 ? 'A separate Operations account already uses this email. Resolve the identity conflict before linking.' : 'An active Chief Security Operator authorization is required.' } })
+  response.cookie('kc_ops_session', token, {
+    httpOnly: true,
+    secure: env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/api/v1/operations',
+    maxAge: Math.max(0, result.expiresAt.getTime() - now.getTime()),
+  })
+  response.setHeader('Cache-Control', 'no-store')
+  response.json({ data: { user: { id: result.operationsUserId, email: result.email, fullName: result.fullName, role: result.role } } })
+})
 
 async function probeItDatabase(database: typeof pool, name: string) {
   if (!database) return { name, status: 'unavailable' as const, latencyMs: null }

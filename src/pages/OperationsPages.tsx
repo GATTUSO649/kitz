@@ -88,7 +88,8 @@ type Incident = {
 type IncidentEvent = { id: number; eventType: string; message: string; createdAt: string; actorName: string }
 type OperationsAudit = { id: number; actorType: string; actorName: string | null; action: string; targetType: string; targetId: string; details: string | null; createdAt: string }
 type OperationsUser = { id: number; email?: string; fullName: string; role?: ItAccessRole; disabledAt?: string | null; lastLoginAt?: string | null }
-type ItAccessRole = 'super_admin' | 'security_analyst' | 'it_support' | 'database_admin' | 'infrastructure_admin' | 'viewer'
+type ItAccessRole = 'super_admin' | 'chief_security_operator' | 'security_analyst' | 'it_support' | 'database_admin' | 'infrastructure_admin' | 'viewer'
+type OperationsMe = { user: { id: number; role: ItAccessRole } | null }
 type RolePermissionDefinition = { role: ItAccessRole; description: string; permissions: string[] }
 type OperationsPermissions = { roles: RolePermissionDefinition[]; permissions: string[]; users: OperationsUser[] }
 type MonitoringRule = { ruleId: string; name: string; description: string; condition: string; threshold: number; windowSeconds: number; severity: string; cooldownSeconds: number; enabled: boolean; recommendedResponse: string }
@@ -102,6 +103,9 @@ type SecurityOverview = { findings: number; severityCounts: Record<'CRITICAL' | 
 type SecurityFinding = { id: string; scanner: string; title: string; description: string; severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFORMATIONAL' | null; affectedComponent: string; affectedFile: string; evidence: Record<string, unknown>; remediation: string; lifecycleStatus?: string }
 type SecurityScanner = { scanner: string; status: string; coverage: string; source: string }
 type SecurityScan = { id: string; status: string; scope: string[]; modules: { module: string; status: string; findingCount: number; unsupportedReason?: string }[]; findings: SecurityFinding[]; summary: Record<string, string | number | boolean | null>; startedAt: string; completedAt?: string }
+type SecuritySchedule = { enabled: boolean; dailyAt: string; nextRunAt: string | null; lastRunAt: string | null; worker: string }
+type OperationsPayment = { id: number; orderReference: string; provider: string; providerRequestId: string | null; merchantRequestId: string | null; providerReceipt: string | null; amount: string; status: string; providerResultCode: string | null; createdAt: string; updatedAt: string; transactionAt: string | null }
+type OperationsPayments = { application: 'KITZ'; records: OperationsPayment[]; pagination: { nextCursor: number | null; hasMore: boolean }; limitations: string[] }
 type ModuleKey =
   | 'overview'
   | 'traffic'
@@ -477,10 +481,18 @@ function OperationsConsole() {
   const [securityActionBusy, setSecurityActionBusy] = useState(false)
   const [permissionsError, setPermissionsError] = useState('')
   const [permissionsBusy, setPermissionsBusy] = useState(false)
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState('')
+  const [paymentSearch, setPaymentSearch] = useState('')
 
   const permissionsQuery = useQuery({
     queryKey: ['operations', 'permissions'],
     queryFn: async () => (await operationsApi<OperationsPermissions>('/api/v1/operations/permissions')).data!,
+    retry: false,
+  })
+
+  const currentUserQuery = useQuery({
+    queryKey: ['operations', 'me'],
+    queryFn: async () => (await operationsApi<OperationsMe>('/api/v1/operations/me')).data!,
     retry: false,
   })
 
@@ -505,6 +517,13 @@ function OperationsConsole() {
     queryKey: ['operations', 'security-scans'],
     queryFn: async () => (await operationsApi<SecurityScan[]>('/api/v1/operations/security/scans')).data ?? [],
     refetchInterval: 5_000,
+    retry: false,
+  })
+
+  const securityScheduleQuery = useQuery({
+    queryKey: ['operations', 'security-schedule'],
+    queryFn: async () => (await operationsApi<SecuritySchedule>('/api/v1/operations/security/schedule')).data!,
+    refetchInterval: 30_000,
     retry: false,
   })
 
@@ -564,6 +583,13 @@ function OperationsConsole() {
     retry: false,
   })
 
+  const paymentsQuery = useQuery({
+    queryKey: ['operations', 'payments', paymentStatusFilter, paymentSearch],
+    queryFn: async () => (await operationsApi<OperationsPayments>(`/api/v1/operations/payments?application=KITZ&limit=50${paymentStatusFilter ? `&status=${encodeURIComponent(paymentStatusFilter)}` : ''}${paymentSearch.trim() ? `&search=${encodeURIComponent(paymentSearch.trim())}` : ''}`)).data!,
+    refetchInterval: 30_000,
+    retry: false,
+  })
+
   const incidentsQuery = useQuery({
     queryKey: ['operations', 'incidents'],
     queryFn: async () => (await operationsApi<Incident[]>('/api/v1/operations/incidents?limit=25')).data ?? [],
@@ -585,6 +611,7 @@ function OperationsConsole() {
   const incidents = incidentsQuery.data ?? []
   const audits = auditQuery.data ?? []
   const selectedIncident = incidents.find((incident) => incident.id === selectedIncidentId) ?? null
+  const canManageDependencySchedule = ['chief_security_operator', 'super_admin'].includes(currentUserQuery.data?.user?.role ?? '')
 
   const eventsQuery = useQuery({
     queryKey: ['operations', 'incident-events', selectedIncidentId],
@@ -1063,6 +1090,22 @@ function OperationsConsole() {
           setSecurityActionError(issue instanceof OperationsApiError ? issue.message : 'Unable to start dependency scan.')
         } finally { setSecurityActionBusy(false) }
       }
+      const updateDependencySchedule = async (enabled: boolean) => {
+        setSecurityActionBusy(true)
+        setSecurityActionError('')
+        try {
+          await operationsApi('/api/v1/operations/security/schedule', {
+            method: 'PUT',
+            body: JSON.stringify({ enabled, dailyAt: securityScheduleQuery.data?.dailyAt ?? '02:00' }),
+          })
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ['operations', 'security-schedule'] }),
+            queryClient.invalidateQueries({ queryKey: ['operations', 'workers'] }),
+          ])
+        } catch (issue) {
+          setSecurityActionError(issue instanceof OperationsApiError ? issue.message : 'Unable to update dependency scan schedule.')
+        } finally { setSecurityActionBusy(false) }
+      }
       const activeSecurityScan = securityScansQuery.data?.find((scan) => ['queued', 'running'].includes(scan.status))
       const cancelSecurityScan = async (id: string) => {
         setSecurityActionBusy(true)
@@ -1090,6 +1133,17 @@ function OperationsConsole() {
             <article className="operations-stat-card"><span>Dependency coverage</span><strong>{securityOverview?.coverage.dependency ? 'Available' : 'Unknown'}</strong><small>npm audit integration</small></article>
           </div>
           <section className="operations-panel-card full-span">
+            <header><span className="operations-eyebrow">Scheduled dependency scan</span><h3>Daily npm audit</h3></header>
+            {securityScheduleQuery.isError ? <div className="operations-empty">Schedule state is unavailable: {securityScheduleQuery.error.message}</div> : (
+              <div className="operations-mini-list">
+                <div className="operations-mini-item"><span>Schedule</span><strong className={securityScheduleQuery.data?.enabled ? 'status-ok' : 'status-watch'}>{securityScheduleQuery.data?.enabled ? 'Enabled' : 'Disabled'}</strong><small>{securityScheduleQuery.data?.enabled ? `Daily at ${securityScheduleQuery.data.dailyAt} UTC` : 'No scheduled scan is configured'}</small></div>
+                <div className="operations-mini-item"><span>Next run</span><strong>{securityScheduleQuery.data?.nextRunAt ? new Date(securityScheduleQuery.data.nextRunAt).toLocaleString() : 'Not scheduled'}</strong><small>Stored in the operations database</small></div>
+                <div className="operations-mini-item"><span>Last run</span><strong>{securityScheduleQuery.data?.lastRunAt ? new Date(securityScheduleQuery.data.lastRunAt).toLocaleString() : 'Never'}</strong><small>{monitoringWorkers.find((worker) => worker.workerName === securityScheduleQuery.data?.worker)?.status ?? 'Worker status unknown'}</small></div>
+                {canManageDependencySchedule && <div className="operations-report-actions"><button type="button" className={securityScheduleQuery.data?.enabled ? 'operations-report-print' : 'operations-report-download'} disabled={securityActionBusy || securityScheduleQuery.isPending} onClick={() => void updateDependencySchedule(!securityScheduleQuery.data?.enabled)}>{securityScheduleQuery.data?.enabled ? 'Disable daily scan' : 'Enable daily scan at 02:00 UTC'}</button></div>}
+              </div>
+            )}
+          </section>
+          <section className="operations-panel-card full-span">
             <header><span className="operations-eyebrow">Scanner status</span><h3>Assessment coverage</h3></header>
             {securityScannersQuery.isError ? <div className="operations-empty">Scanner status is unavailable.</div> : <div className="operations-mini-grid">
               {(securityScannersQuery.data ?? []).map((scanner) => <article className="operations-mini-item" key={scanner.scanner}><span>{scanner.coverage}</span><strong>{scanner.scanner}</strong><small>{scanner.status === 'not_configured' ? 'Not configured' : scanner.status}</small></article>)}
@@ -1108,7 +1162,7 @@ function OperationsConsole() {
       )
     })(),
     'identity-access': (() => {
-      const roleLabel = (role: ItAccessRole) => ({ super_admin: 'Super admin', security_analyst: 'Security analyst', it_support: 'IT support', database_admin: 'Database admin', infrastructure_admin: 'Infrastructure admin', viewer: 'Viewer' })[role]
+      const roleLabel = (role: ItAccessRole) => ({ super_admin: 'Super admin', chief_security_operator: 'Chief Security Operator', security_analyst: 'Security analyst', it_support: 'IT support', database_admin: 'Database admin', infrastructure_admin: 'Infrastructure admin', viewer: 'Viewer' })[role]
       const updateRole = async (userId: number, role: ItAccessRole) => {
         setPermissionsBusy(true)
         setPermissionsError('')
@@ -1174,16 +1228,27 @@ function OperationsConsole() {
         <div className="operations-masthead">
           <div>
             <span className="operations-eyebrow">Payment operations</span>
-            <h2>M-Pesa and transaction posture</h2>
-            <p>Payment data requires provider verification and approval before automated reconciliation.</p>
+            <h2>Kitz M-Pesa payment attempts</h2>
+            <p>Read-only records from the existing Kitz payment processor. No payment state can be changed here.</p>
           </div>
         </div>
         <div className="operations-stat-grid">
-          <article className="operations-stat-card"><span>Daraja</span><strong>Unknown</strong><small>No provider health check configured</small></article>
-          <article className="operations-stat-card"><span>Callbacks</span><strong>Unknown</strong><small>Waiting for live feed</small></article>
-          <article className="operations-stat-card"><span>Reconciliation</span><strong>Guarded</strong><small>Requires explicit permission and audit</small></article>
-          <article className="operations-stat-card"><span>Order status</span><strong>Protected</strong><small>No automatic mark-as-paid logic</small></article>
+          <article className="operations-stat-card"><span>Recent records</span><strong>{paymentsQuery.isError ? 'Unavailable' : paymentsQuery.data?.records.length ?? 'Loading'}</strong><small>Latest filtered page</small></article>
+          <article className="operations-stat-card"><span>Pending</span><strong>{paymentsQuery.data?.records.filter((payment) => ['initiated', 'pending'].includes(payment.status)).length ?? 'Unavailable'}</strong><small>Within this page</small></article>
+          <article className="operations-stat-card"><span>Needs review</span><strong>{paymentsQuery.data?.records.filter((payment) => payment.status === 'requires_review').length ?? 'Unavailable'}</strong><small>Uncertain outcomes</small></article>
+          <article className="operations-stat-card"><span>Failed</span><strong>{paymentsQuery.data?.records.filter((payment) => payment.status === 'failed').length ?? 'Unavailable'}</strong><small>Within this page</small></article>
         </div>
+        <section className="operations-panel-card full-span">
+          <header><span className="operations-eyebrow">Payment history · Kitz only</span><h3>Recent attempts</h3></header>
+          <div className="operations-security-findings-controls"><label><Search size={13} /><input value={paymentSearch} onChange={(event) => setPaymentSearch(event.target.value)} placeholder="Search order, checkout, merchant, or receipt reference" /></label><select value={paymentStatusFilter} onChange={(event) => setPaymentStatusFilter(event.target.value)} aria-label="Filter Kitz payment status"><option value="">All statuses</option>{['initiated', 'pending', 'succeeded', 'failed', 'cancelled', 'expired', 'requires_review', 'refunded'].map((status) => <option key={status} value={status}>{label(status)}</option>)}</select></div>
+          {paymentsQuery.isError ? <div className="operations-empty">Kitz payment records are unavailable: {paymentsQuery.error.message}</div> : (
+            <div className="operations-table-wrap"><table className="operations-table"><thead><tr><th>Order</th><th>Provider references</th><th>Amount</th><th>Status</th><th>Created</th><th>Updated</th></tr></thead><tbody>
+              {(paymentsQuery.data?.records ?? []).map((payment) => <tr key={payment.id}><td>{payment.orderReference}</td><td>Checkout: {payment.providerRequestId ?? '—'}<br />Merchant: {payment.merchantRequestId ?? '—'}<br />Receipt: {payment.providerReceipt ?? '—'}</td><td>KES {Number(payment.amount).toLocaleString('en-KE')}</td><td>{label(payment.status)}{payment.providerResultCode ? <><br /><small>Provider code: {payment.providerResultCode}</small></> : null}</td><td>{new Date(payment.createdAt).toLocaleString()}</td><td>{new Date(payment.updatedAt).toLocaleString()}</td></tr>)}
+              {!paymentsQuery.data?.records.length && <tr><td colSpan={6}>{paymentsQuery.isPending ? 'Loading payment history…' : 'No Kitz payment attempts match this filter.'}</td></tr>}
+            </tbody></table></div>
+          )}
+          <p className="operations-chart-footnote">{(paymentsQuery.data?.limitations ?? ['MarketHub payments, callback payloads, and provider health are not connected to this view.']).join(' ')}</p>
+        </section>
       </>
     ),
     integrations: (

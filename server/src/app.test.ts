@@ -230,7 +230,7 @@ test('Super Admin ecosystem APIs reject callers without an admin session', async
 })
 
 test('operations endpoints reject store-administrator sessions', async () => {
-  for (const path of ['/me', '/operators', '/overview', '/telemetry', '/health', '/workers', '/detections', '/events', '/metrics', '/database-performance', '/database-performance/events', '/runtime-performance', '/provider-performance', '/alerts', '/incidents', '/audit']) {
+  for (const path of ['/me', '/operators', '/overview', '/telemetry', '/health', '/workers', '/detections', '/events', '/metrics', '/database-performance', '/database-performance/events', '/runtime-performance', '/provider-performance', '/payments', '/alerts', '/incidents', '/audit']) {
     const response = await fetch(`${baseUrl}/api/v1/operations${path}`, { headers: { cookie: 'kc_admin_session=not-an-operations-session' } })
     assert.equal(response.status, 401, path)
     assert.equal((await response.json() as { error: { code: string } }).error.code, 'OPERATIONS_UNAUTHENTICATED', path)
@@ -242,7 +242,7 @@ test('operations endpoints reject store-administrator sessions', async () => {
 })
 
 test('Operations API rejects requests without an Operations session before querying protected data', async () => {
-  for (const path of ['/me', '/operators', '/overview', '/telemetry', '/health', '/workers', '/detections', '/events', '/metrics', '/database-performance', '/database-performance/events', '/runtime-performance', '/provider-performance', '/alerts', '/incidents', '/audit']) {
+  for (const path of ['/me', '/operators', '/overview', '/telemetry', '/health', '/workers', '/detections', '/events', '/metrics', '/database-performance', '/database-performance/events', '/runtime-performance', '/provider-performance', '/payments', '/alerts', '/incidents', '/audit']) {
     const response = await fetch(`${baseUrl}/api/v1/operations${path}`)
     assert.equal(response.status, 401, path)
     assert.deepEqual(await response.json(), {
@@ -515,4 +515,13 @@ test('IT operations APIs require an administrator session', async () => {
     const result = await response.json() as { error: { code: string } }
     assert.equal(result.error.code, 'UNAUTHENTICATED')
   }
+})
+
+test('Operations session exchange rejects callers without a central administrator session', async () => {
+  const response = await fetch(`${baseUrl}/api/v1/admin/it/operations-session`, {
+    method: 'POST',
+    headers: { origin: process.env.CLIENT_ORIGIN! },
+  })
+  assert.equal(response.status, 401)
+  assert.equal((await response.json() as { error: { code: string } }).error.code, 'UNAUTHENTICATED')
 })

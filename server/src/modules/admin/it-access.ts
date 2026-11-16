@@ -10,6 +10,26 @@ export const itPermissions = [
   'audit.read',
   'database.read',
   'infrastructure.read',
+  'security.overview',
+  'security.events.read',
+  'security.events.manage',
+  'security.firewall.read',
+  'security.firewall.manage',
+  'security.rules.manage',
+  'security.ip.manage',
+  'security.incidents.read',
+  'security.incidents.manage',
+  'security.vulnerabilities.read',
+  'security.configuration.read',
+  'security.infrastructure.read',
+  'security.workers.manage',
+  'security.audit.read',
+  'security.alerts.manage',
+  'payments.operations.read',
+  'payments.reconciliation.read',
+  'payments.reconciliation.manage',
+  'dependencies.scan',
+  'dependencies.manage',
 ] as const
 
 export type ItPermission = typeof itPermissions[number]
@@ -23,6 +43,14 @@ type OperationsPermissionRule = {
 
 const rolePermissions: Record<ItAccessRole, ReadonlySet<ItPermission>> = {
   super_admin: new Set(itPermissions),
+  chief_security_operator: new Set([
+    'overview.read', 'security.read', 'security.scan', 'security.findings.write', 'incidents.read', 'incidents.write', 'audit.read',
+    'database.read', 'infrastructure.read', 'security.overview', 'security.events.read', 'security.events.manage',
+    'security.firewall.read', 'security.firewall.manage', 'security.rules.manage', 'security.ip.manage',
+    'security.incidents.read', 'security.incidents.manage', 'security.vulnerabilities.read', 'security.configuration.read',
+    'security.infrastructure.read', 'security.workers.manage', 'security.audit.read', 'security.alerts.manage',
+    'payments.operations.read', 'payments.reconciliation.read', 'payments.reconciliation.manage', 'dependencies.scan', 'dependencies.manage',
+  ]),
   security_analyst: new Set(['overview.read', 'security.read', 'security.scan', 'security.findings.write', 'incidents.read', 'incidents.write', 'audit.read']),
   it_support: new Set(['overview.read', 'incidents.read', 'incidents.write']),
   database_admin: new Set(['overview.read', 'incidents.read', 'incidents.write', 'audit.read', 'database.read']),
@@ -32,6 +60,10 @@ const rolePermissions: Record<ItAccessRole, ReadonlySet<ItPermission>> = {
 
 export function hasItPermission(role: ItAccessRole, permission: ItPermission): boolean {
   return rolePermissions[role].has(permission)
+}
+
+export function canUseOperationsIdentityBridge(role: ItAccessRole | null, status: string, emailVerified: boolean) {
+  return status === 'active' && emailVerified && (role === 'chief_security_operator' || role === 'super_admin')
 }
 
 const operationsPermissionRules: OperationsPermissionRule[] = [
@@ -45,10 +77,12 @@ const operationsPermissionRules: OperationsPermissionRule[] = [
   { path: /^\/metrics\/?$/, read: 'security.read' },
   { path: /^\/database-performance(?:\/|$)/, read: 'database.read' },
   { path: /^\/(?:runtime-performance|provider-performance)\/?$/, read: 'infrastructure.read' },
+  { path: /^\/payments(?:\/|$)/, read: 'payments.operations.read' },
   { path: /^\/incidents(?:\/|$)/, read: 'incidents.read', write: 'incidents.write' },
   { path: /^\/audit(?:\/|$)/, read: 'audit.read' },
   { path: /^\/security\/scans\/?$/, read: 'security.read', write: 'security.scan' },
   { path: /^\/security\/scans\/[^/]+\/cancel\/?$/, read: 'security.read', write: 'security.scan' },
+  { path: /^\/security\/schedule\/?$/, read: 'security.read', write: 'dependencies.manage' },
   { path: /^\/security\/findings\/[^/]+\/status\/?$/, read: 'security.read', write: 'security.findings.write' },
   { path: /^\/security(?:\/|$)/, read: 'security.read' },
 ]

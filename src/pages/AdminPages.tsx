@@ -17,7 +17,7 @@ type CatalogueLeague = { id: number; name: string; slug: string; country: string
 type CatalogueTeam = { id: number; leagueId: number; name: string; slug: string; sortOrder: number; active: boolean }
 type CatalogueJerseyCategory = { id: number; name: string; slug: string; sortOrder: number; active: boolean }
 type CatalogueOptions = { leagues: CatalogueLeague[]; teams: CatalogueTeam[]; jerseyCategories: CatalogueJerseyCategory[] }
-type ItAccessRole = 'super_admin' | 'security_analyst' | 'it_support' | 'database_admin' | 'infrastructure_admin' | 'viewer'
+type ItAccessRole = 'super_admin' | 'chief_security_operator' | 'security_analyst' | 'it_support' | 'database_admin' | 'infrastructure_admin' | 'viewer'
 type ItRequestBucket = { bucketStartedAt: string; requestCount: number; errorCount: number; serverErrorCount: number; securitySignalCount: number; averageResponseMs: number | null; p95ResponseMs: number | null }
 type ItChartPoint = { label: string; value: number; detail: string }
 type ItOverviewData = {
@@ -1860,6 +1860,7 @@ function GuestOrdersManager({ orders, onUpdate }: { orders: GuestAdminOrder[]; o
 }
 
 const itRoleOptions: { value: ItAccessRole; label: string }[] = [
+  { value: 'chief_security_operator', label: 'Chief Security Operator' },
   { value: 'security_analyst', label: 'Security analyst' },
   { value: 'it_support', label: 'IT support' },
   { value: 'database_admin', label: 'Database administrator' },
@@ -2056,6 +2057,8 @@ function ItOperationsPanel() {
   const [activeTab, setActiveTab] = useState<'overview' | 'incidents' | 'audit'>('overview')
   const [accessError, setAccessError] = useState('')
   const [accessBusy, setAccessBusy] = useState(false)
+  const [operationsBridgeBusy, setOperationsBridgeBusy] = useState(false)
+  const [operationsBridgeError, setOperationsBridgeError] = useState('')
   const overviewQuery = useQuery({
     queryKey: ['admin', 'it-overview'],
     queryFn: () => api<ItOverviewData>('/api/v1/admin/it/overview'),
@@ -2103,6 +2106,18 @@ function ItOperationsPanel() {
     }
   }
 
+  async function openSecurityOperations() {
+    setOperationsBridgeBusy(true)
+    setOperationsBridgeError('')
+    try {
+      await api('/api/v1/admin/it/operations-session', { method: 'POST' })
+      window.location.assign('/operations')
+    } catch (issue) {
+      setOperationsBridgeError(issue instanceof Error ? issue.message : 'Operations access could not be established.')
+      setOperationsBridgeBusy(false)
+    }
+  }
+
   if (overviewQuery.isPending) return <div className="admin-empty" role="status">Checking IT access…</div>
   if (overviewQuery.error instanceof AdminApiError && overviewQuery.error.code === 'IT_PERMISSION_REQUIRED') {
     return <section className="admin-it-panel"><header><Shield size={20} /><div><span className="admin-kicker">RESTRICTED IT OPERATIONS</span><h2>IT access is not assigned</h2></div></header><p>Your administrator account has not been granted an IT role. Access is explicitly assigned by an IT super-admin.</p></section>
@@ -2135,7 +2150,8 @@ function ItOperationsPanel() {
     : null
 
   return <div className="admin-it-page">
-    <div className="admin-it-intro"><div><span className="admin-kicker">RESTRICTED OPERATIONS · {itLabel(role ?? '')}</span><h2>IT operations</h2><p>Live process and database signals. Provider feeds and historical monitoring are shown only when configured.</p></div><button className="admin-it-button" type="button" onClick={() => void overviewQuery.refetch()} disabled={overviewQuery.isFetching}>Refresh</button></div>
+    <div className="admin-it-intro"><div><span className="admin-kicker">RESTRICTED OPERATIONS · {itLabel(role ?? '')}</span><h2>IT operations</h2><p>Live process and database signals. Provider feeds and historical monitoring are shown only when configured.</p></div><div className="admin-it-actions">{(role === 'chief_security_operator' || superAdmin) && <button className="admin-it-button" type="button" onClick={() => void openSecurityOperations()} disabled={operationsBridgeBusy}>{operationsBridgeBusy ? 'Opening…' : 'Open Security Operations'}</button>}<button className="admin-it-button" type="button" onClick={() => void overviewQuery.refetch()} disabled={overviewQuery.isFetching}>Refresh</button></div></div>
+    {operationsBridgeError && <p className="admin-error" role="alert">{operationsBridgeError}</p>}
     <nav className="admin-it-tabs" aria-label="IT operations views">{(['overview', 'incidents', 'audit'] as const).map((tab) => <button key={tab} type="button" className={activeTab === tab ? 'is-active' : ''} aria-current={activeTab === tab ? 'page' : undefined} onClick={() => setActiveTab(tab)}>{itLabel(tab)}</button>)}</nav>
 
     {activeTab === 'overview' ? <>

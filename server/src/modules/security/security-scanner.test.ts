@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { classifySeverity, redactSensitiveEvidence, runDependencyScanner } from './dependency-scanner.js'
+import { classifySeverity, discoverNpmAuditTargets, redactSensitiveEvidence, runDependencyScanner } from './dependency-scanner.js'
+import { dependencyScanRecoveryCutoff, nextDailyRunAt } from './scheduled-scanner.js'
 import { dependencyScannerAvailability, getSecurityOverview, listSecurityFindings, startSecurityScan, cancelSecurityScan } from './scanner-engine.js'
 
 test('redacts sensitive scanner evidence without exposing secrets', () => {
@@ -27,6 +28,23 @@ test('scanner engine exposes unsupported modules and does not fabricate coverage
 test('dependency scanner availability does not claim health before an executed scan', () => {
   assert.equal(dependencyScannerAvailability('/path/to/npm'), 'not_run')
   assert.equal(dependencyScannerAvailability(''), 'not_configured')
+})
+
+test('dependency scanner discovers Kitz and MarketHub lockfiles from either project directory', () => {
+  const rootTargets = discoverNpmAuditTargets(process.cwd()).map((target) => target.lockfile.replaceAll('\\', '/'))
+  const platformTargets = discoverNpmAuditTargets(`${process.cwd()}/platform`).map((target) => target.lockfile.replaceAll('\\', '/'))
+  assert.deepEqual(platformTargets, rootTargets)
+  assert.ok(rootTargets.some((target) => target.endsWith('/package-lock.json')))
+  assert.ok(rootTargets.some((target) => target.endsWith('/platform/package-lock.json')))
+})
+
+test('daily dependency scan schedule advances to the next UTC occurrence', () => {
+  assert.equal(nextDailyRunAt('daily@02:30Z', new Date('2026-11-16T02:30:00.000Z')).toISOString(), '2026-11-17T02:30:00.000Z')
+  assert.throws(() => nextDailyRunAt('0 2 * * *', new Date('2026-11-16T00:00:00.000Z')), /INVALID_DEPENDENCY_SCAN_SCHEDULE/)
+})
+
+test('dependency scan recovery waits past the maximum supported scan timeout', () => {
+  assert.equal(dependencyScanRecoveryCutoff(new Date('2026-11-16T12:00:00.000Z')).toISOString(), '2026-11-16T11:40:00.000Z')
 })
 
 test('a dependency scan completes and deduplicates repeated vulnerability observations', async () => {

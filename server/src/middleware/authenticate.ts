@@ -8,7 +8,7 @@ import { adminSessionAbsoluteLifetimeMs, adminSessionIdleTimeoutMs, customerSess
 
 type AuthenticatedRequest = Request & {
   auth?: { userId: number; email: string; fullName: string; roles: string[] }
-  admin?: { id: number; email: string; fullName: string; roleNumber: string | null; role: string | null; status: string }
+  admin?: { id: number; email: string; fullName: string; roleNumber: string | null; role: string | null; status: string; sessionId: number; sessionCreatedAt: Date; sessionExpiresAt: Date }
 }
 
 function sessionToken(request: Request) {
@@ -115,7 +115,7 @@ export const authenticateAdmin: RequestHandler = async (request, response, next)
     response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Administrator account is unavailable.' } })
     return
   }
-  ;(request as AuthenticatedRequest).admin = admin
+  ;(request as AuthenticatedRequest).admin = { ...admin, sessionId: session.id, sessionCreatedAt: session.createdAt, sessionExpiresAt: session.expiresAt }
   next()
 }
 

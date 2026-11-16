@@ -1,0 +1,4 @@
+ALTER TABLE "operations_operators" DROP CONSTRAINT "operations_operators_it_role_check";--> statement-breakpoint
+ALTER TABLE "operations_users" DROP CONSTRAINT "operations_users_role_check";--> statement-breakpoint
+ALTER TABLE "operations_operators" ADD CONSTRAINT "operations_operators_it_role_check" CHECK ("operations_operators"."it_role" IS NULL OR "operations_operators"."it_role" IN ('super_admin', 'chief_security_operator', 'security_analyst', 'it_support', 'database_admin', 'infrastructure_admin', 'viewer'));--> statement-breakpoint
+ALTER TABLE "operations_users" ADD CONSTRAINT "operations_users_role_check" CHECK ("operations_users"."role" IN ('super_admin', 'chief_security_operator', 'security_analyst', 'it_support', 'database_admin', 'infrastructure_admin', 'viewer'));

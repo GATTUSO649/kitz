@@ -18,7 +18,7 @@ const { combinedRating, quickProductRatingSchema } = await import('../catalogue/
 const { buildDarajaCallbackUrl, callbackFailureStatus, canVerifySuccessfulStkPayment, DarajaRequestError, darajaCallbackRoute, initiateStkPush, isFinalDarajaPaymentStatus, isValidDarajaPaymentAmount, matchesCallbackToken, normalizeKenyanPhone, parseDarajaTimestamp, parseStkCallback, resolveDarajaShortcodes } = await import('../orders/daraja.js')
 const { createAddressSchema, passwordSchema, productReviewSchema, profileSchema, supportMessageSchema, supportRequestSchema } = await import('../account/routes.js')
 const { adminNotificationSchema, canTransitionOrderStatus, createProductSchema, homepageSlideBatchSchema, homepageSlideSchema, isDuplicateKeyError, settingsSchema, supportUpdateSchema } = await import('../admin/routes.js')
-const { hasItPermission, hasOperationsRoutePermission, operationsPermissionForRoute } = await import('../admin/it-access.js')
+const { canUseOperationsIdentityBridge, hasItPermission, hasOperationsRoutePermission, operationsPermissionForRoute } = await import('../admin/it-access.js')
 const { detectImageFormat } = await import('../admin/image-storage.js')
 const { isSiteImageUrl, siteImageSlotKeys } = await import('../site-images.js')
 const { siteContentSchema } = await import('../site-content.js')
@@ -811,6 +811,23 @@ test('IT roles follow least privilege and viewer access is read-only overview', 
   assert.equal(hasItPermission('viewer', 'incidents.write'), false)
 })
 
+test('Chief Security Operator receives security operations without administrator role management', () => {
+  assert.equal(hasItPermission('chief_security_operator', 'security.firewall.manage'), true)
+  assert.equal(hasItPermission('chief_security_operator', 'security.overview'), true)
+  assert.equal(hasItPermission('chief_security_operator', 'payments.reconciliation.manage'), true)
+  assert.equal(hasItPermission('chief_security_operator', 'dependencies.scan'), true)
+  assert.equal(hasOperationsRoutePermission('chief_security_operator', 'GET', '/security/scans'), true)
+  assert.equal(hasOperationsRoutePermission('chief_security_operator', 'GET', '/incidents'), true)
+  assert.equal(operationsPermissionForRoute('PUT', '/security/schedule'), 'dependencies.manage')
+  assert.equal(hasOperationsRoutePermission('chief_security_operator', 'PUT', '/security/schedule'), true)
+  assert.equal(operationsPermissionForRoute('GET', '/payments'), 'payments.operations.read')
+  assert.equal(hasOperationsRoutePermission('chief_security_operator', 'GET', '/payments'), true)
+  assert.equal(hasOperationsRoutePermission('security_analyst', 'GET', '/payments'), false)
+  assert.equal(hasOperationsRoutePermission('security_analyst', 'PUT', '/security/schedule'), false)
+  assert.equal(hasOperationsRoutePermission('chief_security_operator', 'GET', '/operators'), false)
+  assert.equal(hasItPermission('security_analyst', 'security.firewall.manage'), false)
+})
+
 test('Operations API routes enforce their least-privilege permission map', () => {
   assert.equal(operationsPermissionForRoute('GET', '/overview'), 'overview.read')
   assert.equal(operationsPermissionForRoute('GET', '/database-performance'), 'database.read')
@@ -846,4 +863,13 @@ test('checkout support records preserve an omitted delivery pin as null coordina
     longitude: '36.8172',
     label: '-1.2864, 36.8172',
   })
+})
+
+test('Operations identity bridge requires an active verified central grant', () => {
+  assert.equal(canUseOperationsIdentityBridge('chief_security_operator', 'active', true), true)
+  assert.equal(canUseOperationsIdentityBridge('super_admin', 'active', true), true)
+  assert.equal(canUseOperationsIdentityBridge('security_analyst', 'active', true), false)
+  assert.equal(canUseOperationsIdentityBridge('chief_security_operator', 'suspended', true), false)
+  assert.equal(canUseOperationsIdentityBridge('chief_security_operator', 'active', false), false)
+  assert.equal(canUseOperationsIdentityBridge(null, 'active', true), false)
 })

@@ -7,21 +7,25 @@ import { flushMonitoringEvents } from './modules/operations/telemetry-store.js'
 import { startRuntimePerformanceSampler, stopRuntimePerformanceSampler } from './modules/operations/runtime-performance.js'
 import { flushDatabasePerformanceMetrics } from './modules/operations/database-performance.js'
 import { closeRateLimitStore, connectRateLimitStore } from './security/distributed-rate-limit.js'
+import { startDependencyScanWorker, stopDependencyScanWorker } from './modules/security/scheduled-scanner.js'
 
 await connectRateLimitStore()
 const server = app.listen(env.PORT, () => {
   logger.info({ port: env.PORT, databaseConfigured: Boolean(pool) }, 'KitCulture API listening')
 })
 startMonitoringWorker()
+startDependencyScanWorker()
 startRuntimePerformanceSampler()
 
 async function shutdown(signal: string) {
   logger.info({ signal }, 'Shutting down API')
   const workerShutdown = stopMonitoringWorker()
+  const scannerShutdown = stopDependencyScanWorker()
   stopRuntimePerformanceSampler()
   server.close(async (error) => {
     if (error) logger.error({ err: error }, 'HTTP server shutdown failed')
     await workerShutdown
+    await scannerShutdown
     flushDatabasePerformanceMetrics()
     await flushMonitoringEvents()
     await closeRateLimitStore()

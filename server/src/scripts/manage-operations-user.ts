@@ -66,9 +66,10 @@ async function main() {
       return
     }
 
-    const [user] = await adminDb.select({ id: operationsUsers.id, email: operationsUsers.email })
+    const [user] = await adminDb.select({ id: operationsUsers.id, email: operationsUsers.email, adminUserId: operationsUsers.adminUserId })
       .from(operationsUsers).where(eq(operationsUsers.email, email)).limit(1)
     if (!user) throw new Error('An operations account with that email was not found.')
+    if (user.adminUserId !== null) throw new Error('This account is authenticated through central IT; reset its administrator password through the existing administrator recovery workflow.')
     await adminDb.transaction(async (transaction) => {
       await transaction.update(operationsUsers).set({ passwordHash }).where(eq(operationsUsers.id, user.id))
       await transaction.delete(operationsSessions).where(eq(operationsSessions.operationsUserId, user.id))

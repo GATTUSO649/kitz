@@ -38,7 +38,7 @@ export const adminSessions = mysqlTable('admin_sessions', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (table) => [index('admin_sessions_user_expiry_idx').on(table.adminUserId, table.expiresAt)])
 
-export const itAccessRoles = ['super_admin', 'security_analyst', 'it_support', 'database_admin', 'infrastructure_admin', 'viewer'] as const
+export const itAccessRoles = ['super_admin', 'chief_security_operator', 'security_analyst', 'it_support', 'database_admin', 'infrastructure_admin', 'viewer'] as const
 export type ItAccessRole = typeof itAccessRoles[number]
 
 export const adminVerificationTokens = mysqlTable('admin_verification_tokens', {
@@ -119,21 +119,28 @@ export const adminLoginAttempts = mysqlTable('admin_login_attempts', {
 export const operationsUsers = mysqlTable('operations_users', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   email: varchar('email', { length: 254 }).notNull().unique(),
-  passwordHash: varchar('password_hash', { length: 255 }).notNull(),
+  passwordHash: varchar('password_hash', { length: 255 }),
+  adminUserId: int('admin_user_id').references(() => adminUsers.id, { onDelete: 'cascade' }).unique(),
   fullName: varchar('full_name', { length: 160 }).notNull(),
   role: varchar('role', { length: 32 }).$type<ItAccessRole>().default('viewer').notNull(),
   disabledAt: timestamp('disabled_at'),
   lastLoginAt: timestamp('last_login_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (table) => [check('operations_users_role_check', sql`${table.role} IN ('super_admin', 'security_analyst', 'it_support', 'database_admin', 'infrastructure_admin', 'viewer')`)])
+}, (table) => [check('operations_users_role_check', sql`${table.role} IN ('super_admin', 'chief_security_operator', 'security_analyst', 'it_support', 'database_admin', 'infrastructure_admin', 'viewer')`)])
 
 export const operationsSessions = mysqlTable('operations_sessions', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   operationsUserId: int('operations_user_id').notNull().references(() => operationsUsers.id, { onDelete: 'cascade' }),
+  adminUserId: int('admin_user_id').references(() => adminUsers.id, { onDelete: 'cascade' }),
+  adminSessionId: int('admin_session_id').references(() => adminSessions.id, { onDelete: 'cascade' }),
   tokenHash: varchar('token_hash', { length: 64 }).notNull().unique(),
   expiresAt: timestamp('expires_at').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (table) => [index('operations_sessions_user_expiry_idx').on(table.operationsUserId, table.expiresAt)])
+}, (table) => [
+  index('operations_sessions_user_expiry_idx').on(table.operationsUserId, table.expiresAt),
+  index('operations_sessions_admin_expiry_idx').on(table.adminUserId, table.expiresAt),
+  check('operations_sessions_identity_check', sql`${table.operationsUserId} IS NOT NULL AND ((${table.adminUserId} IS NULL AND ${table.adminSessionId} IS NULL) OR (${table.adminUserId} IS NOT NULL AND ${table.adminSessionId} IS NOT NULL))`),
+])
 
 export const operationsOperators = mysqlTable('operations_operators', {
   adminUserId: int('admin_user_id').notNull().references(() => adminUsers.id, { onDelete: 'cascade' }),
@@ -146,7 +153,7 @@ export const operationsOperators = mysqlTable('operations_operators', {
   primaryKey({ columns: [table.adminUserId] }),
   index('operations_operators_granted_by_idx').on(table.grantedByAdminUserId),
   index('operations_operators_active_role_idx').on(table.role, table.revokedAt),
-  check('operations_operators_it_role_check', sql`${table.role} IS NULL OR ${table.role} IN ('super_admin', 'security_analyst', 'it_support', 'database_admin', 'infrastructure_admin', 'viewer')`),
+  check('operations_operators_it_role_check', sql`${table.role} IS NULL OR ${table.role} IN ('super_admin', 'chief_security_operator', 'security_analyst', 'it_support', 'database_admin', 'infrastructure_admin', 'viewer')`),
 ])
 
 export const operationsIncidents = mysqlTable('operations_incidents', {

@@ -1,4 +1,6 @@
 import { execFile } from 'node:child_process'
+import { existsSync, readdirSync } from 'node:fs'
+import { dirname, join, relative, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { randomUUID } from 'node:crypto'
 
@@ -46,6 +48,39 @@ const severityMap: Record<string, FindingSeverity> = {
   critical: 'CRITICAL', high: 'HIGH', moderate: 'MEDIUM', medium: 'MEDIUM', low: 'LOW', info: 'INFORMATIONAL', informational: 'INFORMATIONAL',
 }
 
+const ignoredDirectories = new Set(['.git', 'node_modules', 'dist', 'build', 'coverage'])
+
+export function discoverNpmAuditTargets(cwd: string) {
+  const ancestors: string[] = []
+  let directory = resolve(cwd)
+  for (let depth = 0; depth < 8; depth++) {
+    ancestors.push(directory)
+    const parent = dirname(directory)
+    if (parent === directory) break
+    directory = parent
+  }
+
+  const isNpmProject = (candidate: string) =>
+    existsSync(join(candidate, 'package.json')) && existsSync(join(candidate, 'package-lock.json'))
+  const repositoryRoot = ancestors.find((candidate) => isNpmProject(candidate) && existsSync(join(candidate, 'platform', 'package-lock.json')))
+    ?? ancestors.find(isNpmProject)
+    ?? resolve(cwd)
+  const targets: { root: string; lockfile: string }[] = []
+  const pending = [repositoryRoot]
+
+  while (pending.length) {
+    const current = pending.pop()!
+    const packageFile = join(current, 'package.json')
+    const lockfile = join(current, 'package-lock.json')
+    if (existsSync(packageFile) && existsSync(lockfile)) targets.push({ root: current, lockfile })
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      if (entry.isDirectory() && !ignoredDirectories.has(entry.name)) pending.push(join(current, entry.name))
+    }
+  }
+
+  return targets.sort((left, right) => left.root.localeCompare(right.root))
+}
+
 export function classifySeverity(value: unknown): FindingSeverity {
   if (typeof value !== 'string') return null
   return severityMap[value.toLowerCase()] ?? null
@@ -55,40 +90,34 @@ export async function runDependencyScanner(options: { cwd: string; timeoutMs?: n
   const timeoutMs = options.timeoutMs ?? 120_000
   const npmCli = process.env.npm_execpath?.trim()
   if (!npmCli) throw new Error('NPM_AUDIT_CLI_UNAVAILABLE')
-  let stdout: string
-  try {
-    const result = await execFileAsync(process.execPath, [npmCli, 'audit', '--json', '--omit=optional'], {
-      cwd: options.cwd,
-      timeout: timeoutMs,
-      maxBuffer: 10 * 1024 * 1024,
-      env: { ...process.env, NODE_OPTIONS: '', npm_config_update_notifier: 'false' },
-      signal: options.signal,
-      windowsHide: true,
-    })
-    stdout = result.stdout
-  } catch (error) {
-    const executableError = error as { code?: string | number; stdout?: string; stderr?: string }
-    if (typeof executableError.code === 'number' || typeof executableError.code === 'string') {
-      if (typeof executableError.stdout === 'string' && executableError.stdout.trim()) stdout = executableError.stdout
-      else throw new Error(executableError.stderr ? 'NPM_AUDIT_FAILED' : 'NPM_AUDIT_FAILED')
-    } else throw error
+  const targets = discoverNpmAuditTargets(options.cwd)
+  if (!targets.length) throw new Error('NPM_AUDIT_LOCKFILE_NOT_FOUND')
+  const auditResults: { root: string; audit: NpmAuditResult }[] = []
+
+  for (const target of targets) {
+    let stdout: string
+    try {
+      const result = await execFileAsync(process.execPath, [npmCli, 'audit', '--json', '--omit=optional'], {
+        cwd: target.root,
+        timeout: timeoutMs,
+        maxBuffer: 10 * 1024 * 1024,
+        env: { ...process.env, NODE_OPTIONS: '', npm_config_update_notifier: 'false' },
+        signal: options.signal,
+        windowsHide: true,
+      })
+      stdout = result.stdout
+    } catch (error) {
+      const executableError = error as { code?: string | number; stdout?: string; stderr?: string }
+      if ((typeof executableError.code === 'number' || typeof executableError.code === 'string') && typeof executableError.stdout === 'string' && executableError.stdout.trim()) {
+        stdout = executableError.stdout
+      } else {
+        throw new Error('NPM_AUDIT_FAILED')
+      }
+    }
+    auditResults.push({ root: target.root, audit: JSON.parse(stdout) as NpmAuditResult })
   }
 
-  const audit = JSON.parse(stdout) as {
-    metadata?: { vulnerabilities?: Record<string, number> }
-    vulnerabilities?: Record<string, {
-      name?: string
-      severity?: string
-      isDirect?: boolean
-      nodes?: string[]
-      range?: string
-      fixAvailable?: false | { name?: string; version?: string; isSemVerMajor?: boolean }
-      via?: Array<string | { title?: string; url?: string; severity?: string; cwe?: string[]; cvss?: { score?: number } }>
-      effects?: string[]
-    }>
-  }
-
-  const findings = Object.entries(audit.vulnerabilities ?? {}).flatMap(([packageName, vulnerability]) => {
+  const findings = auditResults.flatMap(({ root, audit }) => Object.entries(audit.vulnerabilities ?? {}).flatMap(([packageName, vulnerability]) => {
     const advisoryVia = vulnerability.via?.filter((entry): entry is { title?: string; url?: string; severity?: string; cwe?: string[]; cvss?: { score?: number } } => typeof entry === 'object') ?? []
     const advisories = advisoryVia.length ? advisoryVia : [{ title: `${packageName} contains a vulnerable dependency`, severity: vulnerability.severity }]
     return advisories.map((advisory) => {
@@ -100,6 +129,7 @@ export async function runDependencyScanner(options: { cwd: string; timeoutMs?: n
         : 'No automatic fix is currently reported by npm audit. Review the advisory and apply an approved remediation.'
       const evidence = redactSensitiveEvidence({
         package: packageName,
+        project: relative(options.cwd, root) || '.',
         installedNodes: vulnerability.nodes ?? [],
         vulnerableRange: vulnerability.range ?? 'unavailable',
         dependencyPath: vulnerability.effects?.length ? vulnerability.effects.join(' -> ') : packageName,
@@ -107,6 +137,7 @@ export async function runDependencyScanner(options: { cwd: string; timeoutMs?: n
         directDependency: vulnerability.isDirect === true,
         cvssScore: advisory.cvss?.score ?? null,
       }) as Record<string, string | number | boolean | null>
+      const projectPath = relative(options.cwd, root).replaceAll('\\', '/')
       return {
         id: randomUUID(),
         scanner: dependencyScannerId,
@@ -116,25 +147,42 @@ export async function runDependencyScanner(options: { cwd: string; timeoutMs?: n
         cve,
         cwe: advisory.cwe ?? [],
         affectedComponent: packageName,
-        affectedFile: 'package-lock.json',
+        affectedFile: projectPath ? `${projectPath}/package-lock.json` : 'package-lock.json',
         evidence,
         remediation: fix,
-        deduplicationKey: `${packageName}:${title}:${vulnerability.range ?? 'unknown'}`,
+        deduplicationKey: `${projectPath}:${packageName}:${title}:${vulnerability.range ?? 'unknown'}`,
         lifecycleStatus: 'OPEN',
         verificationStatus: 'UNVERIFIED',
       }
     })
-  })
+  }))
 
-  const counts = Object.values(audit.metadata?.vulnerabilities ?? {}).reduce((sum, value) => sum + value, 0)
+  const vulnerabilities = auditResults.flatMap(({ audit }) => Object.values(audit.metadata?.vulnerabilities ?? {}))
+  const reportedVulnerabilityCount = vulnerabilities.reduce((sum, value) => sum + value, 0)
   return {
     findings,
     summary: {
-      packageFindings: Object.keys(audit.vulnerabilities ?? {}).length,
+      packageFindings: auditResults.reduce((sum, { audit }) => sum + Object.keys(audit.vulnerabilities ?? {}).length, 0),
       advisoryFindings: findings.length,
-      reportedVulnerabilityCount: counts,
+      reportedVulnerabilityCount,
       scanner: dependencyScannerId,
+      scannedProjects: auditResults.length,
+      scannedLockfiles: targets.length,
       severityAvailable: findings.filter((finding) => finding.severity !== null).length,
     },
   }
+}
+
+type NpmAuditResult = {
+    metadata?: { vulnerabilities?: Record<string, number> }
+    vulnerabilities?: Record<string, {
+      name?: string
+      severity?: string
+      isDirect?: boolean
+      nodes?: string[]
+      range?: string
+      fixAvailable?: false | { name?: string; version?: string; isSemVerMajor?: boolean }
+      via?: Array<string | { title?: string; url?: string; severity?: string; cwe?: string[]; cvss?: { score?: number } }>
+      effects?: string[]
+    }>
 }

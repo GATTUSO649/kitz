@@ -101,6 +101,7 @@ test('unclassified business routes are not assigned an accidental permission', (
 test('only self-profile, Operations, and role portal endpoints bypass the common route map', () => {
   assert.equal(hasDedicatedAdministratorGuard('/me'), true)
   assert.equal(hasDedicatedAdministratorGuard('/it/overview'), true)
+  assert.equal(hasDedicatedAdministratorGuard('/it/operations-session'), true)
   assert.equal(hasDedicatedAdministratorGuard('/portal/finance_admin'), true)
   assert.equal(hasDedicatedAdministratorGuard('/portal/laundry_admin'), true)
   assert.equal(hasDedicatedAdministratorGuard('/settings'), false)
