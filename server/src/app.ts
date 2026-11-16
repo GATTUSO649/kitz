@@ -3,7 +3,6 @@ import compression from 'compression'
 import express, { type ErrorRequestHandler, type RequestHandler } from 'express'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { rateLimit } from 'express-rate-limit'
 import helmet from 'helmet'
 import { pinoHttp } from 'pino-http'
 import { env, isAllowedClientOrigin, isAllowedSiteImageOrigin } from './config/env.js'
@@ -22,6 +21,7 @@ import { publicLaundryRouter } from './modules/laundry/routes.js'
 import { publicApiCache } from './middleware/public-cache.js'
 import { createOriginAuthentication } from './middleware/origin-auth.js'
 import { requestMetrics } from './middleware/request-metrics.js'
+import { createAccountRateLimiter, createSecurityRateLimiter, isRateLimitStorageUnavailable } from './security/distributed-rate-limit.js'
 
 export const app = express()
 
@@ -79,28 +79,8 @@ app.use(pinoHttp({ logger, autoLogging: { ignore: (request) => request.url.start
 app.use(requestMetrics)
 app.use(createOriginAuthentication(env.ORIGIN_AUTH_TOKEN))
 
-app.get('/health', async (request, response) => {
-  const databaseQuery = pool ? pool.query('SELECT 1 AS ok') : Promise.reject(new Error('Store database is not configured'))
-  const adminQuery = adminPool && adminPool !== pool
-    ? adminPool.query('SELECT 1 AS ok')
-    : databaseQuery
-
-  const [storeResult, adminResult] = await Promise.allSettled([databaseQuery, adminQuery])
-  logDatabaseCheckFailure(request, storeResult, 'health.store-database')
-  if (adminPool !== pool) logDatabaseCheckFailure(request, adminResult, 'health.admin-database')
-
-  response.json({
-    status: 'ok',
-    service: 'kitculture-api',
-    databaseConfigured: Boolean(pool),
-    adminDatabaseConfigured: Boolean(adminPool),
-    emailDeliveryConfigured: env.EMAIL_PROVIDER === 'smtp'
-      ? Boolean(env.SMTP_HOST && env.SMTP_PORT && env.EMAIL_FROM)
-      : env.EMAIL_PROVIDER === 'resend' ? Boolean(env.RESEND_API_KEY && env.EMAIL_FROM) : false,
-    emailProvider: env.EMAIL_PROVIDER,
-    databaseConnected: storeResult.status === 'fulfilled',
-    adminDatabaseConnected: adminResult.status === 'fulfilled',
-  })
+app.get('/health', (_request, response) => {
+  response.json({ status: 'ok', service: 'kitculture-api' })
 })
 
 app.get('/health/live', (_request, response) => {
@@ -116,31 +96,28 @@ app.get('/health/ready', async (request, response) => {
   const [storeResult, adminResult] = await Promise.allSettled([databaseQuery, adminQuery])
   logDatabaseCheckFailure(request, storeResult, 'health.store-database')
   if (adminPool !== pool) logDatabaseCheckFailure(request, adminResult, 'health.admin-database')
-  const checks = {
-    storeDatabase: storeResult.status === 'fulfilled' ? 'ok' : 'unavailable',
-    adminDatabase: adminResult.status === 'fulfilled' ? 'ok' : 'unavailable',
-  }
-  const ready = checks.storeDatabase === 'ok' && checks.adminDatabase === 'ok'
-  response.status(ready ? 200 : 503).json({ status: ready ? 'ready' : 'not_ready', checks })
+  const ready = storeResult.status === 'fulfilled' && adminResult.status === 'fulfilled'
+  response.status(ready ? 200 : 503).json({ status: ready ? 'ready' : 'not_ready' })
 })
 
-const apiLimiter = rateLimit({
+const apiLimiter = createSecurityRateLimiter('api.global', {
   windowMs: 60_000,
   limit: env.NODE_ENV === 'production' ? 120 : 600,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
 })
-const authLimiter = rateLimit({
+const authLimiter = createAccountRateLimiter('auth.account', {
   windowMs: 15 * 60_000,
   limit: env.NODE_ENV === 'production' ? 10 : 60,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   skip: (request) => request.method === 'GET' || request.path === '/logout' || request.path === '/session/activity',
-})
+}, (request) => request.body?.email ?? request.body?.identity ?? request.body?.roleNumber)
 app.use('/api/v1', apiLimiter)
 app.use('/api/v1', publicApiCache)
 app.use('/api/v1/auth', authLimiter, authRouter)
 app.use('/api/v1/account', accountRouter)
+app.use('/api/v1/admin', createSecurityRateLimiter('admin.api', { windowMs: 60_000, limit: 120 }))
 app.use('/api/v1/admin', (request, response, next) => {
   if (request.method === 'POST' && /^\/api\/v1\/admin\/(?:verify|login|(?:super-admin|finance-admin|inventory-admin|marketing-admin|content-admin|laundry-admin)\/login)\/?(?:\?|$)/.test(request.originalUrl)) {
     authLimiter(request, response, next)
@@ -194,6 +171,11 @@ app.use((_request, response) => {
 const errorHandler: ErrorRequestHandler = (error, request, response, _next) => {
   if (response.headersSent) return
   const requestLogger = request.log ?? logger
+  if (isRateLimitStorageUnavailable(error)) {
+    requestLogger.error({ requestId: String(request.id), code: 'RATE_LIMIT_STORE_UNAVAILABLE' }, 'Shared rate-limit storage failed; request rejected')
+    response.status(503).json({ error: { code: 'RATE_LIMIT_UNAVAILABLE', message: 'Request protection is temporarily unavailable.', requestId: String(request.id) } })
+    return
+  }
   const databaseError = inspectDatabaseError(error)
   if (databaseError.category) {
     requestLogger.error({

@@ -1,8 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lt, lte, sql } from 'drizzle-orm'
 import { Router, type NextFunction, type Request, type Response } from 'express'
-import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
+import { createAccountRateLimiter } from '../../security/distributed-rate-limit.js'
 import { adminDb, adminPool, pool } from '../../config/database.js'
 import { inspectDatabaseError } from '../../config/database-diagnostics.js'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
@@ -19,7 +19,7 @@ import { itAccessRoles, type ItAccessRole } from '../../database/admin-schema.js
 
 export const operationsRouter = Router()
 const operationsCookieName = 'kc_ops_session'
-const operationsLoginLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 8, standardHeaders: 'draft-8', legacyHeaders: false })
+const operationsLoginLimiter = createAccountRateLimiter('operations.login.account', { windowMs: 15 * 60_000, limit: 8 }, (request) => request.body?.email)
 
 type OperationsUser = { id: number; email: string; fullName: string; role: ItAccessRole }
 type OperationsRequest = Request & { operationsUser?: OperationsUser }

@@ -34,6 +34,7 @@ const schema = z.object({
   CLIENT_ORIGIN: z.string().url().default('http://localhost:5173'),
   DATABASE_URL: z.string().min(1).optional(),
   ADMIN_DATABASE_URL: z.string().min(1).optional(),
+  REDIS_URL: z.string().url().optional(),
   SUPABASE_CA_CERT_FILE: z.string().trim().min(1).optional(),
   SUPABASE_CA_CERT: z.string().trim().min(1).optional(),
   ADMIN_SIGNUP_SECRET: z.string().min(32).max(512).optional(),
@@ -88,6 +89,10 @@ const schema = z.object({
     context.addIssue({ code: 'custom', path: ['DATABASE_SLOW_QUERY_CRITICAL_MS'], message: 'Must exceed DATABASE_SLOW_QUERY_ERROR_MS.' })
   }
   if (configuration.NODE_ENV === 'production') {
+    if (process.env.NODE_TEST_CONTEXT === undefined
+      && (!configuration.REDIS_URL || !['redis:', 'rediss:'].includes(new URL(configuration.REDIS_URL).protocol))) {
+      context.addIssue({ code: 'custom', path: ['REDIS_URL'], message: 'A redis:// or rediss:// URL is required in production for shared request rate limiting.' })
+    }
     if (configuration.MARKETHUB_PUBLIC_URL) {
       const marketHubUrl = new URL(configuration.MARKETHUB_PUBLIC_URL)
       if (marketHubUrl.protocol !== 'https:' || marketHubUrl.username || marketHubUrl.password || marketHubUrl.search || marketHubUrl.hash) {

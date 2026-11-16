@@ -3,7 +3,6 @@ import cors from 'cors'
 import express, { type ErrorRequestHandler } from 'express'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { rateLimit } from 'express-rate-limit'
 import helmet from 'helmet'
 import { marketplaceDatabaseConnectionState, pool } from './database/connection.js'
 import { databaseErrorResponseCode } from './database/diagnostics.js'
@@ -18,6 +17,7 @@ import { submissionRouter } from './modules/marketplace/submission.js'
 import { marketplaceRouter } from './modules/marketplace/routes.js'
 import { paymentRouter } from './modules/payments/routes.js'
 import { safeWorkerError, workerHealthSnapshot } from './workers/health.js'
+import { createSecurityRateLimiter, isRateLimitStorageUnavailable } from './security/distributed-rate-limit.js'
 
 export const app = express()
 app.disable('x-powered-by')
@@ -47,19 +47,20 @@ app.use((request, response, next) => {
   }
   next()
 })
-app.use('/api/v1', rateLimit({ windowMs: 60_000, limit: process.env.NODE_ENV === 'production' ? 120 : 600, standardHeaders: 'draft-8', legacyHeaders: false }))
+app.use('/api/v1', createSecurityRateLimiter('api.global', { windowMs: 60_000, limit: process.env.NODE_ENV === 'production' ? 120 : 600 }))
+app.use('/api/v1/admin/marketplace', createSecurityRateLimiter('admin.api', { windowMs: 60_000, limit: 60 }))
 
 app.get('/health/live', (_request, response) => response.json({ status: 'ok', service: 'markethub-platform' }))
 app.get('/health/workers', (_request, response) => {
   response.setHeader('Cache-Control', 'no-store')
-  response.json({ workers: workerHealthSnapshot(), emailProvider: getMarketplaceEmailProviderStatus(), centralAdminAuth: getKitzAdminServiceStatus(), marketplacePayments: getDarajaReadiness(), marketplaceImageStorage: getMarketplaceImageStorageReadiness() })
+  response.json({ status: 'ok' })
 })
 app.get('/health/ready', async (_request, response) => {
   const workers = workerHealthSnapshot()
   const emailProvider = getMarketplaceEmailProviderStatus()
   const centralAdminAuth = getKitzAdminServiceStatus()
   if (!pool) {
-    response.status(503).json({ status: 'not_ready', database: 'not_configured', workers, emailProvider, centralAdminAuth })
+    response.status(503).json({ status: 'not_ready' })
     return
   }
   try {
@@ -127,10 +128,10 @@ app.get('/health/ready', async (_request, response) => {
     if (missingPrivileges?.length) throw Object.assign(new Error(`Required marketplace privileges are unavailable: ${missingPrivileges.join(', ')}.`), { code: '42501', table: missingPrivileges.join(',') })
     const workerFailure = Object.values(workers).some((worker) => worker.enabled && worker.consecutiveFailures > 0)
     const status = emailProvider.configured && centralAdminAuth.configured && !workerFailure ? 'ready' : 'degraded'
-    response.json({ status, database: 'ok', workers, emailProvider, centralAdminAuth })
+    response.json({ status })
   } catch (error) {
     console.error('MarketHub readiness check failed', { operation: 'health.ready.database_check', ...safeWorkerError(error) })
-    response.status(503).json({ status: 'not_ready', database: 'unavailable', workers, emailProvider, centralAdminAuth })
+    response.status(503).json({ status: 'not_ready' })
   }
 })
 
@@ -159,6 +160,11 @@ if (existsSync(clientDist)) {
 app.use((_request, response) => response.status(404).json({ error: { code: 'NOT_FOUND', message: 'The requested resource was not found.' } }))
 
 const errorHandler: ErrorRequestHandler = (error, request, response, _next) => {
+  if (isRateLimitStorageUnavailable(error)) {
+    console.error('MarketHub request rejected because shared rate-limit storage is unavailable.', { route: request.route?.path ?? 'unknown' })
+    response.status(503).json({ error: { code: 'RATE_LIMIT_UNAVAILABLE', message: 'Request protection is temporarily unavailable.' } })
+    return
+  }
   if (error && typeof error === 'object' && 'type' in error && error.type === 'entity.too.large') {
     response.status(413).json({ error: { code: 'PAYLOAD_TOO_LARGE', message: 'The uploaded file exceeds the 8 MB limit.' } })
     return

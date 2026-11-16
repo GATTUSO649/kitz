@@ -2,13 +2,13 @@ import { randomBytes } from 'node:crypto'
 import bcrypt from 'bcryptjs'
 import { and, eq, gt, isNull } from 'drizzle-orm'
 import type { NextFunction, Request, Response } from 'express'
-import { rateLimit } from 'express-rate-limit'
 import { Router } from 'express'
 import { z } from 'zod'
 import { database } from '../../database/connection.js'
 import { marketplaceAdminInvitations, marketplaceAdminSessions, marketplaceAdminUsers, marketplaceAdminVerificationTokens, marketplaceAuditLogs } from '../../database/schema.js'
 import { enqueueMarketplaceEmail } from '../email/outbox.js'
 import { hashSecret } from '../marketplace/security.js'
+import { createAccountRateLimiter, createSecurityRateLimiter } from '../../security/distributed-rate-limit.js'
 
 export type MarketplaceAdminRole = 'super_admin' | 'second_hand_admin' | 'seller_support_admin' | 'marketplace_finance_admin' | 'marketplace_moderator'
 export type MarketplacePermission = 'dashboard:read' | 'listings:read' | 'listings:manage' | 'moderation:manage' | 'categories:manage' | 'finance:read' | 'support:manage' | 'settings:manage' | 'admins:manage'
@@ -129,9 +129,9 @@ export const marketplaceAdminRouter = Router()
 marketplaceAdminRouter.use(['/admins/invitations', '/invitations/activate', '/invitations/verify'], (_request, response) => {
   response.status(410).json({ error: { code: 'CENTRAL_ADMIN_MANAGEMENT_REQUIRED', message: 'Marketplace administrators are invited and verified through KitCulture Super Admin.' } })
 })
-const loginLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 8, standardHeaders: 'draft-8', legacyHeaders: false })
-const activationLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 8, standardHeaders: 'draft-8', legacyHeaders: false })
-const verificationLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 8, standardHeaders: 'draft-8', legacyHeaders: false })
+const loginLimiter = createAccountRateLimiter('admin.login.account', { windowMs: 15 * 60_000, limit: 8 }, (request) => request.body?.email)
+const activationLimiter = createAccountRateLimiter('admin.activation.account', { windowMs: 15 * 60_000, limit: 8 }, (request) => request.body?.email ?? request.body?.token)
+const verificationLimiter = createAccountRateLimiter('admin.verification.account', { windowMs: 15 * 60_000, limit: 8 }, (request) => request.body?.email ?? request.body?.token)
 const loginSchema = z.object({ email: z.string().trim().email().max(254), password: z.string().min(1).max(128) })
 const tokenHash = (token: string) => hashSecret(token)
 

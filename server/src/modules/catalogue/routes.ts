@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, inArray, like, or, sql, type SQL } from 'drizzle-orm'
 import { Router, type Response } from 'express'
-import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
+import { createSecurityRateLimiter } from '../../security/distributed-rate-limit.js'
 import { db } from '../../config/database.js'
 import { inspectDatabaseError } from '../../config/database-diagnostics.js'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
@@ -11,7 +11,7 @@ import { isSiteImageUrl, siteImageSlotKeys } from '../site-images.js'
 import { isSiteContentField } from '../site-content.js'
 
 export const catalogueRouter = Router()
-const productRatingLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false })
+const productRatingLimiter = createSecurityRateLimiter('catalogue.product-rating', { windowMs: 15 * 60_000, limit: 30 })
 export const quickProductRatingSchema = z.object({ rating: z.number().int().min(1).max(5), visitorId: z.string().uuid() })
 
 export function combinedRating(reviewAverage: unknown, reviewCount: unknown, quickAverage: unknown, quickCount: unknown) {

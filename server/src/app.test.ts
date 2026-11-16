@@ -29,6 +29,12 @@ before(async () => {
   baseUrl = `http://127.0.0.1:${address.port}`
 })
 
+test('uses a distinct administrator database pool when a separate URL is configured', () => {
+  assert.ok(pool)
+  assert.ok(adminPool)
+  assert.notEqual(adminPool, pool)
+})
+
 after(async () => {
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
   if (pool) await pool.end()
@@ -377,10 +383,7 @@ test('readiness reflects unavailable MySQL while liveness remains healthy', asyn
   ])
   assert.equal(liveness.status, 200)
   assert.equal(readiness.status, 503)
-  const result = await readiness.json() as { status: string; checks: { storeDatabase: string; adminDatabase: string } }
-  assert.equal(result.status, 'not_ready')
-  assert.equal(result.checks.storeDatabase, 'unavailable')
-  assert.equal(result.checks.adminDatabase, 'unavailable')
+  assert.deepEqual(await readiness.json(), { status: 'not_ready' })
 })
 
 test('diagnoses nested MySQL TLS errors without logging Drizzle SQL or credentials', () => {

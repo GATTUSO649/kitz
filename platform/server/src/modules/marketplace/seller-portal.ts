@@ -2,7 +2,6 @@ import { randomBytes } from 'node:crypto'
 import bcrypt from 'bcryptjs'
 import { and, count, desc, eq, gte, gt, inArray, isNull, ne, sql } from 'drizzle-orm'
 import type { NextFunction, Request, Response } from 'express'
-import { rateLimit } from 'express-rate-limit'
 import { Router } from 'express'
 import { z } from 'zod'
 import { database } from '../../database/connection.js'
@@ -10,6 +9,7 @@ import { marketplaceAuditLogs, marketplaceCategories, marketplaceCounties, marke
 import { enqueueMarketplaceEmail } from '../email/outbox.js'
 import { hashSecret, normalizeKenyanPhone } from './security.js'
 import { marketplaceImageDeliveryUrl } from './images.js'
+import { createAccountRateLimiter, createSecurityRateLimiter } from '../../security/distributed-rate-limit.js'
 
 const cookieName = 'mh_marketplace_seller'
 const sessionLifetimeMs = 7 * 24 * 60 * 60 * 1000
@@ -34,9 +34,9 @@ export type MarketplaceSellerSession = {
 export const marketplaceSellerAuthRouter = Router()
 export const marketplaceSellerDataRouter = Router()
 
-const signupLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false })
-const loginLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 8, standardHeaders: 'draft-8', legacyHeaders: false })
-const verificationLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 8, standardHeaders: 'draft-8', legacyHeaders: false })
+const signupLimiter = createAccountRateLimiter('seller.signup.account', { windowMs: 15 * 60_000, limit: 5 }, (request) => request.body?.email ?? request.body?.seller?.email)
+const loginLimiter = createAccountRateLimiter('seller.login.account', { windowMs: 15 * 60_000, limit: 8 }, (request) => request.body?.email)
+const verificationLimiter = createAccountRateLimiter('seller.verification.account', { windowMs: 15 * 60_000, limit: 8 }, (request) => request.body?.email ?? request.body?.token)
 
 function readSessionToken(request: Request): string | null {
   const cookie = request.get('cookie')?.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${cookieName}=`))

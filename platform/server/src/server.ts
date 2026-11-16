@@ -4,7 +4,9 @@ import { marketplaceDatabaseStartupDiagnostic, pool } from './database/connectio
 import { startMarketplaceEmailWorker } from './modules/email/outbox.js'
 import { getMarketplaceEmailProviderStatus } from './modules/email/service.js'
 import { startMarketplaceExpiryWorker } from './modules/marketplace/expiry.js'
+import { closeRateLimitStore, connectRateLimitStore } from './security/distributed-rate-limit.js'
 
+await connectRateLimitStore()
 const port = Number(process.env.PORT || 4001)
 const host = process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1'
 const stopEmailWorker = startMarketplaceEmailWorker()
@@ -27,7 +29,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     stopEmailWorker()
     stopExpiryWorker()
     server.close(() => {
-      void pool?.end().finally(() => process.exit(0))
+      void Promise.all([pool?.end(), closeRateLimitStore()]).finally(() => process.exit(0))
     })
   })
 }

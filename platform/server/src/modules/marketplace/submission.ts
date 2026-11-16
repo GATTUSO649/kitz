@@ -1,6 +1,5 @@
 import { and, asc, eq, gt, inArray } from 'drizzle-orm'
 import { raw, Router } from 'express'
-import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
 import { database } from '../../database/connection.js'
 import { marketplaceAdminUsers, marketplaceCategories, marketplaceCounties, marketplaceProductAccess, marketplaceProductImages, marketplaceProducts, marketplaceSellers, marketplaceSettings, marketplaceSubcategories } from '../../database/schema.js'
@@ -8,10 +7,13 @@ import { deleteMarketplaceImage, getMarketplaceImageStorageReadiness, Marketplac
 import { calculateFeeKes, createListingReference, createListingSlug, createSecret, hashSecret, normalizeKenyanPhone } from './security.js'
 import { optionalMarketplaceSeller, type MarketplaceSellerSession } from './seller-portal.js'
 import { enqueueMarketplaceEmail } from '../email/outbox.js'
+import { createAccountRateLimiter, createSecurityRateLimiter } from '../../security/distributed-rate-limit.js'
 
 export const submissionRouter = Router()
 const imageBody = raw({ type: ['image/jpeg', 'image/png', 'image/webp', 'application/octet-stream'], limit: '8mb' })
-const imageUploadLimiter = rateLimit({ windowMs: 60_000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false })
+const imageUploadLimiter = createAccountRateLimiter('marketplace.image-upload.account', { windowMs: 60_000, limit: 10 }, (request) => request.params.reference)
+const listingSubmissionLimiter = createAccountRateLimiter('marketplace.listing-submission.account', { windowMs: 15 * 60_000, limit: 5 }, (request) => request.body?.seller?.email ?? request.body?.seller?.phone)
+const submissionStatusLimiter = createAccountRateLimiter('marketplace.submission-status.account', { windowMs: 60_000, limit: 30 }, (request) => request.params.reference)
 
 const submissionSchema = z.object({
   title: z.string().trim().min(5).max(160),
@@ -55,7 +57,7 @@ submissionRouter.get('/locations/counties', async (_request, response, next) => 
   }
 })
 
-submissionRouter.post('/submissions', optionalMarketplaceSeller, async (request, response, next) => {
+submissionRouter.post('/submissions', listingSubmissionLimiter, optionalMarketplaceSeller, async (request, response, next) => {
   const parsed = submissionSchema.safeParse(request.body)
   if (!parsed.success) {
     response.status(400).json({ error: { code: 'INVALID_SUBMISSION', message: 'Check the listing details and try again.', details: parsed.error.issues.map(({ path, message }) => ({ field: path.join('.'), message })) } })
@@ -166,7 +168,7 @@ submissionRouter.post('/submissions', optionalMarketplaceSeller, async (request,
   }
 })
 
-submissionRouter.get('/submissions/:reference/status', async (request, response) => {
+submissionRouter.get('/submissions/:reference/status', submissionStatusLimiter, async (request, response) => {
   const reference = z.string().regex(/^MH-[A-F0-9]{16}$/).safeParse(request.params.reference)
   const token = request.get('x-submission-token') ?? ''
   if (!reference.success || token.length < 20) {

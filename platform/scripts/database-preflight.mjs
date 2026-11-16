@@ -38,6 +38,13 @@ function parseApplicationContracts(schemaSource, appSource, snapshot) {
   }
 }
 
+  export function runtimeSequencePrivilegeIssues(sequences, runtimeRole) {
+    return sequences.flatMap((sequence) => [
+      ...(!sequence.canUse ? [`Runtime role lacks USAGE on Marketplace sequence ${sequence.name}.`] : []),
+      ...(sequence.owner === runtimeRole ? [`Runtime role owns Marketplace sequence ${sequence.name}.`] : []),
+    ])
+  }
+
 function getOptions() {
   const args = process.argv.slice(2)
   const valueAfter = (name) => {
@@ -301,6 +308,16 @@ async function inspectConnection(label, parsed, expected, ca, contracts, issues,
         ORDER BY required.table_name, required.privilege
       `, [contracts.privilegePairs.map((item) => item.table), contracts.privilegePairs.map((item) => item.privilege)])
       if (missingPrivileges.rows.length) issues.push(`Runtime role lacks required application privileges: ${missingPrivileges.rows.map(({ table_name, privilege }) => `${table_name}:${privilege}`).join(', ')}.`)
+      const sequenceResult = await client.query(`
+        SELECT sequence.relname AS name,
+               pg_get_userbyid(sequence.relowner) AS owner,
+               has_sequence_privilege(current_user, sequence.oid, 'USAGE') AS can_use
+        FROM pg_class AS sequence
+        JOIN pg_namespace AS namespace ON namespace.oid = sequence.relnamespace
+        WHERE namespace.nspname = 'marketplace' AND sequence.relkind = 'S'
+        ORDER BY sequence.relname
+      `)
+      issues.push(...runtimeSequencePrivilegeIssues(sequenceResult.rows, identity?.role_name))
       const liveColumns = await client.query(`
         SELECT table_name, column_name FROM information_schema.columns
         WHERE table_schema = 'marketplace'
@@ -392,6 +409,7 @@ async function inspectConnection(label, parsed, expected, ca, contracts, issues,
           bypassRls: identity?.rolbypassrls,
         },
         supabaseRoles: roleAccess.rows,
+        marketplaceSequences: sequenceResult.rows,
         rls: rlsResult.rows,
         marketplaceSellerTermsColumnExists: sellerTermsColumnExists,
         publicSchemaFingerprint: publicSchemaFingerprint?.fingerprint ?? null,

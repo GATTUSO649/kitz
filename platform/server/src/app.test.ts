@@ -47,25 +47,25 @@ test('marketplace public GET endpoints fail closed without a database', async ()
   }
 })
 
-test('readiness reports missing marketplace database configuration', async () => {
+test('public readiness reports failure without exposing database configuration', async () => {
   const response = await fetch(`${origin}/health/ready`)
   assert.equal(response.status, 503)
-  assert.equal((await response.json()).database, 'not_configured')
+  assert.deepEqual(await response.json(), { status: 'not_ready' })
 })
 
-test('worker health reports configured state without exposing secret values', async () => {
+test('public worker health endpoint does not expose operational diagnostics', async () => {
   const response = await fetch(`${origin}/health/workers`)
-  const result = await response.json() as { workers?: Record<string, unknown>; emailProvider?: { provider: string; configured: boolean; code: string | null }; marketplacePayments?: { mode: string; status: string; issue?: string; missingVariables?: string[] }; marketplaceImageStorage?: { status: string; missingVariables: string[] } }
+  const result = await response.json()
   assert.equal(response.status, 200)
-  assert.equal(result.emailProvider?.provider, 'disabled')
-  assert.equal(result.emailProvider?.configured, false)
-  assert.ok(result.workers?.marketplace_email)
-  assert.ok(result.workers?.marketplace_listing_expiry)
-  assert.ok(['disabled', 'sandbox', 'production'].includes(result.marketplacePayments?.mode ?? ''))
-  assert.ok(['disabled', 'misconfigured', 'ready'].includes(result.marketplacePayments?.status ?? ''))
-  assert.ok(['misconfigured', 'ready'].includes(result.marketplaceImageStorage?.status ?? ''))
-  assert.ok(Array.isArray(result.marketplaceImageStorage?.missingVariables))
-  assert.doesNotMatch(JSON.stringify(result), /"(?:consumerSecret|apiSecret|passkey|consumerKey|accessToken)"/i)
+  assert.deepEqual(result, { status: 'ok' })
+})
+
+test('worker diagnostics are not exposed through the public health endpoint', async () => {
+  const response = await fetch(`${origin}/api/v1/admin/marketplace/diagnostics/workers`)
+  const result = await response.json()
+  assert.notEqual(response.status, 200)
+  assert.equal('workers' in result, false)
+  assert.equal('marketplacePayments' in result, false)
 })
 
 test('catalogue rejects invalid pagination before accessing the database', async () => {
@@ -130,6 +130,20 @@ test('Daraja callbacks reject requests without the configured secret path', asyn
     body: JSON.stringify({}),
   })
   assert.equal(response.status, 404)
+})
+
+test('payment initiation endpoints apply a stricter abuse limit than the general API limit', async () => {
+  const headers = { Origin: 'http://127.0.0.1:5173', 'Content-Type': 'application/json' }
+  const body = JSON.stringify({ slug: 'rate-limit-test', name: 'Test User', phone: '0712345678', email: 'test@example.test' })
+  const responses = []
+  for (let attempt = 0; attempt < 9; attempt += 1) {
+    responses.push(await fetch(`${origin}/api/v1/marketplace/payments/contact-unlock`, { method: 'POST', headers, body }))
+  }
+  const limitedResponse = responses.at(-1)
+  assert.ok(limitedResponse)
+  assert.ok(responses.slice(0, 8).every((response) => response.status === 503))
+  assert.equal(limitedResponse.status, 429)
+  assert.equal((await limitedResponse.json()).error.code, 'PAYMENT_RATE_LIMITED')
 })
 
 test('marketplace administration never serves dashboard data without its isolated database', async () => {

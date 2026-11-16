@@ -1,24 +1,36 @@
 import { randomUUID } from 'node:crypto'
 import { and, asc, count, desc, eq, gte, ilike, inArray, lte, ne, or, sql } from 'drizzle-orm'
-import { rateLimit } from 'express-rate-limit'
 import { Router } from 'express'
 import { z } from 'zod'
 import { database } from '../../database/connection.js'
 import { marketplaceAdminSessions, marketplaceAdminUsers, marketplaceAuditLogs, marketplaceCategories, marketplaceContactUnlocks, marketplaceCounties, marketplaceEmailEvents, marketplaceNotifications, marketplacePaymentCallbacks, marketplacePayments, marketplaceProductReports, marketplaceProductViews, marketplaceProducts, marketplaceSettings, marketplaceSellerAccounts, marketplaceSellerSessions, marketplaceSellers } from '../../database/schema.js'
-import { requireMarketplacePermission, type MarketplaceAdminSession } from './marketplace-auth.js'
-import { parseDarajaTimestamp, queryStkPayment } from '../payments/daraja.js'
+import { getKitzAdminServiceStatus, requireMarketplacePermission, type MarketplaceAdminSession } from './marketplace-auth.js'
+import { getDarajaReadiness, parseDarajaTimestamp, queryStkPayment } from '../payments/daraja.js'
 import { normalizeKenyanPhone } from '../marketplace/security.js'
 import { listingExpiryAt, resolveListingExpiryDays } from '../marketplace/expiry.js'
 import { parseMarketplaceSocialLinks } from '../marketplace/social-links.js'
 import { enqueueMarketplaceEmail } from '../email/outbox.js'
 import { getMarketplaceEmailProviderStatus } from '../email/service.js'
+import { getMarketplaceImageStorageReadiness } from '../marketplace/images.js'
+import { workerHealthSnapshot } from '../../workers/health.js'
+import { createSecurityRateLimiter } from '../../security/distributed-rate-limit.js'
 
 export const marketplaceAdminDataRouter = Router()
 marketplaceAdminDataRouter.use('/admins', (_request, response) => {
   response.status(410).json({ error: { code: 'CENTRAL_ADMIN_MANAGEMENT_REQUIRED', message: 'Marketplace administrator management is centralized in KitCulture Super Admin.' } })
 })
+marketplaceAdminDataRouter.get('/diagnostics/workers', requireMarketplacePermission('admins:manage'), (_request, response) => {
+  response.setHeader('Cache-Control', 'no-store')
+  response.json({ data: {
+    workers: workerHealthSnapshot(),
+    emailProvider: getMarketplaceEmailProviderStatus(),
+    centralAdminAuth: getKitzAdminServiceStatus(),
+    marketplacePayments: getDarajaReadiness(),
+    marketplaceImageStorage: getMarketplaceImageStorageReadiness(),
+  } })
+})
 const adminSession = (response: import('express').Response) => response.locals.marketplaceAdmin as MarketplaceAdminSession
-const adminEmailSendLimiter = rateLimit({ windowMs: 60_000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false })
+const adminEmailSendLimiter = createSecurityRateLimiter('admin.email-send', { windowMs: 60_000, limit: 5 })
 const marketplacePaymentStatus = z.enum(['initiated', 'pending', 'processing', 'ambiguous', 'succeeded', 'failed', 'cancelled', 'expired', 'reversed', 'refunded'])
 const marketplacePaymentPurpose = z.enum(['PRODUCT_PUBLICATION', 'CONTACT_UNLOCK'])
 

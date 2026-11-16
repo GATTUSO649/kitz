@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { and, asc, count, desc, eq, gte, ilike, inArray, lte, or, sql } from 'drizzle-orm'
 import { Router, type NextFunction, type Request, type Response } from 'express'
-import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
+import { createSecurityRateLimiter } from '../../security/distributed-rate-limit.js'
 import { db } from '../../config/database.js'
 import { authenticatedAdmin } from '../../middleware/authenticate.js'
 import { laundryBookingEvents, laundryBookings, laundryPaymentEvents, laundryPayments, laundryServiceAreas } from '../../database/schema.js'
@@ -69,7 +69,7 @@ const publicBookingSchema = z.object({
   if (!normalizePhone(value.phone)) context.addIssue({ code: 'custom', message: 'Enter a valid Kenyan mobile number.' })
 })
 
-const publicRequestLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 8, standardHeaders: 'draft-8', legacyHeaders: false })
+const publicRequestLimiter = createSecurityRateLimiter('laundry.public-booking', { windowMs: 15 * 60_000, limit: 8 })
 
 publicLaundryRouter.get('/locations', async (_request, response) => {
   if (!db) return response.status(503).json({ error: { code: 'LAUNDRY_UNAVAILABLE', message: 'Pickup locations are temporarily unavailable.' } })

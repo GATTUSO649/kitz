@@ -6,7 +6,9 @@ import { startMonitoringWorker, stopMonitoringWorker } from './modules/operation
 import { flushMonitoringEvents } from './modules/operations/telemetry-store.js'
 import { startRuntimePerformanceSampler, stopRuntimePerformanceSampler } from './modules/operations/runtime-performance.js'
 import { flushDatabasePerformanceMetrics } from './modules/operations/database-performance.js'
+import { closeRateLimitStore, connectRateLimitStore } from './security/distributed-rate-limit.js'
 
+await connectRateLimitStore()
 const server = app.listen(env.PORT, () => {
   logger.info({ port: env.PORT, databaseConfigured: Boolean(pool) }, 'KitCulture API listening')
 })
@@ -22,6 +24,7 @@ async function shutdown(signal: string) {
     await workerShutdown
     flushDatabasePerformanceMetrics()
     await flushMonitoringEvents()
+    await closeRateLimitStore()
     if (pool) await pool.end()
     if (adminPool && adminPool !== pool) await adminPool.end()
     process.exit(error ? 1 : 0)

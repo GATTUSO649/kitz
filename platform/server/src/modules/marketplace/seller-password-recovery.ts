@@ -1,15 +1,15 @@
 import { randomBytes } from 'node:crypto'
 import bcrypt from 'bcryptjs'
 import { and, eq, isNull } from 'drizzle-orm'
-import { rateLimit } from 'express-rate-limit'
 import { Router } from 'express'
 import { z } from 'zod'
 import { database } from '../../database/connection.js'
 import { marketplaceAuditLogs, marketplaceSellerAccounts, marketplaceSellerPasswordResetTokens, marketplaceSellerSessions } from '../../database/schema.js'
 import { enqueueMarketplaceEmail } from '../email/outbox.js'
 import { hashSecret } from './security.js'
+import { createAccountRateLimiter } from '../../security/distributed-rate-limit.js'
 
-const resetLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false })
+const resetLimiter = createAccountRateLimiter('seller.password-recovery.account', { windowMs: 15 * 60_000, limit: 5 }, (request) => request.body?.email ?? request.body?.token)
 const resetLifetimeMs = 60 * 60_000
 const resetTokenHash = (token: string) => hashSecret(token)
 const passwordSchema = z.string().min(12).max(128).refine((value) => Buffer.byteLength(value, 'utf8') <= 72, { message: 'Use a password of no more than 72 UTF-8 bytes.' })

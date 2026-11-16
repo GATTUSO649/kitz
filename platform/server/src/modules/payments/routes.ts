@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, gte, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm'
 import { Router } from 'express'
 import { z } from 'zod'
 import { database } from '../../database/connection.js'
@@ -8,8 +8,20 @@ import { calculateFeeKes, createListingReference, createSecret, hashSecret, norm
 import { enqueueMarketplaceEmail } from '../email/outbox.js'
 import { listingExpiryAt } from '../marketplace/expiry.js'
 import { assertDarajaConfigured, callbackFailureStatus, DarajaRequestError, DarajaUnavailableError, initiateStkPush, parseDarajaTimestamp, paymentCallbackFingerprint, queryStkPayment, verifyCallbackToken, verifyMarketplaceStkCallback } from './daraja.js'
+import { createAccountRateLimiter, createSecurityRateLimiter } from '../../security/distributed-rate-limit.js'
 
 export const paymentRouter = Router()
+
+const paymentInitiationLimiter = createAccountRateLimiter('payments.initiation.account', {
+  windowMs: 10 * 60_000,
+  limit: 8,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  handler: (_request, response) => response.status(429).json({
+    error: { code: 'PAYMENT_RATE_LIMITED', message: 'Too many payment requests. Please try again later.' },
+  }),
+}, (request) => request.body?.reference ?? request.body?.slug ?? request.body?.phone)
+const paymentStatusLimiter = createSecurityRateLimiter('payments.status', { windowMs: 60_000, limit: 30 })
 
 const publicationInput = z.object({ reference: z.string().regex(/^MH-[A-F0-9]{16}$/), phone: z.string().max(24), submissionToken: z.string().min(20).max(100).optional() })
 const unlockInput = z.object({ slug: z.string().min(1).max(180), name: z.string().trim().min(2).max(120), phone: z.string().max(24), email: z.string().trim().email().max(254) })
@@ -50,7 +62,7 @@ function safeCallbackDescription(value: string | undefined): string | null {
   return description.replace(/(?:\+?254|0)[17]\d{8}/g, '[phone redacted]').slice(0, 240)
 }
 
-async function startPayment(input: {
+type PaymentReservationInput = {
   purpose: 'PRODUCT_PUBLICATION' | 'CONTACT_UNLOCK'
   productId: string
   phone: string
@@ -59,24 +71,60 @@ async function startPayment(input: {
   customerEmail: string | null
   recipientName?: string
   payerName?: string
-}): Promise<{ paymentReference: string; status: string }> {
+}
+
+type PaymentReservation =
+  | { kind: 'created'; id: string; paymentReference: string }
+  | { kind: 'existing'; paymentReference: string; status: string; amountKes: number }
+  | { kind: 'not_payable' }
+
+async function reservePayment(input: PaymentReservationInput): Promise<PaymentReservation> {
   if (!database) throw new Error('Marketplace data is unavailable.')
   const paymentReference = `MP-${createListingReference().slice(3)}`
   const merchantRequestId = createListingReference()
-  const [payment] = await database.insert(marketplacePayments).values({
-    applicationId: 'MARKETHUB',
-    paymentReference,
-    merchantRequestId,
-    purpose: input.purpose,
-    productId: input.productId,
-    amountKes: input.amountKes,
-    phone: input.phone,
-    customerEmail: input.customerEmail,
-    providerDetails: input.payerName ? { payerName: input.payerName } : null,
-    accessTokenHash: hashSecret(input.accessToken),
-    status: 'initiated',
-  }).returning({ id: marketplacePayments.id })
-  if (!payment) throw new Error('Marketplace payment record was not created.')
+  return database.transaction(async (transaction) => {
+    const [lockedProduct] = await transaction.select({ status: marketplaceProducts.status, expiresAt: marketplaceProducts.expiresAt })
+      .from(marketplaceProducts).where(eq(marketplaceProducts.id, input.productId)).for('update')
+    const eligible = input.purpose === 'PRODUCT_PUBLICATION'
+      ? lockedProduct?.status === 'pending_payment'
+      : lockedProduct?.status === 'published' && lockedProduct.expiresAt !== null && lockedProduct.expiresAt > new Date()
+    if (!eligible) return { kind: 'not_payable' }
+
+    const activeFilters = [
+      eq(marketplacePayments.productId, input.productId),
+      eq(marketplacePayments.purpose, input.purpose),
+      inArray(marketplacePayments.status, ['initiated', 'pending', 'processing', 'ambiguous']),
+    ]
+    if (input.purpose === 'CONTACT_UNLOCK') {
+      activeFilters.push(eq(marketplacePayments.phone, input.phone))
+    }
+    const [existingPayment] = await transaction.select({
+      paymentReference: marketplacePayments.paymentReference,
+      status: marketplacePayments.status,
+      amountKes: marketplacePayments.amountKes,
+    }).from(marketplacePayments).where(and(...activeFilters)).orderBy(desc(marketplacePayments.createdAt)).limit(1)
+    if (existingPayment) return { kind: 'existing', ...existingPayment }
+
+    const [payment] = await transaction.insert(marketplacePayments).values({
+      applicationId: 'MARKETHUB',
+      paymentReference,
+      merchantRequestId,
+      purpose: input.purpose,
+      productId: input.productId,
+      amountKes: input.amountKes,
+      phone: input.phone,
+      customerEmail: input.customerEmail,
+      providerDetails: input.payerName ? { payerName: input.payerName } : null,
+      accessTokenHash: hashSecret(input.accessToken),
+      status: 'initiated',
+    }).returning({ id: marketplacePayments.id })
+    if (!payment) throw new Error('Marketplace payment record was not created.')
+    return { kind: 'created', id: payment.id, paymentReference }
+  })
+}
+
+async function startPayment(input: PaymentReservationInput & { id: string; paymentReference: string }): Promise<{ paymentReference: string; status: string }> {
+  if (!database) throw new Error('Marketplace data is unavailable.')
   let stkPushSubmittedAt: Date | null = null
   let stkPushResponseAt: Date | null = null
   let providerResponseCode: string | null = null
@@ -85,7 +133,7 @@ async function startPayment(input: {
     const provider = await initiateStkPush({
       phone: input.phone,
       amountKes: input.amountKes,
-      paymentReference,
+      paymentReference: input.paymentReference,
       description: input.purpose === 'PRODUCT_PUBLICATION' ? 'Marketplace listing fee' : 'Marketplace contact fee',
     }, {
       onStkPushSubmitted: (at) => { stkPushSubmittedAt = at },
@@ -108,15 +156,15 @@ async function startPayment(input: {
         failureCategory: null,
         failureReason: null,
         updatedAt: new Date(),
-      }).where(eq(marketplacePayments.id, payment.id))
+      }).where(and(eq(marketplacePayments.id, input.id), eq(marketplacePayments.status, 'initiated')))
       if (input.customerEmail && input.purpose === 'PRODUCT_PUBLICATION') await enqueueMarketplaceEmail(transaction, {
-        eventKey: `payment:${paymentReference}:initiated:${input.purpose}`,
+        eventKey: `payment:${input.paymentReference}:initiated:${input.purpose}`,
         to: input.customerEmail,
         kind: input.purpose === 'PRODUCT_PUBLICATION' ? 'publication_payment_initiated' : 'contact_unlock_payment_initiated',
-        data: { name: input.recipientName, reference: paymentReference, amountKes: input.amountKes },
+        data: { name: input.recipientName, reference: input.paymentReference, amountKes: input.amountKes },
       })
     })
-    return { paymentReference, status: 'pending' }
+    return { paymentReference: input.paymentReference, status: 'pending' }
   } catch (error) {
     const rejected = error instanceof DarajaRequestError && error.outcome === 'rejected'
     const status = rejected ? 'failed' : 'ambiguous'
@@ -134,28 +182,28 @@ async function startPayment(input: {
         finalizedAt: rejected ? new Date() : null,
         updatedAt: new Date(),
         providerDetails: { ...(input.payerName ? { payerName: input.payerName } : {}), initiationOutcome: status, ...(error instanceof DarajaRequestError && error.httpStatus ? { httpStatus: error.httpStatus } : {}) },
-      }).where(eq(marketplacePayments.id, payment.id))
+      }).where(and(eq(marketplacePayments.id, input.id), eq(marketplacePayments.status, 'initiated')))
       if (!rejected) return
       if (input.customerEmail && input.purpose === 'PRODUCT_PUBLICATION') await enqueueMarketplaceEmail(transaction, {
-        eventKey: `payment:${paymentReference}:initiation-failed`,
+        eventKey: `payment:${input.paymentReference}:initiation-failed`,
         to: input.customerEmail,
         kind: input.purpose === 'PRODUCT_PUBLICATION' ? 'product_publication_failed' : 'payment_unsuccessful',
-        data: { name: input.recipientName, reference: paymentReference, amountKes: input.amountKes },
+        data: { name: input.recipientName, reference: input.paymentReference, amountKes: input.amountKes },
       })
       const admins = await transaction.select({ email: marketplaceAdminUsers.email }).from(marketplaceAdminUsers)
         .where(and(eq(marketplaceAdminUsers.active, true), inArray(marketplaceAdminUsers.role, ['super_admin', 'marketplace_finance_admin'])))
       for (const admin of admins) await enqueueMarketplaceEmail(transaction, {
-        eventKey: `payment:${paymentReference}:initiation-failed-admin:${admin.email}`,
+        eventKey: `payment:${input.paymentReference}:initiation-failed-admin:${admin.email}`,
         to: admin.email,
         kind: 'admin_payment_failure',
-        data: { reference: paymentReference, amountKes: input.amountKes },
+        data: { reference: input.paymentReference, amountKes: input.amountKes },
       })
     })
-    return { paymentReference, status }
+    return { paymentReference: input.paymentReference, status }
   }
 }
 
-paymentRouter.post('/publication', optionalMarketplaceSeller, async (request, response, next) => {
+paymentRouter.post('/publication', paymentInitiationLimiter, optionalMarketplaceSeller, async (request, response, next) => {
   const parsed = publicationInput.safeParse(request.body)
   if (!parsed.success) {
     response.status(400).json({ error: { code: 'INVALID_PAYMENT_REQUEST', message: 'The payment request is invalid.' } })
@@ -190,17 +238,18 @@ paymentRouter.post('/publication', optionalMarketplaceSeller, async (request, re
       response.status(409).json({ error: { code: 'SUBMISSION_NOT_PAYABLE', message: 'This listing is not awaiting publication payment.' } })
       return
     }
-    const [existingPayment] = await database.select({ paymentReference: marketplacePayments.paymentReference, status: marketplacePayments.status, amountKes: marketplacePayments.amountKes })
-      .from(marketplacePayments)
-      .where(and(eq(marketplacePayments.productId, product.id), eq(marketplacePayments.purpose, 'PRODUCT_PUBLICATION'), inArray(marketplacePayments.status, ['initiated', 'pending', 'ambiguous'])))
-      .orderBy(desc(marketplacePayments.createdAt)).limit(1)
-    if (existingPayment) {
-      response.json({ data: { paymentReference: existingPayment.paymentReference, status: existingPayment.status, amountKes: existingPayment.amountKes, currency: 'KES', paymentPurpose: 'PRODUCT_PUBLICATION', existing: true } })
-      return
-    }
     const fee = calculateFeeKes(product.priceKes, await getFeeBasisPoints('publication_fee_basis_points', 1_000))
     const paymentStatusToken = parsed.data.submissionToken ?? createSecret()
-    const result = await startPayment({ purpose: 'PRODUCT_PUBLICATION', productId: product.id, phone, amountKes: fee, accessToken: paymentStatusToken, customerEmail: product.sellerEmail, recipientName: product.sellerName })
+    const reservation = await reservePayment({ purpose: 'PRODUCT_PUBLICATION', productId: product.id, phone, amountKes: fee, accessToken: paymentStatusToken, customerEmail: product.sellerEmail, recipientName: product.sellerName })
+    if (reservation.kind === 'not_payable') {
+      response.status(409).json({ error: { code: 'SUBMISSION_NOT_PAYABLE', message: 'This listing is not awaiting publication payment.' } })
+      return
+    }
+    if (reservation.kind === 'existing') {
+      response.json({ data: { paymentReference: reservation.paymentReference, status: reservation.status, amountKes: reservation.amountKes, currency: 'KES', paymentPurpose: 'PRODUCT_PUBLICATION', existing: true } })
+      return
+    }
+    const result = await startPayment({ id: reservation.id, paymentReference: reservation.paymentReference, purpose: 'PRODUCT_PUBLICATION', productId: product.id, phone, amountKes: fee, accessToken: paymentStatusToken, customerEmail: product.sellerEmail, recipientName: product.sellerName })
     response.status(202).json({ data: { ...result, amountKes: fee, currency: 'KES', paymentPurpose: 'PRODUCT_PUBLICATION' } })
   } catch (error) {
     if (error instanceof DarajaUnavailableError || (error instanceof Error && /valid Kenyan mobile number/.test(error.message))) {
@@ -211,7 +260,7 @@ paymentRouter.post('/publication', optionalMarketplaceSeller, async (request, re
   }
 })
 
-paymentRouter.post('/contact-unlock', async (request, response, next) => {
+paymentRouter.post('/contact-unlock', paymentInitiationLimiter, async (request, response, next) => {
   const parsed = unlockInput.safeParse(request.body)
   if (!parsed.success) {
     response.status(400).json({ error: { code: 'INVALID_PAYMENT_REQUEST', message: 'The payment request is invalid.' } })
@@ -230,23 +279,18 @@ paymentRouter.post('/contact-unlock', async (request, response, next) => {
       response.status(404).json({ error: { code: 'LISTING_NOT_FOUND', message: 'This listing is not available.' } })
       return
     }
-    const [activePayment] = await database.select({ paymentReference: marketplacePayments.paymentReference })
-      .from(marketplacePayments)
-      .where(and(
-        eq(marketplacePayments.productId, product.id),
-        eq(marketplacePayments.purpose, 'CONTACT_UNLOCK'),
-        eq(marketplacePayments.phone, phone),
-        inArray(marketplacePayments.status, ['initiated', 'pending', 'ambiguous']),
-        gte(marketplacePayments.createdAt, new Date(Date.now() - 10 * 60_000)),
-      ))
-      .orderBy(desc(marketplacePayments.createdAt)).limit(1)
-    if (activePayment) {
-      response.status(409).json({ error: { code: 'PAYMENT_ALREADY_PENDING', message: 'A contact-unlock payment is already in progress for this listing and phone.', paymentReference: activePayment.paymentReference } })
-      return
-    }
     const fee = calculateFeeKes(product.priceKes, await getFeeBasisPoints('contact_unlock_fee_basis_points', 500))
     const accessToken = createSecret()
-    const result = await startPayment({ purpose: 'CONTACT_UNLOCK', productId: product.id, phone, amountKes: fee, accessToken, customerEmail: parsed.data.email.toLowerCase(), payerName: parsed.data.name })
+    const reservation = await reservePayment({ purpose: 'CONTACT_UNLOCK', productId: product.id, phone, amountKes: fee, accessToken, customerEmail: parsed.data.email.toLowerCase(), payerName: parsed.data.name })
+    if (reservation.kind === 'not_payable') {
+      response.status(404).json({ error: { code: 'LISTING_NOT_FOUND', message: 'This listing is not available.' } })
+      return
+    }
+    if (reservation.kind === 'existing') {
+      response.status(409).json({ error: { code: 'PAYMENT_ALREADY_PENDING', message: 'A contact-unlock payment is already in progress for this listing and phone.', paymentReference: reservation.paymentReference } })
+      return
+    }
+    const result = await startPayment({ id: reservation.id, paymentReference: reservation.paymentReference, purpose: 'CONTACT_UNLOCK', productId: product.id, phone, amountKes: fee, accessToken, customerEmail: parsed.data.email.toLowerCase(), payerName: parsed.data.name })
     response.status(202).json({ data: { ...result, accessToken, amountKes: fee, currency: 'KES', paymentPurpose: 'CONTACT_UNLOCK' } })
   } catch (error) {
     if (error instanceof DarajaUnavailableError || (error instanceof Error && /valid Kenyan mobile number/.test(error.message))) {
@@ -257,7 +301,7 @@ paymentRouter.post('/contact-unlock', async (request, response, next) => {
   }
 })
 
-paymentRouter.get('/:reference/status', optionalMarketplaceSeller, async (request, response) => {
+paymentRouter.get('/:reference/status', paymentStatusLimiter, optionalMarketplaceSeller, async (request, response) => {
   const reference = z.string().regex(/^MP-[A-F0-9]{16}$/).safeParse(request.params.reference)
   const token = request.get('x-payment-token') ?? ''
   const sellerSession = response.locals.marketplaceSeller as MarketplaceSellerSession | undefined

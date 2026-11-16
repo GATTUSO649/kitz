@@ -2,8 +2,8 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { hash } from 'bcryptjs'
 import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull } from 'drizzle-orm'
 import { Router, type NextFunction, type Request, type Response } from 'express'
-import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
+import { createAccountRateLimiter, createSecurityRateLimiter } from '../../security/distributed-rate-limit.js'
 import { adminDb, db } from '../../config/database.js'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { bcryptPasswordSchema, verifyPassword } from '../../config/password-policy.js'
@@ -30,9 +30,9 @@ adminEcosystemRouter.use((request, response, next) => {
   }
   response.status(403).json({ error: { code: 'ORIGIN_REJECTED', message: 'Request origin is not allowed.' } })
 })
-const bootstrapLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 5, standardHeaders: true, legacyHeaders: false })
-const verificationEmailLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 3, standardHeaders: true, legacyHeaders: false, message: { error: { code: 'VERIFICATION_EMAIL_RATE_LIMITED', message: 'Too many verification emails were requested. Please wait 15 minutes before trying again.' } } })
-const marketplaceAuthenticationLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: true, legacyHeaders: false, message: { error: { code: 'MARKETPLACE_AUTH_RATE_LIMITED', message: 'Too many administrator sign-in attempts. Please wait and try again.' } } })
+const bootstrapLimiter = createSecurityRateLimiter('admin.bootstrap', { windowMs: 15 * 60_000, limit: 5, standardHeaders: true })
+const verificationEmailLimiter = createSecurityRateLimiter('admin.verification-email', { windowMs: 15 * 60_000, limit: 3, standardHeaders: true, message: { error: { code: 'VERIFICATION_EMAIL_RATE_LIMITED', message: 'Too many verification emails were requested. Please wait 15 minutes before trying again.' } } })
+const marketplaceAuthenticationLimiter = createAccountRateLimiter('admin.marketplace-auth.account', { windowMs: 15 * 60_000, limit: 20, standardHeaders: true, message: { error: { code: 'MARKETPLACE_AUTH_RATE_LIMITED', message: 'Too many administrator sign-in attempts. Please wait and try again.' } } }, (request) => request.body?.email)
 const tokenHash = (token: string) => createHash('sha256').update(token).digest('hex')
 const secretMatches = (candidate: string, configured?: string) => {
   if (!configured) return false

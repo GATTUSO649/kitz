@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { and, desc, eq, gte, isNotNull, isNull, sql } from 'drizzle-orm'
 import { Router, type RequestHandler } from 'express'
-import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
+import { createAccountRateLimiter, createSecurityRateLimiter } from '../../security/distributed-rate-limit.js'
 import { db } from '../../config/database.js'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { applicationSettings, auditLogs, deliveryZones, inventoryMovements, marketingCouponRedemptions, marketingCoupons, notificationCampaigns, notificationRecipients, orderItems, orders, payments, productVariants, products, supportMessages, supportRequests } from '../../database/schema.js'
@@ -115,19 +115,19 @@ const rejectCrossOrigin: RequestHandler = (request, response, next) => {
   next()
 }
 
-const stkPushLimiter = rateLimit({
+const stkPushLimiter = createAccountRateLimiter('payments.stk-initiation.account', {
   windowMs: 15 * 60_000,
   limit: 5,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
-})
-const guestCheckoutLimiter = rateLimit({
+}, (request) => request.params.orderNumber)
+const guestCheckoutLimiter = createSecurityRateLimiter('orders.guest-checkout', {
   windowMs: 15 * 60_000,
   limit: 10,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
 })
-const guestOrderStatusLimiter = rateLimit({
+const guestOrderStatusLimiter = createSecurityRateLimiter('orders.guest-status', {
   windowMs: 15 * 60_000,
   limit: 120,
   standardHeaders: 'draft-8',

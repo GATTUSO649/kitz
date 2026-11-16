@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, gte, gt, ilike, inArray, isNull, lte, lt, or } from 'drizzle-orm'
 import { Router } from 'express'
-import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
+import { createSecurityRateLimiter } from '../../security/distributed-rate-limit.js'
 import { database } from '../../database/connection.js'
 import { marketplaceAdminUsers, marketplaceCategories, marketplaceCounties, marketplaceProductImages, marketplaceProductReports, marketplaceProductViews, marketplaceProducts, marketplaceSellers, marketplaceSettings, marketplaceSubcategories } from '../../database/schema.js'
 import { calculateFeeKes } from './security.js'
@@ -10,9 +10,10 @@ import { enqueueMarketplaceEmail } from '../email/outbox.js'
 import { downloadMarketplaceShareImage, marketplaceImageDeliveryUrl } from './images.js'
 
 export const marketplaceRouter = Router()
-const productViewLimiter = rateLimit({ windowMs: 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false })
-const productReportLimiter = rateLimit({ windowMs: 60 * 60_000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false })
-const productShareImageLimiter = rateLimit({ windowMs: 60_000, limit: 12, standardHeaders: 'draft-8', legacyHeaders: false })
+const productViewLimiter = createSecurityRateLimiter('marketplace.product-view', { windowMs: 60_000, limit: 30 })
+const productReportLimiter = createSecurityRateLimiter('marketplace.product-report', { windowMs: 60 * 60_000, limit: 5 })
+const productShareImageLimiter = createSecurityRateLimiter('marketplace.product-share-image', { windowMs: 60_000, limit: 12 })
+const productSearchLimiter = createSecurityRateLimiter('marketplace.product-search', { windowMs: 60_000, limit: 30 })
 
 marketplaceRouter.get('/settings/footer-social-links', async (_request, response, next) => {
   if (!database) {
@@ -73,7 +74,7 @@ marketplaceRouter.get('/categories', async (_request, response, next) => {
   }
 })
 
-marketplaceRouter.get('/products', async (request, response, next) => {
+marketplaceRouter.get('/products', productSearchLimiter, async (request, response, next) => {
   const parsed = listingQuery.safeParse(request.query)
   if (!parsed.success) {
     response.status(400).json({ error: { code: 'INVALID_QUERY', message: 'Search filters are invalid.', details: parsed.error.issues.map(({ path, message }) => ({ field: path.join('.'), message })) } })
