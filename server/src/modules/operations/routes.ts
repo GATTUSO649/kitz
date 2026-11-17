@@ -554,7 +554,7 @@ const ipPolicySchema = z.object({
   enabled: z.boolean().optional(),
   priority: z.number().int().min(0).max(1_000).optional(),
   reason: z.string().trim().max(240).optional(),
-  expiresAt: z.union([z.string().datetime({ offset: true }), z.null()]).optional(),
+  expiresAt: z.union([z.null(), z.coerce.date()]).optional(),
 }).strict().refine((value) => Object.keys(value).length > 0)
 
 operationsRouter.get('/security/ip-policies', (_request, response) => {
@@ -601,7 +601,6 @@ operationsRouter.patch('/security/ip-policies/:id', (request, response) => {
 
   const policy = updateIpPolicy(id.data, {
     ...parsed.data,
-    expiresAt: parsed.data.expiresAt ?? undefined,
   })
   if (!policy) {
     return response.status(404).json({ error: { code: 'IP_POLICY_NOT_FOUND', message: 'The requested IP policy does not exist.' } })

@@ -91,7 +91,7 @@ test('WAF rejects requests from blocked IP policy entries before normal rule che
       body: JSON.stringify({ note: 'ok' }),
     })
     assert.equal(response.status, 403)
-    const body = await response.json()
+    const body = await response.json() as { error: { code: string } }
     assert.equal(body.error.code, 'IP_POLICY_BLOCKED')
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
