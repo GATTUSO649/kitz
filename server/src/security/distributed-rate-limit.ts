@@ -4,6 +4,7 @@ import { ipKeyGenerator } from 'express-rate-limit'
 import type { Request } from 'express'
 import { RedisStore, type RedisReply } from 'rate-limit-redis'
 import { createClient } from 'redis'
+import { evaluateIpPolicy, getClientIp } from './ip-policy.js'
 
 const commandTimeoutMs = 1_500
 const redisUrl = process.env.REDIS_URL
@@ -101,7 +102,7 @@ export function createRedisRateLimitStore(
 
 export function createSecurityRateLimiter(name: string, options: Partial<Options>) {
   const store = redisClient ? createRedisRateLimitStore(name) : undefined
-  return rateLimit({
+  const limiter = rateLimit({
     ...options,
     keyGenerator: options.keyGenerator ?? ((request) => ipRateLimitKey(ipKeyGenerator(request.ip ?? request.socket.remoteAddress ?? 'unknown'))),
     standardHeaders: options.standardHeaders ?? 'draft-8',
@@ -109,6 +110,20 @@ export function createSecurityRateLimiter(name: string, options: Partial<Options
     passOnStoreError: false,
     ...(store ? { store } : {}),
   })
+
+  return (request: Request, response: Parameters<typeof limiter>[1], next: Parameters<typeof limiter>[2]) => {
+    const clientIp = getClientIp({ ip: request.ip, headers: request.headers as Record<string, string | string[] | undefined> })
+    const decision = evaluateIpPolicy(clientIp)
+    if (decision.action === 'block') {
+      response.status(403).json({ error: { code: 'IP_POLICY_BLOCKED', message: 'The request was rejected by the current IP policy.' } })
+      return
+    }
+    if (decision.action === 'challenge') {
+      response.status(429).json({ error: { code: 'IP_POLICY_CHALLENGE', message: 'Additional verification is required for this source address.' } })
+      return
+    }
+    return limiter(request, response, next)
+  }
 }
 
 export function accountRateLimitKey(identity: unknown): string | null {

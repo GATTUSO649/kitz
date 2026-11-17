@@ -11,6 +11,7 @@ import { nextSessionExpiry, operationsSessionAbsoluteLifetimeMs, operationsSessi
 import { adminSessions, adminUsers, monitoringAlerts, monitoringDetectionRules, monitoringEvents, monitoringWorkerState, operationsAuditEvents, operationsIncidentEvents, operationsIncidents, operationsOperators, operationsSessions, operationsUsers, securityScanSchedules } from '../../database/admin-schema.js'
 import { getTelemetryQueueState } from './telemetry-store.js'
 import { getWafStatus } from '../../security/waf.js'
+import { addIpPolicy, listIpPolicies, removeIpPolicy, updateIpPolicy } from '../../security/ip-policy.js'
 import { securityNotificationStatus } from '../security/security-notifications.js'
 import { generateCycloneDxSbom } from '../security/sbom.js'
 import { cancelSecurityScan, dependencyScannerAvailability, getSecurityOverview, getSecurityScan, listSecurityFindings, listSecurityScans, startSecurityScan, updateSecurityFinding, type ScannerModule } from '../security/scanner-engine.js'
@@ -543,6 +544,82 @@ operationsRouter.get('/events', async (request, response) => {
 
 operationsRouter.get('/security/waf', (_request, response) => {
   response.json({ data: getWafStatus(env.WAF_MODE) })
+})
+
+const ipPolicySchema = z.object({
+  name: z.string().trim().min(2).max(80).optional(),
+  action: z.enum(['allow', 'block', 'challenge']).optional(),
+  type: z.enum(['ip', 'cidr']).optional(),
+  value: z.string().trim().min(3).max(128).optional(),
+  enabled: z.boolean().optional(),
+  priority: z.number().int().min(0).max(1_000).optional(),
+  reason: z.string().trim().max(240).optional(),
+  expiresAt: z.union([z.string().datetime({ offset: true }), z.null()]).optional(),
+}).strict().refine((value) => Object.keys(value).length > 0)
+
+operationsRouter.get('/security/ip-policies', (_request, response) => {
+  response.json({
+    data: listIpPolicies().map((policy) => ({
+      ...policy,
+      expiresAt: policy.expiresAt ? policy.expiresAt.toISOString() : null,
+      createdAt: policy.createdAt.toISOString(),
+      updatedAt: policy.updatedAt.toISOString(),
+    })),
+  })
+})
+
+operationsRouter.post('/security/ip-policies', (request, response) => {
+  const parsed = ipPolicySchema.safeParse(request.body)
+  if (!parsed.success) {
+    return response.status(400).json({ error: { code: 'INVALID_IP_POLICY', message: 'The IP policy payload is invalid.' } })
+  }
+
+  try {
+    const policy = addIpPolicy({
+      type: parsed.data.type ?? (parsed.data.value?.includes('/') ? 'cidr' : 'ip'),
+      value: parsed.data.value ?? '',
+      name: parsed.data.name,
+      action: parsed.data.action ?? 'block',
+      enabled: parsed.data.enabled ?? true,
+      priority: parsed.data.priority ?? 50,
+      reason: parsed.data.reason,
+      expiresAt: parsed.data.expiresAt ?? null,
+    })
+    response.status(201).json({ data: { ...policy, expiresAt: policy.expiresAt ? policy.expiresAt.toISOString() : null, createdAt: policy.createdAt.toISOString(), updatedAt: policy.updatedAt.toISOString() } })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'The IP policy could not be created.'
+    response.status(400).json({ error: { code: 'INVALID_IP_POLICY', message } })
+  }
+})
+
+operationsRouter.patch('/security/ip-policies/:id', (request, response) => {
+  const id = z.string().trim().min(1).safeParse(request.params.id)
+  const parsed = ipPolicySchema.safeParse(request.body)
+  if (!id.success || !parsed.success) {
+    return response.status(400).json({ error: { code: 'INVALID_IP_POLICY', message: 'The IP policy update is invalid.' } })
+  }
+
+  const policy = updateIpPolicy(id.data, {
+    ...parsed.data,
+    expiresAt: parsed.data.expiresAt ?? undefined,
+  })
+  if (!policy) {
+    return response.status(404).json({ error: { code: 'IP_POLICY_NOT_FOUND', message: 'The requested IP policy does not exist.' } })
+  }
+
+  response.json({ data: { ...policy, expiresAt: policy.expiresAt ? policy.expiresAt.toISOString() : null, createdAt: policy.createdAt.toISOString(), updatedAt: policy.updatedAt.toISOString() } })
+})
+
+operationsRouter.delete('/security/ip-policies/:id', (request, response) => {
+  const id = z.string().trim().min(1).safeParse(request.params.id)
+  if (!id.success) {
+    return response.status(400).json({ error: { code: 'INVALID_IP_POLICY', message: 'The IP policy identifier is invalid.' } })
+  }
+  const removed = removeIpPolicy(id.data)
+  if (!removed) {
+    return response.status(404).json({ error: { code: 'IP_POLICY_NOT_FOUND', message: 'The requested IP policy does not exist.' } })
+  }
+  response.status(204).end()
 })
 
 operationsRouter.get('/security/sbom', async (request, response) => {

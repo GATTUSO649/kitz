@@ -1,5 +1,6 @@
 import type { Request, RequestHandler } from 'express'
 import { recordMonitoringEvent } from '../modules/operations/monitoring-recorder.js'
+import { evaluateIpPolicy, getClientIp } from './ip-policy.js'
 
 export type WafMode = 'disabled' | 'detect' | 'block'
 export type WafFinding = { ruleId: string; severity: 'warning' | 'error'; component: 'path' | 'query' | 'body' | 'header' | 'method' }
@@ -121,6 +122,32 @@ export function createWafMiddleware(mode: WafMode): RequestHandler {
       next()
       return
     }
+
+    const clientIp = getClientIp({ ip: request.ip, headers: request.headers as Record<string, string | string[] | undefined> })
+    const ipDecision = evaluateIpPolicy(clientIp)
+    if (ipDecision.action === 'block') {
+      recordMonitoringEvent({
+        eventType: 'security.ip_policy.blocked',
+        category: 'security',
+        severity: 'critical',
+        sourceService: 'kitculture-api',
+        instanceId: process.env.RENDER_INSTANCE_ID || process.env.HOSTNAME || 'local',
+        requestId: typeof request.id === 'string' || typeof request.id === 'number' ? String(request.id) : undefined,
+        correlationId: undefined,
+        metadata: {
+          policyId: ipDecision.policyId,
+          matchedValue: ipDecision.matchedValue,
+          reason: ipDecision.reason,
+          clientIp,
+          path: request.path,
+          method: request.method,
+        },
+      })
+      response.setHeader('Cache-Control', 'no-store')
+      response.status(403).json({ error: { code: 'IP_POLICY_BLOCKED', message: 'The request was rejected by the current IP policy.' } })
+      return
+    }
+
     const findings = inspectWafRequest(request)
     const action = decideWafAction(mode, findings)
     if (action === 'allowed') {
