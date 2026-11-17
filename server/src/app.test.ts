@@ -130,6 +130,16 @@ test('keeps unknown API routes as JSON 404s', async () => {
   assert.equal(result.error.code, 'NOT_FOUND')
 })
 
+test('rejects request bodies over the configured 100 KB JSON limit', async () => {
+  const response = await fetch(`${baseUrl}/api/v1/auth/register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ payload: 'x'.repeat(101 * 1024) }),
+  })
+  assert.equal(response.status, 413)
+  assert.deepEqual(await response.json(), { error: { code: 'PAYLOAD_TOO_LARGE', message: 'The request body exceeds the 100 KB limit.' } })
+})
+
 test('rejects excessive public catalogue pagination before querying the database', async () => {
   const response = await fetch(`${baseUrl}/api/v1/products?page=101`)
   assert.equal(response.status, 400)
@@ -230,7 +240,7 @@ test('Super Admin ecosystem APIs reject callers without an admin session', async
 })
 
 test('operations endpoints reject store-administrator sessions', async () => {
-  for (const path of ['/me', '/operators', '/overview', '/telemetry', '/health', '/workers', '/detections', '/events', '/metrics', '/database-performance', '/database-performance/events', '/runtime-performance', '/provider-performance', '/payments', '/alerts', '/incidents', '/audit']) {
+  for (const path of ['/me', '/operators', '/overview', '/telemetry', '/health', '/workers', '/detections', '/events', '/metrics', '/database-performance', '/database-performance/events', '/runtime-performance', '/provider-performance', '/payments', '/security/waf', '/security/sbom', '/alerts', '/incidents', '/audit']) {
     const response = await fetch(`${baseUrl}/api/v1/operations${path}`, { headers: { cookie: 'kc_admin_session=not-an-operations-session' } })
     assert.equal(response.status, 401, path)
     assert.equal((await response.json() as { error: { code: string } }).error.code, 'OPERATIONS_UNAUTHENTICATED', path)
@@ -242,7 +252,7 @@ test('operations endpoints reject store-administrator sessions', async () => {
 })
 
 test('Operations API rejects requests without an Operations session before querying protected data', async () => {
-  for (const path of ['/me', '/operators', '/overview', '/telemetry', '/health', '/workers', '/detections', '/events', '/metrics', '/database-performance', '/database-performance/events', '/runtime-performance', '/provider-performance', '/payments', '/alerts', '/incidents', '/audit']) {
+  for (const path of ['/me', '/operators', '/overview', '/telemetry', '/health', '/workers', '/detections', '/events', '/metrics', '/database-performance', '/database-performance/events', '/runtime-performance', '/provider-performance', '/payments', '/security/waf', '/security/sbom', '/alerts', '/incidents', '/audit']) {
     const response = await fetch(`${baseUrl}/api/v1/operations${path}`)
     assert.equal(response.status, 401, path)
     assert.deepEqual(await response.json(), {
@@ -373,7 +383,8 @@ test('allows same-origin site previews while blocking external framing on applic
   }
   assert.equal(responses[1].status, 401)
   assert.equal(responses[2].status, 404)
-  assert.equal(responses[3].status, 500)
+  assert.equal(responses[3].status, 400)
+  assert.deepEqual(await responses[3].json(), { error: { code: 'INVALID_JSON_BODY', message: 'The request body must be valid JSON.' } })
 })
 
 test('readiness reflects unavailable MySQL while liveness remains healthy', async () => {
@@ -509,7 +520,7 @@ test('operations sign-in uses its own login endpoint and validation contract', a
 })
 
 test('IT operations APIs require an administrator session', async () => {
-  for (const path of ['/api/v1/admin/it/overview', '/api/v1/admin/it/access']) {
+  for (const path of ['/api/v1/admin/it/overview', '/api/v1/admin/it/access', '/api/v1/admin/it/identity-bridge-status']) {
     const response = await fetch(`${baseUrl}${path}`)
     assert.equal(response.status, 401)
     const result = await response.json() as { error: { code: string } }
@@ -524,4 +535,5 @@ test('Operations session exchange rejects callers without a central administrato
   })
   assert.equal(response.status, 401)
   assert.equal((await response.json() as { error: { code: string } }).error.code, 'UNAUTHENTICATED')
+  assert.equal(response.headers.get('cache-control'), 'no-store')
 })

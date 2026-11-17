@@ -141,6 +141,14 @@ export async function closeRateLimitStore(): Promise<void> {
   if (redisClient?.isOpen) await redisClient.close().catch(() => undefined)
 }
 
+export function getRateLimitStoreStatus() {
+  return {
+    configured: Boolean(redisClient),
+    required: process.env.NODE_ENV === 'production',
+    state: !redisClient ? 'not_configured' as const : redisClient.isReady ? 'ready' as const : 'unavailable' as const,
+  }
+}
+
 export function isRateLimitStorageUnavailable(error: unknown): boolean {
   const seen = new Set<unknown>()
   let current = error

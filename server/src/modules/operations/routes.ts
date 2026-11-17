@@ -10,12 +10,15 @@ import { verifyPassword } from '../../config/password-policy.js'
 import { nextSessionExpiry, operationsSessionAbsoluteLifetimeMs, operationsSessionIdleTimeoutMs } from '../../config/session-policy.js'
 import { adminSessions, adminUsers, monitoringAlerts, monitoringDetectionRules, monitoringEvents, monitoringWorkerState, operationsAuditEvents, operationsIncidentEvents, operationsIncidents, operationsOperators, operationsSessions, operationsUsers, securityScanSchedules } from '../../database/admin-schema.js'
 import { getTelemetryQueueState } from './telemetry-store.js'
+import { getWafStatus } from '../../security/waf.js'
+import { generateCycloneDxSbom } from '../security/sbom.js'
 import { cancelSecurityScan, dependencyScannerAvailability, getSecurityOverview, getSecurityScan, listSecurityFindings, listSecurityScans, startSecurityScan, updateSecurityFinding, type ScannerModule } from '../security/scanner-engine.js'
 import { getRequestMetrics } from '../../middleware/request-metrics.js'
+import { getRateLimitStoreStatus } from '../../security/distributed-rate-limit.js'
 import { loadPersistedSecurityScans, persistSecurityScan } from '../security/scanner-persistence.js'
 import { dependencyScanScheduleId, nextDailyRunAt } from '../security/scheduled-scanner.js'
 import { summarizeDatabaseAggregates } from './database-performance.js'
-import { hasItPermission, hasOperationsRoutePermission, itPermissions, type ItPermission } from '../admin/it-access.js'
+import { canUseOperationsIdentityBridge, hasItPermission, hasOperationsRoutePermission, itPermissions, type ItPermission } from '../admin/it-access.js'
 import { itAccessRoles, type ItAccessRole } from '../../database/admin-schema.js'
 import { orders, payments } from '../../database/schema.js'
 
@@ -23,7 +26,7 @@ export const operationsRouter = Router()
 const operationsCookieName = 'kc_ops_session'
 const operationsLoginLimiter = createAccountRateLimiter('operations.login.account', { windowMs: 15 * 60_000, limit: 8 }, (request) => request.body?.email)
 
-type OperationsUser = { id: number; email: string; fullName: string; role: ItAccessRole; adminUserId?: number }
+type OperationsUser = { id: number; email: string; fullName: string; role: ItAccessRole; adminUserId?: number; adminSessionId?: number }
 type OperationsRequest = Request & { operationsUser?: OperationsUser }
 
 function hashOperationsToken(token: string) {
@@ -88,6 +91,21 @@ function clearOperationsCookie(response: Response) {
 
 function authenticatedOperationsUser(request: Request) {
   return (request as OperationsRequest).operationsUser
+}
+
+export function operationsAuditIdentity(actor: OperationsUser | undefined) {
+  return {
+    actorAdminUserId: actor?.adminUserId ?? null,
+    actorOperationsUserId: actor?.id ?? null,
+    actorType: actor?.adminUserId === undefined ? 'operations_user' as const : 'admin' as const,
+  }
+}
+
+export function operationsAuditDetails(actor: OperationsUser | undefined, details?: unknown) {
+  const values = actor?.adminSessionId === undefined
+    ? details
+    : { sourceSessionId: actor.adminSessionId, ...(details === undefined ? {} : { details }) }
+  return values === undefined ? undefined : JSON.stringify(values)
 }
 
 export function classifyOperationsDatabaseFailure(error: unknown) {
@@ -168,6 +186,7 @@ const authenticateOperations = async (request: Request, response: Response, next
         email: operationsUsers.email,
         fullName: operationsUsers.fullName,
         status: adminUsers.status,
+        emailVerifiedAt: adminUsers.emailVerifiedAt,
         role: operationsOperators.role,
       }).from(adminSessions)
         .innerJoin(adminUsers, eq(adminUsers.id, adminSessions.adminUserId))
@@ -179,19 +198,20 @@ const authenticateOperations = async (request: Request, response: Response, next
           eq(operationsUsers.id, session.operationsUserId!),
           gt(adminSessions.expiresAt, now),
         )).limit(1)
-      if (identity && identity.status !== 'disabled' && identity.status !== 'suspended'
-        && (identity.role === 'chief_security_operator' || identity.role === 'super_admin')) {
-        ;(request as OperationsRequest).operationsUser = { id: identity.id, adminUserId: identity.adminUserId, email: identity.email, fullName: identity.fullName, role: identity.role }
+      if (identity?.role && canUseOperationsIdentityBridge(identity.role, identity.status, identity.emailVerifiedAt !== null)) {
+        ;(request as OperationsRequest).operationsUser = { id: identity.id, adminUserId: identity.adminUserId, adminSessionId: session.adminSessionId, email: identity.email, fullName: identity.fullName, role: identity.role }
         next()
         return
       }
       await adminDb.delete(operationsSessions).where(eq(operationsSessions.id, session.id))
       await adminDb.insert(operationsAuditEvents).values({
         actorAdminUserId: session.adminUserId,
+        actorOperationsUserId: session.operationsUserId,
         actorType: 'admin',
         action: 'operations.session.authorization_denied',
         targetType: 'operations_session',
         targetId: String(session.id),
+        details: JSON.stringify({ sourceSessionId: session.adminSessionId }),
       })
     } else {
       await adminDb.delete(operationsSessions).where(eq(operationsSessions.id, session.id))
@@ -251,11 +271,11 @@ operationsRouter.post('/logout', authenticateOperations, async (request, respons
     await adminDb.transaction(async (transaction) => {
       await transaction.delete(operationsSessions).where(eq(operationsSessions.tokenHash, hashOperationsToken(token)))
       if (actor) await transaction.insert(operationsAuditEvents).values({
-        actorOperationsUserId: actor.id,
-        actorType: 'operations_user',
+        ...operationsAuditIdentity(actor),
         action: 'operations.logout',
         targetType: 'operations_user',
         targetId: String(actor.id),
+        details: operationsAuditDetails(actor),
       })
     })
   }
@@ -391,12 +411,11 @@ operationsRouter.patch('/permissions/users/:id/role', async (request, response) 
     }
     await transaction.update(operationsUsers).set({ role: input.data.role }).where(eq(operationsUsers.id, target.id))
     await transaction.insert(operationsAuditEvents).values({
-      actorOperationsUserId: actor.id,
-      actorType: 'operations_user',
+      ...operationsAuditIdentity(actor),
       action: 'operations.role_changed',
       targetType: 'operations_user',
       targetId: String(target.id),
-      details: JSON.stringify({ fromRole: target.role, toRole: input.data.role }),
+      details: operationsAuditDetails(actor, { fromRole: target.role, toRole: input.data.role }),
     })
     return { status: 200 as const, code: 'OPERATIONS_ROLE_UPDATED', data: { userId: target.id, fullName: target.fullName, role: input.data.role } }
   })
@@ -476,12 +495,20 @@ operationsRouter.get('/health', async (_request, response) => {
     ],
     telemetryFreshness: queue.freshness,
     queue,
+    distributedRateLimiting: getRateLimitStoreStatus(),
   } })
 })
 
 operationsRouter.get('/events', async (request, response) => {
   if (!adminDb) return operationsUnavailable(response, String(request.id))
-  const query = incidentListQuery.extend({ category: z.enum(['request', 'application', 'security', 'business', 'system']).optional() }).strict().safeParse(request.query)
+  const query = incidentListQuery.extend({
+    category: z.enum(['request', 'application', 'security', 'business', 'system']).optional(),
+    severity: z.enum(['debug', 'info', 'warning', 'error', 'critical']).optional(),
+    eventType: z.string().regex(/^[a-z][a-z0-9_.-]{1,79}$/).optional(),
+    sourceService: z.string().min(2).max(40).optional(),
+    start: z.coerce.date().optional(),
+    end: z.coerce.date().optional(),
+  }).strict().refine((value) => !value.start || !value.end || value.start <= value.end, 'Start must not follow end.').safeParse(request.query)
   if (!query.success) return response.status(400).json({ error: { code: 'INVALID_QUERY', message: 'Event pagination or category is invalid.' } })
   const rows = await adminDb.select({
     id: monitoringEvents.id,
@@ -500,12 +527,41 @@ operationsRouter.get('/events', async (request, response) => {
     .where(and(
       query.data.cursor ? lt(monitoringEvents.id, query.data.cursor) : undefined,
       query.data.category ? eq(monitoringEvents.category, query.data.category) : undefined,
+      query.data.severity ? eq(monitoringEvents.severity, query.data.severity) : undefined,
+      query.data.eventType ? eq(monitoringEvents.eventType, query.data.eventType) : undefined,
+      query.data.sourceService ? eq(monitoringEvents.sourceService, query.data.sourceService) : undefined,
+      query.data.start ? gte(monitoringEvents.occurredAt, query.data.start) : undefined,
+      query.data.end ? lte(monitoringEvents.occurredAt, query.data.end) : undefined,
     ))
     .orderBy(desc(monitoringEvents.id))
     .limit(query.data.limit + 1)
   const hasMore = rows.length > query.data.limit
   const data = rows.slice(0, query.data.limit)
   response.json({ data, pagination: { limit: query.data.limit, nextCursor: hasMore ? data.at(-1)?.id ?? null : null, hasMore } })
+})
+
+operationsRouter.get('/security/waf', (_request, response) => {
+  response.json({ data: getWafStatus(env.WAF_MODE) })
+})
+
+operationsRouter.get('/security/sbom', async (request, response) => {
+  try {
+    const actor = authenticatedOperationsUser(request)
+    if (!actor || !adminDb) return operationsUnavailable(response, String(request.id))
+    const bom = generateCycloneDxSbom(process.cwd())
+    await adminDb.insert(operationsAuditEvents).values({
+      ...operationsAuditIdentity(actor),
+      action: 'security.sbom.generated',
+      targetType: 'software_bill_of_materials',
+      targetId: String(bom.serialNumber),
+      details: operationsAuditDetails(actor, { format: bom.bomFormat, specVersion: bom.specVersion, componentCount: bom.components.length }),
+    })
+    response.setHeader('Cache-Control', 'no-store')
+    response.type('application/vnd.cyclonedx+json')
+    response.json(bom)
+  } catch {
+    response.status(503).json({ error: { code: 'SBOM_UNAVAILABLE', message: 'A software bill of materials could not be generated from the repository lockfiles.' } })
+  }
 })
 
 operationsRouter.get('/alerts', async (request, response) => {
@@ -557,13 +613,11 @@ operationsRouter.patch('/alerts/:id', async (request, response) => {
       .where(eq(monitoringAlerts.id, id.data)).returning({ id: monitoringAlerts.id, deduplicationKey: monitoringAlerts.deduplicationKey })
     if (!alert) return null
     await transaction.insert(operationsAuditEvents).values({
-      actorAdminUserId: null,
-      actorOperationsUserId: actor?.id ?? null,
-      actorType: 'operations_user',
+      ...operationsAuditIdentity(actor),
       action: 'monitoring_alert.updated',
       targetType: 'monitoring_alert',
       targetId: String(alert.id),
-      details: JSON.stringify(Object.keys(input.data)),
+      details: operationsAuditDetails(actor, Object.keys(input.data)),
     })
     return alert
   })
@@ -940,17 +994,106 @@ operationsRouter.get('/overview', async (request, response) => {
 
 const operationsPaymentQuery = z.object({
   application: z.enum(['KITZ', 'MARKETHUB']).default('KITZ'),
-  status: z.enum(['initiated', 'pending', 'succeeded', 'failed', 'cancelled', 'expired', 'requires_review', 'refunded']).optional(),
+  status: z.enum(['initiated', 'pending', 'processing', 'succeeded', 'failed', 'cancelled', 'expired', 'ambiguous', 'requires_review', 'reversed', 'refunded']).optional(),
   search: z.string().trim().min(1).max(80).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(25),
-  cursor: z.coerce.number().int().positive().optional(),
+  cursor: z.string().max(80).optional(),
 }).strict()
+const kitzPaymentStatuses = ['initiated', 'pending', 'succeeded', 'failed', 'cancelled', 'expired', 'requires_review', 'refunded'] as const
+type KitzPaymentStatus = typeof kitzPaymentStatuses[number]
 
 operationsRouter.get('/payments', async (request, response) => {
+  response.setHeader('Cache-Control', 'no-store')
   const query = operationsPaymentQuery.safeParse(request.query)
   if (!query.success) return response.status(400).json({ error: { code: 'INVALID_PAYMENT_QUERY', message: 'Payment filters are invalid.' } })
-  if (query.data.application !== 'KITZ') return response.status(409).json({ error: { code: 'PAYMENT_APPLICATION_UNAVAILABLE', message: 'MarketHub payment records are not connected to this Operations service.' } })
+  const actor = authenticatedOperationsUser(request)
+  if (!actor || !adminDb) return response.status(503).json({ error: { code: 'PAYMENT_AUDIT_UNAVAILABLE', message: 'Payment inspections cannot be audited.' } })
+
+  if (query.data.application === 'MARKETHUB') {
+    if (!env.MARKETHUB_SECURITY_FEED_URL || !env.MARKETHUB_SERVICE_TOKEN) {
+      await adminDb.insert(operationsAuditEvents).values({
+        ...operationsAuditIdentity(actor), action: 'payment.monitoring.inspected', targetType: 'payment_monitoring', targetId: 'MARKETHUB',
+        details: operationsAuditDetails(actor, { outcome: 'not_configured', status: query.data.status ?? 'all' }),
+      })
+      return response.status(503).json({ error: { code: 'MARKETHUB_PAYMENT_FEED_NOT_CONFIGURED', message: 'MarketHub payment monitoring is not configured.' } })
+    }
+    try {
+      const feedUrl = new URL(env.MARKETHUB_SECURITY_FEED_URL)
+      feedUrl.searchParams.set('limit', String(query.data.limit))
+      if (query.data.status) feedUrl.searchParams.set('status', query.data.status)
+      if (query.data.search) feedUrl.searchParams.set('search', query.data.search)
+      if (query.data.cursor) feedUrl.searchParams.set('cursor', query.data.cursor)
+      const feedResponse = await fetch(feedUrl, {
+        headers: {
+          'x-markethub-service-token': env.MARKETHUB_SERVICE_TOKEN,
+          'x-operations-actor-id': String(actor.adminUserId ?? actor.id),
+          'x-operations-actor-type': actor.adminUserId === undefined ? 'legacy_operations_user' : 'central_admin',
+        },
+        signal: AbortSignal.timeout(8_000),
+      })
+      if (!feedResponse.ok) throw new Error('MARKETHUB_PAYMENT_FEED_FAILED')
+      const payload = await feedResponse.json() as { data?: { application?: string; records?: unknown[]; pagination?: { nextCursor: string | null; hasMore: boolean } } }
+      const validated = z.object({
+        data: z.object({
+          application: z.literal('MARKETHUB'),
+          records: z.array(z.object({
+            id: z.string().uuid(), reference: z.string(), relatedListingReference: z.string().nullable(), purpose: z.string(),
+            amount: z.number(), currency: z.literal('KES'), status: z.string(), provider: z.literal('daraja'),
+            transactionReference: z.string().nullable(), merchantRequestId: z.string().nullable(), checkoutRequestId: z.string().nullable(),
+            payerPhoneMasked: z.string(), providerResponseCode: z.string().nullable(), failureCategory: z.string().nullable(), failureReason: z.string().nullable(),
+            createdAt: z.string().datetime({ offset: true }), updatedAt: z.string().datetime({ offset: true }), transactionAt: z.string().datetime({ offset: true }).nullable(),
+            callback: z.object({ status: z.string(), count: z.number(), lastReceivedAt: z.string().datetime({ offset: true }).nullable(), lastProcessedAt: z.string().datetime({ offset: true }).nullable(), outcomes: z.array(z.string()) }),
+            verification: z.object({ status: z.string(), completedAt: z.string().datetime({ offset: true }).nullable(), verifiedAt: z.string().datetime({ offset: true }).nullable() }),
+            reconciliation: z.object({ status: z.string(), lastAttemptAt: z.string().datetime({ offset: true }).nullable(), attempts: z.number() }),
+          }).strict()),
+          pagination: z.object({ nextCursor: z.string().uuid().nullable(), hasMore: z.boolean() }),
+        }).strict(),
+      }).safeParse(payload)
+      if (!validated.success) throw new Error('MARKETHUB_PAYMENT_FEED_INVALID')
+      const marketData = validated.data.data
+      await adminDb.insert(operationsAuditEvents).values({
+        ...operationsAuditIdentity(actor), action: 'payment.monitoring.inspected', targetType: 'payment_monitoring', targetId: 'MARKETHUB',
+        details: operationsAuditDetails(actor, { outcome: 'success', status: query.data.status ?? 'all', returnedCount: marketData.records.length }),
+      })
+      response.setHeader('Cache-Control', 'no-store')
+      return response.json({ data: {
+        application: 'MARKETHUB',
+        records: marketData.records.map((payment) => ({
+          id: payment.id,
+          orderReference: payment.relatedListingReference ?? payment.reference,
+          provider: payment.provider,
+          providerRequestId: payment.checkoutRequestId,
+          merchantRequestId: payment.merchantRequestId,
+          providerReceipt: payment.transactionReference,
+          amount: String(payment.amount),
+          currency: payment.currency,
+          status: payment.status,
+          providerResultCode: payment.providerResponseCode,
+          createdAt: payment.createdAt,
+          updatedAt: payment.updatedAt,
+          transactionAt: payment.transactionAt,
+          callback: payment.callback,
+          verification: payment.verification,
+          reconciliation: payment.reconciliation,
+        })),
+        pagination: marketData.pagination,
+        limitations: ['Payer phone numbers are masked by MarketHub.', 'This view is read-only and cannot settle or change payment state.'],
+      } })
+    } catch {
+      await adminDb.insert(operationsAuditEvents).values({
+        ...operationsAuditIdentity(actor), action: 'payment.monitoring.inspected', targetType: 'payment_monitoring', targetId: 'MARKETHUB',
+        details: operationsAuditDetails(actor, { outcome: 'unavailable', status: query.data.status ?? 'all' }),
+      })
+      return response.status(503).json({ error: { code: 'MARKETHUB_PAYMENT_FEED_UNAVAILABLE', message: 'MarketHub payment monitoring is temporarily unavailable.' } })
+    }
+  }
   if (!db) return response.status(503).json({ error: { code: 'PAYMENT_DATABASE_UNAVAILABLE', message: 'Kitz payment records are unavailable.' } })
+  if (query.data.status && !kitzPaymentStatuses.includes(query.data.status as KitzPaymentStatus)) {
+    return response.status(400).json({ error: { code: 'INVALID_KITZ_PAYMENT_STATUS', message: 'This payment status is not supported by Kitz.' } })
+  }
+  if (query.data.cursor && (!/^\d+$/.test(query.data.cursor) || !Number.isSafeInteger(Number(query.data.cursor)) || Number(query.data.cursor) < 1)) {
+    return response.status(400).json({ error: { code: 'INVALID_PAYMENT_CURSOR', message: 'Payment pagination is invalid.' } })
+  }
   const rows = await db.select({
     id: payments.id,
     orderReference: orders.orderNumber,
@@ -961,13 +1104,14 @@ operationsRouter.get('/payments', async (request, response) => {
     amount: payments.amount,
     status: payments.status,
     providerResultCode: payments.providerResultCode,
+    verificationMessage: payments.verificationMessage,
     createdAt: payments.createdAt,
     updatedAt: payments.updatedAt,
     transactionAt: payments.transactionAt,
   }).from(payments).innerJoin(orders, eq(payments.orderId, orders.id)).where(and(
     eq(payments.applicationId, 'KITZ'),
-    query.data.status ? eq(payments.status, query.data.status) : undefined,
-    query.data.cursor ? lt(payments.id, query.data.cursor) : undefined,
+    query.data.status ? eq(payments.status, query.data.status as KitzPaymentStatus) : undefined,
+    query.data.cursor ? lt(payments.id, Number(query.data.cursor)) : undefined,
     query.data.search ? or(
       ilike(orders.orderNumber, `%${query.data.search}%`),
       ilike(payments.providerRequestId, `%${query.data.search}%`),
@@ -977,12 +1121,23 @@ operationsRouter.get('/payments', async (request, response) => {
   )).orderBy(desc(payments.id)).limit(query.data.limit + 1)
   const hasMore = rows.length > query.data.limit
   const records = rows.slice(0, query.data.limit)
+  await adminDb.insert(operationsAuditEvents).values({
+    ...operationsAuditIdentity(actor), action: 'payment.monitoring.inspected', targetType: 'payment_monitoring', targetId: 'KITZ',
+    details: operationsAuditDetails(actor, { outcome: 'success', status: query.data.status ?? 'all', returnedCount: records.length }),
+  })
   response.setHeader('Cache-Control', 'no-store')
   response.json({ data: {
     application: 'KITZ',
-    records,
-    pagination: { nextCursor: hasMore ? records.at(-1)?.id ?? null : null, hasMore },
-    limitations: ['Provider callback payloads and payer phone numbers are not exposed by this endpoint.', 'MarketHub uses an isolated database and is not connected here.'],
+    records: records.map((payment) => ({
+      ...payment,
+      amount: payment.amount,
+      currency: 'KES',
+      callback: { status: 'not_recorded_in_kitz_payment_schema', count: 0, lastReceivedAt: null, lastProcessedAt: null, outcomes: [] },
+      verification: { status: payment.status === 'succeeded' && payment.providerResultCode === '0' ? 'provider_code_success_recorded' : payment.status === 'requires_review' ? 'requires_review' : 'not_recorded', completedAt: payment.updatedAt.toISOString(), verifiedAt: payment.transactionAt?.toISOString() ?? null, message: payment.verificationMessage },
+      reconciliation: { status: payment.status === 'requires_review' ? 'required' : 'not_implemented', lastAttemptAt: null, attempts: 0 },
+    })),
+    pagination: { nextCursor: hasMore ? String(records.at(-1)?.id ?? '') : null, hasMore },
+    limitations: ['Kitz callback lifecycle is not separately persisted in the current payment schema.', 'Payer phone numbers and callback payloads are not exposed.', 'This view is read-only and cannot settle or change payment state.'],
   } })
 })
 
@@ -1045,24 +1200,23 @@ operationsRouter.post('/incidents', async (request, response) => {
       title: input.data.title,
       description: input.data.description,
       affectedComponent: input.data.affectedComponent,
+      createdByAdminUserId: actor.adminUserId ?? null,
       createdByOperationsUserId: actor.id,
       detectedAt: now,
     }).returning({ id: operationsIncidents.id })
     await transaction.insert(operationsIncidentEvents).values({
       incidentId: id,
-      actorAdminUserId: null,
+      actorAdminUserId: actor.adminUserId ?? null,
       actorOperationsUserId: actor.id,
       eventType: 'created',
       message: `Incident opened: ${input.data.title}`,
     })
     await transaction.insert(operationsAuditEvents).values({
-      actorAdminUserId: null,
-      actorOperationsUserId: actor.id,
-      actorType: 'operations_user',
+      ...operationsAuditIdentity(actor),
       action: 'incident.created',
       targetType: 'incident',
       targetId: incidentNumber,
-      details: JSON.stringify({ severity: input.data.severity, affectedComponent: input.data.affectedComponent }),
+      details: operationsAuditDetails(actor, { severity: input.data.severity, affectedComponent: input.data.affectedComponent }),
     })
     return id
   })
@@ -1119,15 +1273,13 @@ operationsRouter.patch('/incidents/:id', async (request, response) => {
     }
     await transaction.update(operationsIncidents).set(patch).where(eq(operationsIncidents.id, id.data))
     const details = Object.entries(changes).map(([field, value]) => `${field} changed to ${value ?? 'unassigned'}`).join('; ')
-    await transaction.insert(operationsIncidentEvents).values({ incidentId: id.data, actorAdminUserId: null, actorOperationsUserId: actor.id, eventType: 'updated', message: details })
+    await transaction.insert(operationsIncidentEvents).values({ incidentId: id.data, actorAdminUserId: actor.adminUserId ?? null, actorOperationsUserId: actor.id, eventType: 'updated', message: details })
     await transaction.insert(operationsAuditEvents).values({
-      actorAdminUserId: null,
-      actorOperationsUserId: actor.id,
-      actorType: 'operations_user',
+      ...operationsAuditIdentity(actor),
       action: 'incident.updated',
       targetType: 'incident',
       targetId: existing.incidentNumber,
-      details: JSON.stringify(Object.keys(changes)),
+      details: operationsAuditDetails(actor, Object.keys(changes)),
     })
     return existing.incidentNumber
   })
@@ -1148,14 +1300,13 @@ operationsRouter.post('/incidents/:id/events', async (request, response) => {
     .from(operationsIncidents).where(eq(operationsIncidents.id, id.data)).limit(1)
   if (!incident) return response.status(404).json({ error: { code: 'INCIDENT_NOT_FOUND', message: 'Incident not found.' } })
   await adminDb.transaction(async (transaction) => {
-    await transaction.insert(operationsIncidentEvents).values({ incidentId: id.data, actorAdminUserId: null, actorOperationsUserId: actor.id, eventType: 'note', message: input.data.message })
+    await transaction.insert(operationsIncidentEvents).values({ incidentId: id.data, actorAdminUserId: actor.adminUserId ?? null, actorOperationsUserId: actor.id, eventType: 'note', message: input.data.message })
     await transaction.insert(operationsAuditEvents).values({
-      actorAdminUserId: null,
-      actorOperationsUserId: actor.id,
-      actorType: 'operations_user',
+      ...operationsAuditIdentity(actor),
       action: 'incident.note_added',
       targetType: 'incident',
       targetId: incident.incidentNumber,
+      details: operationsAuditDetails(actor),
     })
   })
   response.status(201).json({ data: { id: id.data } })
@@ -1230,8 +1381,8 @@ operationsRouter.get('/security/overview', async (_request, response) => {
 operationsRouter.get('/security/scanners', (_request, response) => {
   response.json({ data: [
     { scanner: 'npm-audit', status: dependencyScannerAvailability(), coverage: 'dependency', source: 'npm audit runner; findings require an executed scan' },
+    { scanner: 'repository-secret-scanner', status: 'available', coverage: 'secrets', source: 'bounded local source scan; values masked; no third-party service' },
     { scanner: 'semgrep', status: 'not_configured', coverage: 'source', source: 'not installed' },
-    { scanner: 'gitleaks', status: 'not_configured', coverage: 'secrets', source: 'not installed' },
     { scanner: 'database-readonly', status: 'not_configured', coverage: 'database', source: 'credentials not configured for assessment' },
     { scanner: 'trivy', status: 'not_configured', coverage: 'infrastructure', source: 'not installed' },
     { scanner: 'zap', status: 'not_configured', coverage: 'web', source: 'not installed' },
@@ -1258,12 +1409,11 @@ operationsRouter.post('/security/scans', async (request, response) => {
       await persistSecurityScan(adminDb!, current, actor.id)
     })
     await adminDb!.insert(operationsAuditEvents).values({
-      actorOperationsUserId: actor.id,
-      actorType: 'operations_user',
+      ...operationsAuditIdentity(actor),
       action: 'security.scan.started',
       targetType: 'security_scan',
       targetId: scan.id,
-      details: JSON.stringify({ scope: scan.scope }),
+      details: operationsAuditDetails(actor, { scope: scan.scope }),
     })
     response.status(202).json({ data: scan })
   } catch (error) {
@@ -1285,11 +1435,11 @@ operationsRouter.post('/security/scans/:id/cancel', async (request, response) =>
   if (!scan) return response.status(404).json({ error: { code: 'SECURITY_SCAN_NOT_FOUND', message: 'The security scan was not found.' } })
   if (!cancelSecurityScan(scan.id)) return response.status(409).json({ error: { code: 'SECURITY_SCAN_NOT_RUNNING', message: 'The security scan is not running.' } })
   await adminDb!.insert(operationsAuditEvents).values({
-    actorOperationsUserId: actor.id,
-    actorType: 'operations_user',
+    ...operationsAuditIdentity(actor),
     action: 'security.scan.cancelled',
     targetType: 'security_scan',
     targetId: scan.id,
+    details: operationsAuditDetails(actor),
   })
   response.status(204).end()
 })
@@ -1317,12 +1467,11 @@ operationsRouter.patch('/security/findings/:id/status', async (request, response
   const finding = listSecurityFindings().find((item) => item.id === request.params.id)
   if (!finding) return response.status(404).json({ error: { code: 'SECURITY_FINDING_NOT_FOUND', message: 'The finding was not found.' } })
   await adminDb!.insert(operationsAuditEvents).values({
-    actorOperationsUserId: actor.id,
-    actorType: 'operations_user',
+    ...operationsAuditIdentity(actor),
     action: 'security.finding.status_changed',
     targetType: 'security_finding',
     targetId: finding.id,
-    details: JSON.stringify({ status: input.data.status, verificationStatus: input.data.verificationStatus ?? 'UNVERIFIED', note: input.data.note ?? null }),
+    details: operationsAuditDetails(actor, { status: input.data.status, verificationStatus: input.data.verificationStatus ?? 'UNVERIFIED', note: input.data.note ?? null }),
   })
   const updated = updateSecurityFinding(finding.id, input.data.status, input.data.verificationStatus ?? 'UNVERIFIED')
   response.json({ data: updated })
@@ -1395,12 +1544,11 @@ operationsRouter.put('/security/schedule', async (request, response) => {
       set: { enabled: input.data.enabled, scope: 'dependency', cronExpression: expression, nextRunAt, updatedAt: now },
     }).returning({ enabled: securityScanSchedules.enabled, nextRunAt: securityScanSchedules.nextRunAt })
     await transaction.insert(operationsAuditEvents).values({
-      actorOperationsUserId: actor.id,
-      actorType: 'operations_user',
+      ...operationsAuditIdentity(actor),
       action: input.data.enabled ? 'security.dependency_scan.scheduled' : 'security.dependency_scan.schedule_disabled',
       targetType: 'security_scan_schedule',
       targetId: dependencyScanScheduleId,
-      details: JSON.stringify({ dailyAt: input.data.dailyAt, enabled: input.data.enabled }),
+      details: operationsAuditDetails(actor, { dailyAt: input.data.dailyAt, enabled: input.data.enabled }),
     })
     return saved
   })

@@ -90,7 +90,7 @@ const operationsPermissionRules: OperationsPermissionRule[] = [
 export function operationsPermissionForRoute(method: string, path: string): OperationsRoutePermission | null {
   const rule = operationsPermissionRules.find((candidate) => candidate.path.test(path))
   if (!rule) return null
-  return method === 'GET' || method === 'HEAD' ? rule.read : rule.write ?? rule.read
+  return method === 'GET' || method === 'HEAD' ? rule.read : rule.write ?? null
 }
 
 export function hasOperationsRoutePermission(role: ItAccessRole, method: string, path: string) {

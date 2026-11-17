@@ -20,6 +20,7 @@ const ruleDefaults = [
   { ruleId: 'repeated-login-failures', name: 'Repeated login failures', description: 'Repeated failed login requests on one normalized endpoint.', condition: 'login_failures', threshold: 10, windowSeconds: 300, severity: 'warning', cooldownSeconds: 900, recommendedResponse: 'Review the affected endpoint and authentication telemetry. Do not block accounts based on this signal alone.' },
   { ruleId: 'repeated-401-responses', name: 'Repeated unauthorized responses', description: 'A high volume of unauthorized responses on one normalized endpoint.', condition: 'status_401', threshold: 30, windowSeconds: 300, severity: 'warning', cooldownSeconds: 900, recommendedResponse: 'Correlate with authentication failures and expected client behavior.' },
   { ruleId: 'repeated-403-responses', name: 'Repeated forbidden responses', description: 'A high volume of forbidden responses on one normalized endpoint.', condition: 'status_403', threshold: 30, windowSeconds: 300, severity: 'warning', cooldownSeconds: 900, recommendedResponse: 'Review authorization logs and confirm whether the activity is expected.' },
+  { ruleId: 'repeated-waf-detections', name: 'Repeated WAF detections', description: 'Repeated suspicious request patterns detected by the application WAF.', condition: 'waf_detections', threshold: 5, windowSeconds: 300, severity: 'error', cooldownSeconds: 600, recommendedResponse: 'Review matched rule IDs and route group. Detection does not identify a person or prove a successful intrusion.' },
   { ruleId: 'repeated-429-responses', name: 'Repeated rate-limit responses', description: 'A high volume of rate-limited responses on one normalized endpoint.', condition: 'status_429', threshold: 40, windowSeconds: 300, severity: 'warning', cooldownSeconds: 900, recommendedResponse: 'Correlate with application load and rate-limit configuration before escalation.' },
   { ruleId: 'unmatched-route-scan', name: 'Unmatched route activity', description: 'Repeated requests that did not match a registered route.', condition: 'api_scanning', threshold: 50, windowSeconds: 300, severity: 'warning', cooldownSeconds: 900, recommendedResponse: 'Review aggregate route-miss patterns; no individual client is automatically blocked.' },
   { ruleId: 'payment-callback-failures', name: 'Payment callback failures', description: 'Repeated failed responses from the M-Pesa callback route.', condition: 'payment_callback_failures', threshold: 5, windowSeconds: 300, severity: 'error', cooldownSeconds: 600, recommendedResponse: 'Review safe callback diagnostics and reconcile transaction state through the existing verified payment workflow.' },
@@ -45,6 +46,7 @@ function ruleFilter(condition: string) {
     case 'login_failures': return and(eq(status, 401), sql`${route} ILIKE '%login%'`)
     case 'status_401': return eq(status, 401)
     case 'status_403': return eq(status, 403)
+    case 'waf_detections': return eq(monitoringEvents.eventType, 'security.waf.request_inspected')
     case 'status_429': return eq(status, 429)
     case 'api_scanning': return and(eq(status, 404), eq(route, 'unmatched'))
     case 'payment_callback_failures': return and(gt(status, 399), sql`${route} ILIKE '%mpesa/callback%'`)
@@ -57,11 +59,13 @@ function ruleFilter(condition: string) {
   }
 }
 
-function categoryForCondition(condition: string) {
+export function categoryForCondition(condition: string) {
+  if (condition === 'waf_detections') return 'security'
   return ['database_slow_queries', 'database_connection_failures', 'provider_failures'].includes(condition) ? 'system' : 'request'
 }
 
-function eventTypeForCondition(condition: string) {
+export function eventTypeForCondition(condition: string) {
+  if (condition === 'waf_detections') return 'security.waf.request_inspected'
   if (condition === 'database_slow_queries') return 'database.query.slow'
   if (condition === 'database_connection_failures') return 'database.operation.failed'
   if (condition === 'provider_failures') return 'provider.request.completed'
@@ -69,6 +73,7 @@ function eventTypeForCondition(condition: string) {
 }
 
 function groupExpression(condition: string) {
+  if (condition === 'waf_detections') return sql<string>`COALESCE(${monitoringEvents.metadata}->>'routeGroup', 'unknown')`
   if (condition === 'provider_failures') return sql<string>`COALESCE(${monitoringEvents.metadata}->>'provider', 'unknown')`
   if (condition === 'database_slow_queries' || condition === 'database_connection_failures') return sql<string>`COALESCE(${monitoringEvents.metadata}->>'operation', 'unknown')`
   return condition === 'abnormal_volume'
@@ -77,6 +82,7 @@ function groupExpression(condition: string) {
 }
 
 function groupFilter(condition: string, groupKey: string) {
+  if (condition === 'waf_detections') return eq(sql<string>`(${monitoringEvents.metadata}->>'routeGroup')`, groupKey)
   if (condition === 'abnormal_volume') return eq(monitoringEvents.sourceService, groupKey)
   if (condition === 'provider_failures') return eq(sql<string>`(${monitoringEvents.metadata}->>'provider')`, groupKey)
   if (condition === 'database_slow_queries' || condition === 'database_connection_failures') return eq(sql<string>`(${monitoringEvents.metadata}->>'operation')`, groupKey)

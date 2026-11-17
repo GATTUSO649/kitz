@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { classifySeverity, discoverNpmAuditTargets, redactSensitiveEvidence, runDependencyScanner } from './dependency-scanner.js'
 import { dependencyScanRecoveryCutoff, nextDailyRunAt } from './scheduled-scanner.js'
+import { scanTextForSecrets } from './secret-scanner.js'
+import { generateCycloneDxSbom } from './sbom.js'
 import { dependencyScannerAvailability, getSecurityOverview, listSecurityFindings, startSecurityScan, cancelSecurityScan } from './scanner-engine.js'
 
 test('redacts sensitive scanner evidence without exposing secrets', () => {
@@ -28,6 +30,48 @@ test('scanner engine exposes unsupported modules and does not fabricate coverage
 test('dependency scanner availability does not claim health before an executed scan', () => {
   assert.equal(dependencyScannerAvailability('/path/to/npm'), 'not_run')
   assert.equal(dependencyScannerAvailability(''), 'not_configured')
+})
+
+test('repository secret findings retain only masked evidence and fingerprints', () => {
+  const secret = 'this-is-a-test-secret-value-123456'
+  const findings = scanTextForSecrets(`SERVICE_SECRET=${secret}`, 'config/local.env')
+  assert.equal(findings.length, 1)
+  assert.deepEqual(findings[0].evidence && { ...findings[0].evidence, fingerprint: '[MASKED]' }, {
+    ruleId: 'sensitive-assignment',
+    line: 1,
+    fingerprint: '[MASKED]',
+  })
+  assert.doesNotMatch(JSON.stringify(findings), new RegExp(secret))
+})
+
+test('repository secret scanner suppresses documented placeholders and recognizes private key markers', () => {
+  assert.equal(scanTextForSecrets('SERVICE_SECRET=replace-this-secret-value-123456', 'config/example.env').length, 0)
+  const findings = scanTextForSecrets('-----BEGIN PRIVATE KEY-----', 'secrets/key.pem')
+  assert.equal(findings[0]?.severity, 'HIGH')
+  assert.equal(findings[0]?.evidence.ruleId, 'private-key')
+})
+
+test('secret scope executes the local repository scanner and reports masked scan metadata', async () => {
+  const scan = await startSecurityScan(['secrets'], process.cwd(), 30_000)
+  for (let attempt = 0; attempt < 100 && !scan.completedAt; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  assert.equal(scan.status, 'completed')
+  assert.equal(scan.modules[0]?.status, 'successful')
+  assert.equal(scan.summary.scanner, 'repository-secret-scanner')
+  assert.equal(scan.summary.valuesMasked, true)
+  assert.ok(Number(scan.summary.scannedFiles) > 0)
+})
+
+test('CycloneDX SBOM includes Kitz and MarketHub lockfile projects with resolvable dependencies', () => {
+  const bom = generateCycloneDxSbom(process.cwd())
+  const components = bom.components as { name?: string; properties?: { name: string; value: string }[]; 'bom-ref': string }[]
+  const references = new Set(components.map((component) => component['bom-ref']))
+  assert.equal(bom.bomFormat, 'CycloneDX')
+  assert.equal(bom.specVersion, '1.5')
+  assert.ok(components.some((component) => component.properties?.some((property) => property.name === 'kitculture:projectPath' && property.value === '.')))
+  assert.ok(components.some((component) => component.properties?.some((property) => property.name === 'kitculture:projectPath' && property.value === 'platform')))
+  assert.ok((bom.dependencies as { ref: string; dependsOn: string[] }[]).every((dependency) => references.has(dependency.ref) && dependency.dependsOn.every((reference) => references.has(reference))))
 })
 
 test('dependency scanner discovers Kitz and MarketHub lockfiles from either project directory', () => {

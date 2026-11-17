@@ -10,6 +10,7 @@ import { getMarketplaceEmailProviderStatus } from './modules/email/service.js'
 import { getDarajaReadiness } from './modules/payments/daraja.js'
 import { getKitzAdminServiceStatus, marketplaceAdminRouter } from './modules/admin/marketplace-auth.js'
 import { marketplaceAdminDataRouter } from './modules/admin/marketplace-routes.js'
+import { marketplaceSecurityFeedRouter } from './modules/admin/marketplace-security-feed.js'
 import { marketplaceSellerPasswordRecoveryRouter } from './modules/marketplace/seller-password-recovery.js'
 import { marketplaceSellerAuthRouter, marketplaceSellerDataRouter } from './modules/marketplace/seller-portal.js'
 import { getMarketplaceImageStorageReadiness } from './modules/marketplace/images.js'
@@ -136,6 +137,7 @@ app.get('/health/ready', async (_request, response) => {
 })
 
 app.use('/api/v1/marketplace', marketplaceRouter)
+app.use(marketplaceSecurityFeedRouter)
 app.use('/api/v1/marketplace', marketplaceSellerAuthRouter)
 app.use('/api/v1/marketplace', marketplaceSellerPasswordRecoveryRouter)
 app.use('/api/v1/marketplace', marketplaceSellerDataRouter)

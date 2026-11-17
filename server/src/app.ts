@@ -21,6 +21,8 @@ import { publicLaundryRouter } from './modules/laundry/routes.js'
 import { publicApiCache } from './middleware/public-cache.js'
 import { createOriginAuthentication } from './middleware/origin-auth.js'
 import { requestMetrics } from './middleware/request-metrics.js'
+import { recordMonitoringEvent } from './modules/operations/monitoring-recorder.js'
+import { createWafMiddleware } from './security/waf.js'
 import { createAccountRateLimiter, createSecurityRateLimiter, isRateLimitStorageUnavailable } from './security/distributed-rate-limit.js'
 
 export const app = express()
@@ -74,9 +76,32 @@ app.use(['/api/v1/store/site-images', '/api/v1/store/site-content'], (request, r
   }
   next()
 })
-app.use(express.json({ limit: '100kb', strict: true }))
 app.use(pinoHttp({ logger, autoLogging: { ignore: (request) => request.url.startsWith('/health/') || request.url === '/health' } }))
 app.use(requestMetrics)
+app.use(express.json({ limit: '100kb', strict: true }))
+app.use((error: unknown, request: express.Request, response: express.Response, next: express.NextFunction) => {
+  if (!(error instanceof Error) || !('type' in error) || error.type !== 'entity.parse.failed') {
+    next(error)
+    return
+  }
+  const routeGroup = request.path.startsWith('/api/v1/admin') ? '/api/v1/admin'
+    : request.path.startsWith('/api/v1/operations') ? '/api/v1/operations'
+      : request.path.startsWith('/api/v1/marketplace') ? '/api/v1/marketplace' : '/api/v1/other'
+  const requestId = String(request.id)
+  request.log.warn({ requestId, method: request.method, routeGroup }, 'Malformed JSON request rejected')
+  recordMonitoringEvent({
+    eventType: 'security.request.malformed',
+    category: 'security',
+    severity: 'warning',
+    sourceService: 'kitculture-api',
+    instanceId: process.env.RENDER_INSTANCE_ID || process.env.HOSTNAME || 'local',
+    requestId,
+    metadata: { method: request.method, routeGroup, reason: 'invalid_json' },
+  })
+  response.setHeader('Cache-Control', 'no-store')
+  response.status(400).json({ error: { code: 'INVALID_JSON_BODY', message: 'The request body must be valid JSON.' } })
+})
+app.use(createWafMiddleware(env.WAF_MODE))
 app.use(createOriginAuthentication(env.ORIGIN_AUTH_TOKEN))
 
 app.get('/health', (_request, response) => {
@@ -200,7 +225,7 @@ const errorHandler: ErrorRequestHandler = (error, request, response, _next) => {
     errorType: error instanceof Error ? error.name : 'UnknownError',
   }, 'Request failed')
   if (error instanceof Error && 'type' in error && error.type === 'entity.too.large') {
-    response.status(413).json({ error: { code: 'PAYLOAD_TOO_LARGE', message: 'The uploaded file exceeds the 8 MB limit.' } })
+    response.status(413).json({ error: { code: 'PAYLOAD_TOO_LARGE', message: 'The request body exceeds the 100 KB limit.' } })
     return
   }
   response.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Something went wrong. Please try again.', requestId: String(request.id) } })

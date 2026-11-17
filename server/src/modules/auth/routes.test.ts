@@ -10,14 +10,14 @@ const { normalizeCaPem } = await import('../../config/postgres-ssl.mjs')
 const { env, isAllowedClientOrigin, isAllowedSiteImageOrigin, productionDatabaseTlsConfigurationErrors, productionDarajaConfigurationErrors, resolveDarajaEnvironment, resolveDarajaTransactionType } = await import('../../config/env.js')
 const { bcryptPasswordSchema, verifyPassword } = await import('../../config/password-policy.js')
 const { adminIdleTimeoutMs, adminLoginSchema, invalidAdminCredentialsMessage, matchesAdminSignupSecret } = await import('../admin/auth.js')
-const { classifyOperationsDatabaseFailure, probeDatabase } = await import('../operations/routes.js')
+const { classifyOperationsDatabaseFailure, operationsAuditDetails, operationsAuditIdentity, probeDatabase } = await import('../operations/routes.js')
 const { adminSessionAbsoluteLifetimeMs, customerSessionAbsoluteLifetimeMs, customerSessionIdleTimeoutMs, nextSessionExpiry, operationsSessionIdleTimeoutMs, shouldRefreshSession } = await import('../../config/session-policy.js')
 const { attemptPasswordResetDelivery, loginSchema, registerSchema } = await import('./routes.js')
 const { createOrderSchema, createTemporaryOrderNumber, exceedsProductQuantityLimit, ordersRouter, supportLocationFields } = await import('../orders/routes.js')
 const { combinedRating, quickProductRatingSchema } = await import('../catalogue/routes.js')
 const { buildDarajaCallbackUrl, callbackFailureStatus, canVerifySuccessfulStkPayment, DarajaRequestError, darajaCallbackRoute, initiateStkPush, isFinalDarajaPaymentStatus, isValidDarajaPaymentAmount, matchesCallbackToken, normalizeKenyanPhone, parseDarajaTimestamp, parseStkCallback, resolveDarajaShortcodes } = await import('../orders/daraja.js')
 const { createAddressSchema, passwordSchema, productReviewSchema, profileSchema, supportMessageSchema, supportRequestSchema } = await import('../account/routes.js')
-const { adminNotificationSchema, canTransitionOrderStatus, createProductSchema, homepageSlideBatchSchema, homepageSlideSchema, isDuplicateKeyError, settingsSchema, supportUpdateSchema } = await import('../admin/routes.js')
+const { adminNotificationSchema, canTransitionOrderStatus, createProductSchema, hasOperationsIdentityConflict, homepageSlideBatchSchema, homepageSlideSchema, isDuplicateKeyError, settingsSchema, supportUpdateSchema } = await import('../admin/routes.js')
 const { canUseOperationsIdentityBridge, hasItPermission, hasOperationsRoutePermission, operationsPermissionForRoute } = await import('../admin/it-access.js')
 const { detectImageFormat } = await import('../admin/image-storage.js')
 const { isSiteImageUrl, siteImageSlotKeys } = await import('../site-images.js')
@@ -821,6 +821,9 @@ test('Chief Security Operator receives security operations without administrator
   assert.equal(operationsPermissionForRoute('PUT', '/security/schedule'), 'dependencies.manage')
   assert.equal(hasOperationsRoutePermission('chief_security_operator', 'PUT', '/security/schedule'), true)
   assert.equal(operationsPermissionForRoute('GET', '/payments'), 'payments.operations.read')
+  assert.equal(operationsPermissionForRoute('PATCH', '/payments/1'), null)
+  assert.equal(operationsPermissionForRoute('POST', '/events'), null)
+  assert.equal(operationsPermissionForRoute('DELETE', '/security/configuration'), null)
   assert.equal(hasOperationsRoutePermission('chief_security_operator', 'GET', '/payments'), true)
   assert.equal(hasOperationsRoutePermission('security_analyst', 'GET', '/payments'), false)
   assert.equal(hasOperationsRoutePermission('security_analyst', 'PUT', '/security/schedule'), false)
@@ -850,6 +853,8 @@ test('Operations API routes enforce their least-privilege permission map', () =>
     ['GET', '/provider-performance'], ['GET', '/overview'], ['GET', '/incidents'], ['POST', '/incidents'],
     ['GET', '/incidents/1/events'], ['POST', '/incidents/1/events'], ['GET', '/audit'],
     ['GET', '/security/overview'], ['GET', '/security/scanners'], ['GET', '/security/scans'],
+    ['GET', '/security/waf'],
+    ['GET', '/security/sbom'],
     ['GET', '/security/scans/scan-1'], ['POST', '/security/scans'], ['POST', '/security/scans/scan-1/cancel'],
     ['GET', '/security/findings'], ['PATCH', '/security/findings/finding-1/status'], ['GET', '/security/reports'],
   ] as const
@@ -870,6 +875,41 @@ test('Operations identity bridge requires an active verified central grant', () 
   assert.equal(canUseOperationsIdentityBridge('super_admin', 'active', true), true)
   assert.equal(canUseOperationsIdentityBridge('security_analyst', 'active', true), false)
   assert.equal(canUseOperationsIdentityBridge('chief_security_operator', 'suspended', true), false)
+  assert.equal(canUseOperationsIdentityBridge('chief_security_operator', 'pending', true), false)
+  assert.equal(canUseOperationsIdentityBridge('chief_security_operator', 'rejected', true), false)
   assert.equal(canUseOperationsIdentityBridge('chief_security_operator', 'active', false), false)
   assert.equal(canUseOperationsIdentityBridge(null, 'active', true), false)
+  assert.equal(env.OPERATIONS_IDENTITY_BRIDGE_ENABLED, false)
+})
+
+test('Operations audit attribution preserves central identity and source session for bridged actions', () => {
+  const bridgedActor = { id: 21, adminUserId: 7, adminSessionId: 301, email: 'security@example.test', fullName: 'Security Operator', role: 'chief_security_operator' as const }
+  assert.deepEqual(operationsAuditIdentity(bridgedActor), {
+    actorAdminUserId: 7,
+    actorOperationsUserId: 21,
+    actorType: 'admin',
+  })
+  assert.deepEqual(JSON.parse(operationsAuditDetails(bridgedActor, { action: 'incident.created' })!), {
+    sourceSessionId: 301,
+    details: { action: 'incident.created' },
+  })
+
+  const legacyActor = { id: 22, email: 'legacy@example.test', fullName: 'Legacy Operator', role: 'viewer' as const }
+  assert.deepEqual(operationsAuditIdentity(legacyActor), {
+    actorAdminUserId: null,
+    actorOperationsUserId: 22,
+    actorType: 'operations_user',
+  })
+  assert.equal(operationsAuditDetails(legacyActor, { action: 'incident.created' }), '{"action":"incident.created"}')
+})
+
+test('Operations identity linking rejects ambiguous email and central-account matches', () => {
+  assert.equal(hasOperationsIdentityConflict([], 7, 'security@example.test'), false)
+  assert.equal(hasOperationsIdentityConflict([{ email: 'legacy@example.test', adminUserId: null, disabledAt: null }], 7, 'security@example.test'), true)
+  assert.equal(hasOperationsIdentityConflict([{ email: 'old@example.test', adminUserId: 7, disabledAt: null }], 7, 'security@example.test'), true)
+  assert.equal(hasOperationsIdentityConflict([{ email: 'security@example.test', adminUserId: 7, disabledAt: null }], 7, 'security@example.test'), false)
+  assert.equal(hasOperationsIdentityConflict([
+    { email: 'security@example.test', adminUserId: null, disabledAt: null },
+    { email: 'old@example.test', adminUserId: 7, disabledAt: null },
+  ], 7, 'security@example.test'), true)
 })

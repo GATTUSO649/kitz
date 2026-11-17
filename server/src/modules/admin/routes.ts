@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, sql, sum } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, or, sql, sum } from 'drizzle-orm'
 import { Router } from 'express'
 import express from 'express'
 import { z } from 'zod'
@@ -17,6 +17,7 @@ import { isSiteImageUrl, siteImageSlotKeys } from '../site-images.js'
 import { isSiteContentField, siteContentSchema } from '../site-content.js'
 import { buildAdminDashboardReport, reportPeriods, resolveOptionalDateRange, resolveReportingRange } from './reporting.js'
 import { canUseOperationsIdentityBridge, hasItPermission, itPermissions, type ItPermission } from './it-access.js'
+import { createAccountRateLimiter } from '../../security/distributed-rate-limit.js'
 import { getRequestMetrics } from '../../middleware/request-metrics.js'
 import { loadAdministratorPermissions, isAdministratorRole } from './permissions.js'
 import { administratorPermissionsForRoute, hasAnyPermission, hasDedicatedAdministratorGuard, projectDashboardForRole } from './permission-routes.js'
@@ -24,6 +25,10 @@ import { adminWorkflowsRouter } from './workflows.js'
 import { adminLaundryRouter } from '../laundry/routes.js'
 
 export const adminRouter = Router()
+adminRouter.use('/it/operations-session', (_request, response, next) => {
+  response.setHeader('Cache-Control', 'no-store')
+  next()
+})
 adminRouter.use((request, response, next) => {
   if (['GET', 'HEAD', 'OPTIONS'].includes(request.method) || isAllowedClientOrigin(request.get('origin'))) {
     next()
@@ -1466,11 +1471,125 @@ async function requireItPermission(request: import('express').Request, response:
   return grant.role
 }
 
-const operationsBridgeTokenHash = (token: string) => createHash('sha256').update(token).digest('hex')
+adminRouter.get('/it/identity-bridge-status', async (request, response) => {
+  response.setHeader('Cache-Control', 'no-store')
+  const role = await requireItPermission(request, response, 'overview.read')
+  if (!role) return
+  const actor = authenticatedAdmin(request)
+  if (!actor || !adminPool || !adminDb) {
+    return response.status(503).json({ error: { code: 'IDENTITY_BRIDGE_STATUS_UNAVAILABLE', message: 'Identity bridge status could not be verified.' } })
+  }
 
-adminRouter.post('/it/operations-session', async (request, response) => {
+  try {
+    const { rows: [schema] } = await adminPool.query<{
+      hasOperationsUsers: boolean
+      hasOperationsSessions: boolean
+      hasPasswordHashNullable: boolean
+      hasUserAdminLink: boolean
+      hasSessionAdminLink: boolean
+      hasSessionAdminSessionLink: boolean
+      hasUserAdminForeignKey: boolean
+      hasSessionAdminForeignKey: boolean
+      hasSessionSourceForeignKey: boolean
+      hasUserLinkUnique: boolean
+      hasSessionIdentityCheck: boolean
+      hasSessionAdminIndex: boolean
+      hasOperationsRoleCheck: boolean
+      hasOperatorRoleCheck: boolean
+    }>(`SELECT
+      to_regclass('public.operations_users') IS NOT NULL AS "hasOperationsUsers",
+      to_regclass('public.operations_sessions') IS NOT NULL AS "hasOperationsSessions",
+      EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'operations_users' AND column_name = 'password_hash' AND is_nullable = 'YES') AS "hasPasswordHashNullable",
+      EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'operations_users' AND column_name = 'admin_user_id') AS "hasUserAdminLink",
+      EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'operations_sessions' AND column_name = 'admin_user_id') AS "hasSessionAdminLink",
+      EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'operations_sessions' AND column_name = 'admin_session_id') AS "hasSessionAdminSessionLink",
+      EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'operations_users_admin_user_id_admin_users_id_fk' AND contype = 'f') AS "hasUserAdminForeignKey",
+      EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'operations_sessions_admin_user_id_admin_users_id_fk' AND contype = 'f') AS "hasSessionAdminForeignKey",
+      EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'operations_sessions_admin_session_id_admin_sessions_id_fk' AND contype = 'f') AS "hasSessionSourceForeignKey",
+      EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'operations_users_admin_user_id_unique' AND contype = 'u') AS "hasUserLinkUnique",
+      EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'operations_sessions_identity_check' AND contype = 'c') AS "hasSessionIdentityCheck",
+      to_regclass('public.operations_sessions_admin_expiry_idx') IS NOT NULL AS "hasSessionAdminIndex",
+      EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'operations_users_role_check' AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%chief_security_operator%') AS "hasOperationsRoleCheck",
+      EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'operations_operators_it_role_check' AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%chief_security_operator%') AS "hasOperatorRoleCheck"`)
+    const catalog = schema!
+    const schemaChecks = Object.values(catalog)
+    const schemaStatus = schemaChecks.every(Boolean) ? 'present' : schemaChecks.some(Boolean) ? 'incomplete' : 'absent'
+    const [identity] = await adminDb.select({
+      id: adminUsers.id,
+      email: adminUsers.email,
+      fullName: adminUsers.fullName,
+      status: adminUsers.status,
+      emailVerifiedAt: adminUsers.emailVerifiedAt,
+    }).from(adminUsers).where(eq(adminUsers.id, actor.id)).limit(1)
+
+    let projectionStatus: 'present' | 'missing' | 'not_checked' = 'not_checked'
+    if (catalog.hasUserAdminLink) {
+      const [projection] = await adminDb.select({ id: operationsUsers.id }).from(operationsUsers)
+        .where(eq(operationsUsers.adminUserId, actor.id)).limit(1)
+      projectionStatus = projection ? 'present' : 'missing'
+    }
+
+    const events = await adminDb.select({
+      id: operationsAuditEvents.id,
+      actorAdminUserId: operationsAuditEvents.actorAdminUserId,
+      action: operationsAuditEvents.action,
+      createdAt: operationsAuditEvents.createdAt,
+    }).from(operationsAuditEvents).where(and(
+      inArray(operationsAuditEvents.action, ['operations.session.issued', 'operations.session.authorization_denied', 'operations.session.identity_conflict']),
+      eq(operationsAuditEvents.actorAdminUserId, actor.id),
+    )).orderBy(desc(operationsAuditEvents.createdAt)).limit(10)
+    const lastSuccessfulExchange = events.find((event) => event.action === 'operations.session.issued')
+    const sourceSessionHealthy = actor.sessionExpiresAt > new Date()
+
+    response.json({ data: {
+      checkedAt: new Date().toISOString(),
+      implementationStatus: 'implemented_in_source',
+      bridgeSchema: { status: schemaStatus, catalogChecks: catalog, migrationLedger: 'not_checked' },
+      configurationStatus: env.OPERATIONS_IDENTITY_BRIDGE_ENABLED ? 'enabled' : 'disabled_by_default',
+      activationStatus: env.OPERATIONS_IDENTITY_BRIDGE_ENABLED ? 'enabled' : 'disabled',
+      currentIdentity: identity ? {
+        id: identity.id,
+        email: identity.email,
+        fullName: identity.fullName,
+        accountStatus: identity.status,
+        emailVerified: identity.emailVerifiedAt !== null,
+        role,
+        permissions: itPermissions.filter((permission) => hasItPermission(role, permission)),
+        grantStatus: 'active',
+      } : null,
+      session: { sourceSessionStatus: sourceSessionHealthy ? 'active' : 'expired', sourceSessionExpiresAt: actor.sessionExpiresAt.toISOString(), projectionStatus },
+      connectionStatus: projectionStatus,
+      operationalStatus: env.OPERATIONS_IDENTITY_BRIDGE_ENABLED ? 'not_staging_verified' : 'disabled',
+      testedStatus: 'not_reported_by_runtime',
+      productionVerificationStatus: 'not_verified',
+      lastSuccessfulExchange: lastSuccessfulExchange ? { at: lastSuccessfulExchange.createdAt.toISOString(), actorAdminUserId: lastSuccessfulExchange.actorAdminUserId } : null,
+      recentSecurityEvents: events.map((event) => ({ id: event.id, action: event.action, actorAdminUserId: event.actorAdminUserId, createdAt: event.createdAt.toISOString() })),
+    } })
+  } catch {
+    response.status(503).json({ error: { code: 'IDENTITY_BRIDGE_STATUS_UNAVAILABLE', message: 'Identity bridge status could not be verified.' } })
+  }
+})
+
+const operationsBridgeTokenHash = (token: string) => createHash('sha256').update(token).digest('hex')
+const operationsBridgeRateLimiter = createAccountRateLimiter('admin.operations-identity-bridge', { windowMs: 15 * 60_000, limit: 10 }, (request) => {
+  const actor = authenticatedAdmin(request)
+  return actor ? `admin:${actor.id}` : undefined
+})
+
+export function hasOperationsIdentityConflict(
+  matches: { email: string; adminUserId: number | null; disabledAt: Date | null }[],
+  adminUserId: number,
+  email: string,
+) {
+  return matches.length > 1 || matches.some((match) => match.adminUserId !== adminUserId || match.email !== email || match.disabledAt !== null)
+}
+
+adminRouter.post('/it/operations-session', operationsBridgeRateLimiter, async (request, response) => {
   const actor = authenticatedAdmin(request)
   if (!actor || !adminDb) return response.status(503).json({ error: { code: 'IT_ACCESS_UNAVAILABLE', message: 'IT access is unavailable.' } })
+  if (!env.OPERATIONS_IDENTITY_BRIDGE_ENABLED) {
+    return response.status(503).json({ error: { code: 'IDENTITY_BRIDGE_DISABLED', message: 'Identity bridge activation is disabled pending approved verification.' } })
+  }
 
   const token = randomBytes(32).toString('base64url')
   const now = new Date()
@@ -1500,24 +1619,30 @@ adminRouter.post('/it/operations-session', async (request, response) => {
         action: 'operations.session.authorization_denied',
         targetType: 'admin_user',
         targetId: String(actor.id),
-        details: JSON.stringify({ reason: !source ? 'source_session_unavailable' : 'active_security_grant_required' }),
+        details: JSON.stringify({ reason: !source ? 'source_session_unavailable' : 'active_security_grant_required', sourceSessionId: actor.sessionId }),
       })
       await transaction.insert(adminAuditLogs).values({ adminUserId: actor.id, action: 'operations.session.authorization_denied', targetType: 'admin_user', targetId: String(actor.id) })
       return { status: 403 as const, code: 'IT_PERMISSION_REQUIRED' as const }
     }
 
-    const [existing] = await transaction.select({
+    const existingRows = await transaction.select({
       id: operationsUsers.id,
+      email: operationsUsers.email,
       adminUserId: operationsUsers.adminUserId,
       disabledAt: operationsUsers.disabledAt,
-    }).from(operationsUsers).where(eq(operationsUsers.email, source.email)).limit(1).for('update')
-    if (existing && (existing.adminUserId !== actor.id || existing.disabledAt)) {
+    }).from(operationsUsers).where(or(
+      eq(operationsUsers.email, source.email),
+      eq(operationsUsers.adminUserId, actor.id),
+    )).for('update')
+    const existing = existingRows[0]
+    if (hasOperationsIdentityConflict(existingRows, actor.id, source.email)) {
       await transaction.insert(operationsAuditEvents).values({
         actorAdminUserId: actor.id,
         actorType: 'admin',
         action: 'operations.session.identity_conflict',
         targetType: 'admin_user',
         targetId: String(actor.id),
+        details: JSON.stringify({ sourceSessionId: source.sessionId }),
       })
       await transaction.insert(adminAuditLogs).values({ adminUserId: actor.id, action: 'operations.session.identity_conflict', targetType: 'admin_user', targetId: String(actor.id) })
       return { status: 409 as const, code: 'OPERATIONS_IDENTITY_CONFLICT' as const }
@@ -1551,7 +1676,7 @@ adminRouter.post('/it/operations-session', async (request, response) => {
       action: 'operations.session.issued',
       targetType: 'operations_session',
       targetId: String(operationsUser.id),
-      details: JSON.stringify({ role: grant.role, expiresAt: expiresAt.toISOString() }),
+      details: JSON.stringify({ role: grant.role, expiresAt: expiresAt.toISOString(), sourceSessionId: source.sessionId }),
     })
     await transaction.insert(adminAuditLogs).values({ adminUserId: actor.id, action: 'operations.session.issued', targetType: 'operations_session', targetId: String(operationsUser.id) })
     return { status: 200 as const, operationsUserId: operationsUser.id, email: source.email, fullName: source.fullName, role: grant.role, expiresAt }
@@ -1565,7 +1690,6 @@ adminRouter.post('/it/operations-session', async (request, response) => {
     path: '/api/v1/operations',
     maxAge: Math.max(0, result.expiresAt.getTime() - now.getTime()),
   })
-  response.setHeader('Cache-Control', 'no-store')
   response.json({ data: { user: { id: result.operationsUserId, email: result.email, fullName: result.fullName, role: result.role } } })
 })
 

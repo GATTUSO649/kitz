@@ -95,7 +95,7 @@ type OperationsPermissions = { roles: RolePermissionDefinition[]; permissions: s
 type MonitoringRule = { ruleId: string; name: string; description: string; condition: string; threshold: number; windowSeconds: number; severity: string; cooldownSeconds: number; enabled: boolean; recommendedResponse: string }
 type MonitoringAlert = { id: number; severity: string; description: string; affectedService: string; status: string; firstOccurrence: string; lastOccurrence: string; occurrenceCount: number; assignedOperationsUserId: number | null; resolutionInformation: string | null; ruleId: string; ruleName: string }
 type MonitoringWorker = { workerName: string; lastHeartbeatAt: string | null; lastSuccessAt: string | null; lastFailureAt: string | null; failureCount: number; lastErrorCode: string | null; status: string }
-type MonitoringHealth = { checkedAt: string; telemetryFreshness: string; services: { name: string; state: string; latencyMs?: number | null; source: string }[]; queue: { queueDepth: number; droppedEvents: number; storageFailures: number; persistedEvents: number; lastPersistedAt: string | null; lastFailureAt: string | null; storageConfigured: boolean } }
+type MonitoringHealth = { checkedAt: string; telemetryFreshness: string; services: { name: string; state: string; latencyMs?: number | null; source: string }[]; queue: { queueDepth: number; droppedEvents: number; storageFailures: number; persistedEvents: number; lastPersistedAt: string | null; lastFailureAt: string | null; storageConfigured: boolean }; distributedRateLimiting: { configured: boolean; required: boolean; state: 'not_configured' | 'ready' | 'unavailable' } }
 type DatabasePerformance = { telemetryAvailable: boolean; metrics: { metricType: string; operation: string; sampleCount: number; successCount: number; failureCount: number; slowCount: number; averageDurationMs: number; minDurationMs: number; maxDurationMs: number; p50DurationMs: number | null; p95DurationMs: number | null; p99DurationMs: number | null; histogramEstimate: boolean; instanceCount: number }[] }
 type RuntimePerformance = { telemetryAvailable: boolean; sampleCount: number; instanceCount: number; processCpuAveragePercent: number | null; processCpuP95Percent: number | null; processRssAverageBytes: number | null; processRssMaxBytes: number | null; processHeapAverageBytes: number | null; processHeapMaxBytes: number | null; processExternalAverageBytes: number | null; runtimeAvailableMemoryBytes: number | null; runtimeConstrainedMemoryBytes: number | null; eventLoopUtilizationAveragePercent: number | null; eventLoopP95DelaySampleMaxMs: number | null; hostCpuUtilizationPercent: number | null; hostMemoryBytes: number | null; hostMetricsStatus: string }
 type ProviderPerformance = { metrics: { provider: string; operation: string; requestCount: number; rejectedCount: number; acceptedByProviderCount: number; averageDurationMs: number; p95DurationMs: number | null; p99DurationMs: number | null; lastAttemptAt: string }[]; integrations: { provider: string; state: string; health: string; reason: string }[] }
@@ -104,15 +104,21 @@ type SecurityFinding = { id: string; scanner: string; title: string; description
 type SecurityScanner = { scanner: string; status: string; coverage: string; source: string }
 type SecurityScan = { id: string; status: string; scope: string[]; modules: { module: string; status: string; findingCount: number; unsupportedReason?: string }[]; findings: SecurityFinding[]; summary: Record<string, string | number | boolean | null>; startedAt: string; completedAt?: string }
 type SecuritySchedule = { enabled: boolean; dailyAt: string; nextRunAt: string | null; lastRunAt: string | null; worker: string }
-type OperationsPayment = { id: number; orderReference: string; provider: string; providerRequestId: string | null; merchantRequestId: string | null; providerReceipt: string | null; amount: string; status: string; providerResultCode: string | null; createdAt: string; updatedAt: string; transactionAt: string | null }
-type OperationsPayments = { application: 'KITZ'; records: OperationsPayment[]; pagination: { nextCursor: number | null; hasMore: boolean }; limitations: string[] }
+type WafStatus = { mode: 'disabled' | 'detect' | 'block'; state: string; configuration: string; policiesPersisted: boolean; externalEdgeProtection: string; rules: { ruleId: string; severity: string; component: string; blockable: boolean }[] }
+type SecurityEvent = { id: number; eventType: string; severity: string; occurredAt: string; sourceService: string; metadata: Record<string, string | number | boolean | null> }
+type PersistedSecurityEvent = SecurityEvent & { category: string; requestId: string | null; correlationId: string | null; relatedResourceId: string | null; instanceId: string }
+type OperationsPayment = { id: number | string; orderReference: string; provider: string; providerRequestId: string | null; merchantRequestId: string | null; providerReceipt: string | null; amount: string; currency: 'KES'; status: string; providerResultCode: string | null; createdAt: string; updatedAt: string; transactionAt: string | null; callback: { status: string; count: number; lastReceivedAt: string | null; lastProcessedAt: string | null; outcomes: string[] }; verification: { status: string; completedAt: string | null; verifiedAt: string | null; message?: string | null }; reconciliation: { status: string; lastAttemptAt: string | null; attempts: number } }
+type OperationsPayments = { application: 'KITZ' | 'MARKETHUB'; records: OperationsPayment[]; pagination: { nextCursor: number | string | null; hasMore: boolean }; limitations: string[] }
 type ModuleKey =
   | 'overview'
   | 'traffic'
   | 'observability'
   | 'security'
+  | 'waf'
+  | 'security-events'
   | 'threat-detection'
   | 'vulnerabilities'
+  | 'sbom'
   | 'identity-access'
   | 'database'
   | 'payments'
@@ -177,8 +183,11 @@ const moduleGroups: ModuleGroup[] = [
     label: 'Security',
     items: [
       { key: 'security', label: 'Security Centre', icon: Shield, status: 'guarded' },
+      { key: 'waf', label: 'Application WAF', icon: ShieldAlert, status: 'guarded' },
+      { key: 'security-events', label: 'Security Events', icon: Siren, status: 'guarded' },
       { key: 'threat-detection', label: 'Threat Detection', icon: ShieldAlert, status: 'guarded' },
       { key: 'vulnerabilities', label: 'Vulnerabilities', icon: FileWarning, status: 'guarded' },
+      { key: 'sbom', label: 'Software Bill of Materials', icon: Download, status: 'guarded' },
       { key: 'identity-access', label: 'Identity and Access', icon: Lock, status: 'guarded' },
     ],
   },
@@ -483,6 +492,13 @@ function OperationsConsole() {
   const [permissionsBusy, setPermissionsBusy] = useState(false)
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('')
   const [paymentSearch, setPaymentSearch] = useState('')
+  const [paymentApplication, setPaymentApplication] = useState<'KITZ' | 'MARKETHUB'>('KITZ')
+  const [wafEventSeverity, setWafEventSeverity] = useState('')
+  const [securityEventSeverity, setSecurityEventSeverity] = useState('')
+  const [securityEventType, setSecurityEventType] = useState('')
+  const [securityEventService, setSecurityEventService] = useState('')
+  const [securityEventStart, setSecurityEventStart] = useState('')
+  const [securityEventEnd, setSecurityEventEnd] = useState('')
 
   const permissionsQuery = useQuery({
     queryKey: ['operations', 'permissions'],
@@ -500,6 +516,35 @@ function OperationsConsole() {
     queryKey: ['operations', 'security-overview'],
     queryFn: async () => (await operationsApi<SecurityOverview>('/api/v1/operations/security/overview')).data!,
     refetchInterval: 10_000,
+    retry: false,
+  })
+  const wafStatusQuery = useQuery({
+    queryKey: ['operations', 'waf-status'],
+    queryFn: async () => (await operationsApi<WafStatus>('/api/v1/operations/security/waf')).data!,
+    retry: false,
+  })
+  const wafEventsQuery = useQuery({
+    queryKey: ['operations', 'waf-events', wafEventSeverity],
+    queryFn: async () => {
+      const query = new URLSearchParams({ category: 'security', eventType: 'security.waf.request_inspected', limit: '25' })
+      if (wafEventSeverity) query.set('severity', wafEventSeverity)
+      return (await operationsApi<SecurityEvent[]>(`/api/v1/operations/events?${query}`)).data ?? []
+    },
+    refetchInterval: 15_000,
+    retry: false,
+  })
+  const securityEventsQuery = useQuery({
+    queryKey: ['operations', 'security-events', securityEventSeverity, securityEventType, securityEventService, securityEventStart, securityEventEnd],
+    queryFn: async () => {
+      const query = new URLSearchParams({ category: 'security', limit: '50' })
+      if (securityEventSeverity) query.set('severity', securityEventSeverity)
+      if (securityEventType.trim()) query.set('eventType', securityEventType.trim())
+      if (securityEventService.trim()) query.set('sourceService', securityEventService.trim())
+      if (securityEventStart) query.set('start', new Date(securityEventStart).toISOString())
+      if (securityEventEnd) query.set('end', new Date(securityEventEnd).toISOString())
+      return (await operationsApi<PersistedSecurityEvent[]>(`/api/v1/operations/events?${query}`)).data ?? []
+    },
+    refetchInterval: 15_000,
     retry: false,
   })
   const securityFindingsQuery = useQuery({
@@ -584,8 +629,8 @@ function OperationsConsole() {
   })
 
   const paymentsQuery = useQuery({
-    queryKey: ['operations', 'payments', paymentStatusFilter, paymentSearch],
-    queryFn: async () => (await operationsApi<OperationsPayments>(`/api/v1/operations/payments?application=KITZ&limit=50${paymentStatusFilter ? `&status=${encodeURIComponent(paymentStatusFilter)}` : ''}${paymentSearch.trim() ? `&search=${encodeURIComponent(paymentSearch.trim())}` : ''}`)).data!,
+    queryKey: ['operations', 'payments', paymentApplication, paymentStatusFilter, paymentSearch],
+    queryFn: async () => (await operationsApi<OperationsPayments>(`/api/v1/operations/payments?application=${paymentApplication}&limit=50${paymentStatusFilter ? `&status=${encodeURIComponent(paymentStatusFilter)}` : ''}${paymentSearch.trim() ? `&search=${encodeURIComponent(paymentSearch.trim())}` : ''}`)).data!,
     refetchInterval: 30_000,
     retry: false,
   })
@@ -743,6 +788,27 @@ function OperationsConsole() {
     link.click()
     link.remove()
     window.setTimeout(() => URL.revokeObjectURL(reportUrl), 1000)
+  }
+
+  async function downloadSbom() {
+    setError('')
+    try {
+      const response = await fetch('/api/v1/operations/security/sbom', { credentials: 'include' })
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({})) as OperationsPayload<unknown>
+        throw new OperationsApiError(payload.error?.message ?? 'SBOM generation failed.', response.status, payload.error?.code, payload.error?.requestId)
+      }
+      const url = URL.createObjectURL(await response.blob())
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `kitculture-cyclonedx-sbom-${new Date().toISOString().slice(0, 10)}.json`
+      document.body.append(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'SBOM generation failed.')
+    }
   }
 
   function printSecurityReport() {
@@ -1008,6 +1074,7 @@ function OperationsConsole() {
               <article className="operations-stat-card"><span>Telemetry freshness</span><strong>{monitoringHealth?.telemetryFreshness ?? 'Loading'}</strong><small>{monitoringHealth?.queue.lastPersistedAt ? `Last stored ${new Date(monitoringHealth.queue.lastPersistedAt).toLocaleString()}` : 'No persisted event yet'}</small></article>
               <article className="operations-stat-card"><span>Queue depth</span><strong>{monitoringHealth?.queue.queueDepth ?? '—'}</strong><small>{monitoringHealth?.queue.droppedEvents ?? 0} dropped · {monitoringHealth?.queue.storageFailures ?? 0} storage failures</small></article>
               <article className="operations-stat-card"><span>Events persisted</span><strong>{monitoringHealth?.queue.persistedEvents ?? '—'}</strong><small>Since this process started</small></article>
+              <article className="operations-stat-card"><span>Shared Redis limiter</span><strong>{monitoringHealth?.distributedRateLimiting.state ?? 'unknown'}</strong><small>{monitoringHealth?.distributedRateLimiting.required ? 'Required in production' : 'Not required in this environment'}</small></article>
               <article className="operations-stat-card"><span>Worker failures</span><strong>{workersQuery.isError ? 'Unavailable' : monitoringWorkers.reduce((total, worker) => total + worker.failureCount, 0)}</strong><small>Current stored worker counters</small></article>
             </div>
           )}
@@ -1038,6 +1105,35 @@ function OperationsConsole() {
           ]} />
         </section>
         <p className="operations-chart-footnote">These are HTTP status indicators only. They are not confirmed attacks, user identities, or automated blocking decisions.</p>
+      </>
+    ),
+    waf: (
+      <>
+        <div className="operations-masthead"><div><span className="operations-eyebrow">Application request inspection</span><h2>Web application firewall</h2><p>Detection mode inspects API requests without blocking. Blocking is limited to high-confidence rules when explicitly configured.</p></div></div>
+        {wafStatusQuery.isError ? <section className="operations-panel-card full-span"><div className="operations-empty">WAF status is unavailable: {wafStatusQuery.error.message}</div></section> : wafStatusQuery.isPending ? <section className="operations-panel-card full-span"><div className="operations-empty">Loading WAF status…</div></section> : wafStatusQuery.data && <>
+          <div className="operations-stat-grid">
+            <article className="operations-stat-card"><span>Runtime mode</span><strong>{label(wafStatusQuery.data.state)}</strong><small>Configured by {wafStatusQuery.data.configuration}</small></article>
+            <article className="operations-stat-card"><span>Inspection rules</span><strong>{wafStatusQuery.data.rules.length}</strong><small>Static application rules; no runtime rule editor</small></article>
+            <article className="operations-stat-card"><span>Policy persistence</span><strong>{wafStatusQuery.data.policiesPersisted ? 'Persisted' : 'Not persisted'}</strong><small>Mode is configured through the server environment</small></article>
+            <article className="operations-stat-card"><span>External edge protection</span><strong>{label(wafStatusQuery.data.externalEdgeProtection)}</strong><small>No provider integration is verified</small></article>
+          </div>
+          <section className="operations-panel-card full-span"><header><span className="operations-eyebrow">Active inspection coverage</span><h3>Application rules</h3></header>
+            <div className="operations-table-wrap"><table className="operations-table"><thead><tr><th>Rule</th><th>Severity</th><th>Input</th><th>Block behavior</th></tr></thead><tbody>{wafStatusQuery.data.rules.map((rule) => <tr key={rule.ruleId}><td>{rule.ruleId}</td><td>{label(rule.severity)}</td><td>{label(rule.component)}</td><td>{rule.blockable ? 'Eligible in explicit block mode' : 'Detection only'}</td></tr>)}</tbody></table></div>
+          </section>
+        </>}
+        <section className="operations-panel-card full-span"><header><span className="operations-eyebrow">Persisted request findings</span><h3>Recent WAF events</h3></header>
+          <label className="operations-filter-label">Severity<select value={wafEventSeverity} onChange={(event) => setWafEventSeverity(event.target.value)}><option value="">All</option><option value="warning">Warning</option><option value="error">Error</option></select></label>
+          {wafEventsQuery.isPending ? <div className="operations-empty">Loading persisted WAF events…</div> : wafEventsQuery.isError ? <div className="operations-empty">WAF events are unavailable: {wafEventsQuery.error.message}</div> : <div className="operations-table-wrap"><table className="operations-table"><thead><tr><th>Time</th><th>Severity</th><th>Rules</th><th>Action</th><th>Method</th><th>Route group</th></tr></thead><tbody>{wafEventsQuery.data?.map((event) => <tr key={event.id}><td>{new Date(event.occurredAt).toLocaleString()}</td><td>{label(event.severity)}</td><td>{String(event.metadata.ruleIds ?? 'Unavailable')}</td><td>{label(String(event.metadata.action ?? 'unknown'))}</td><td>{String(event.metadata.method ?? 'Unavailable')}</td><td>{String(event.metadata.routeGroup ?? 'Unavailable')}</td></tr>)}{!wafEventsQuery.data?.length && <tr><td colSpan={6}>No persisted WAF events match this filter. Telemetry storage must be available for events to appear.</td></tr>}</tbody></table></div>}
+        </section>
+      </>
+    ),
+    'security-events': (
+      <>
+        <div className="operations-masthead"><div><span className="operations-eyebrow">Persistent security telemetry</span><h2>Security events</h2><p>Events are operational signals, not proof of compromise. Payloads, credentials, payer details, and raw client addresses are not displayed.</p></div></div>
+        <section className="operations-panel-card full-span"><header><span className="operations-eyebrow">Persisted events</span><h3>Filter security activity</h3></header>
+          <div className="operations-security-findings-controls"><select value={securityEventSeverity} onChange={(event) => setSecurityEventSeverity(event.target.value)} aria-label="Filter security event severity"><option value="">All severities</option>{['debug', 'info', 'warning', 'error', 'critical'].map((severity) => <option key={severity} value={severity}>{label(severity)}</option>)}</select><input value={securityEventType} onChange={(event) => setSecurityEventType(event.target.value)} placeholder="Event type" aria-label="Filter event type" /><input value={securityEventService} onChange={(event) => setSecurityEventService(event.target.value)} placeholder="Source service" aria-label="Filter source service" /><label>From<input type="datetime-local" value={securityEventStart} onChange={(event) => setSecurityEventStart(event.target.value)} /></label><label>To<input type="datetime-local" value={securityEventEnd} onChange={(event) => setSecurityEventEnd(event.target.value)} /></label></div>
+          {securityEventsQuery.isPending ? <div className="operations-empty">Loading persisted security events…</div> : securityEventsQuery.isError ? <div className="operations-empty">Security events are unavailable: {securityEventsQuery.error.message}</div> : <div className="operations-table-wrap"><table className="operations-table"><thead><tr><th>Time</th><th>Severity</th><th>Type</th><th>Application</th><th>Route group / rules</th><th>Request reference</th></tr></thead><tbody>{securityEventsQuery.data?.map((event) => <tr key={event.id}><td>{new Date(event.occurredAt).toLocaleString()}</td><td>{label(event.severity)}</td><td>{event.eventType}</td><td>{event.sourceService}</td><td>{String(event.metadata.routeGroup ?? event.metadata.ruleIds ?? '—')}</td><td>{event.requestId ?? event.correlationId ?? '—'}</td></tr>)}{!securityEventsQuery.data?.length && <tr><td colSpan={6}>No persisted security events match these filters. Collection storage must be available.</td></tr>}</tbody></table></div>}
+        </section>
       </>
     ),
     'threat-detection': (
@@ -1076,18 +1172,24 @@ function OperationsConsole() {
         <section className="operations-charts-grid"><OperationsLineChart title="Request security indicators" labels={timelineLabels} series={[{ label: 'Status signals', color: '#ed7b7b', values: securitySeries }]} /></section>
       </>
     ),
+    sbom: (
+      <>
+        <div className="operations-masthead"><div><span className="operations-eyebrow">Software supply chain</span><h2>Software Bill of Materials</h2><p>Generate a CycloneDX 1.5 inventory from checked-in npm lockfiles. No install or external upload is performed.</p></div></div>
+        <section className="operations-panel-card full-span"><header><span className="operations-eyebrow">Kitz and MarketHub projects</span><h3>Current dependency inventory</h3></header><p>The server resolves package components, versions, available license metadata, project paths, and locked dependency relationships. Generated output is not persisted and is sent only to this authenticated operator.</p><div className="operations-report-actions"><button type="button" className="operations-report-download" onClick={() => void downloadSbom()}><Download size={15} /> Download CycloneDX SBOM</button></div></section>
+      </>
+    ),
     vulnerabilities: (() => {
       const securityOverview = securityOverviewQuery.data
       const securityFindings = securityFindingsQuery.data ?? []
       const visibleFindings = securityFindings.filter((finding) => (findingSeverity === 'ALL' || finding.severity === findingSeverity) && (!findingSearch || `${finding.title} ${finding.affectedComponent}`.toLowerCase().includes(findingSearch.toLowerCase())))
-      const startDependencyScan = async () => {
+      const startSecurityScan = async (scope: 'dependency' | 'secrets') => {
         setSecurityActionBusy(true)
         setSecurityActionError('')
         try {
-          await operationsApi('/api/v1/operations/security/scans', { method: 'POST', body: JSON.stringify({ scope: ['dependency'] }) })
+          await operationsApi('/api/v1/operations/security/scans', { method: 'POST', body: JSON.stringify({ scope: [scope] }) })
           await Promise.all([queryClient.invalidateQueries({ queryKey: ['operations', 'security-overview'] }), queryClient.invalidateQueries({ queryKey: ['operations', 'security-scans'] }), queryClient.invalidateQueries({ queryKey: ['operations', 'security-findings'] })])
         } catch (issue) {
-          setSecurityActionError(issue instanceof OperationsApiError ? issue.message : 'Unable to start dependency scan.')
+          setSecurityActionError(issue instanceof OperationsApiError ? issue.message : 'Unable to start security scan.')
         } finally { setSecurityActionBusy(false) }
       }
       const updateDependencySchedule = async (enabled: boolean) => {
@@ -1122,7 +1224,8 @@ function OperationsConsole() {
             <div><span className="operations-eyebrow">Vulnerability management</span><h2>Findings and remediation</h2><p>Dependency telemetry is generated locally; unavailable scanners are never reported as clean.</p></div>
             <div className="operations-report-actions">
               {activeSecurityScan && <button type="button" className="operations-report-print" disabled={securityActionBusy} onClick={() => void cancelSecurityScan(activeSecurityScan.id)}>Cancel scan</button>}
-              <button type="button" className="operations-report-download" disabled={securityActionBusy || Boolean(activeSecurityScan)} onClick={() => void startDependencyScan()}>{securityActionBusy ? 'Working…' : 'Run dependency scan'}</button>
+              <button type="button" className="operations-report-download" disabled={securityActionBusy || Boolean(activeSecurityScan)} onClick={() => void startSecurityScan('dependency')}>{securityActionBusy ? 'Working…' : 'Run dependency scan'}</button>
+              <button type="button" className="operations-report-print" disabled={securityActionBusy || Boolean(activeSecurityScan)} onClick={() => void startSecurityScan('secrets')}>{securityActionBusy ? 'Working…' : 'Run local secret scan'}</button>
             </div>
           </div>
           {securityActionError && <p className="operations-error" role="alert">{securityActionError}</p>}
@@ -1228,8 +1331,8 @@ function OperationsConsole() {
         <div className="operations-masthead">
           <div>
             <span className="operations-eyebrow">Payment operations</span>
-            <h2>Kitz M-Pesa payment attempts</h2>
-            <p>Read-only records from the existing Kitz payment processor. No payment state can be changed here.</p>
+            <h2>Payment security monitoring</h2>
+            <p>Read-only payment status from the selected application. No payment state can be changed here.</p>
           </div>
         </div>
         <div className="operations-stat-grid">
@@ -1239,12 +1342,12 @@ function OperationsConsole() {
           <article className="operations-stat-card"><span>Failed</span><strong>{paymentsQuery.data?.records.filter((payment) => payment.status === 'failed').length ?? 'Unavailable'}</strong><small>Within this page</small></article>
         </div>
         <section className="operations-panel-card full-span">
-          <header><span className="operations-eyebrow">Payment history · Kitz only</span><h3>Recent attempts</h3></header>
-          <div className="operations-security-findings-controls"><label><Search size={13} /><input value={paymentSearch} onChange={(event) => setPaymentSearch(event.target.value)} placeholder="Search order, checkout, merchant, or receipt reference" /></label><select value={paymentStatusFilter} onChange={(event) => setPaymentStatusFilter(event.target.value)} aria-label="Filter Kitz payment status"><option value="">All statuses</option>{['initiated', 'pending', 'succeeded', 'failed', 'cancelled', 'expired', 'requires_review', 'refunded'].map((status) => <option key={status} value={status}>{label(status)}</option>)}</select></div>
-          {paymentsQuery.isError ? <div className="operations-empty">Kitz payment records are unavailable: {paymentsQuery.error.message}</div> : (
-            <div className="operations-table-wrap"><table className="operations-table"><thead><tr><th>Order</th><th>Provider references</th><th>Amount</th><th>Status</th><th>Created</th><th>Updated</th></tr></thead><tbody>
-              {(paymentsQuery.data?.records ?? []).map((payment) => <tr key={payment.id}><td>{payment.orderReference}</td><td>Checkout: {payment.providerRequestId ?? '—'}<br />Merchant: {payment.merchantRequestId ?? '—'}<br />Receipt: {payment.providerReceipt ?? '—'}</td><td>KES {Number(payment.amount).toLocaleString('en-KE')}</td><td>{label(payment.status)}{payment.providerResultCode ? <><br /><small>Provider code: {payment.providerResultCode}</small></> : null}</td><td>{new Date(payment.createdAt).toLocaleString()}</td><td>{new Date(payment.updatedAt).toLocaleString()}</td></tr>)}
-              {!paymentsQuery.data?.records.length && <tr><td colSpan={6}>{paymentsQuery.isPending ? 'Loading payment history…' : 'No Kitz payment attempts match this filter.'}</td></tr>}
+          <header><span className="operations-eyebrow">Read-only payment history · {paymentApplication}</span><h3>Recent attempts</h3></header>
+          <div className="operations-security-findings-controls"><label>Application<select value={paymentApplication} onChange={(event) => { setPaymentApplication(event.target.value as 'KITZ' | 'MARKETHUB'); setPaymentStatusFilter('') }} aria-label="Select payment application"><option value="KITZ">Kitz</option><option value="MARKETHUB">MarketHub</option></select></label><label><Search size={13} /><input value={paymentSearch} onChange={(event) => setPaymentSearch(event.target.value)} placeholder="Search order, checkout, merchant, or receipt reference" /></label><select value={paymentStatusFilter} onChange={(event) => setPaymentStatusFilter(event.target.value)} aria-label="Filter payment status"><option value="">All statuses</option>{(paymentApplication === 'KITZ' ? ['initiated', 'pending', 'succeeded', 'failed', 'cancelled', 'expired', 'requires_review', 'refunded'] : ['initiated', 'pending', 'processing', 'succeeded', 'failed', 'cancelled', 'expired', 'ambiguous', 'reversed', 'refunded']).map((status) => <option key={status} value={status}>{label(status)}</option>)}</select></div>
+          {paymentsQuery.isError ? <div className="operations-empty">{paymentApplication} payment records are unavailable: {paymentsQuery.error.message}</div> : (
+            <div className="operations-table-wrap"><table className="operations-table"><thead><tr><th>Order / listing</th><th>Provider references</th><th>Amount</th><th>Status</th><th>Callback</th><th>Verification / reconciliation</th><th>Created / updated</th></tr></thead><tbody>
+              {(paymentsQuery.data?.records ?? []).map((payment) => <tr key={`${paymentsQuery.data?.application}-${payment.id}`}><td>{payment.orderReference}</td><td>Checkout: {payment.providerRequestId ?? '—'}<br />Merchant: {payment.merchantRequestId ?? '—'}<br />Receipt: {payment.providerReceipt ?? '—'}</td><td>{payment.currency} {Number(payment.amount).toLocaleString('en-KE')}</td><td>{label(payment.status)}{payment.providerResultCode ? <><br /><small>Provider code: {payment.providerResultCode}</small></> : null}</td><td>{label(payment.callback.status)} · {payment.callback.count} event(s)</td><td>{label(payment.verification.status)}<br />{label(payment.reconciliation.status)} · {payment.reconciliation.attempts} attempt(s)</td><td>{new Date(payment.createdAt).toLocaleString()}<br />{new Date(payment.updatedAt).toLocaleString()}</td></tr>)}
+              {!paymentsQuery.data?.records.length && <tr><td colSpan={7}>{paymentsQuery.isPending ? 'Loading payment history…' : `No ${paymentApplication} payment attempts match this filter.`}</td></tr>}
             </tbody></table></div>
           )}
           <p className="operations-chart-footnote">{(paymentsQuery.data?.limitations ?? ['MarketHub payments, callback payloads, and provider health are not connected to this view.']).join(' ')}</p>

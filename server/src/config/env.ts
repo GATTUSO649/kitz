@@ -35,6 +35,8 @@ const schema = z.object({
   DATABASE_URL: z.string().min(1).optional(),
   ADMIN_DATABASE_URL: z.string().min(1).optional(),
   REDIS_URL: z.string().url().optional(),
+  WAF_MODE: z.enum(['disabled', 'detect', 'block']).default('detect'),
+  OPERATIONS_IDENTITY_BRIDGE_ENABLED: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
   SUPABASE_CA_CERT_FILE: z.string().trim().min(1).optional(),
   SUPABASE_CA_CERT: z.string().trim().min(1).optional(),
   ADMIN_SIGNUP_SECRET: z.string().min(32).max(512).optional(),
@@ -42,6 +44,7 @@ const schema = z.object({
   ORIGIN_AUTH_TOKEN: z.string().min(32).max(256).optional(),
   MARKETHUB_SERVICE_TOKEN: z.string().regex(/^[A-Za-z0-9_-]{32,256}$/).optional(),
   MARKETHUB_PUBLIC_URL: z.string().url().optional(),
+  MARKETHUB_SECURITY_FEED_URL: z.string().url().optional(),
   MYSQL_URL: z.string().min(1).optional(),
   MYSQL_PUBLIC_URL: z.string().min(1).optional(),
   ADMIN_MYSQL_URL: z.string().min(1).optional(),
@@ -87,6 +90,15 @@ const schema = z.object({
   }
   if (configuration.DATABASE_SLOW_QUERY_ERROR_MS >= configuration.DATABASE_SLOW_QUERY_CRITICAL_MS) {
     context.addIssue({ code: 'custom', path: ['DATABASE_SLOW_QUERY_CRITICAL_MS'], message: 'Must exceed DATABASE_SLOW_QUERY_ERROR_MS.' })
+  }
+  if (configuration.MARKETHUB_SECURITY_FEED_URL) {
+    const feedUrl = new URL(configuration.MARKETHUB_SECURITY_FEED_URL)
+    const marketplaceUrl = configuration.MARKETHUB_PUBLIC_URL ? new URL(configuration.MARKETHUB_PUBLIC_URL) : null
+    if (feedUrl.pathname !== '/api/v1/admin/marketplace/security-payments'
+      || feedUrl.username || feedUrl.password || feedUrl.search || feedUrl.hash || !marketplaceUrl || feedUrl.origin !== marketplaceUrl.origin
+      || (configuration.NODE_ENV === 'production' && feedUrl.protocol !== 'https:')) {
+      context.addIssue({ code: 'custom', path: ['MARKETHUB_SECURITY_FEED_URL'], message: 'The MarketHub security feed URL must be the exact same-origin service endpoint; production requires HTTPS.' })
+    }
   }
   if (configuration.NODE_ENV === 'production') {
     if (process.env.NODE_TEST_CONTEXT === undefined

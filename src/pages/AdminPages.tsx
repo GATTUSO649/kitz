@@ -30,6 +30,21 @@ type ItOverviewData = {
   externalServices: Record<string, { status: string; reason?: string }>
 }
 type ItAccessGrant = { adminUserId: number; email: string; fullName: string; role: ItAccessRole; grantedAt: string }
+type ItIdentityBridgeStatus = {
+  checkedAt: string
+  implementationStatus: string
+  bridgeSchema: { status: 'present' | 'incomplete' | 'absent'; catalogChecks: Record<string, boolean>; migrationLedger: 'not_checked' }
+  configurationStatus: string
+  activationStatus: string
+  currentIdentity: { id: number; email: string; fullName: string; accountStatus: string; emailVerified: boolean; role: ItAccessRole; permissions: string[]; grantStatus: string } | null
+  session: { sourceSessionStatus: string; sourceSessionExpiresAt: string; projectionStatus: string }
+  connectionStatus: string
+  operationalStatus: string
+  testedStatus: string
+  productionVerificationStatus: string
+  lastSuccessfulExchange: { at: string; actorAdminUserId: number | null } | null
+  recentSecurityEvents: { id: number; action: string; actorAdminUserId: number | null; createdAt: string }[]
+}
 type ItIncident = { id: number; incidentNumber: string; severity: 'P1' | 'P2' | 'P3' | 'P4'; status: 'open' | 'investigating' | 'resolved' | 'closed'; title: string; description: string; affectedComponent: string; assignedAdminUserId: number | null; assignedOperationsUserId: number | null; assigneeName: string | null; rootCause: string | null; resolutionNotes: string | null; detectedAt: string; resolvedAt: string | null; createdAt: string; updatedAt: string }
 type ItIncidentEvent = { id: number; eventType: string; message: string; createdAt: string; actorName: string | null }
 type ItAuditEntry = { id: number; actorType: string; actorName: string | null; action: string; targetType: string; targetId: string; details: string | null; createdAt: string }
@@ -2072,6 +2087,13 @@ function ItOperationsPanel() {
     enabled: role === 'super_admin',
     retry: false,
   })
+  const identityBridgeQuery = useQuery({
+    queryKey: ['admin', 'it-identity-bridge-status'],
+    queryFn: () => api<ItIdentityBridgeStatus>('/api/v1/admin/it/identity-bridge-status'),
+    enabled: overviewQuery.data !== undefined,
+    retry: false,
+    refetchInterval: 30_000,
+  })
 
   async function changeAccess(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -2127,6 +2149,7 @@ function ItOperationsPanel() {
   }
 
   const overview = overviewQuery.data
+  const identityBridge = identityBridgeQuery.data
   const superAdmin = role === 'super_admin'
   const availability = (status: string) => status === 'healthy' ? 'Healthy' : status === 'unavailable' ? 'Unavailable' : 'Unknown'
   const requestPoints = overview.requests.timeline.map((bucket) => ({
@@ -2150,8 +2173,26 @@ function ItOperationsPanel() {
     : null
 
   return <div className="admin-it-page">
-    <div className="admin-it-intro"><div><span className="admin-kicker">RESTRICTED OPERATIONS · {itLabel(role ?? '')}</span><h2>IT operations</h2><p>Live process and database signals. Provider feeds and historical monitoring are shown only when configured.</p></div><div className="admin-it-actions">{(role === 'chief_security_operator' || superAdmin) && <button className="admin-it-button" type="button" onClick={() => void openSecurityOperations()} disabled={operationsBridgeBusy}>{operationsBridgeBusy ? 'Opening…' : 'Open Security Operations'}</button>}<button className="admin-it-button" type="button" onClick={() => void overviewQuery.refetch()} disabled={overviewQuery.isFetching}>Refresh</button></div></div>
+    <div className="admin-it-intro"><div><span className="admin-kicker">RESTRICTED OPERATIONS · {itLabel(role ?? '')}</span><h2>IT operations</h2><p>Live process and database signals. Provider feeds and historical monitoring are shown only when configured.</p></div><div className="admin-it-actions">{(role === 'chief_security_operator' || superAdmin) && identityBridge?.activationStatus === 'enabled' && <button className="admin-it-button" type="button" onClick={() => void openSecurityOperations()} disabled={operationsBridgeBusy}>{operationsBridgeBusy ? 'Opening…' : 'Open Security Operations'}</button>}<button className="admin-it-button" type="button" onClick={() => void overviewQuery.refetch()} disabled={overviewQuery.isFetching}>Refresh</button></div></div>
     {operationsBridgeError && <p className="admin-error" role="alert">{operationsBridgeError}</p>}
+    <section className="admin-it-panel"><header><Shield size={18} /><div><span className="admin-kicker">CENTRAL IT → OPERATIONS</span><h3>Identity bridge status</h3></div></header>
+      {identityBridgeQuery.isPending ? <div className="admin-empty">Checking bridge status…</div> : identityBridgeQuery.isError || !identityBridge ? <div className="admin-empty">Bridge status is unavailable. No activation or migration state is inferred.</div> : <>
+        <div className="admin-it-coverage">
+          <article><span>Implemented</span><strong>{identityBridge.implementationStatus.replaceAll('_', ' ')}</strong></article>
+          <article><span>Configured</span><strong>{identityBridge.configurationStatus.replaceAll('_', ' ')}</strong><small>Activation: {identityBridge.activationStatus} · Catalog: {identityBridge.bridgeSchema.status} · Supabase migration ledger: {identityBridge.bridgeSchema.migrationLedger.replaceAll('_', ' ')}</small></article>
+          <article><span>Connected</span><strong>{identityBridge.connectionStatus.replaceAll('_', ' ')}</strong><small>Projection: {identityBridge.session.projectionStatus}</small></article>
+          <article><span>Operational</span><strong>{identityBridge.operationalStatus.replaceAll('_', ' ')}</strong></article>
+          <article><span>Tested</span><strong>{identityBridge.testedStatus.replaceAll('_', ' ')}</strong></article>
+          <article><span>Production verified</span><strong>{identityBridge.productionVerificationStatus.replaceAll('_', ' ')}</strong></article>
+          <article><span>Current identity</span><strong>{identityBridge.currentIdentity?.fullName ?? 'Unavailable'}</strong><small>{identityBridge.currentIdentity ? `${identityBridge.currentIdentity.email} · ${identityBridge.currentIdentity.accountStatus} · ${identityBridge.currentIdentity.emailVerified ? 'verified' : 'unverified'}` : 'No authenticated central identity'}</small></article>
+          <article><span>Role and permissions</span><strong>{identityBridge.currentIdentity?.role ?? 'Unavailable'}</strong><small>{identityBridge.currentIdentity ? `${identityBridge.currentIdentity.permissions.length} server-granted permissions · ${identityBridge.currentIdentity.grantStatus} grant` : 'No verified grant state'}</small></article>
+          <article><span>Source session</span><strong>{identityBridge.session.sourceSessionStatus}</strong><small>Expires {new Date(identityBridge.session.sourceSessionExpiresAt).toLocaleString()} · projection {identityBridge.session.projectionStatus}</small></article>
+          <article><span>Last successful exchange</span><strong>{identityBridge.lastSuccessfulExchange ? new Date(identityBridge.lastSuccessfulExchange.at).toLocaleString() : 'None recorded'}</strong><small>Last successful verification: not recorded</small></article>
+        </div>
+        <div className="admin-it-table-wrap"><table className="admin-it-table"><thead><tr><th>Recent bridge event</th><th>Administrator ID</th><th>Time</th></tr></thead><tbody>{identityBridge.recentSecurityEvents.map((event) => <tr key={event.id}><td>{event.action}</td><td>{event.actorAdminUserId ?? 'Unavailable'}</td><td>{new Date(event.createdAt).toLocaleString()}</td></tr>)}{!identityBridge.recentSecurityEvents.length && <tr><td colSpan={3}>No bridge events recorded.</td></tr>}</tbody></table></div>
+        <small>Checked {new Date(identityBridge.checkedAt).toLocaleString()}. Database catalog presence is not proof of staging or production verification.</small>
+      </>}
+    </section>
     <nav className="admin-it-tabs" aria-label="IT operations views">{(['overview', 'incidents', 'audit'] as const).map((tab) => <button key={tab} type="button" className={activeTab === tab ? 'is-active' : ''} aria-current={activeTab === tab ? 'page' : undefined} onClick={() => setActiveTab(tab)}>{itLabel(tab)}</button>)}</nav>
 
     {activeTab === 'overview' ? <>

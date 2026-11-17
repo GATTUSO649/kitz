@@ -152,6 +152,28 @@ test('marketplace administration never serves dashboard data without its isolate
   assert.equal((await response.json()).error.code, 'MARKETPLACE_UNAVAILABLE')
 })
 
+test('MarketHub security payment feed rejects requests without the Kitz service token', async () => {
+  const response = await fetch(`${origin}/api/v1/admin/marketplace/security-payments`)
+  assert.equal(response.status, 401)
+  assert.equal(response.headers.get('cache-control'), 'no-store')
+  assert.equal((await response.json()).error.code, 'MARKETHUB_SERVICE_UNAUTHORIZED')
+})
+
+test('MarketHub security payment feed validates the service token before checking its database', async () => {
+  const previous = process.env.KITCULTURE_MARKETPLACE_SERVICE_TOKEN
+  process.env.KITCULTURE_MARKETPLACE_SERVICE_TOKEN = 'a'.repeat(48)
+  try {
+    const response = await fetch(`${origin}/api/v1/admin/marketplace/security-payments`, {
+      headers: { 'x-markethub-service-token': 'a'.repeat(48), 'x-operations-actor-id': '12', 'x-operations-actor-type': 'central_admin' },
+    })
+    assert.equal(response.status, 503)
+    assert.equal((await response.json()).error.code, 'MARKETHUB_DATABASE_UNAVAILABLE')
+  } finally {
+    if (previous === undefined) delete process.env.KITCULTURE_MARKETPLACE_SERVICE_TOKEN
+    else process.env.KITCULTURE_MARKETPLACE_SERVICE_TOKEN = previous
+  }
+})
+
 test('seller account management fails closed when the marketplace database is unavailable', async () => {
   const response = await fetch(`${origin}/api/v1/marketplace/seller/products`)
   assert.equal(response.status, 503)

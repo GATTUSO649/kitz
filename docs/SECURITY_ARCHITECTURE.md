@@ -80,3 +80,11 @@ Production server processes require `REDIS_URL` and connect before binding/liste
 
 Administrator authentication is centralized in Kitz and MarketHub calls Kitz for authentication and authorization. MFA must therefore be implemented as a central Kitz challenge/enrollment flow and then propagated through this service contract. It requires reviewed additive storage, an encryption key-management plan, recovery-code handling, revocation behavior, and cross-app tests. No MFA schema or endpoint was added, avoiding a partial second-factor bypass or unreviewed migration.
 The detailed implementation design is in [SECURITY_MFA_DESIGN.md](SECURITY_MFA_DESIGN.md); it is not evidence that MFA is implemented.
+
+## Phase 5 security engines (2026-11-16)
+
+- The Kitz Express API now has a code-defined request inspector, defaulting to `WAF_MODE=detect`. Optional `block` mode only rejects high-confidence API patterns. It is not a network/CDN WAF; external edge protection remains unknown.
+- WAF findings enter the existing security telemetry queue and repeated WAF detections can form persisted monitoring alerts when the Operations schema/worker are operational. The Operations WAF page is read-only and reports policy persistence as false.
+- Operations exposes an authenticated CycloneDX 1.5 SBOM generated from local Kitz and MarketHub npm lockfiles and a local-only, bounded secret scan whose results contain no secret values or secret-derived fingerprints.
+- MarketHub payment monitoring uses a dedicated read-only service endpoint and its own `marketplace` schema. Kitz Operations calls it only server-side using the fixed same-origin feed URL and shared service token. Payment status mutation is not exposed.
+- Identity bridge remains default-disabled. Migrations, database baselines, Redis multi-instance behavior, MarketHub feed configuration, staging, and production have not been verified. See `SECURITY_IMPLEMENTATION_REPORT.md` and `PHASE_5_COMPLETION_REPORT.md`.

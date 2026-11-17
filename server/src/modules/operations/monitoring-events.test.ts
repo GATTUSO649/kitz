@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createMonitoringEvent, monitoringEventSchema } from './monitoring-events.js'
+import { categoryForCondition, eventTypeForCondition } from './monitoring-worker.js'
 
 const validEvent = {
   eventType: 'http.request.completed',
@@ -32,4 +33,9 @@ test('rejects malformed event metadata and event categories', () => {
     ...createMonitoringEvent(validEvent),
     metadata: { note: 'Bearer abcdef1234567890' },
   }).success, false)
+})
+
+test('WAF detections enter the persistent security alert pipeline', () => {
+  assert.equal(categoryForCondition('waf_detections'), 'security')
+  assert.equal(eventTypeForCondition('waf_detections'), 'security.waf.request_inspected')
 })
