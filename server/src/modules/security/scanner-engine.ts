@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { runDependencyScanner, type DependencyFinding } from './dependency-scanner.js'
 import { runRepositorySecretScanner } from './secret-scanner.js'
+import { runOsvScanner } from './osv-scanner.js'
 
-export const externalScannerModules = ['dependency', 'secrets', 'source', 'api', 'database', 'configuration', 'infrastructure', 'web'] as const
+export const externalScannerModules = ['dependency', 'osv', 'secrets', 'source', 'api', 'database', 'configuration', 'infrastructure', 'web'] as const
 export type ScannerModule = typeof externalScannerModules[number]
 export type ScanStatus = 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled'
 export type ModuleStatus = 'queued' | 'running' | 'successful' | 'partial' | 'failed' | 'unsupported' | 'not_configured' | 'cancelled'
@@ -39,9 +40,9 @@ export function dependencyScannerAvailability(npmExecPath = process.env.npm_exec
 
 const notConfigured = (module: ScannerModule): SecurityScanModule => ({
   module,
-  status: module === 'dependency' || module === 'secrets' ? 'queued' : 'not_configured',
+  status: module === 'dependency' || module === 'osv' || module === 'secrets' ? 'queued' : 'not_configured',
   findingCount: 0,
-  unsupportedReason: module === 'dependency' || module === 'secrets' ? undefined : 'Scanner integration is not configured in this deployment.',
+  unsupportedReason: module === 'dependency' || module === 'osv' || module === 'secrets' ? undefined : 'Scanner integration is not configured in this deployment.',
 })
 
 export function getSecurityOverview() {
@@ -61,6 +62,7 @@ export function getSecurityOverview() {
     coverage: {
       repository: latest ? latest.modules.some((module) => module.status === 'successful') : false,
       dependency: latest?.modules.some((module) => module.module === 'dependency' && module.status === 'successful') ?? false,
+      osv: latest?.modules.some((module) => module.module === 'osv' && module.status === 'successful') ?? false,
       secrets: latest?.modules.some((module) => module.module === 'secrets' && module.status === 'successful') ?? false,
       source: false,
       api: false,
@@ -151,7 +153,7 @@ async function runScan(scan: SecurityScan, controller: AbortController, cwd: str
   try {
     for (const moduleState of scan.modules) {
       if (controller.signal.aborted) break
-      if (moduleState.module !== 'dependency' && moduleState.module !== 'secrets') {
+      if (moduleState.module !== 'dependency' && moduleState.module !== 'osv' && moduleState.module !== 'secrets') {
         unsupportedModules++
         continue
       }
@@ -160,7 +162,9 @@ async function runScan(scan: SecurityScan, controller: AbortController, cwd: str
       try {
         const result = moduleState.module === 'dependency'
           ? await runDependencyScanner({ cwd, timeoutMs, signal: controller.signal })
-          : await runRepositorySecretScanner({ cwd, signal: controller.signal })
+          : moduleState.module === 'secrets'
+            ? await runRepositorySecretScanner({ cwd, signal: controller.signal })
+            : await runOsvScanner({ cwd, signal: controller.signal })
         if (controller.signal.aborted) throw new Error('SCAN_CANCELLED')
         moduleState.status = 'successful'
         moduleState.findingCount = result.findings.length
@@ -173,7 +177,8 @@ async function runScan(scan: SecurityScan, controller: AbortController, cwd: str
         failedModules++
         moduleState.status = 'failed'
         moduleState.errorCode = error instanceof Error && error.message === 'SCAN_CANCELLED' ? 'SCAN_CANCELLED'
-          : moduleState.module === 'secrets' ? 'SECRET_SCAN_FAILED' : 'NPM_AUDIT_FAILED'
+          : moduleState.module === 'secrets' ? 'SECRET_SCAN_FAILED'
+            : moduleState.module === 'osv' ? 'OSV_SCAN_FAILED' : 'NPM_AUDIT_FAILED'
         moduleState.completedAt = new Date().toISOString()
         await Promise.resolve(onUpdate?.(scan)).catch(() => undefined)
       }

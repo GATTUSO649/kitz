@@ -855,6 +855,7 @@ test('Operations API routes enforce their least-privilege permission map', () =>
     ['GET', '/security/overview'], ['GET', '/security/scanners'], ['GET', '/security/scans'],
     ['GET', '/security/waf'],
     ['GET', '/security/sbom'],
+    ['GET', '/security/notifications/status'],
     ['GET', '/security/scans/scan-1'], ['POST', '/security/scans'], ['POST', '/security/scans/scan-1/cancel'],
     ['GET', '/security/findings'], ['PATCH', '/security/findings/finding-1/status'], ['GET', '/security/reports'],
   ] as const

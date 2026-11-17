@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 import { classifySeverity, discoverNpmAuditTargets, redactSensitiveEvidence, runDependencyScanner } from './dependency-scanner.js'
 import { dependencyScanRecoveryCutoff, nextDailyRunAt } from './scheduled-scanner.js'
 import { scanTextForSecrets } from './secret-scanner.js'
 import { generateCycloneDxSbom } from './sbom.js'
+import { runOsvScanner } from './osv-scanner.js'
 import { dependencyScannerAvailability, getSecurityOverview, listSecurityFindings, startSecurityScan, cancelSecurityScan } from './scanner-engine.js'
 
 test('redacts sensitive scanner evidence without exposing secrets', () => {
@@ -72,6 +76,40 @@ test('CycloneDX SBOM includes Kitz and MarketHub lockfile projects with resolvab
   assert.ok(components.some((component) => component.properties?.some((property) => property.name === 'kitculture:projectPath' && property.value === '.')))
   assert.ok(components.some((component) => component.properties?.some((property) => property.name === 'kitculture:projectPath' && property.value === 'platform')))
   assert.ok((bom.dependencies as { ref: string; dependsOn: string[] }[]).every((dependency) => references.has(dependency.ref) && dependency.dependsOn.every((reference) => references.has(reference))))
+})
+
+test('OSV scanner sends only lockfile package names and versions and maps advisories', async (context) => {
+  const root = mkdtempSync(join(tmpdir(), 'kitculture-osv-test-'))
+  context.after(() => rmSync(root, { recursive: true, force: true }))
+  mkdirSync(join(root, 'node_modules', 'sample-package'), { recursive: true })
+  writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'osv-fixture', version: '1.0.0' }))
+  writeFileSync(join(root, 'package-lock.json'), JSON.stringify({
+    name: 'osv-fixture',
+    version: '1.0.0',
+    lockfileVersion: 3,
+    packages: {
+      '': { name: 'osv-fixture', version: '1.0.0', dependencies: { 'sample-package': '^1.2.3' } },
+      'node_modules/sample-package': { name: 'sample-package', version: '1.2.3' },
+    },
+  }))
+  let submittedQueries: unknown[] = []
+  const fetcher: typeof fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body)) as { queries: unknown[] }
+    submittedQueries = body.queries
+    return new Response(JSON.stringify({ results: [{ vulns: [{
+      id: 'GHSA-test-1234',
+      aliases: ['CVE-2026-12345'],
+      summary: 'Test advisory',
+      database_specific: { severity: 'HIGH', cwe_ids: ['CWE-79'] },
+      affected: [{ ranges: [{ events: [{ fixed: '1.2.4' }] }] }],
+    }] }] }), { status: 200, headers: { 'content-type': 'application/json' } })
+  }
+  const result = await runOsvScanner({ cwd: root, endpoint: 'https://osv.example.test/v1/querybatch', fetcher })
+  assert.deepEqual(submittedQueries, [{ package: { name: 'sample-package', ecosystem: 'npm' }, version: '1.2.3' }])
+  assert.equal(result.findings[0]?.severity, 'HIGH')
+  assert.deepEqual(result.findings[0]?.cve, ['CVE-2026-12345'])
+  assert.equal(result.findings[0]?.evidence.fixedVersions, '1.2.4')
+  assert.equal(result.summary.scanner, 'osv')
 })
 
 test('dependency scanner discovers Kitz and MarketHub lockfiles from either project directory', () => {

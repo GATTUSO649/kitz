@@ -1,4 +1,3 @@
-import 'dotenv/config'
 import { z } from 'zod'
 
 export function resolveDatabaseUrl(primaryKey: 'DATABASE_URL' | 'ADMIN_DATABASE_URL', fallbackKeys: readonly string[] = []): string | undefined {

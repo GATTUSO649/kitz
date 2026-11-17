@@ -240,7 +240,7 @@ test('Super Admin ecosystem APIs reject callers without an admin session', async
 })
 
 test('operations endpoints reject store-administrator sessions', async () => {
-  for (const path of ['/me', '/operators', '/overview', '/telemetry', '/health', '/workers', '/detections', '/events', '/metrics', '/database-performance', '/database-performance/events', '/runtime-performance', '/provider-performance', '/payments', '/security/waf', '/security/sbom', '/alerts', '/incidents', '/audit']) {
+  for (const path of ['/me', '/operators', '/overview', '/telemetry', '/health', '/workers', '/detections', '/events', '/metrics', '/database-performance', '/database-performance/events', '/runtime-performance', '/provider-performance', '/payments', '/security/waf', '/security/sbom', '/security/notifications/status', '/alerts', '/incidents', '/audit']) {
     const response = await fetch(`${baseUrl}/api/v1/operations${path}`, { headers: { cookie: 'kc_admin_session=not-an-operations-session' } })
     assert.equal(response.status, 401, path)
     assert.equal((await response.json() as { error: { code: string } }).error.code, 'OPERATIONS_UNAUTHENTICATED', path)
@@ -252,7 +252,7 @@ test('operations endpoints reject store-administrator sessions', async () => {
 })
 
 test('Operations API rejects requests without an Operations session before querying protected data', async () => {
-  for (const path of ['/me', '/operators', '/overview', '/telemetry', '/health', '/workers', '/detections', '/events', '/metrics', '/database-performance', '/database-performance/events', '/runtime-performance', '/provider-performance', '/payments', '/security/waf', '/security/sbom', '/alerts', '/incidents', '/audit']) {
+  for (const path of ['/me', '/operators', '/overview', '/telemetry', '/health', '/workers', '/detections', '/events', '/metrics', '/database-performance', '/database-performance/events', '/runtime-performance', '/provider-performance', '/payments', '/security/waf', '/security/sbom', '/security/notifications/status', '/alerts', '/incidents', '/audit']) {
     const response = await fetch(`${baseUrl}/api/v1/operations${path}`)
     assert.equal(response.status, 401, path)
     assert.deepEqual(await response.json(), {

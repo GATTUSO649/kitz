@@ -11,6 +11,7 @@ import { nextSessionExpiry, operationsSessionAbsoluteLifetimeMs, operationsSessi
 import { adminSessions, adminUsers, monitoringAlerts, monitoringDetectionRules, monitoringEvents, monitoringWorkerState, operationsAuditEvents, operationsIncidentEvents, operationsIncidents, operationsOperators, operationsSessions, operationsUsers, securityScanSchedules } from '../../database/admin-schema.js'
 import { getTelemetryQueueState } from './telemetry-store.js'
 import { getWafStatus } from '../../security/waf.js'
+import { securityNotificationStatus } from '../security/security-notifications.js'
 import { generateCycloneDxSbom } from '../security/sbom.js'
 import { cancelSecurityScan, dependencyScannerAvailability, getSecurityOverview, getSecurityScan, listSecurityFindings, listSecurityScans, startSecurityScan, updateSecurityFinding, type ScannerModule } from '../security/scanner-engine.js'
 import { getRequestMetrics } from '../../middleware/request-metrics.js'
@@ -1339,7 +1340,7 @@ operationsRouter.get('/audit', async (request, response) => {
 })
 
 const securityScanScopeSchema = z.object({
-  scope: z.array(z.enum(['dependency', 'secrets', 'source', 'api', 'database', 'configuration', 'infrastructure', 'web'])).max(8).optional(),
+  scope: z.array(z.enum(['dependency', 'osv', 'secrets', 'source', 'api', 'database', 'configuration', 'infrastructure', 'web'])).max(8).optional(),
   timeoutSeconds: z.number().int().min(30).max(900).optional(),
 }).strict()
 
@@ -1381,6 +1382,7 @@ operationsRouter.get('/security/overview', async (_request, response) => {
 operationsRouter.get('/security/scanners', (_request, response) => {
   response.json({ data: [
     { scanner: 'npm-audit', status: dependencyScannerAvailability(), coverage: 'dependency', source: 'npm audit runner; findings require an executed scan' },
+    { scanner: 'osv', status: 'available', coverage: 'dependency', source: 'OSV public batch API; scans lockfile package names and exact versions' },
     { scanner: 'repository-secret-scanner', status: 'available', coverage: 'secrets', source: 'bounded local source scan; values masked; no third-party service' },
     { scanner: 'semgrep', status: 'not_configured', coverage: 'source', source: 'not installed' },
     { scanner: 'database-readonly', status: 'not_configured', coverage: 'database', source: 'credentials not configured for assessment' },
@@ -1553,4 +1555,8 @@ operationsRouter.put('/security/schedule', async (request, response) => {
     return saved
   })
   response.json({ data: { enabled: schedule.enabled, dailyAt: input.data.dailyAt, nextRunAt: schedule.nextRunAt?.toISOString() ?? null } })
+})
+
+operationsRouter.get('/security/notifications/status', (_request, response) => {
+  response.json({ data: securityNotificationStatus() })
 })

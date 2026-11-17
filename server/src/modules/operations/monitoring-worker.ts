@@ -4,6 +4,7 @@ import type { PoolClient } from 'pg'
 import { adminDb, adminPool } from '../../config/database.js'
 import { env } from '../../config/env.js'
 import * as adminSchema from '../../database/admin-schema.js'
+import { dispatchSecurityAlertEmail, type SecurityAlertNotification } from '../security/security-notifications.js'
 import {
   monitoringAlerts,
   monitoringDetectionHistory,
@@ -135,9 +136,10 @@ export async function runMonitoringCycle() {
     await lockClient.query("SET LOCAL statement_timeout = '15000'")
     const workerDb = drizzle(lockClient, { schema: adminSchema })
     const now = new Date()
+    const notifications: SecurityAlertNotification[] = []
     await seedDetectionRules(workerDb)
     const rules = await workerDb.select().from(monitoringDetectionRules).where(eq(monitoringDetectionRules.enabled, true))
-    for (const rule of rules) await evaluateRule(workerDb, rule, now)
+    for (const rule of rules) await evaluateRule(workerDb, rule, now, notifications)
     await cleanupRetainedEvents(workerDb, now)
     await workerDb.insert(monitoringWorkerState).values({
       workerName,
@@ -151,6 +153,9 @@ export async function runMonitoringCycle() {
     })
     await lockClient.query('COMMIT')
     transactionOpen = false
+    for (const notification of notifications) {
+      void dispatchSecurityAlertEmail(notification).catch(() => undefined)
+    }
     return true
   } catch {
     if (transactionOpen && lockClient) {
@@ -221,7 +226,7 @@ async function seedDetectionRules(database: WorkerDatabase) {
   }))).onConflictDoNothing({ target: monitoringDetectionRules.ruleId })
 }
 
-async function evaluateRule(database: WorkerDatabase, rule: typeof monitoringDetectionRules.$inferSelect, now: Date) {
+async function evaluateRule(database: WorkerDatabase, rule: typeof monitoringDetectionRules.$inferSelect, now: Date, notifications: SecurityAlertNotification[]) {
   const windowStart = new Date(now.getTime() - rule.windowSeconds * 1000)
   const filter = ruleFilter(rule.condition)
   const group = groupExpression(rule.condition)
@@ -281,6 +286,16 @@ async function evaluateRule(database: WorkerDatabase, rule: typeof monitoringDet
           updatedAt: now,
         },
       })
+      if (rule.severity === 'error' || rule.severity === 'critical') {
+        notifications.push({
+          ruleId: rule.ruleId,
+          ruleName: rule.name,
+          severity: rule.severity,
+          affectedService: match.affectedService,
+          occurrenceCount: newCount,
+          windowSeconds: rule.windowSeconds,
+        })
+      }
     }
     await database.insert(monitoringDetectionHistory).values({
       ruleId: rule.ruleId,

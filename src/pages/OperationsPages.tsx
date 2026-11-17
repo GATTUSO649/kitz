@@ -107,6 +107,7 @@ type SecuritySchedule = { enabled: boolean; dailyAt: string; nextRunAt: string |
 type WafStatus = { mode: 'disabled' | 'detect' | 'block'; state: string; configuration: string; policiesPersisted: boolean; externalEdgeProtection: string; rules: { ruleId: string; severity: string; component: string; blockable: boolean }[] }
 type SecurityEvent = { id: number; eventType: string; severity: string; occurredAt: string; sourceService: string; metadata: Record<string, string | number | boolean | null> }
 type PersistedSecurityEvent = SecurityEvent & { category: string; requestId: string | null; correlationId: string | null; relatedResourceId: string | null; instanceId: string }
+type SecurityNotificationStatus = { configured: boolean; recipientConfigured: boolean; providerConfigured: boolean }
 type OperationsPayment = { id: number | string; orderReference: string; provider: string; providerRequestId: string | null; merchantRequestId: string | null; providerReceipt: string | null; amount: string; currency: 'KES'; status: string; providerResultCode: string | null; createdAt: string; updatedAt: string; transactionAt: string | null; callback: { status: string; count: number; lastReceivedAt: string | null; lastProcessedAt: string | null; outcomes: string[] }; verification: { status: string; completedAt: string | null; verifiedAt: string | null; message?: string | null }; reconciliation: { status: string; lastAttemptAt: string | null; attempts: number } }
 type OperationsPayments = { application: 'KITZ' | 'MARKETHUB'; records: OperationsPayment[]; pagination: { nextCursor: number | string | null; hasMore: boolean }; limitations: string[] }
 type ModuleKey =
@@ -604,6 +605,11 @@ function OperationsConsole() {
     queryKey: ['operations', 'monitoring-health'],
     queryFn: async () => (await operationsApi<MonitoringHealth>('/api/v1/operations/health')).data!,
     refetchInterval: 30_000,
+    retry: false,
+  })
+  const securityNotificationStatusQuery = useQuery({
+    queryKey: ['operations', 'security-notification-status'],
+    queryFn: async () => (await operationsApi<SecurityNotificationStatus>('/api/v1/operations/security/notifications/status')).data!,
     retry: false,
   })
 
@@ -1182,7 +1188,7 @@ function OperationsConsole() {
       const securityOverview = securityOverviewQuery.data
       const securityFindings = securityFindingsQuery.data ?? []
       const visibleFindings = securityFindings.filter((finding) => (findingSeverity === 'ALL' || finding.severity === findingSeverity) && (!findingSearch || `${finding.title} ${finding.affectedComponent}`.toLowerCase().includes(findingSearch.toLowerCase())))
-      const startSecurityScan = async (scope: 'dependency' | 'secrets') => {
+      const startSecurityScan = async (scope: 'dependency' | 'osv' | 'secrets') => {
         setSecurityActionBusy(true)
         setSecurityActionError('')
         try {
@@ -1225,6 +1231,7 @@ function OperationsConsole() {
             <div className="operations-report-actions">
               {activeSecurityScan && <button type="button" className="operations-report-print" disabled={securityActionBusy} onClick={() => void cancelSecurityScan(activeSecurityScan.id)}>Cancel scan</button>}
               <button type="button" className="operations-report-download" disabled={securityActionBusy || Boolean(activeSecurityScan)} onClick={() => void startSecurityScan('dependency')}>{securityActionBusy ? 'Working…' : 'Run dependency scan'}</button>
+              <button type="button" className="operations-report-print" disabled={securityActionBusy || Boolean(activeSecurityScan)} onClick={() => void startSecurityScan('osv')}>{securityActionBusy ? 'Working…' : 'Run OSV scan'}</button>
               <button type="button" className="operations-report-print" disabled={securityActionBusy || Boolean(activeSecurityScan)} onClick={() => void startSecurityScan('secrets')}>{securityActionBusy ? 'Working…' : 'Run local secret scan'}</button>
             </div>
           </div>
@@ -1378,6 +1385,7 @@ function OperationsConsole() {
             {(monitoringHealth?.services ?? []).map((service) => (
               <div key={service.name} className="operations-mini-item"><span>{label(service.name)}</span><strong className={service.state === 'healthy' ? 'status-ok' : 'status-watch'}>{service.state}</strong><small>{service.source}{service.latencyMs == null ? '' : ` · ${service.latencyMs} ms`}</small></div>
             ))}
+            <div className="operations-mini-item"><span>Security email alerts</span><strong className={securityNotificationStatusQuery.data?.configured ? 'status-ok' : 'status-watch'}>{securityNotificationStatusQuery.isError ? 'Unavailable' : securityNotificationStatusQuery.data?.configured ? 'Configured' : 'Not configured'}</strong><small>{securityNotificationStatusQuery.data ? `Provider ${securityNotificationStatusQuery.data.providerConfigured ? 'configured' : 'unavailable'} · recipient ${securityNotificationStatusQuery.data.recipientConfigured ? 'configured' : 'unavailable'}` : 'Configuration status is not available.'}</small></div>
             {Object.entries(overview?.externalServices ?? {}).map(([service, status]) => (
               <div key={service} className="operations-mini-item">
                 <span>{label(service)}</span>
