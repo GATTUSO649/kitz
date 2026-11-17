@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict'
+import { X509Certificate } from 'node:crypto'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { rootCertificates } from 'node:tls'
 import test from 'node:test'
 import express from 'express'
 
 process.env.NODE_ENV = 'development'
 process.env.CLIENT_ORIGIN = 'http://localhost:5173'
 
-const { mysqlSslOptions, supabaseSslOptions } = await import('../../config/database.js')
-const { normalizeCaPem } = await import('../../config/postgres-ssl.mjs')
+const { adminPostgresSslOptions, kitzPostgresSslOptions, mysqlSslOptions, supabaseSslOptions } = await import('../../config/database.js')
+const { createAdminMigrationSslOptions, createPostgresSslOptions, normalizeCaPem } = await import('../../config/postgres-ssl.mjs')
 const { env, isAllowedClientOrigin, isAllowedSiteImageOrigin, productionDatabaseTlsConfigurationErrors, productionDarajaConfigurationErrors, resolveDarajaEnvironment, resolveDarajaTransactionType } = await import('../../config/env.js')
 const { bcryptPasswordSchema, verifyPassword } = await import('../../config/password-policy.js')
 const { adminIdleTimeoutMs, adminLoginSchema, invalidAdminCredentialsMessage, matchesAdminSignupSecret } = await import('../admin/auth.js')
@@ -132,13 +137,97 @@ test('production MySQL connections require verified TLS and accept a custom CA',
 })
 
 test('Supabase PostgreSQL TLS requires a CA in production and always verifies certificates', () => {
-  const certificate = '-----BEGIN CERTIFICATE-----\nline\n-----END CERTIFICATE-----'
+  const certificate = rootCertificates.find((pem) => {
+    const parsedCertificate = new X509Certificate(pem)
+    return parsedCertificate.ca && Date.parse(parsedCertificate.validFrom) <= Date.now() && Date.parse(parsedCertificate.validTo) > Date.now()
+  })
+  assert.ok(certificate)
   assert.deepEqual(supabaseSslOptions(), { rejectUnauthorized: true })
-  assert.throws(() => supabaseSslOptions(undefined, undefined, true), /CA certificate is required/)
-  assert.equal(normalizeCaPem('-----BEGIN CERTIFICATE-----\\nline\\r\\n-----END CERTIFICATE-----'), certificate)
-  assert.throws(() => supabaseSslOptions(undefined, certificate, true), /valid X.509 certificate/)
-  assert.throws(() => supabaseSslOptions(undefined, certificate), /valid X.509 certificate/)
-  assert.throws(() => supabaseSslOptions(undefined, 'not-a-certificate'), /PEM certificate/)
+  assert.throws(() => kitzPostgresSslOptions({ ...env, NODE_ENV: 'production', SUPABASE_CA_CERT: undefined, SUPABASE_CA_CERT_FILE: undefined }), /Kitz DATABASE_URL.*SUPABASE_CA_CERT/)
+  assert.deepEqual(createPostgresSslOptions({ caContents: certificate }, { requireCa: true }), { ca: certificate, rejectUnauthorized: true })
+  assert.equal(normalizeCaPem('-----BEGIN CERTIFICATE-----\\nline\\r\\n-----END CERTIFICATE-----'), '-----BEGIN CERTIFICATE-----\nline\n-----END CERTIFICATE-----')
+  assert.throws(() => supabaseSslOptions(undefined, '-----BEGIN CERTIFICATE-----\\nline\\n-----END CERTIFICATE-----', true), /valid X.509 certificate/)
+  assert.throws(() => supabaseSslOptions(undefined, 'not-a-certificate'), /must contain a PEM CA certificate/)
+  assert.throws(() => createPostgresSslOptions({ caFile: 'missing-ca.pem' }, { requireCa: true, connectionName: 'Kitz DATABASE_URL' }), /Kitz DATABASE_URL.*SUPABASE_CA_CERT_FILE could not be read/)
+})
+
+test('Kitz and Admin database pools select distinct CA settings and always verify certificates', () => {
+  const certificates = rootCertificates.filter((pem) => {
+    const certificate = new X509Certificate(pem)
+    return certificate.ca && Date.parse(certificate.validFrom) <= Date.now() && Date.parse(certificate.validTo) > Date.now()
+  })
+  assert.ok(certificates.length >= 2)
+  const kitzCertificate = certificates[0]
+  const adminCertificate = certificates.find((certificate) => certificate !== kitzCertificate)
+  assert.ok(adminCertificate)
+
+  const configuration = {
+    ...env,
+    NODE_ENV: 'production' as const,
+    SUPABASE_CA_CERT: kitzCertificate,
+    SUPABASE_CA_CERT_FILE: undefined,
+    ADMIN_SUPABASE_CA_CERT: adminCertificate,
+    ADMIN_SUPABASE_CA_CERT_FILE: undefined,
+  }
+  const kitzSsl = kitzPostgresSslOptions(configuration)
+  const adminSsl = adminPostgresSslOptions(configuration)
+  assert.equal(kitzSsl.ca, kitzCertificate)
+  assert.equal(adminSsl.ca, adminCertificate)
+  assert.equal(kitzSsl.rejectUnauthorized, true)
+  assert.equal(adminSsl.rejectUnauthorized, true)
+  assert.notEqual(kitzSsl.ca, adminSsl.ca)
+
+  assert.throws(() => adminPostgresSslOptions({
+    ...configuration,
+    ADMIN_SUPABASE_CA_CERT: undefined,
+    ADMIN_SUPABASE_CA_CERT_FILE: undefined,
+  }), /Admin ADMIN_DATABASE_URL.*ADMIN_SUPABASE_CA_CERT/)
+
+  const directory = mkdtempSync(join(tmpdir(), 'kitculture-postgres-ca-'))
+  const certificatePath = join(directory, 'ca.pem')
+  try {
+    writeFileSync(certificatePath, adminCertificate, { mode: 0o600 })
+    assert.equal(readFileSync(certificatePath, 'utf8'), adminCertificate)
+    assert.equal(createPostgresSslOptions({ caFile: certificatePath }, { requireCa: true, connectionName: 'Admin ADMIN_DATABASE_URL' }).ca, adminCertificate)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('Admin migration shares runtime Admin CA only for the same verified Supabase project', () => {
+  const certificates = rootCertificates.filter((pem) => {
+    const certificate = new X509Certificate(pem)
+    return certificate.ca && Date.parse(certificate.validFrom) <= Date.now() && Date.parse(certificate.validTo) > Date.now()
+  })
+  assert.ok(certificates.length >= 2)
+  const runtimeAdminCa = certificates[0]
+  const migrationCa = certificates.find((certificate) => certificate !== runtimeAdminCa)
+  assert.ok(migrationCa)
+
+  const sameProjectOptions = createAdminMigrationSslOptions({
+    migrationUrl: 'postgresql://postgres.admin-project@aws-0-region.pooler.supabase.com:5432/postgres',
+    runtimeAdminUrl: 'postgresql://postgres.admin-project:secret@db.admin-project.supabase.co:5432/postgres',
+    adminCaContents: runtimeAdminCa,
+    requireCa: true,
+  })
+  assert.equal(sameProjectOptions.ca, runtimeAdminCa)
+  assert.equal(sameProjectOptions.rejectUnauthorized, true)
+
+  const migrationSpecificOptions = createAdminMigrationSslOptions({
+    migrationUrl: 'postgresql://postgres.admin-project:secret@db.admin-project.supabase.co:5432/postgres',
+    runtimeAdminUrl: 'postgresql://postgres.admin-project:secret@db.admin-project.supabase.co:5432/postgres',
+    migrationCaContents: migrationCa,
+    adminCaContents: runtimeAdminCa,
+    requireCa: true,
+  })
+  assert.equal(migrationSpecificOptions.ca, migrationCa)
+
+  assert.throws(() => createAdminMigrationSslOptions({
+    migrationUrl: 'postgresql://postgres.other-project:secret@db.other-project.supabase.co:5432/postgres',
+    runtimeAdminUrl: 'postgresql://postgres.admin-project:secret@db.admin-project.supabase.co:5432/postgres',
+    adminCaContents: runtimeAdminCa,
+    requireCa: true,
+  }), /same Supabase project/)
 })
 
 test('production rejects disabled MySQL TLS certificate verification', () => {

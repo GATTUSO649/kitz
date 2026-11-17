@@ -42,6 +42,8 @@ const schema = z.object({
   SUPABASE_CA_CERT: z.string().trim().min(1).optional(),
   ADMIN_SUPABASE_CA_CERT_FILE: z.string().trim().min(1).optional(),
   ADMIN_SUPABASE_CA_CERT: z.string().trim().min(1).optional(),
+  ADMIN_MIGRATION_SUPABASE_CA_CERT_FILE: z.string().trim().min(1).optional(),
+  ADMIN_MIGRATION_SUPABASE_CA_CERT: z.string().trim().min(1).optional(),
   ADMIN_SIGNUP_SECRET: z.string().min(32).max(512).optional(),
   ADMIN_SECRET_KEY: z.string().min(32).max(512).optional(),
   ORIGIN_AUTH_TOKEN: z.string().min(32).max(256).optional(),

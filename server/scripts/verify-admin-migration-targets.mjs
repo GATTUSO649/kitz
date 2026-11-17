@@ -1,6 +1,6 @@
 import 'dotenv/config'
 import { Pool } from 'pg'
-import { createPostgresSslOptions } from '../src/config/postgres-ssl.mjs'
+import { createAdminMigrationSslOptions, createPostgresSslOptions } from '../src/config/postgres-ssl.mjs'
 
 function projectIdentity(value, name) {
   if (!value) throw new Error(`${name} is missing.`)
@@ -12,19 +12,19 @@ function projectIdentity(value, name) {
   return { url, projectRef: (direct ?? pooled).toLowerCase() }
 }
 
-function createVerifiedPool(target, caFile, caContents) {
+function createVerifiedPool(target, ssl) {
   return new Pool({
     connectionString: target.url.toString(),
     max: 1,
     connectionTimeoutMillis: 8_000,
     statement_timeout: 15_000,
     options: '-c default_transaction_read_only=on',
-    ssl: createPostgresSslOptions({ caFile, caContents }, { requireCa: true }),
+    ssl,
   })
 }
 
-async function verifyTarget(name, target, caFile, caContents, expectedSchema) {
-  const pool = createVerifiedPool(target, caFile, caContents)
+async function verifyTarget(name, target, ssl, expectedSchema) {
+  const pool = createVerifiedPool(target, ssl)
   try {
     const result = await pool.query(`
       SELECT current_database() AS database_name,
@@ -61,17 +61,43 @@ async function main() {
   const kitzTarget = projectIdentity(process.env.DATABASE_URL?.trim(), 'DATABASE_URL')
   const adminTarget = projectIdentity(process.env.ADMIN_DATABASE_URL?.trim(), 'ADMIN_DATABASE_URL')
   const marketplaceTarget = projectIdentity(process.env.MARKETPLACE_DATABASE_URL?.trim(), 'MARKETPLACE_DATABASE_URL')
+  const migrationTarget = process.env.ADMIN_MIGRATION_DATABASE_URL?.trim()
+    ? projectIdentity(process.env.ADMIN_MIGRATION_DATABASE_URL.trim(), 'ADMIN_MIGRATION_DATABASE_URL')
+    : null
   if (kitzTarget.projectRef === adminTarget.projectRef) throw new Error('Kitz and Admin URLs resolve to the same Supabase project.')
   if (marketplaceTarget.projectRef === kitzTarget.projectRef || marketplaceTarget.projectRef === adminTarget.projectRef) {
     throw new Error('MarketHub must resolve to a Supabase project independent of Kitz and Admin.')
   }
+  if (migrationTarget && migrationTarget.projectRef !== adminTarget.projectRef) {
+    throw new Error('ADMIN_MIGRATION_DATABASE_URL must resolve to the Admin Supabase project.')
+  }
 
-  const [kitz, admin, marketplace] = await Promise.all([
-    verifyTarget('Kitz', kitzTarget, process.env.SUPABASE_CA_CERT_FILE, process.env.SUPABASE_CA_CERT, 'public'),
-    verifyTarget('Admin', adminTarget, process.env.ADMIN_SUPABASE_CA_CERT_FILE, process.env.ADMIN_SUPABASE_CA_CERT, 'public'),
-    verifyTarget('MarketHub', marketplaceTarget, process.env.MARKETPLACE_DATABASE_CA_FILE, process.env.MARKETPLACE_DATABASE_CA, 'marketplace'),
+  const [kitz, admin, marketplace, adminMigration] = await Promise.all([
+    verifyTarget('Kitz', kitzTarget, createPostgresSslOptions({
+      caFile: process.env.SUPABASE_CA_CERT_FILE,
+      caContents: process.env.SUPABASE_CA_CERT,
+    }, { requireCa: true, connectionName: 'Kitz DATABASE_URL', caFileVariable: 'SUPABASE_CA_CERT_FILE', caContentsVariable: 'SUPABASE_CA_CERT' }), 'public'),
+    verifyTarget('Admin', adminTarget, createPostgresSslOptions({
+      caFile: process.env.ADMIN_SUPABASE_CA_CERT_FILE,
+      caContents: process.env.ADMIN_SUPABASE_CA_CERT,
+    }, { requireCa: true, connectionName: 'Admin ADMIN_DATABASE_URL', caFileVariable: 'ADMIN_SUPABASE_CA_CERT_FILE', caContentsVariable: 'ADMIN_SUPABASE_CA_CERT' }), 'public'),
+    verifyTarget('MarketHub', marketplaceTarget, createPostgresSslOptions({
+      caFile: process.env.MARKETPLACE_DATABASE_CA_FILE,
+      caContents: process.env.MARKETPLACE_DATABASE_CA,
+    }, { requireCa: true, connectionName: 'MarketHub MARKETPLACE_DATABASE_URL', caFileVariable: 'MARKETPLACE_DATABASE_CA_FILE', caContentsVariable: 'MARKETPLACE_DATABASE_CA' }), 'marketplace'),
+    migrationTarget
+      ? verifyTarget('Admin migration', migrationTarget, createAdminMigrationSslOptions({
+        migrationUrl: process.env.ADMIN_MIGRATION_DATABASE_URL,
+        runtimeAdminUrl: process.env.ADMIN_DATABASE_URL,
+        migrationCaFile: process.env.ADMIN_MIGRATION_SUPABASE_CA_CERT_FILE,
+        migrationCaContents: process.env.ADMIN_MIGRATION_SUPABASE_CA_CERT,
+        adminCaFile: process.env.ADMIN_SUPABASE_CA_CERT_FILE,
+        adminCaContents: process.env.ADMIN_SUPABASE_CA_CERT,
+        requireCa: true,
+      }), 'public')
+      : Promise.resolve({ configured: false }),
   ])
-  console.info(JSON.stringify({ kitz, admin, marketplace, projectsAreIndependent: true }))
+  console.info(JSON.stringify({ kitz, admin, adminMigration, marketplace, projectsAreIndependent: true }))
 }
 
 main().catch((error) => {

@@ -1,7 +1,7 @@
 import 'dotenv/config'
 import { randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
-import { createPostgresSslOptions } from '../src/config/postgres-ssl.mjs'
+import { createAdminMigrationSslOptions, createPostgresSslOptions } from '../src/config/postgres-ssl.mjs'
 
 const adminTables = [
   'admin_users',
@@ -106,14 +106,14 @@ function validateConfiguration() {
   }
 }
 
-function createPool(connectionString, caFile, caContents, readOnly = false) {
+function createPool(connectionString, ssl, readOnly = false) {
   return new Pool({
     connectionString,
     max: 2,
     connectionTimeoutMillis: 8_000,
     statement_timeout: 60_000,
     ...(readOnly ? { options: '-c default_transaction_read_only=on' } : {}),
-    ssl: createPostgresSslOptions({ caFile, caContents }, { requireCa: true }),
+    ssl,
   })
 }
 
@@ -302,13 +302,26 @@ async function copyTable(source, target, table, summary) {
 
 async function main() {
   validateConfiguration()
-  const source = createPool(sourceUrl, process.env.SUPABASE_CA_CERT_FILE, process.env.SUPABASE_CA_CERT, true)
-  const target = createPool(
-    targetUrl,
-    process.env.ADMIN_MIGRATION_SUPABASE_CA_CERT_FILE ?? process.env.ADMIN_SUPABASE_CA_CERT_FILE,
-    process.env.ADMIN_MIGRATION_SUPABASE_CA_CERT ?? process.env.ADMIN_SUPABASE_CA_CERT,
-    !execute,
-  )
+  const sourceSsl = createPostgresSslOptions({
+    caFile: process.env.SUPABASE_CA_CERT_FILE,
+    caContents: process.env.SUPABASE_CA_CERT,
+  }, {
+    requireCa: true,
+    connectionName: 'Kitz DATABASE_URL source',
+    caFileVariable: 'SUPABASE_CA_CERT_FILE',
+    caContentsVariable: 'SUPABASE_CA_CERT',
+  })
+  const targetSsl = createAdminMigrationSslOptions({
+    migrationUrl: targetUrl,
+    runtimeAdminUrl,
+    migrationCaFile: process.env.ADMIN_MIGRATION_SUPABASE_CA_CERT_FILE,
+    migrationCaContents: process.env.ADMIN_MIGRATION_SUPABASE_CA_CERT,
+    adminCaFile: process.env.ADMIN_SUPABASE_CA_CERT_FILE,
+    adminCaContents: process.env.ADMIN_SUPABASE_CA_CERT,
+    requireCa: true,
+  })
+  const source = createPool(sourceUrl, sourceSsl, true)
+  const target = createPool(targetUrl, targetSsl, !execute)
 
   try {
     const [sourceInfo, targetInfo] = await Promise.all([

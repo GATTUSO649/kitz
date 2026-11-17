@@ -40,25 +40,42 @@ function normalizedConnectionUrl(value: string | undefined, variableName: string
 const connectionUrl = normalizedConnectionUrl(databaseUrl, 'DATABASE_URL')
 const adminConnectionUrl = normalizedConnectionUrl(env.ADMIN_DATABASE_URL, 'ADMIN_DATABASE_URL')
 
-function createPool(
-  connectionUrl: URL,
-  applicationName: string,
-  caConfig: { caFile?: string; caContents?: string } = {
-    caFile: env.SUPABASE_CA_CERT_FILE,
-    caContents: env.SUPABASE_CA_CERT,
-  },
-): Pool {
-  return new Pool({
-      connectionString: connectionUrl.toString(),
-      ssl: supabaseSslOptions(caConfig.caFile, caConfig.caContents, env.NODE_ENV === 'production'),
-      max: 10,
-      connectionTimeoutMillis: 8_000,
-      idleTimeoutMillis: 30_000,
-      application_name: applicationName,
-    })
+export function kitzPostgresSslOptions(configuration = env) {
+  return createPostgresSslOptions({
+    caFile: configuration.SUPABASE_CA_CERT_FILE,
+    caContents: configuration.SUPABASE_CA_CERT,
+  }, {
+    requireCa: configuration.NODE_ENV === 'production',
+    connectionName: 'Kitz DATABASE_URL',
+    caFileVariable: 'SUPABASE_CA_CERT_FILE',
+    caContentsVariable: 'SUPABASE_CA_CERT',
+  })
 }
 
-export const pool = connectionUrl ? createPool(connectionUrl, 'kitculture-api') : null
+export function adminPostgresSslOptions(configuration = env) {
+  return createPostgresSslOptions({
+    caFile: configuration.ADMIN_SUPABASE_CA_CERT_FILE,
+    caContents: configuration.ADMIN_SUPABASE_CA_CERT,
+  }, {
+    requireCa: configuration.NODE_ENV === 'production',
+    connectionName: 'Admin ADMIN_DATABASE_URL',
+    caFileVariable: 'ADMIN_SUPABASE_CA_CERT_FILE',
+    caContentsVariable: 'ADMIN_SUPABASE_CA_CERT',
+  })
+}
+
+function createPool(connectionUrl: URL, applicationName: string, ssl: ReturnType<typeof kitzPostgresSslOptions>): Pool {
+  return new Pool({
+    connectionString: connectionUrl.toString(),
+    ssl,
+    max: 10,
+    connectionTimeoutMillis: 8_000,
+    idleTimeoutMillis: 30_000,
+    application_name: applicationName,
+  })
+}
+
+export const pool = connectionUrl ? createPool(connectionUrl, 'kitculture-api', kitzPostgresSslOptions()) : null
 
 if (pool && process.env.NODE_TEST_CONTEXT === undefined) instrumentPostgresPool(pool, recordDatabaseMeasurement)
 
@@ -69,7 +86,7 @@ export const adminPool = adminConnectionUrl
   ? createPool(
     adminConnectionUrl,
     'kitculture-admin',
-    { caFile: env.ADMIN_SUPABASE_CA_CERT_FILE, caContents: env.ADMIN_SUPABASE_CA_CERT },
+    adminPostgresSslOptions(),
   )
   : null
 export const adminDb = adminPool ? drizzle(adminPool, { schema: adminSchema }) : null

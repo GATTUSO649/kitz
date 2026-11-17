@@ -15,6 +15,7 @@ This inventory covers security-sensitive configuration referenced by the impleme
 | `REDIS_TEST_URL` | Tests only | Optional isolated Redis database for two-instance rate-limit integration tests. Tests are skipped when unset. Never point it at production. |
 | `SUPABASE_CA_CERT_FILE` / `SUPABASE_CA_CERT` | Kitz | Production PostgreSQL CA configuration used by Kitz TLS validation. |
 | `ADMIN_SUPABASE_CA_CERT_FILE` / `ADMIN_SUPABASE_CA_CERT` | Kitz | Independent production TLS CA configuration for the separate Admin Supabase project. |
+| `ADMIN_MIGRATION_SUPABASE_CA_CERT_FILE` / `ADMIN_MIGRATION_SUPABASE_CA_CERT` | Kitz migration workflow | Admin DDL certificate. It can reuse the Admin runtime CA only when the migration and runtime URLs resolve to the same Supabase project; otherwise configure the migration CA independently. |
 | `WAF_MODE` | Kitz | `disabled`, `detect` (default), or `block`; block mode only rejects selected high-confidence API findings and must be staging-tested. |
 | `OPERATIONS_IDENTITY_BRIDGE_ENABLED` | Kitz | Defaults to `false`; must remain false until approved staging verification and separate activation approval. |
 | `MARKETHUB_SECURITY_FEED_URL` | Kitz | Optional exact same-origin HTTPS server endpoint `/api/v1/admin/marketplace/security-payments`; validated against `MARKETHUB_PUBLIC_URL`. |
@@ -25,6 +26,7 @@ This inventory covers security-sensitive configuration referenced by the impleme
 | `MARKETPLACE_DATABASE_HOST` | MarketHub | Must exactly match the runtime URL host. |
 | `MARKETPLACE_DATABASE_SCHEMA` | MarketHub | Must be `marketplace`; this schema remains excluded from the Supabase Data API exposed schema list. |
 | `MARKETPLACE_DATABASE_CA` | MarketHub | Required in production for certificate-verified TLS. |
+| `MARKETPLACE_DATABASE_CA_FILE` | MarketHub | Alternative mounted-file source for the MarketHub CA; never falls back to Kitz/Admin certificates. |
 | `KITCULTURE_MARKETPLACE_SERVICE_TOKEN` | MarketHub | Existing server-only shared token used for Kitz service authentication and the read-only Operations payment feed. |
 | `MARKETHUB_PREFLIGHT_DATABASE_URL` | MarketHub release preflight | Separate read-only credential for preflight-only database inspection. |
 | `MARKETPLACE_MIGRATION_DATABASE_URL` | MarketHub release execution | Separate migration credential; production use remains behind the approved migration manifest and protected deployment workflow. |

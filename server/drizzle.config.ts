@@ -13,6 +13,11 @@ for (const key of ['sslmode', 'ssl', 'sslcert', 'sslkey', 'sslrootcert']) connec
 const ssl = createPostgresSslOptions({
   caFile: process.env.SUPABASE_CA_CERT_FILE,
   caContents: process.env.SUPABASE_CA_CERT,
+}, {
+  requireCa: process.env.NODE_ENV === 'production',
+  connectionName: 'Kitz DATABASE_URL migrations',
+  caFileVariable: 'SUPABASE_CA_CERT_FILE',
+  caContentsVariable: 'SUPABASE_CA_CERT',
 })
 
 export default defineConfig({

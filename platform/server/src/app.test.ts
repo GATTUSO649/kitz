@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict'
+import { X509Certificate } from 'node:crypto'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { rootCertificates } from 'node:tls'
 import { after, before, test } from 'node:test'
 
 delete process.env.MARKETPLACE_DATABASE_URL
 process.env.KITCULTURE_MARKETPLACE_AUTH_URL = 'https://kitz.example.test/api/v1/admin/marketplace/authenticate'
 const { app } = await import('./app.js')
-const { getMarketplaceDatabaseConfig, marketplaceDatabaseStartupDiagnostic } = await import('./database/connection.js')
+const { getMarketplaceDatabaseConfig, marketplaceDatabaseStartupDiagnostic, marketplacePostgresSslOptions } = await import('./database/connection.js')
 const server = app.listen(0, '127.0.0.1')
 let origin = ''
 
@@ -342,16 +347,21 @@ test('database configuration accepts the shared postgres database only with matc
 })
 
 test('production database configuration requires verified TLS and its CA', () => {
+  const certificate = rootCertificates.find((pem) => {
+    const parsedCertificate = new X509Certificate(pem)
+    return parsedCertificate.ca && Date.parse(parsedCertificate.validFrom) <= Date.now() && Date.parse(parsedCertificate.validTo) > Date.now()
+  })
+  assert.ok(certificate)
   const config = getMarketplaceDatabaseConfig({
     MARKETPLACE_DATABASE_URL: 'postgresql://marketplace_app:secret@db.example.supabase.co:5432/postgres',
     MARKETPLACE_DATABASE_NAME: 'postgres',
     MARKETPLACE_DATABASE_HOST: 'db.example.supabase.co',
     MARKETPLACE_DATABASE_USER: 'marketplace_app',
     MARKETPLACE_DATABASE_SCHEMA: 'marketplace',
-    MARKETPLACE_DATABASE_CA: 'verified-ca',
+    MARKETPLACE_DATABASE_CA: certificate,
     NODE_ENV: 'production',
   })
-  assert.deepEqual(config?.ssl, { ca: 'verified-ca', rejectUnauthorized: true })
+  assert.deepEqual(config?.ssl, { ca: certificate, rejectUnauthorized: true })
   assert.throws(() => getMarketplaceDatabaseConfig({ NODE_ENV: 'production' }), /MARKETPLACE_DATABASE_URL/)
   assert.throws(() => getMarketplaceDatabaseConfig({
     MARKETPLACE_DATABASE_URL: 'postgresql://marketplace_app:secret@db.example.supabase.co:5432/postgres',
@@ -360,7 +370,23 @@ test('production database configuration requires verified TLS and its CA', () =>
     MARKETPLACE_DATABASE_USER: 'marketplace_app',
     MARKETPLACE_DATABASE_SCHEMA: 'marketplace',
     NODE_ENV: 'production',
-  }), /MARKETPLACE_DATABASE_CA/)
+  }), /MarketHub MARKETPLACE_DATABASE_URL.*MARKETPLACE_DATABASE_CA/)
+  assert.throws(() => marketplacePostgresSslOptions({
+    NODE_ENV: 'production',
+    MARKETPLACE_DATABASE_CA: 'invalid-certificate',
+  }), /MarketHub MARKETPLACE_DATABASE_URL.*not a valid X.509 certificate/)
+
+  const directory = mkdtempSync(join(tmpdir(), 'markethub-postgres-ca-'))
+  const certificatePath = join(directory, 'ca.pem')
+  try {
+    writeFileSync(certificatePath, certificate, { mode: 0o600 })
+    assert.deepEqual(marketplacePostgresSslOptions({ NODE_ENV: 'production', MARKETPLACE_DATABASE_CA_FILE: certificatePath }), {
+      ca: certificate,
+      rejectUnauthorized: true,
+    })
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
 })
 
 test('startup database diagnostic reports safe configuration and connection results', async () => {

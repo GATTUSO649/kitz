@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
+import { X509Certificate } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
+import { rootCertificates } from 'node:tls'
 import { fileURLToPath } from 'node:url'
 import { after, before, test } from 'node:test'
 
@@ -9,6 +11,13 @@ process.env.CLIENT_ORIGIN = 'http://localhost:5173'
 process.env.MARKETHUB_PUBLIC_URL = 'https://market.example.test'
 process.env.DATABASE_URL = 'postgresql://test:test@127.0.0.1:1/kitculture'
 process.env.ADMIN_DATABASE_URL = 'postgresql://test:test@127.0.0.1:1/kitculture_admin'
+const validRootCas = rootCertificates.filter((pem) => {
+  const certificate = new X509Certificate(pem)
+  return certificate.ca && Date.parse(certificate.validFrom) <= Date.now() && Date.parse(certificate.validTo) > Date.now()
+})
+if (validRootCas.length < 2) throw new Error('Tests require two valid system root CA certificates.')
+process.env.SUPABASE_CA_CERT = validRootCas[0]
+process.env.ADMIN_SUPABASE_CA_CERT = validRootCas[1]
 process.env.MARKETHUB_SERVICE_TOKEN = 'a'.repeat(48)
 process.env.LOG_LEVEL = 'silent'
 
@@ -34,6 +43,12 @@ test('uses a distinct administrator database pool when a separate URL is configu
   assert.ok(pool)
   assert.ok(adminPool)
   assert.notEqual(adminPool, pool)
+  const kitzSsl = (pool as unknown as { options: { ssl: { ca: string; rejectUnauthorized: boolean } } }).options.ssl
+  const adminSsl = (adminPool as unknown as { options: { ssl: { ca: string; rejectUnauthorized: boolean } } }).options.ssl
+  assert.equal(kitzSsl.ca, validRootCas[0])
+  assert.equal(adminSsl.ca, validRootCas[1])
+  assert.equal(kitzSsl.rejectUnauthorized, true)
+  assert.equal(adminSsl.rejectUnauthorized, true)
 })
 
 after(async () => {

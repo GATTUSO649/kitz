@@ -1,7 +1,47 @@
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
+import { X509Certificate } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { Pool } from 'pg'
 import { safeDatabaseError } from './diagnostics.js'
 import * as schema from './schema.js'
+
+export function normalizeMarketplaceCa(value: string | undefined) {
+  if (!value) return undefined
+  const pem = value.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').replace(/\r\n/g, '\n').trim()
+  return pem || undefined
+}
+
+export function marketplacePostgresSslOptions(env: NodeJS.ProcessEnv = process.env) {
+  const caContents = normalizeMarketplaceCa(env.MARKETPLACE_DATABASE_CA)
+  let ca = caContents
+  if (!ca && env.MARKETPLACE_DATABASE_CA_FILE) {
+    try {
+      ca = normalizeMarketplaceCa(readFileSync(resolve(env.MARKETPLACE_DATABASE_CA_FILE), 'utf8'))
+    } catch {
+      throw new Error('MarketHub MARKETPLACE_DATABASE_URL: MARKETPLACE_DATABASE_CA_FILE could not be read.')
+    }
+  }
+  if (env.NODE_ENV === 'production' && !ca) {
+    throw new Error('MarketHub MARKETPLACE_DATABASE_URL: set MARKETPLACE_DATABASE_CA or MARKETPLACE_DATABASE_CA_FILE to the MarketHub Supabase CA certificate.')
+  }
+  if (ca) {
+    let certificate: X509Certificate
+    try {
+      certificate = new X509Certificate(ca)
+    } catch {
+      throw new Error('MarketHub MARKETPLACE_DATABASE_URL: configured CA is not a valid X.509 certificate.')
+    }
+    if (!certificate.ca) throw new Error('MarketHub MARKETPLACE_DATABASE_URL: configured certificate is not a CA certificate.')
+    if (Date.parse(certificate.validFrom) > Date.now() || Date.parse(certificate.validTo) < Date.now()) {
+      throw new Error('MarketHub MARKETPLACE_DATABASE_URL: configured CA certificate is outside its validity period.')
+    }
+  }
+  return {
+    ...(ca ? { ca } : {}),
+    rejectUnauthorized: true,
+  }
+}
 
 export function getMarketplaceDatabaseConfig(env: NodeJS.ProcessEnv = process.env) {
   const connectionString = env.MARKETPLACE_DATABASE_URL
@@ -40,13 +80,10 @@ export function getMarketplaceDatabaseConfig(env: NodeJS.ProcessEnv = process.en
     throw new Error('MARKETPLACE_DATABASE_SCHEMA must be marketplace.')
   }
 
-  const sslCa = env.MARKETPLACE_DATABASE_CA?.replaceAll('\\n', '\n')
-  if (env.NODE_ENV === 'production' && !sslCa) {
-    throw new Error('MARKETPLACE_DATABASE_CA is required in production.')
-  }
+  const ssl = marketplacePostgresSslOptions(env)
   return {
     connectionString,
-    ssl: env.NODE_ENV === 'production' || isSupabaseHost || sslCa ? { ...(sslCa ? { ca: sslCa } : {}), rejectUnauthorized: true } : undefined,
+    ssl: env.NODE_ENV === 'production' || isSupabaseHost ? ssl : undefined,
   }
 }
 
