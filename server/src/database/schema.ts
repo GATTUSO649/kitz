@@ -13,7 +13,6 @@ import {
   unique,
   varchar,
 } from 'drizzle-orm/pg-core'
-import { adminUsers } from './admin-schema.js'
 
 const timestamp = (name: string) => pgTimestamp(name, { withTimezone: true, mode: 'date' })
 const datetime = (name: string) => pgTimestamp(name, { withTimezone: false, mode: 'date' })
@@ -380,7 +379,7 @@ export const laundryServiceAreas = mysqlTable('laundry_service_areas', {
   name: varchar('name', { length: 160 }).notNull().unique(),
   active: boolean('active').default(true).notNull(),
   sortOrder: int('sort_order').default(0).notNull(),
-  createdByAdminId: int('created_by_admin_id').references(() => adminUsers.id, { onDelete: 'set null' }),
+  createdByAdminId: int('created_by_admin_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
 }, (table) => [index('laundry_service_areas_active_order_idx').on(table.active, table.sortOrder)])
@@ -419,7 +418,7 @@ export const laundryBookingEvents = mysqlTable('laundry_booking_events', {
   previousStatus: varchar('previous_status', { length: 32 }),
   newStatus: varchar('new_status', { length: 32 }).notNull(),
   actorType: enumText<'customer' | 'admin' | 'system'>('actor_type', 16).notNull(),
-  actorAdminUserId: int('actor_admin_user_id').references(() => adminUsers.id, { onDelete: 'set null' }),
+  actorAdminUserId: int('actor_admin_user_id'),
   note: varchar('note', { length: 500 }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (table) => [index('laundry_booking_events_booking_created_idx').on(table.bookingId, table.createdAt)])
@@ -434,7 +433,7 @@ export const laundryPayments = mysqlTable('laundry_payments', {
   transactionReference: varchar('transaction_reference', { length: 120 }),
   notes: varchar('notes', { length: 1000 }),
   status: enumText<'pending' | 'confirmed' | 'reversed'>('status', 16).default('confirmed').notNull(),
-  recordedByAdminId: int('recorded_by_admin_id').notNull().references(() => adminUsers.id),
+  recordedByAdminId: int('recorded_by_admin_id').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
 }, (table) => [
@@ -449,7 +448,7 @@ export const laundryPaymentEvents = mysqlTable('laundry_payment_events', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   paymentId: int('payment_id').notNull().references(() => laundryPayments.id),
   bookingId: int('booking_id').notNull().references(() => laundryBookings.id),
-  actorAdminUserId: int('actor_admin_user_id').references(() => adminUsers.id, { onDelete: 'set null' }),
+  actorAdminUserId: int('actor_admin_user_id'),
   eventType: enumText<'recorded' | 'updated' | 'status_changed' | 'reversed'>('event_type', 20).notNull(),
   before: jsonb('before').$type<Record<string, unknown> | null>(),
   after: jsonb('after').$type<Record<string, unknown>>().notNull(),

@@ -1,12 +1,11 @@
 import 'dotenv/config'
+import { areSameDatabaseTarget, databaseTargetIdentity } from '../config/database-target.js'
 
-const databaseUrl = process.env.DATABASE_URL ?? process.env.ADMIN_DATABASE_URL
-if (!databaseUrl) throw new Error('Set DATABASE_URL before applying the shared admin schema to the Railway database.')
-
-const target = new URL(databaseUrl)
-const databaseName = target.pathname.slice(1)
-if (!databaseName || !/^[a-zA-Z0-9_]+$/.test(databaseName)) {
-  throw new Error('The database URL must point to a valid MySQL database name.')
+const adminDatabaseUrl = process.env.ADMIN_DATABASE_URL?.trim()
+const kitzDatabaseUrl = process.env.DATABASE_URL?.trim()
+if (!adminDatabaseUrl) throw new Error('Set ADMIN_DATABASE_URL to the separate Admin Supabase project.')
+if (kitzDatabaseUrl && areSameDatabaseTarget(adminDatabaseUrl, kitzDatabaseUrl)) {
+  throw new Error('The Admin database must be a separate project from the Kitz database.')
 }
 
-console.info(`Using the shared application database "${databaseName}" for the admin schema.`)
+console.info(`Separate Admin database configured: ${databaseTargetIdentity(adminDatabaseUrl) ?? 'identity requires manual verification'}.`)

@@ -6,7 +6,7 @@
 
 - Frontend: React 19, TypeScript, Vite, Tailwind utilities, React Query, existing Operations/Admin pages.
 - Backend: Node.js, Express, TypeScript, Zod, bcrypt, PostgreSQL via Drizzle ORM.
-- Store database: `DATABASE_URL`; administrative database: `ADMIN_DATABASE_URL`, with fallback behavior.
+- Kitz business database: `DATABASE_URL`; administrator and Operations database: required, separate `ADMIN_DATABASE_URL` in production. It never falls back to the Kitz URL.
 - Existing administrator identity: `admin_users`.
 - Existing administrator sessions: `admin_sessions`, with opaque tokens stored as hashes.
 - Existing administrator verification: `admin_verification_tokens`.

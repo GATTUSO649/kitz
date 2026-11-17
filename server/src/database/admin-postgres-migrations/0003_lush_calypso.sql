@@ -1,0 +1,1 @@
+ALTER TABLE "admin_database_migration_runs" ALTER COLUMN "migration_id" SET DATA TYPE varchar(64);

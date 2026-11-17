@@ -7,10 +7,14 @@ This inventory covers security-sensitive configuration referenced by the impleme
 | Variable | Application | Purpose / requirement |
 |---|---|---|
 | `DATABASE_URL` | Kitz | Store/runtime PostgreSQL connection. Production role grants and elevated attributes must be independently verified. |
-| `ADMIN_DATABASE_URL` | Kitz | Administrator pool connection. Configure a distinct URL and dedicated least-privilege role to activate the separate pool. If omitted or equal to `DATABASE_URL`, the current backward-compatible shared pool is used. |
+| `ADMIN_DATABASE_URL` | Kitz | Required in production. Dedicated least-privilege runtime connection to the separate Admin Supabase project; never falls back to `DATABASE_URL`. |
+| `ADMIN_MIGRATION_DATABASE_URL` | Kitz migration workflow | Separate Admin-project DDL credential; not used by the runtime. Applying migrations requires verified target identity, explicit approval, verified backup, and successful staging verification. |
+| `ADMIN_MIGRATION_TARGET_IDENTITY` | Kitz migration workflow | Independently verified identity such as `supabase:<project-ref>`; must match the migration URL's parsed target. |
+| `ADMIN_MIGRATION_APPROVED`, `ADMIN_BACKUP_VERIFIED`, `ADMIN_STAGING_VERIFIED` | Kitz migration workflow | One-shot explicit gates required before Admin DDL commands. Do not store as permanent production runtime settings. |
 | `REDIS_URL` | Kitz + MarketHub | Shared Redis-compatible store for all named rate-limit policies. Required by production server processes. Uses `redis://` or `rediss://`; credentials must be stored in the deployment secret manager. Uses `redis@6.3.1` and `rate-limit-redis@6.0.2`. Startup fails before listening if the connection cannot be established within eight seconds. |
 | `REDIS_TEST_URL` | Tests only | Optional isolated Redis database for two-instance rate-limit integration tests. Tests are skipped when unset. Never point it at production. |
 | `SUPABASE_CA_CERT_FILE` / `SUPABASE_CA_CERT` | Kitz | Production PostgreSQL CA configuration used by Kitz TLS validation. |
+| `ADMIN_SUPABASE_CA_CERT_FILE` / `ADMIN_SUPABASE_CA_CERT` | Kitz | Independent production TLS CA configuration for the separate Admin Supabase project. |
 | `WAF_MODE` | Kitz | `disabled`, `detect` (default), or `block`; block mode only rejects selected high-confidence API findings and must be staging-tested. |
 | `OPERATIONS_IDENTITY_BRIDGE_ENABLED` | Kitz | Defaults to `false`; must remain false until approved staging verification and separate activation approval. |
 | `MARKETHUB_SECURITY_FEED_URL` | Kitz | Optional exact same-origin HTTPS server endpoint `/api/v1/admin/marketplace/security-payments`; validated against `MARKETHUB_PUBLIC_URL`. |

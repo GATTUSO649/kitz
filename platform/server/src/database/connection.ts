@@ -124,4 +124,5 @@ pool?.on('error', (error) => {
   })
 })
 
-export const database: NodePgDatabase<typeof schema> | null = pool ? drizzle(pool, { schema }) : null
+export const marketplaceDb: NodePgDatabase<typeof schema> | null = pool ? drizzle(pool, { schema }) : null
+export const database = marketplaceDb

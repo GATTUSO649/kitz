@@ -16,6 +16,7 @@ const { app } = await import('./app.js')
 const { pool, adminPool } = await import('./config/database.js')
 const { inspectDatabaseError } = await import('./config/database-diagnostics.js')
 const { resolveDatabaseUrl } = await import('./config/env.js')
+const { areSameDatabaseTarget } = await import('./config/database-target.js')
 const clientDist = fileURLToPath(new URL('../../dist', import.meta.url))
 const hasClientBuild = existsSync(`${clientDist}/index.html`)
 let server: ReturnType<typeof app.listen>
@@ -54,7 +55,7 @@ test('reads Railway-style MYSQL_URL values when DATABASE_URL is not set', async 
 
   try {
     assert.equal(resolveDatabaseUrl('DATABASE_URL', ['MYSQL_URL']), 'mysql://root:secret@iriguchi.proxy.rlwy.net:14915/railway')
-    assert.equal(resolveDatabaseUrl('ADMIN_DATABASE_URL', ['ADMIN_MYSQL_URL']), 'mysql://root:secret@iriguchi.proxy.rlwy.net:14915/railway')
+    assert.equal(resolveDatabaseUrl('ADMIN_DATABASE_URL', ['ADMIN_MYSQL_URL']), undefined)
   } finally {
     if (previous === undefined) delete process.env.DATABASE_URL
     else process.env.DATABASE_URL = previous
@@ -536,4 +537,15 @@ test('Operations session exchange rejects callers without a central administrato
   assert.equal(response.status, 401)
   assert.equal((await response.json() as { error: { code: string } }).error.code, 'UNAUTHENTICATED')
   assert.equal(response.headers.get('cache-control'), 'no-store')
+})
+
+test('recognizes two Supabase pooler URLs for the same project as one database target', () => {
+  assert.equal(areSameDatabaseTarget(
+    'postgresql://postgres.projectref:secret@aws-0-region.pooler.supabase.com:6543/postgres',
+    'postgresql://postgres.projectref:other-secret@aws-0-region.pooler.supabase.com:5432/postgres',
+  ), true)
+  assert.equal(areSameDatabaseTarget(
+    'postgresql://postgres.kitzref:secret@aws-0-region.pooler.supabase.com:6543/postgres',
+    'postgresql://postgres.adminref:secret@aws-0-region.pooler.supabase.com:6543/postgres',
+  ), false)
 })

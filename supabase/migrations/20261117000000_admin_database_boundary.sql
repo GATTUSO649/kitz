@@ -1,0 +1,11 @@
+ALTER TABLE public.laundry_booking_events
+  DROP CONSTRAINT IF EXISTS laundry_booking_events_actor_admin_user_id_admin_users_id_fk;
+
+ALTER TABLE public.laundry_payment_events
+  DROP CONSTRAINT IF EXISTS laundry_payment_events_actor_admin_user_id_admin_users_id_fk;
+
+ALTER TABLE public.laundry_payments
+  DROP CONSTRAINT IF EXISTS laundry_payments_recorded_by_admin_id_admin_users_id_fk;
+
+ALTER TABLE public.laundry_service_areas
+  DROP CONSTRAINT IF EXISTS laundry_service_areas_created_by_admin_id_admin_users_id_fk;

@@ -114,13 +114,13 @@ app.get('/health/live', (_request, response) => {
 
 app.get('/health/ready', async (request, response) => {
   const databaseQuery = pool ? pool.query('SELECT 1') : Promise.reject(new Error('Store database is not configured'))
-  const adminQuery = adminPool && adminPool !== pool
+  const adminQuery = adminPool
     ? adminPool.query('SELECT 1')
-    : databaseQuery
+    : Promise.reject(new Error('Admin database is not configured'))
 
   const [storeResult, adminResult] = await Promise.allSettled([databaseQuery, adminQuery])
   logDatabaseCheckFailure(request, storeResult, 'health.store-database')
-  if (adminPool !== pool) logDatabaseCheckFailure(request, adminResult, 'health.admin-database')
+  logDatabaseCheckFailure(request, adminResult, 'health.admin-database')
   const ready = storeResult.status === 'fulfilled' && adminResult.status === 'fulfilled'
   response.status(ready ? 200 : 503).json({ status: ready ? 'ready' : 'not_ready' })
 })

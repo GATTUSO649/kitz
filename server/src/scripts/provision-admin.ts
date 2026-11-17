@@ -10,7 +10,7 @@ async function main() {
   const fullName = process.env.ADMIN_NAME?.trim()
   const password = process.env.ADMIN_PASSWORD
   const passwordIsValid = bcryptPasswordSchema(14).safeParse(password).success
-  if (!adminDb) throw new Error('Set DATABASE_URL before provisioning an administrator in the shared Railway database.')
+  if (!adminDb) throw new Error('Set ADMIN_DATABASE_URL before provisioning an administrator in the Admin database.')
   if (!email || !fullName || !password || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || fullName.length < 2 || !passwordIsValid) {
     throw new Error('Set ADMIN_EMAIL, ADMIN_NAME, and a unique ADMIN_PASSWORD of 14 to 72 UTF-8 bytes.')
   }

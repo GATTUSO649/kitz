@@ -4,7 +4,7 @@ Statuses are evidence-based: Not started, Under investigation, Implemented, Test
 
 | ID | Priority | Application | Remediation | Status | Evidence / remaining gate |
 |---|---|---|---|---|---|
-| KC-DB-001 | P0 | Kitz | Use a separate administrator pool when `ADMIN_DATABASE_URL` is distinct | Implemented | Regression test and typecheck pass. Configure a separate least-privilege production role and verify its grants using production-equivalent credentials. |
+| KC-DB-001 | P0 | Kitz | Require a separate Admin database project and dedicated administrator pool | Implemented in code; not live-verified | Verify Admin/Kitz project identities, dedicated runtime grants, and production cutover with approved credentials. |
 | MH-PAY-001 | P1 | MarketHub | Add endpoint-specific limits to STK initiation | Implemented | Regression verifies the ninth request is throttled. Store remains process-local; shared enforcement is still required. |
 | MH-PAY-002 | P0 | MarketHub | Make active-payment reservation/idempotency atomic under concurrency | Implemented | Listing-row lock + in-transaction active-state check/reservation; Daraja executes after commit. True concurrent PostgreSQL test is blocked by absent isolated DB. |
 | KC-PAY-001 | P0 | Kitz | Verify payment initiation is serialized and uncertain states cannot retry | Implemented | Existing guest and customer routes lock the order row and block unresolved states. No DB concurrency test run. |
@@ -27,7 +27,7 @@ Statuses are evidence-based: Not started, Under investigation, Implemented, Test
 
 ## Deployment prerequisites for the implemented changes
 
-1. Configure `ADMIN_DATABASE_URL` to use the intended administrator role. Keep it pointed at the existing database/schema required by the admin tables, but use credentials with only the required grants. The code continues to fall back to the shared pool when URLs match.
+1. Configure `ADMIN_DATABASE_URL` to the separate Admin Supabase project with a dedicated least-privilege runtime role. The code fails closed in production if it is missing or resolves to the same Supabase project as `DATABASE_URL`.
 2. Verify administrator and store database roles and grants in a non-production environment before production rollout; the application test only verifies separate pool construction.
 3. Configure `REDIS_URL` in both production app secret stores and verify connectivity, fail-closed behavior, and shared counters across multiple instances before rollout/scaling.
 4. Run concurrent MarketHub payment initiation against an isolated production-equivalent PostgreSQL database and test duplicate callback/reconciliation paths before claiming race verification.

@@ -1,8 +1,10 @@
 import { z } from 'zod'
+import { areSameDatabaseTarget } from './database-target.js'
 
 export function resolveDatabaseUrl(primaryKey: 'DATABASE_URL' | 'ADMIN_DATABASE_URL', fallbackKeys: readonly string[] = []): string | undefined {
   const configuredValue = process.env[primaryKey]?.trim()
   if (configuredValue) return configuredValue
+  if (primaryKey === 'ADMIN_DATABASE_URL') return undefined
 
   for (const candidate of fallbackKeys) {
     const value = process.env[candidate]?.trim()
@@ -38,6 +40,8 @@ const schema = z.object({
   OPERATIONS_IDENTITY_BRIDGE_ENABLED: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
   SUPABASE_CA_CERT_FILE: z.string().trim().min(1).optional(),
   SUPABASE_CA_CERT: z.string().trim().min(1).optional(),
+  ADMIN_SUPABASE_CA_CERT_FILE: z.string().trim().min(1).optional(),
+  ADMIN_SUPABASE_CA_CERT: z.string().trim().min(1).optional(),
   ADMIN_SIGNUP_SECRET: z.string().min(32).max(512).optional(),
   ADMIN_SECRET_KEY: z.string().min(32).max(512).optional(),
   ORIGIN_AUTH_TOKEN: z.string().min(32).max(256).optional(),
@@ -100,6 +104,13 @@ const schema = z.object({
     }
   }
   if (configuration.NODE_ENV === 'production') {
+    if (!configuration.ADMIN_DATABASE_URL) {
+      context.addIssue({ code: 'custom', path: ['ADMIN_DATABASE_URL'], message: 'ADMIN_DATABASE_URL is required in production; administrator services do not fall back to DATABASE_URL.' })
+    } else if (configuration.DATABASE_URL) {
+      if (areSameDatabaseTarget(configuration.ADMIN_DATABASE_URL, configuration.DATABASE_URL)) {
+        context.addIssue({ code: 'custom', path: ['ADMIN_DATABASE_URL'], message: 'ADMIN_DATABASE_URL must point to a database project separate from DATABASE_URL.' })
+      }
+    }
     if (process.env.NODE_TEST_CONTEXT === undefined
       && (!configuration.REDIS_URL || !['redis:', 'rediss:'].includes(new URL(configuration.REDIS_URL).protocol))) {
       context.addIssue({ code: 'custom', path: ['REDIS_URL'], message: 'A redis:// or rediss:// URL is required in production for shared request rate limiting.' })
@@ -131,7 +142,7 @@ const legacyCallbackBaseUrl = (() => {
 const parsed = schema.safeParse({
   ...process.env,
   DATABASE_URL: process.env.DATABASE_URL ?? resolveDatabaseUrl('DATABASE_URL', ['MYSQL_URL', 'MYSQL_URI', 'MYSQL_PUBLIC_URL']),
-  ADMIN_DATABASE_URL: process.env.ADMIN_DATABASE_URL ?? process.env.DATABASE_URL ?? resolveDatabaseUrl('ADMIN_DATABASE_URL', ['ADMIN_MYSQL_URL', 'MYSQL_URL', 'MYSQL_PUBLIC_URL']),
+  ADMIN_DATABASE_URL: process.env.ADMIN_DATABASE_URL ?? resolveDatabaseUrl('ADMIN_DATABASE_URL'),
   DARAJA_ENV: process.env.DARAJA_ENV ?? process.env.MPESA_ENV,
   DARAJA_CONSUMER_KEY: process.env.DARAJA_CONSUMER_KEY ?? process.env.MPESA_CONSUMER_KEY,
   DARAJA_CONSUMER_SECRET: process.env.DARAJA_CONSUMER_SECRET ?? process.env.MPESA_CONSUMER_SECRET,

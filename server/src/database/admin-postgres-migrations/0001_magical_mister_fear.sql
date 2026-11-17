@@ -1,0 +1,22 @@
+ALTER TABLE "admin_audit_logs" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "admin_invitations" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "admin_login_attempts" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "admin_permissions" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "admin_role_permissions" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "admin_sessions" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "admin_setup_locks" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "admin_user_permissions" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "admin_users" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "admin_verification_tokens" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "operations_audit_events" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "operations_incident_events" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "operations_incidents" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "operations_operators" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "operations_sessions" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "operations_users" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "security_finding_events" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "security_findings" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "security_scan_modules" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "security_scan_schedules" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "security_scanner_health" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "security_scans" ENABLE ROW LEVEL SECURITY;

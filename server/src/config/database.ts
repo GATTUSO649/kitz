@@ -40,10 +40,17 @@ function normalizedConnectionUrl(value: string | undefined, variableName: string
 const connectionUrl = normalizedConnectionUrl(databaseUrl, 'DATABASE_URL')
 const adminConnectionUrl = normalizedConnectionUrl(env.ADMIN_DATABASE_URL, 'ADMIN_DATABASE_URL')
 
-function createPool(connectionUrl: URL, applicationName: string): Pool {
+function createPool(
+  connectionUrl: URL,
+  applicationName: string,
+  caConfig: { caFile?: string; caContents?: string } = {
+    caFile: env.SUPABASE_CA_CERT_FILE,
+    caContents: env.SUPABASE_CA_CERT,
+  },
+): Pool {
   return new Pool({
       connectionString: connectionUrl.toString(),
-      ssl: supabaseSslOptions(env.SUPABASE_CA_CERT_FILE, env.SUPABASE_CA_CERT, env.NODE_ENV === 'production'),
+      ssl: supabaseSslOptions(caConfig.caFile, caConfig.caContents, env.NODE_ENV === 'production'),
       max: 10,
       connectionTimeoutMillis: 8_000,
       idleTimeoutMillis: 30_000,
@@ -55,12 +62,14 @@ export const pool = connectionUrl ? createPool(connectionUrl, 'kitculture-api') 
 
 if (pool && process.env.NODE_TEST_CONTEXT === undefined) instrumentPostgresPool(pool, recordDatabaseMeasurement)
 
-export const db = pool ? drizzle(pool, { schema }) : null
+export const kitzDb = pool ? drizzle(pool, { schema }) : null
+export const db = kitzDb
 
-const adminConnectionIsShared = connectionUrl?.toString() === adminConnectionUrl?.toString()
 export const adminPool = adminConnectionUrl
-  ? adminConnectionIsShared && pool
-    ? pool
-    : createPool(adminConnectionUrl, 'kitculture-admin')
+  ? createPool(
+    adminConnectionUrl,
+    'kitculture-admin',
+    { caFile: env.ADMIN_SUPABASE_CA_CERT_FILE, caContents: env.ADMIN_SUPABASE_CA_CERT },
+  )
   : null
 export const adminDb = adminPool ? drizzle(adminPool, { schema: adminSchema }) : null

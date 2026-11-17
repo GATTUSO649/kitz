@@ -28,7 +28,7 @@ export const adminUsers = mysqlTable('admin_users', {
   index('admin_users_status_idx').on(table.status),
   check('admin_users_role_check', sql`${table.role} IS NULL OR ${table.role} IN ('super_admin', 'it_admin', 'sales_admin', 'finance_admin', 'inventory_admin', 'marketing_admin', 'content_admin', 'second_hand_admin', 'seller_support_admin', 'marketplace_finance_admin', 'marketplace_moderator', 'laundry_admin')`),
   check('admin_users_status_check', sql`${table.status} IN ('pending', 'active', 'suspended', 'disabled', 'rejected')`),
-])
+]).enableRLS()
 
 export const adminSessions = mysqlTable('admin_sessions', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
@@ -36,7 +36,7 @@ export const adminSessions = mysqlTable('admin_sessions', {
   tokenHash: varchar('token_hash', { length: 64 }).notNull().unique(),
   expiresAt: timestamp('expires_at').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (table) => [index('admin_sessions_user_expiry_idx').on(table.adminUserId, table.expiresAt)])
+}, (table) => [index('admin_sessions_user_expiry_idx').on(table.adminUserId, table.expiresAt)]).enableRLS()
 
 export const itAccessRoles = ['super_admin', 'chief_security_operator', 'security_analyst', 'it_support', 'database_admin', 'infrastructure_admin', 'viewer'] as const
 export type ItAccessRole = typeof itAccessRoles[number]
@@ -47,7 +47,7 @@ export const adminVerificationTokens = mysqlTable('admin_verification_tokens', {
   tokenHash: varchar('token_hash', { length: 64 }).notNull().unique(),
   expiresAt: timestamp('expires_at').notNull(),
   consumedAt: timestamp('consumed_at'),
-}, (table) => [index('admin_verification_user_expiry_idx').on(table.adminUserId, table.expiresAt)])
+}, (table) => [index('admin_verification_user_expiry_idx').on(table.adminUserId, table.expiresAt)]).enableRLS()
 
 export const adminAuditLogs = mysqlTable('admin_audit_logs', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
@@ -56,25 +56,25 @@ export const adminAuditLogs = mysqlTable('admin_audit_logs', {
   targetType: varchar('target_type', { length: 80 }),
   targetId: varchar('target_id', { length: 80 }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (table) => [index('admin_audit_actor_created_idx').on(table.adminUserId, table.createdAt)])
+}, (table) => [index('admin_audit_actor_created_idx').on(table.adminUserId, table.createdAt)]).enableRLS()
 
 export const adminSetupLocks = mysqlTable('admin_setup_locks', {
   id: int('id').primaryKey(),
   purpose: varchar('purpose', { length: 40 }).notNull().unique(),
-})
+}).enableRLS()
 
 export const adminPermissions = mysqlTable('admin_permissions', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   permission: varchar('permission', { length: 120 }).notNull().unique(),
   description: text('description').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-})
+}).enableRLS()
 
 export const adminRolePermissions = mysqlTable('admin_role_permissions', {
   role: varchar('role', { length: 32 }).notNull(),
   permission: varchar('permission', { length: 120 }).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (table) => [primaryKey({ columns: [table.role, table.permission] })])
+}, (table) => [primaryKey({ columns: [table.role, table.permission] })]).enableRLS()
 
 export const adminUserPermissions = mysqlTable('admin_user_permissions', {
   adminUserId: int('admin_user_id').notNull().references(() => adminUsers.id, { onDelete: 'cascade' }),
@@ -83,7 +83,7 @@ export const adminUserPermissions = mysqlTable('admin_user_permissions', {
   grantedByAdminUserId: int('granted_by_admin_user_id').references(() => adminUsers.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   revokedAt: timestamp('revoked_at'),
-}, (table) => [primaryKey({ columns: [table.adminUserId, table.permission] })])
+}, (table) => [primaryKey({ columns: [table.adminUserId, table.permission] })]).enableRLS()
 
 export const adminInvitations = mysqlTable('admin_invitations', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
@@ -103,7 +103,7 @@ export const adminInvitations = mysqlTable('admin_invitations', {
   index('admin_invitations_admin_idx').on(table.adminUserId),
   index('admin_invitations_email_idx').on(table.email),
   index('admin_invitations_status_idx').on(table.deliveryStatus, table.expiresAt),
-])
+]).enableRLS()
 
 export const adminLoginAttempts = mysqlTable('admin_login_attempts', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
@@ -114,7 +114,7 @@ export const adminLoginAttempts = mysqlTable('admin_login_attempts', {
   requestId: varchar('request_id', { length: 120 }),
   ipHash: varchar('ip_hash', { length: 64 }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (table) => [index('admin_login_attempts_identity_idx').on(table.identity, table.createdAt)])
+}, (table) => [index('admin_login_attempts_identity_idx').on(table.identity, table.createdAt)]).enableRLS()
 
 export const operationsUsers = mysqlTable('operations_users', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
@@ -126,7 +126,7 @@ export const operationsUsers = mysqlTable('operations_users', {
   disabledAt: timestamp('disabled_at'),
   lastLoginAt: timestamp('last_login_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (table) => [check('operations_users_role_check', sql`${table.role} IN ('super_admin', 'chief_security_operator', 'security_analyst', 'it_support', 'database_admin', 'infrastructure_admin', 'viewer')`)])
+}, (table) => [check('operations_users_role_check', sql`${table.role} IN ('super_admin', 'chief_security_operator', 'security_analyst', 'it_support', 'database_admin', 'infrastructure_admin', 'viewer')`)]).enableRLS()
 
 export const operationsSessions = mysqlTable('operations_sessions', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
@@ -140,7 +140,7 @@ export const operationsSessions = mysqlTable('operations_sessions', {
   index('operations_sessions_user_expiry_idx').on(table.operationsUserId, table.expiresAt),
   index('operations_sessions_admin_expiry_idx').on(table.adminUserId, table.expiresAt),
   check('operations_sessions_identity_check', sql`${table.operationsUserId} IS NOT NULL AND ((${table.adminUserId} IS NULL AND ${table.adminSessionId} IS NULL) OR (${table.adminUserId} IS NOT NULL AND ${table.adminSessionId} IS NOT NULL))`),
-])
+]).enableRLS()
 
 export const operationsOperators = mysqlTable('operations_operators', {
   adminUserId: int('admin_user_id').notNull().references(() => adminUsers.id, { onDelete: 'cascade' }),
@@ -154,7 +154,7 @@ export const operationsOperators = mysqlTable('operations_operators', {
   index('operations_operators_granted_by_idx').on(table.grantedByAdminUserId),
   index('operations_operators_active_role_idx').on(table.role, table.revokedAt),
   check('operations_operators_it_role_check', sql`${table.role} IS NULL OR ${table.role} IN ('super_admin', 'chief_security_operator', 'security_analyst', 'it_support', 'database_admin', 'infrastructure_admin', 'viewer')`),
-])
+]).enableRLS()
 
 export const operationsIncidents = mysqlTable('operations_incidents', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
@@ -180,7 +180,7 @@ export const operationsIncidents = mysqlTable('operations_incidents', {
   index('operations_incidents_assignee_idx').on(table.assignedOperationsUserId, table.status),
   check('operations_incidents_severity_check', sql`${table.severity} IN ('P1', 'P2', 'P3', 'P4')`),
   check('operations_incidents_status_check', sql`${table.status} IN ('open', 'investigating', 'resolved', 'closed')`),
-])
+]).enableRLS()
 
 export const operationsIncidentEvents = mysqlTable('operations_incident_events', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
@@ -190,7 +190,7 @@ export const operationsIncidentEvents = mysqlTable('operations_incident_events',
   eventType: varchar('event_type', { length: 40 }).notNull(),
   message: text('message').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (table) => [index('operations_incident_events_created_idx').on(table.incidentId, table.createdAt)])
+}, (table) => [index('operations_incident_events_created_idx').on(table.incidentId, table.createdAt)]).enableRLS()
 
 export const operationsAuditEvents = mysqlTable('operations_audit_events', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
@@ -206,7 +206,7 @@ export const operationsAuditEvents = mysqlTable('operations_audit_events', {
   index('operations_audit_created_idx').on(table.createdAt),
   index('operations_audit_actor_created_idx').on(table.actorOperationsUserId, table.createdAt),
   check('operations_audit_events_actor_type_check', sql`${table.actorType} IN ('admin', 'operations_user', 'provisioning_cli')`),
-])
+]).enableRLS()
 
 export const monitoringEvents = mysqlTable('monitoring_events', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
@@ -309,7 +309,7 @@ export const securityScans = mysqlTable('security_scans', {
   index('security_scans_status_created_idx').on(table.status, table.createdAt),
   check('security_scans_status_check', sql`${table.status} IN ('queued', 'running', 'completed', 'partial', 'failed', 'cancelled')`),
   check('security_scans_scope_check', sql`${table.scope} IN ('repository', 'dependency', 'configuration', 'api', 'database', 'infrastructure', 'web')`),
-])
+]).enableRLS()
 
 export const securityScanModules = mysqlTable('security_scan_modules', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
@@ -326,7 +326,7 @@ export const securityScanModules = mysqlTable('security_scan_modules', {
   unique('security_scan_modules_scan_module_unique').on(table.scanId, table.module),
   index('security_scan_modules_status_idx').on(table.status),
   check('security_scan_modules_status_check', sql`${table.status} IN ('queued', 'running', 'successful', 'partial', 'failed', 'unsupported', 'not_configured', 'cancelled')`),
-])
+]).enableRLS()
 
 export const securityFindings = mysqlTable('security_findings', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
@@ -357,7 +357,7 @@ export const securityFindings = mysqlTable('security_findings', {
   check('security_findings_severity_check', sql`${table.severity} IS NULL OR ${table.severity} IN ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL')`),
   check('security_findings_lifecycle_check', sql`${table.lifecycleStatus} IN ('OPEN', 'ACKNOWLEDGED', 'IN_PROGRESS', 'RESOLVED', 'REOPENED', 'ACCEPTED_RISK', 'FALSE_POSITIVE')`),
   check('security_findings_verification_check', sql`${table.verificationStatus} IN ('UNVERIFIED', 'VERIFIED_FIXED', 'VERIFIED_NOT_FIXED')`),
-])
+]).enableRLS()
 
 export const securityFindingEvents = mysqlTable('security_finding_events', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
@@ -367,7 +367,7 @@ export const securityFindingEvents = mysqlTable('security_finding_events', {
   toStatus: varchar('to_status', { length: 24 }).notNull(),
   note: text('note'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (table) => [index('security_finding_events_finding_idx').on(table.findingId, table.createdAt)])
+}, (table) => [index('security_finding_events_finding_idx').on(table.findingId, table.createdAt)]).enableRLS()
 
 export const securityScannerHealth = mysqlTable('security_scanner_health', {
   scanner: varchar('scanner', { length: 40 }).primaryKey(),
@@ -377,7 +377,7 @@ export const securityScannerHealth = mysqlTable('security_scanner_health', {
   lastFailureAt: timestamp('last_failure_at'),
   failureCount: int('failure_count').default(0).notNull(),
   errorCode: varchar('error_code', { length: 80 }),
-}, (table) => [check('security_scanner_health_state_check', sql`${table.state} IN ('healthy', 'degraded', 'failed', 'not_configured', 'unsupported')`)])
+}, (table) => [check('security_scanner_health_state_check', sql`${table.state} IN ('healthy', 'degraded', 'failed', 'not_configured', 'unsupported')`)]).enableRLS()
 
 export const securityScanSchedules = mysqlTable('security_scan_schedules', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
@@ -389,7 +389,7 @@ export const securityScanSchedules = mysqlTable('security_scan_schedules', {
   lastRunAt: timestamp('last_run_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
-}, (table) => [index('security_scan_schedules_next_run_idx').on(table.enabled, table.nextRunAt)])
+}, (table) => [index('security_scan_schedules_next_run_idx').on(table.enabled, table.nextRunAt)]).enableRLS()
 
 export const monitoringWorkerState = mysqlTable('monitoring_worker_state', {
   workerName: varchar('worker_name', { length: 80 }).primaryKey(),
@@ -400,3 +400,16 @@ export const monitoringWorkerState = mysqlTable('monitoring_worker_state', {
   lastErrorCode: varchar('last_error_code', { length: 80 }),
   updatedAt: timestamp('updated_at').defaultNow().notNull().$onUpdateFn(() => new Date()),
 }, (table) => [index('monitoring_worker_state_heartbeat_idx').on(table.lastHeartbeatAt)]).enableRLS()
+
+export const adminDatabaseMigrationRuns = mysqlTable('admin_database_migration_runs', {
+  migrationId: varchar('migration_id', { length: 64 }).primaryKey(),
+  sourceIdentity: varchar('source_identity', { length: 120 }).notNull(),
+  targetIdentity: varchar('target_identity', { length: 120 }).notNull(),
+  status: varchar('status', { length: 20 }).notNull(),
+  summary: jsonb('summary').$type<Record<string, unknown>>().default({}).notNull(),
+  errorCode: varchar('error_code', { length: 80 }),
+  startedAt: timestamp('started_at').defaultNow().notNull(),
+  completedAt: timestamp('completed_at'),
+}, (table) => [
+  check('admin_database_migration_runs_status_check', sql`${table.status} IN ('in_progress', 'failed', 'completed')`),
+]).enableRLS()

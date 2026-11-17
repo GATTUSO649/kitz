@@ -9,7 +9,7 @@ async function main() {
   const email = process.env.OPERATIONS_EMAIL?.trim().toLowerCase()
   const fullName = process.env.OPERATIONS_NAME?.trim()
   const password = process.env.OPERATIONS_PASSWORD
-  if (!adminDb) throw new Error('Set DATABASE_URL before managing operations accounts.')
+  if (!adminDb) throw new Error('Set ADMIN_DATABASE_URL before managing operations accounts.')
   if (!['create', 'disable', 'enable', 'reset-password', 'bootstrap-super-admin'].includes(action) || !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     throw new Error('Usage: set OPERATIONS_EMAIL and run npm run operations:user -- <create|disable|enable|reset-password|bootstrap-super-admin>. Create also requires OPERATIONS_NAME and OPERATIONS_PASSWORD; reset-password requires OPERATIONS_PASSWORD.')
   }

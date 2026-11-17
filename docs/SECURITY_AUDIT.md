@@ -12,9 +12,9 @@ This is a focused source-code reassessment of the Kitz and MarketHub backend pat
 - **Application:** Kitz
 - **Affected file:** `server/src/config/database.ts`
 - **Affected operations:** Queries made through `adminDb` / `adminPool`
-- **Evidence:** The prior implementation assigned `adminPool = pool` and built `adminDb` over the store pool. `ADMIN_DATABASE_URL` is accepted by environment validation, and the app lifecycle already distinguishes and closes a separately configured pool.
+- **Evidence:** The prior implementation fell back to the Kitz URL when `ADMIN_DATABASE_URL` was missing and could reuse the store pool.
 - **Impact:** When administrator and store operations use the same PostgreSQL identity, compromise of the application connection can reach both data surfaces allowed to that identity.
-- **Remediation:** A distinct `ADMIN_DATABASE_URL` now creates an independent pool with the `kitculture-admin` application name. Matching URLs retain the shared pool for backward compatibility.
+- **Remediation:** Production requires a distinct Admin Supabase project URL, Admin resolution never falls back to Kitz, and the Admin pool is created independently. Live project identity, grants, and cutover remain unverified.
 - **Status:** Implemented; database grants and deployed credential separation remain unverified.
 - **Verification:** Kitz server tests and typecheck pass. The regression test asserts distinct pool objects when distinct URLs are configured. This does not verify PostgreSQL role privileges.
 

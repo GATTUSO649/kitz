@@ -8,7 +8,7 @@ async function main() {
   const targetEmail = targetEmailArg?.trim().toLowerCase()
   const approvedEmail = process.env.IT_ACCESS_BOOTSTRAP_EMAIL?.trim().toLowerCase()
 
-  if (!adminDb || !adminPool) throw new Error('DATABASE_URL must be configured.')
+  if (!adminDb || !adminPool) throw new Error('ADMIN_DATABASE_URL must be configured.')
   if (action !== 'bootstrap-super-admin' || !targetEmail || extraArgument) {
     throw new Error('Set IT_ACCESS_BOOTSTRAP_APPROVED=YES and IT_ACCESS_BOOTSTRAP_EMAIL, then run npm run it:access -- bootstrap-super-admin <same-admin-email>.')
   }

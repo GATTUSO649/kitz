@@ -24,7 +24,7 @@ Set `DATABASE_URL` to the Supabase PostgreSQL connection string for the same pro
 
 Production starts only when all required live Daraja settings are explicit and consistent; it never falls back to Sandbox. Follow [M-Pesa Daraja Setup](mpesa-setup.md) to select PayBill versus Buy Goods and register the exact callback URL. Local `.env` values are not deployed to Render.
 
-The legacy MySQL adapter and its separate TLS settings remain available for source/rollback work, but they are not used by the active PostgreSQL runtime. Both storefront and administrator PostgreSQL access share one pool; do not configure a separate `ADMIN_DATABASE_URL`. Administrator invitations are managed by Super Admin; Operations self-signup is disabled. Never run migrations automatically at API startup.
+The legacy MySQL adapter and its separate TLS settings remain available for source/rollback work, but they are not used by the active PostgreSQL runtime. Configure `ADMIN_DATABASE_URL` with a dedicated least-privilege role in the separate Admin Supabase project; production fails closed if it is missing or resolves to the Kitz project. Administrator invitations are managed by Super Admin; Operations self-signup is disabled. Never run migrations automatically at API startup.
 
 ## MarketHub integration on Render
 
@@ -104,13 +104,13 @@ The PostgreSQL runtime validates its CA certificate at startup and verifies the 
 
 ### Operations migration release gate
 
-The store and admin journals currently share Drizzle's default `__drizzle_migrations` table despite representing separate migration histories. The store journal contains a duplicate timestamp for entries 0006 and 0007; the admin migration 0000 timestamp predates later store entries. Treat the DB journal and live schema as authoritative only after comparing both with their respective checked-in SQL. A live `503 OPERATIONS_UNAVAILABLE` from `/api/v1/operations/registration-status` identifies the missing Operations schema lookup; migration `server/src/database/admin-migrations/0003_late_deadpool.sql` creates `operations_users`/`operations_sessions`, but it also alters existing incident/audit foreign keys and indexes and is not safe to rerun without checking for partial DDL.
+Kitz and Admin now have separate Drizzle schema sources and migration directories. Admin migration generation uses `server/drizzle.admin.config.ts`; applying migrations requires `ADMIN_MIGRATION_DATABASE_URL`, a separately verified target identity, explicit approval, a verified backup, and successful staging verification. Do not run Admin migrations automatically at API startup. The former MySQL Admin migration directory is legacy-only and its migration command is disabled. See [Admin database migration manifest](ADMIN_DATABASE_MIGRATION_MANIFEST.md) for the audited table scope and remaining live gates.
 
 Before production migration: stop release automation; take and restore-test a full database backup in staging; inspect `information_schema` and `__drizzle_migrations` over verified TLS; compare all migration effects and preconditions; validate row counts and foreign keys on the restored clone; obtain database-owner approval; then execute one reviewed forward-only plan during a monitored window. Do not run `npm run db:migrate:all` or migration commands against production to “see what happens.” Do not mark the migration as applied manually, and do not delete/recreate tables. If the tracker/schema diverge, produce an idempotent repair migration after staging review.
 
 ### Render production checklist
 
-- Confirm `NODE_ENV=production`, `DATABASE_URL` points to the intended Supabase PostgreSQL endpoint, and `SUPABASE_CA_CERT` contains that project's official CA PEM. Do not configure a Windows file path in Render.
+- Confirm `NODE_ENV=production`, `DATABASE_URL` points to the intended Kitz Supabase project, `ADMIN_DATABASE_URL` points to the separately verified Admin project, `SUPABASE_CA_CERT` contains the Kitz CA, and `ADMIN_SUPABASE_CA_CERT` contains the Admin project's CA. Do not configure a Windows file path in Render.
 - Confirm the deployed code validates the CA and uses `rejectUnauthorized: true`; do not disable certificate or hostname verification.
 - Ensure database URLs and secret values are masked in Render logs; do not paste them into incidents or shell history.
 - Confirm `/health/live` and `/health/ready` return `200`; readiness proves database connectivity with `SELECT 1`, not schema completeness.
