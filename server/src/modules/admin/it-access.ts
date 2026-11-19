@@ -1,4 +1,5 @@
 import type { ItAccessRole } from '../../database/admin-schema.js'
+import type { AdministratorPermission } from './administration.js'
 
 export const itPermissions = [
   'overview.read',
@@ -60,6 +61,21 @@ const rolePermissions: Record<ItAccessRole, ReadonlySet<ItPermission>> = {
 
 export function hasItPermission(role: ItAccessRole, permission: ItPermission): boolean {
   return rolePermissions[role].has(permission)
+}
+const adminPermissionByItPermission: Partial<Record<ItPermission, AdministratorPermission>> = {
+  'overview.read': 'it.view_operations',
+  'incidents.read': 'it.view_operations',
+  'incidents.write': 'it.manage_monitoring',
+  'audit.read': 'audit.view',
+}
+
+export function hasAdministratorItPermission(permissions: ReadonlySet<AdministratorPermission>, permission: ItPermission) {
+  const requiredPermission = adminPermissionByItPermission[permission]
+  return requiredPermission !== undefined && permissions.has(requiredPermission)
+}
+
+export function administratorItPermissions(permissions: ReadonlySet<AdministratorPermission>) {
+  return itPermissions.filter((permission) => hasAdministratorItPermission(permissions, permission))
 }
 
 export function canUseOperationsIdentityBridge(role: ItAccessRole | null, status: string, emailVerified: boolean) {

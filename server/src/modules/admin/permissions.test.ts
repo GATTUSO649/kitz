@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { administratorLoginPath, administratorPermissions, administratorPortal, administratorRoles, defaultAdministratorPermissions, isMarketplaceRoleNumberActivation, isVerifiedPendingMarketplaceAdmin, requiredAdministratorRole, rolePrefix } from './administration.js'
+import { administratorItPermissions, hasAdministratorItPermission } from './it-access.js'
 import { administratorPermissionsForRoute, administratorPortalPermission, hasAnyPermission, hasDedicatedAdministratorGuard, projectDashboardForRole } from './permission-routes.js'
+test('IT Admin role permissions automatically grant only the mapped IT overview and incident capabilities', () => {
+  const permissions = defaultAdministratorPermissions.it_admin
+  assert.equal(hasAdministratorItPermission(permissions, 'overview.read'), true)
+  assert.equal(hasAdministratorItPermission(permissions, 'incidents.read'), true)
+  assert.equal(hasAdministratorItPermission(permissions, 'incidents.write'), true)
+  assert.equal(hasAdministratorItPermission(permissions, 'audit.read'), true)
+  assert.deepEqual(administratorItPermissions(permissions), ['overview.read', 'incidents.read', 'incidents.write', 'audit.read'])
+})
 import { resolveAdministratorPermissions, validatePermissionSelection } from './permissions.js'
 import { adminLoginSchema } from './auth.js'
 
