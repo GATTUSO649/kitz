@@ -190,8 +190,8 @@
 .operations-login-form>button:disabled{opacity:.55;cursor:wait}.operations-login-form>a{color:#15734e;font-size:11px;text-align:center;text-decoration:none}
 .operations-login-form>.operations-signup-toggle{min-height:30px;border:1px solid #d5dfd8;background:#fff;color:#345244;font-size:11px}
 .operations-login-form>.operations-admin-signup{color:#15734e;font-size:11px;font-weight:700;text-decoration:underline;text-underline-offset:3px}
-.operations-login-modes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;border:1px solid #d5dfd8;background:#f4f7f4;padding:4px}
-.operations-login-modes button{min-height:34px;border:1px solid transparent;background:transparent;padding:0 6px;color:#4f6058;font:inherit;font-size:11px;font-weight:700;cursor:pointer}
+.operations-login-modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;border:1px solid #d5dfd8;background:#f4f7f4;padding:4px}
+.operations-login-modes button{min-height:38px;border:1px solid transparent;background:transparent;padding:3px 4px;color:#4f6058;font:inherit;font-size:10px;font-weight:700;line-height:1.2;white-space:normal;cursor:pointer}
 .operations-login-modes button.is-active{border-color:#b9d1c3;background:#e4f0e9;color:#176b4a}
 .operations-header{display:flex;min-height:66px;align-items:center;justify-content:space-between;gap:18px;border-bottom:1px solid var(--ops-line);background:#fff;padding:0 max(22px,calc((100vw - 1320px)/2))}
 .operations-brand,.operations-header-actions,.operations-brand-mark,.operations-access-label{display:flex;align-items:center;gap:10px}
