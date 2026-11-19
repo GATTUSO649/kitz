@@ -4,10 +4,21 @@ import { administratorLoginPath, administratorPermissions, administratorPortal, 
 import { administratorPermissionsForRoute, administratorPortalPermission, hasAnyPermission, hasDedicatedAdministratorGuard, projectDashboardForRole } from './permission-routes.js'
 import { resolveAdministratorPermissions, validatePermissionSelection } from './permissions.js'
 import { adminLoginSchema } from './auth.js'
+import { canUseOperationsIdentityBridge, operationsRoleForIdentityBridge } from './it-access.js'
 
 test('permission resolver preserves default access until a role is configured', () => {
   const resolved = resolveAdministratorPermissions('sales_admin', [])
   assert.deepEqual([...resolved].sort(), [...defaultAdministratorPermissions.sales_admin].sort())
+})
+
+test('verified Super Admin can use the operations bridge without a separate operator grant', () => {
+  const operationsRole = operationsRoleForIdentityBridge('super_admin', null)
+  assert.equal(operationsRole, 'super_admin')
+  assert.equal(canUseOperationsIdentityBridge(operationsRole, 'active', true), true)
+  assert.equal(operationsRoleForIdentityBridge('it_admin', null), null)
+  assert.equal(canUseOperationsIdentityBridge('chief_security_operator', 'active', true), true)
+  assert.equal(canUseOperationsIdentityBridge(operationsRole, 'active', false), false)
+  assert.equal(canUseOperationsIdentityBridge(operationsRole, 'suspended', true), false)
 })
 
 test('role number is a temporary activation credential only for pending unverified Marketplace admins', () => {

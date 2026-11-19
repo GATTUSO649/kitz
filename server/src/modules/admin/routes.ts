@@ -16,7 +16,7 @@ import { deleteProductImage, ImageStorageError, uploadBrandLogoImage, uploadHome
 import { isSiteImageUrl, siteImageSlotKeys } from '../site-images.js'
 import { isSiteContentField, siteContentSchema } from '../site-content.js'
 import { buildAdminDashboardReport, reportPeriods, resolveOptionalDateRange, resolveReportingRange } from './reporting.js'
-import { canUseOperationsIdentityBridge, hasItPermission, itPermissions, type ItPermission } from './it-access.js'
+import { canUseOperationsIdentityBridge, hasItPermission, itPermissions, operationsRoleForIdentityBridge, type ItPermission } from './it-access.js'
 import { createAccountRateLimiter } from '../../security/distributed-rate-limit.js'
 import { getRequestMetrics } from '../../middleware/request-metrics.js'
 import { loadAdministratorPermissions, isAdministratorRole } from './permissions.js'
@@ -1600,6 +1600,7 @@ adminRouter.post('/it/operations-session', operationsBridgeRateLimiter, async (r
       adminId: adminUsers.id,
       email: adminUsers.email,
       fullName: adminUsers.fullName,
+      role: adminUsers.role,
       status: adminUsers.status,
       emailVerifiedAt: adminUsers.emailVerifiedAt,
     }).from(adminSessions).innerJoin(adminUsers, eq(adminUsers.id, adminSessions.adminUserId))
@@ -1611,8 +1612,9 @@ adminRouter.post('/it/operations-session', operationsBridgeRateLimiter, async (r
 
     const [grant] = source ? await transaction.select({ role: operationsOperators.role }).from(operationsOperators)
       .where(and(eq(operationsOperators.adminUserId, actor.id), isNull(operationsOperators.revokedAt))).limit(1).for('update') : []
-    const authorized = canUseOperationsIdentityBridge(grant?.role ?? null, source?.status ?? '', source?.emailVerifiedAt !== null && source?.emailVerifiedAt !== undefined)
-    if (!source || !authorized || !grant?.role) {
+    const operationsRole = operationsRoleForIdentityBridge(source?.role ?? null, grant?.role ?? null)
+    const authorized = canUseOperationsIdentityBridge(operationsRole, source?.status ?? '', source?.emailVerifiedAt !== null && source?.emailVerifiedAt !== undefined)
+    if (!source || !authorized || !operationsRole) {
       await transaction.insert(operationsAuditEvents).values({
         actorAdminUserId: actor.id,
         actorType: 'admin',
@@ -1649,14 +1651,14 @@ adminRouter.post('/it/operations-session', operationsBridgeRateLimiter, async (r
     }
 
     const [operationsUser] = existing
-      ? await transaction.update(operationsUsers).set({ fullName: source.fullName, role: grant.role })
+      ? await transaction.update(operationsUsers).set({ fullName: source.fullName, role: operationsRole })
         .where(eq(operationsUsers.id, existing.id)).returning({ id: operationsUsers.id })
       : await transaction.insert(operationsUsers).values({
         email: source.email,
         passwordHash: null,
         adminUserId: actor.id,
         fullName: source.fullName,
-        role: grant.role,
+        role: operationsRole,
       }).returning({ id: operationsUsers.id })
 
     const operationsExpiry = nextSessionExpiry(now, now, operationsSessionIdleTimeoutMs, operationsSessionAbsoluteLifetimeMs)!
@@ -1676,13 +1678,13 @@ adminRouter.post('/it/operations-session', operationsBridgeRateLimiter, async (r
       action: 'operations.session.issued',
       targetType: 'operations_session',
       targetId: String(operationsUser.id),
-      details: JSON.stringify({ role: grant.role, expiresAt: expiresAt.toISOString(), sourceSessionId: source.sessionId }),
+      details: JSON.stringify({ role: operationsRole, expiresAt: expiresAt.toISOString(), sourceSessionId: source.sessionId }),
     })
     await transaction.insert(adminAuditLogs).values({ adminUserId: actor.id, action: 'operations.session.issued', targetType: 'operations_session', targetId: String(operationsUser.id) })
-    return { status: 200 as const, operationsUserId: operationsUser.id, email: source.email, fullName: source.fullName, role: grant.role, expiresAt }
+    return { status: 200 as const, operationsUserId: operationsUser.id, email: source.email, fullName: source.fullName, role: operationsRole, expiresAt }
   })
 
-  if (result.status !== 200) return response.status(result.status).json({ error: { code: result.code, message: result.status === 409 ? 'A separate Operations account already uses this email. Resolve the identity conflict before linking.' : 'An active Chief Security Operator authorization is required.' } })
+  if (result.status !== 200) return response.status(result.status).json({ error: { code: result.code, message: result.status === 409 ? 'A separate Operations account already uses this email. Resolve the identity conflict before linking.' : 'A verified Super Admin or active Chief Security Operator authorization is required.' } })
   response.cookie('kc_ops_session', token, {
     httpOnly: true,
     secure: env.NODE_ENV === 'production',
