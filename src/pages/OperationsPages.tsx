@@ -431,8 +431,6 @@ function OperationsBars({ title, items }: { title: string; items: { label: strin
 function OperationsLogin({ onAuthenticated }: { onAuthenticated: () => Promise<void> }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [signInMode, setSignInMode] = useState<'super_admin' | 'it_admin' | 'operations'>('super_admin')
-
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setBusy(true)
@@ -442,19 +440,11 @@ function OperationsLogin({ onAuthenticated }: { onAuthenticated: () => Promise<v
     const password = String(form.get('password'))
 
     try {
-      if (signInMode !== 'operations') {
-        const loginPath = signInMode === 'super_admin' ? '/api/v1/admin/super-admin/login' : '/api/v1/admin/it-admin/login'
-        await operationsApi(loginPath, {
-          method: 'POST',
-          body: JSON.stringify({ identity, password }),
-        })
-        await operationsApi('/api/v1/admin/it/operations-session', { method: 'POST' })
-      } else {
-        await operationsApi('/api/v1/operations/login', {
-          method: 'POST',
-          body: JSON.stringify({ email: identity, password }),
-        })
-      }
+      await operationsApi('/api/v1/admin/operations-login', {
+        method: 'POST',
+        body: JSON.stringify({ identity, password }),
+      })
+      await operationsApi('/api/v1/admin/it/operations-session', { method: 'POST' })
       await onAuthenticated()
     } catch (issue) {
       setError(issue instanceof Error ? issue.message : 'Operations sign in failed.')
@@ -466,17 +456,11 @@ function OperationsLogin({ onAuthenticated }: { onAuthenticated: () => Promise<v
   return (
     <main className="operations-login-page">
       <form className="operations-login-form" onSubmit={(event) => void submit(event)}>
-        <span className="operations-eyebrow">Verified operations access</span>
+        <span className="operations-eyebrow">Verified administrator access</span>
         <h1>IT operations sign in</h1>
-        <p>Sign in with your verified administrator or operations account.</p>
+        <p>Use your verified IT Admin or Super Admin email and password.</p>
 
-        <div className="operations-login-modes" role="group" aria-label="Sign-in method">
-          <button type="button" className={signInMode === 'super_admin' ? 'is-active' : ''} aria-pressed={signInMode === 'super_admin'} onClick={() => setSignInMode('super_admin')}>Super Admin</button>
-          <button type="button" className={signInMode === 'it_admin' ? 'is-active' : ''} aria-pressed={signInMode === 'it_admin'} onClick={() => setSignInMode('it_admin')}>IT Admin</button>
-          <button type="button" className={signInMode === 'operations' ? 'is-active' : ''} aria-pressed={signInMode === 'operations'} onClick={() => setSignInMode('operations')}>Operations account</button>
-        </div>
-
-        <label>{signInMode === 'super_admin' ? 'Super Admin email or role number' : signInMode === 'it_admin' ? 'IT role number or email' : 'Operations email'}<input name="identity" type={signInMode === 'operations' ? 'email' : 'text'} autoComplete="username" maxLength={254} required /></label>
+        <label>Administrator email or role number<input name="identity" type="text" autoComplete="username" maxLength={254} required /></label>
         <label>
           Password
           <input
@@ -490,7 +474,7 @@ function OperationsLogin({ onAuthenticated }: { onAuthenticated: () => Promise<v
 
         {error && <p className="operations-error" role="alert">{error}</p>}
 
-        <button type="submit" disabled={busy}>{busy ? 'Please wait…' : signInMode === 'super_admin' ? 'Verify and open operations' : signInMode === 'it_admin' ? 'Verify and open operations' : 'Sign in to operations'}</button>
+        <button type="submit" disabled={busy}>{busy ? 'Please wait…' : 'Verify and open operations'}</button>
         <a href="/">Return to storefront</a>
       </form>
     </main>

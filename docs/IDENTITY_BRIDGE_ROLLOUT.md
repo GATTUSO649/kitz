@@ -1,6 +1,6 @@
 # Identity Bridge Rollout
 
-**Production rollout is not approved or executed by this document.** The bridge is implemented in code but must remain unverified until staging and production gates below are completed by authorized owners.
+**Legacy rollout checklist:** the separate-grant and feature-flag activation steps below are superseded by the verified-admin Operations login. Database migration, staging, backup, and production verification requirements remain applicable.
 
 ## Pre-deployment gates
 
@@ -11,9 +11,9 @@
 - Apply 0013 then 0014 in isolated staging only. Verify schema, old row counts, existing administrator records, existing legacy Operations account password login, indexes, constraints and FKs.
 - Pass database-backed tests for successful exchange, all specified denied cases, rotation/expiry/revocation, identity collisions, legacy protections, and audit attribution. No current staging evidence exists.
 - Verify shared Redis counters and failure behavior with two app instances. `REDIS_URL` is mandatory in production; do not deploy with a process-local fallback.
-- Have the central IT super-admin owner verify the exact administrator grant and least-privilege role. Keep CSO grants explicit and do not assign any grant automatically.
+- Confirm the intended IT Admin and Super Admin accounts are active and email-verified; Operations roles derive from those administrator roles without a separate grant.
 - Approve maintenance window, deployment artifact, migration ordering, monitoring owners, and bridge shutdown/application rollback procedure. Written production migration authorization is required.
-- Keep `OPERATIONS_IDENTITY_BRIDGE_ENABLED=false` throughout migration and schema verification. Enable it only in a separate approved application release after successful staging checks and explicit grant review.
+- No Operations identity-bridge feature flag is required. Do not treat successful migrations alone as evidence that the target deployment's schema and session flow were verified.
 
 ## Staging procedure
 
@@ -28,9 +28,9 @@
 1. Freeze concurrent deployment/migration activity and re-verify the production project identifier, migration ledger, backup ID, and exact pending set.
 2. Apply the approved migration versions in order through the existing Supabase CLI release workflow. Do not use Drizzle migration execution, application startup, an Operations route, or an unreviewed migration repair.
 3. Verify the migration ledger and schema before deploying compatible application code. If verification fails, stop and follow the rollback/forward-recovery document.
-4. Deploy the application with `OPERATIONS_IDENTITY_BRIDGE_ENABLED=false` after successful schema verification. Migrations alone do not grant access or activate exchange.
-5. An authorized central IT super-admin explicitly grants the named verified administrator role using `/admin/it/access`. Do not bootstrap or auto-grant the CSO role.
-6. In a separate approved activation change, set `OPERATIONS_IDENTITY_BRIDGE_ENABLED=true`; then verify one permitted exchange and one denied account, previous-session invalidation, logout, source-session revocation, audit attribution, legacy login, and Redis-backed limits. Monitor 401/403/429 counts, database errors, and authentication failures.
+4. Deploy the application after successful schema verification. Migrations alone do not establish that the Operations session flow is healthy.
+5. Verify the unified Operations login with active verified IT Admin and Super Admin accounts, plus a denied unverified account and a denied account with another administrator role.
+6. Verify previous-session invalidation, logout, source-session revocation, audit attribution, legacy account linking, and Redis-backed limits. Monitor 401/403/429 counts, database errors, and authentication failures.
 
 ## Post-deployment evidence
 

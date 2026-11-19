@@ -37,7 +37,6 @@ const schema = z.object({
   ADMIN_DATABASE_URL: z.string().min(1).optional(),
   REDIS_URL: z.string().url().optional(),
   WAF_MODE: z.enum(['disabled', 'detect', 'block']).default('detect'),
-  OPERATIONS_IDENTITY_BRIDGE_ENABLED: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
   SUPABASE_CA_CERT_FILE: z.string().trim().min(1).optional(),
   SUPABASE_CA_CERT: z.string().trim().min(1).optional(),
   ADMIN_SUPABASE_CA_CERT_FILE: z.string().trim().min(1).optional(),

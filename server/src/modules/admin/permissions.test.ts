@@ -12,11 +12,12 @@ test('permission resolver preserves default access until a role is configured', 
 })
 
 test('verified Super Admin can use the operations bridge without a separate operator grant', () => {
-  const operationsRole = operationsRoleForIdentityBridge('super_admin', null)
+  const operationsRole = operationsRoleForIdentityBridge('super_admin')
   assert.equal(operationsRole, 'super_admin')
   assert.equal(canUseOperationsIdentityBridge(operationsRole, 'active', true), true)
-  assert.equal(operationsRoleForIdentityBridge('it_admin', null), null)
+  assert.equal(operationsRoleForIdentityBridge('it_admin'), 'chief_security_operator')
   assert.equal(canUseOperationsIdentityBridge('chief_security_operator', 'active', true), true)
+  assert.equal(operationsRoleForIdentityBridge('sales_admin'), null)
   assert.equal(canUseOperationsIdentityBridge(operationsRole, 'active', false), false)
   assert.equal(canUseOperationsIdentityBridge(operationsRole, 'suspended', true), false)
 })

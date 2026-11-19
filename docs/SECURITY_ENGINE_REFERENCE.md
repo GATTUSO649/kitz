@@ -4,7 +4,7 @@
 
 | Engine | Runtime surface | Configuration | Persistence | State |
 | --- | --- | --- | --- | --- |
-| Identity bridge | `/api/v1/admin/it/operations-session`, `/api/v1/admin/it/identity-bridge-status` | `OPERATIONS_IDENTITY_BRIDGE_ENABLED=false` by default | Admin/Operations tables and audits | Disabled by default; DB baseline unknown |
+| Operations sign-in | `/api/v1/admin/operations-login`, `/api/v1/operations/me` | Active, verified `it_admin` or `super_admin` account | Admin/Operations tables and audits | Source implemented; target DB baseline unknown |
 | Application WAF | Express API middleware; `/api/v1/operations/security/waf` | `WAF_MODE=detect` default | Security-category monitoring event queue | Code implemented; storage depends on Operations schema |
 | IDS | Monitoring event queue and detection worker; `/api/v1/operations/events`, `/alerts` | Existing rule rows and worker settings | `monitoring_events`, detection history, alerts | Partial; DB-backed worker requires schema |
 | Dependency scanner | `/api/v1/operations/security/scans` | npm executable/runtime; scheduled scan row | `security_scans`, modules, findings | npm audit implemented; OSV not configured |

@@ -227,6 +227,16 @@ test('admin session endpoint rejects requests without an administrator cookie', 
   assert.equal(payload.error.code, 'UNAUTHENTICATED')
 })
 
+test('operations login uses the verified administrator form without an existing session', async () => {
+  const response = await fetch(`${baseUrl}/api/v1/admin/operations-login`, {
+    method: 'POST',
+    headers: { origin: process.env.CLIENT_ORIGIN!, 'content-type': 'application/json' },
+    body: JSON.stringify({ identity: 'admin@example.com', password: '' }),
+  })
+  assert.equal(response.status, 400)
+  assert.equal((await response.json() as { error: { code: string } }).error.code, 'INVALID_INPUT')
+})
+
 test('ordinary administrator registration is disabled in favor of Super Admin invitations', async () => {
   const statusResponse = await fetch(`${baseUrl}/api/v1/admin/registration-status`)
   assert.deepEqual(await statusResponse.json(), { data: { available: false } })

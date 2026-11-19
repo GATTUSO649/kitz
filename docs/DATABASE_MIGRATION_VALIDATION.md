@@ -24,7 +24,7 @@ The checked-in Drizzle journal is local generation metadata, not evidence of the
 
 No authorized isolated staging database, PostgreSQL version, schema owner/role, verified backup, restore record, or current ledger output was available. Therefore SQL syntax, PostgreSQL version compatibility, ownership/permissions, actual constraints/indexes, existing row compatibility, before/after record counts, Drizzle drift, and repeat-run behavior have not been verified against a database. No migration command was invoked.
 
-Application exchange is additionally protected by `OPERATIONS_IDENTITY_BRIDGE_ENABLED`, which defaults to `false`; keep it false during migration and schema verification. Enable only after the separate staging and rollout gates succeed.
+Operations login no longer uses a feature flag or separate operator grant. It still depends on the Admin and Operations session schema; verify those tables, columns, constraints, and identity-linking behavior in the target database before deployment.
 
 ## Rollback feasibility
 

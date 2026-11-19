@@ -1545,8 +1545,8 @@ adminRouter.get('/it/identity-bridge-status', async (request, response) => {
       checkedAt: new Date().toISOString(),
       implementationStatus: 'implemented_in_source',
       bridgeSchema: { status: schemaStatus, catalogChecks: catalog, migrationLedger: 'not_checked' },
-      configurationStatus: env.OPERATIONS_IDENTITY_BRIDGE_ENABLED ? 'enabled' : 'disabled_by_default',
-      activationStatus: env.OPERATIONS_IDENTITY_BRIDGE_ENABLED ? 'enabled' : 'disabled',
+      configurationStatus: 'enabled',
+      activationStatus: 'enabled',
       currentIdentity: identity ? {
         id: identity.id,
         email: identity.email,
@@ -1559,7 +1559,7 @@ adminRouter.get('/it/identity-bridge-status', async (request, response) => {
       } : null,
       session: { sourceSessionStatus: sourceSessionHealthy ? 'active' : 'expired', sourceSessionExpiresAt: actor.sessionExpiresAt.toISOString(), projectionStatus },
       connectionStatus: projectionStatus,
-      operationalStatus: env.OPERATIONS_IDENTITY_BRIDGE_ENABLED ? 'not_staging_verified' : 'disabled',
+      operationalStatus: schemaStatus === 'present' ? 'available' : 'schema_unverified',
       testedStatus: 'not_reported_by_runtime',
       productionVerificationStatus: 'not_verified',
       lastSuccessfulExchange: lastSuccessfulExchange ? { at: lastSuccessfulExchange.createdAt.toISOString(), actorAdminUserId: lastSuccessfulExchange.actorAdminUserId } : null,
@@ -1581,16 +1581,13 @@ export function hasOperationsIdentityConflict(
   adminUserId: number,
   email: string,
 ) {
-  return matches.length > 1 || matches.some((match) => match.adminUserId !== adminUserId || match.email !== email || match.disabledAt !== null)
+  return matches.length > 1 || matches.some((match) => match.disabledAt !== null
+    || (match.adminUserId === null ? match.email !== email : match.adminUserId !== adminUserId || match.email !== email))
 }
 
 adminRouter.post('/it/operations-session', operationsBridgeRateLimiter, async (request, response) => {
   const actor = authenticatedAdmin(request)
   if (!actor || !adminDb) return response.status(503).json({ error: { code: 'IT_ACCESS_UNAVAILABLE', message: 'IT access is unavailable.' } })
-  if (!env.OPERATIONS_IDENTITY_BRIDGE_ENABLED) {
-    return response.status(503).json({ error: { code: 'IDENTITY_BRIDGE_DISABLED', message: 'Identity bridge activation is disabled pending approved verification.' } })
-  }
-
   const token = randomBytes(32).toString('base64url')
   const now = new Date()
   const result = await adminDb.transaction(async (transaction) => {
@@ -1610,9 +1607,7 @@ adminRouter.post('/it/operations-session', operationsBridgeRateLimiter, async (r
         gt(adminSessions.expiresAt, now),
       )).limit(1).for('update')
 
-    const [grant] = source ? await transaction.select({ role: operationsOperators.role }).from(operationsOperators)
-      .where(and(eq(operationsOperators.adminUserId, actor.id), isNull(operationsOperators.revokedAt))).limit(1).for('update') : []
-    const operationsRole = operationsRoleForIdentityBridge(source?.role ?? null, grant?.role ?? null)
+    const operationsRole = operationsRoleForIdentityBridge(source?.role ?? null)
     const authorized = canUseOperationsIdentityBridge(operationsRole, source?.status ?? '', source?.emailVerifiedAt !== null && source?.emailVerifiedAt !== undefined)
     if (!source || !authorized || !operationsRole) {
       await transaction.insert(operationsAuditEvents).values({
@@ -1621,7 +1616,7 @@ adminRouter.post('/it/operations-session', operationsBridgeRateLimiter, async (r
         action: 'operations.session.authorization_denied',
         targetType: 'admin_user',
         targetId: String(actor.id),
-        details: JSON.stringify({ reason: !source ? 'source_session_unavailable' : 'active_security_grant_required', sourceSessionId: actor.sessionId }),
+        details: JSON.stringify({ reason: !source ? 'source_session_unavailable' : 'active_verified_operations_admin_required', sourceSessionId: actor.sessionId }),
       })
       await transaction.insert(adminAuditLogs).values({ adminUserId: actor.id, action: 'operations.session.authorization_denied', targetType: 'admin_user', targetId: String(actor.id) })
       return { status: 403 as const, code: 'IT_PERMISSION_REQUIRED' as const }
@@ -1650,8 +1645,11 @@ adminRouter.post('/it/operations-session', operationsBridgeRateLimiter, async (r
       return { status: 409 as const, code: 'OPERATIONS_IDENTITY_CONFLICT' as const }
     }
 
+    if (existing?.adminUserId === null) {
+      await transaction.delete(operationsSessions).where(eq(operationsSessions.operationsUserId, existing.id))
+    }
     const [operationsUser] = existing
-      ? await transaction.update(operationsUsers).set({ fullName: source.fullName, role: operationsRole })
+      ? await transaction.update(operationsUsers).set({ fullName: source.fullName, role: operationsRole, adminUserId: actor.id, passwordHash: null })
         .where(eq(operationsUsers.id, existing.id)).returning({ id: operationsUsers.id })
       : await transaction.insert(operationsUsers).values({
         email: source.email,
@@ -1684,7 +1682,7 @@ adminRouter.post('/it/operations-session', operationsBridgeRateLimiter, async (r
     return { status: 200 as const, operationsUserId: operationsUser.id, email: source.email, fullName: source.fullName, role: operationsRole, expiresAt }
   })
 
-  if (result.status !== 200) return response.status(result.status).json({ error: { code: result.code, message: result.status === 409 ? 'A separate Operations account already uses this email. Resolve the identity conflict before linking.' : 'A verified Super Admin or active Chief Security Operator authorization is required.' } })
+  if (result.status !== 200) return response.status(result.status).json({ error: { code: result.code, message: result.status === 409 ? 'A separate Operations account already uses this email. Contact support to link the verified administrator account.' : 'Sign in with an active, verified IT Admin or Super Admin account.' } })
   response.cookie('kc_ops_session', token, {
     httpOnly: true,
     secure: env.NODE_ENV === 'production',

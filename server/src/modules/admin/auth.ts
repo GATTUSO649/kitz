@@ -109,7 +109,7 @@ adminAuthRouter.post('/verify', async (request, response) => {
   response.json({ data: { verified: true, ...verification } })
 })
 
-const adminLoginHandler = async (request: Request, response: Response) => {
+const adminLoginHandler = async (request: Request, response: Response, allowedRoles?: readonly string[]) => {
   if (rejectCrossOrigin(request, response)) return
   const input = adminLoginSchema.safeParse(request.body)
   if (!input.success) {
@@ -148,10 +148,10 @@ const adminLoginHandler = async (request: Request, response: Response) => {
     response.status(403).json({ error: { code: 'ADMIN_APPLICATION_REJECTED', message: 'This administrator application was not approved.' } })
     return
   }
-  const requiredRole = requiredAdministratorRole(request.path, input.data.expectedRole)
-  if (requiredRole && requiredRole !== admin.role) {
+  const requiredRole = allowedRoles ? undefined : requiredAdministratorRole(request.path, input.data.expectedRole)
+  if ((allowedRoles && !allowedRoles.includes(admin.role ?? '')) || (requiredRole && requiredRole !== admin.role)) {
     await adminDb.insert(adminLoginAttempts).values({ identity: normalizedIdentity, adminUserId: admin.id, success: false, failureCode: 'PORTAL_ROLE_MISMATCH' })
-    response.status(403).json({ error: { code: 'PORTAL_ROLE_MISMATCH', message: 'These credentials do not belong to this administrator portal.' } })
+    response.status(403).json({ error: { code: 'PORTAL_ROLE_MISMATCH', message: allowedRoles ? 'Only verified IT Admin and Super Admin accounts can access Operations.' : 'These credentials do not belong to this administrator portal.' } })
     return
   }
   if (admin.status === 'pending' && admin.roleNumber && (normalizedIdentity === admin.roleNumber || normalizedIdentity === admin.email) && input.data.password === admin.roleNumber) {
@@ -202,14 +202,15 @@ const adminLoginHandler = async (request: Request, response: Response) => {
   response.json({ data: { user: { id: admin.id, email: admin.email, fullName: admin.fullName, roleNumber: admin.roleNumber, role: admin.role }, portal: administratorPortal(admin.role) } })
 }
 
-adminAuthRouter.post('/login', adminLoginHandler)
-adminAuthRouter.post('/super-admin/login', adminLoginHandler)
-adminAuthRouter.post('/it-admin/login', adminLoginHandler)
-adminAuthRouter.post('/finance-admin/login', adminLoginHandler)
-adminAuthRouter.post('/inventory-admin/login', adminLoginHandler)
-adminAuthRouter.post('/marketing-admin/login', adminLoginHandler)
-adminAuthRouter.post('/content-admin/login', adminLoginHandler)
-adminAuthRouter.post('/laundry-admin/login', adminLoginHandler)
+adminAuthRouter.post('/login', (request, response) => adminLoginHandler(request, response))
+adminAuthRouter.post('/super-admin/login', (request, response) => adminLoginHandler(request, response))
+adminAuthRouter.post('/it-admin/login', (request, response) => adminLoginHandler(request, response))
+adminAuthRouter.post('/operations-login', (request, response) => adminLoginHandler(request, response, ['it_admin', 'super_admin']))
+adminAuthRouter.post('/finance-admin/login', (request, response) => adminLoginHandler(request, response))
+adminAuthRouter.post('/inventory-admin/login', (request, response) => adminLoginHandler(request, response))
+adminAuthRouter.post('/marketing-admin/login', (request, response) => adminLoginHandler(request, response))
+adminAuthRouter.post('/content-admin/login', (request, response) => adminLoginHandler(request, response))
+adminAuthRouter.post('/laundry-admin/login', (request, response) => adminLoginHandler(request, response))
 
 adminAuthRouter.get('/me', authenticateAdmin, async (request, response) => {
   const admin = authenticatedAdmin(request)

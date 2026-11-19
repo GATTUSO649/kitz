@@ -144,7 +144,7 @@ app.use('/api/v1/auth', authLimiter, authRouter)
 app.use('/api/v1/account', accountRouter)
 app.use('/api/v1/admin', createSecurityRateLimiter('admin.api', { windowMs: 60_000, limit: 120 }))
 app.use('/api/v1/admin', (request, response, next) => {
-  if (request.method === 'POST' && /^\/api\/v1\/admin\/(?:verify|login|(?:super-admin|finance-admin|inventory-admin|marketing-admin|content-admin|laundry-admin)\/login)\/?(?:\?|$)/.test(request.originalUrl)) {
+  if (request.method === 'POST' && /^\/api\/v1\/admin\/(?:verify|login|operations-login|(?:super-admin|finance-admin|inventory-admin|marketing-admin|content-admin|laundry-admin)\/login)\/?(?:\?|$)/.test(request.originalUrl)) {
     authLimiter(request, response, next)
     return
   }

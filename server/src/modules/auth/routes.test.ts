@@ -23,7 +23,7 @@ const { combinedRating, quickProductRatingSchema } = await import('../catalogue/
 const { buildDarajaCallbackUrl, callbackFailureStatus, canVerifySuccessfulStkPayment, DarajaRequestError, darajaCallbackRoute, initiateStkPush, isFinalDarajaPaymentStatus, isValidDarajaPaymentAmount, matchesCallbackToken, normalizeKenyanPhone, parseDarajaTimestamp, parseStkCallback, resolveDarajaShortcodes } = await import('../orders/daraja.js')
 const { createAddressSchema, passwordSchema, productReviewSchema, profileSchema, supportMessageSchema, supportRequestSchema } = await import('../account/routes.js')
 const { adminNotificationSchema, canTransitionOrderStatus, createProductSchema, hasOperationsIdentityConflict, homepageSlideBatchSchema, homepageSlideSchema, isDuplicateKeyError, settingsSchema, supportUpdateSchema } = await import('../admin/routes.js')
-const { canUseOperationsIdentityBridge, hasItPermission, hasOperationsRoutePermission, operationsPermissionForRoute } = await import('../admin/it-access.js')
+const { canUseOperationsIdentityBridge, hasItPermission, hasOperationsRoutePermission, operationsPermissionForRoute, operationsRoleForIdentityBridge } = await import('../admin/it-access.js')
 const { detectImageFormat } = await import('../admin/image-storage.js')
 const { isSiteImageUrl, siteImageSlotKeys } = await import('../site-images.js')
 const { siteContentSchema } = await import('../site-content.js')
@@ -960,7 +960,10 @@ test('checkout support records preserve an omitted delivery pin as null coordina
   })
 })
 
-test('Operations identity bridge requires an active verified central grant', () => {
+test('Operations identity bridge accepts active verified IT and Super Admin accounts', () => {
+  assert.equal(operationsRoleForIdentityBridge('it_admin'), 'chief_security_operator')
+  assert.equal(operationsRoleForIdentityBridge('super_admin'), 'super_admin')
+  assert.equal(operationsRoleForIdentityBridge('sales_admin'), null)
   assert.equal(canUseOperationsIdentityBridge('chief_security_operator', 'active', true), true)
   assert.equal(canUseOperationsIdentityBridge('super_admin', 'active', true), true)
   assert.equal(canUseOperationsIdentityBridge('security_analyst', 'active', true), false)
@@ -969,7 +972,6 @@ test('Operations identity bridge requires an active verified central grant', () 
   assert.equal(canUseOperationsIdentityBridge('chief_security_operator', 'rejected', true), false)
   assert.equal(canUseOperationsIdentityBridge('chief_security_operator', 'active', false), false)
   assert.equal(canUseOperationsIdentityBridge(null, 'active', true), false)
-  assert.equal(env.OPERATIONS_IDENTITY_BRIDGE_ENABLED, false)
 })
 
 test('Operations audit attribution preserves central identity and source session for bridged actions', () => {
@@ -996,6 +998,8 @@ test('Operations audit attribution preserves central identity and source session
 test('Operations identity linking rejects ambiguous email and central-account matches', () => {
   assert.equal(hasOperationsIdentityConflict([], 7, 'security@example.test'), false)
   assert.equal(hasOperationsIdentityConflict([{ email: 'legacy@example.test', adminUserId: null, disabledAt: null }], 7, 'security@example.test'), true)
+  assert.equal(hasOperationsIdentityConflict([{ email: 'security@example.test', adminUserId: null, disabledAt: null }], 7, 'security@example.test'), false)
+  assert.equal(hasOperationsIdentityConflict([{ email: 'security@example.test', adminUserId: null, disabledAt: new Date() }], 7, 'security@example.test'), true)
   assert.equal(hasOperationsIdentityConflict([{ email: 'old@example.test', adminUserId: 7, disabledAt: null }], 7, 'security@example.test'), true)
   assert.equal(hasOperationsIdentityConflict([{ email: 'security@example.test', adminUserId: 7, disabledAt: null }], 7, 'security@example.test'), false)
   assert.equal(hasOperationsIdentityConflict([

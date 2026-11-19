@@ -2,7 +2,7 @@
 
 ## Current state
 
-Kitz and MarketHub remain separate deployments and databases. The Operations WAF defaults to `WAF_MODE=detect`; the identity bridge defaults to `OPERATIONS_IDENTITY_BRIDGE_ENABLED=false`. The MarketHub payment feed is disabled until its exact URL and shared service token are configured in server environments. The service token must never be exposed to Vite/browser variables.
+Kitz and MarketHub remain separate deployments and databases. The Operations WAF defaults to `WAF_MODE=detect`. Operations sign-in uses active, email-verified IT Admin and Super Admin accounts; no separate Operations password, grant, or feature flag is required. The MarketHub payment feed is disabled until its exact URL and shared service token are configured in server environments. The service token must never be exposed to Vite/browser variables.
 
 ## Required before any production change
 

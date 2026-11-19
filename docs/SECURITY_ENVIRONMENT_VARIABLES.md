@@ -17,7 +17,6 @@ This inventory covers security-sensitive configuration referenced by the impleme
 | `ADMIN_SUPABASE_CA_CERT_FILE` / `ADMIN_SUPABASE_CA_CERT` | Kitz | Independent production TLS CA configuration for the separate Admin Supabase project. |
 | `ADMIN_MIGRATION_SUPABASE_CA_CERT_FILE` / `ADMIN_MIGRATION_SUPABASE_CA_CERT` | Kitz migration workflow | Admin DDL certificate. It can reuse the Admin runtime CA only when the migration and runtime URLs resolve to the same Supabase project; otherwise configure the migration CA independently. |
 | `WAF_MODE` | Kitz | `disabled`, `detect` (default), or `block`; block mode only rejects selected high-confidence API findings and must be staging-tested. |
-| `OPERATIONS_IDENTITY_BRIDGE_ENABLED` | Kitz | Defaults to `false`; must remain false until approved staging verification and separate activation approval. |
 | `MARKETHUB_SECURITY_FEED_URL` | Kitz | Optional exact same-origin HTTPS server endpoint `/api/v1/admin/marketplace/security-payments`; validated against `MARKETHUB_PUBLIC_URL`. |
 | `MARKETHUB_SERVICE_TOKEN` | Kitz | Existing server-only token shared with MarketHub for service auth; never expose to Vite or logs. |
 | `MARKETPLACE_DATABASE_URL` | MarketHub | Marketplace runtime PostgreSQL connection, restricted by startup configuration to the approved Supabase host/database/user/schema. |

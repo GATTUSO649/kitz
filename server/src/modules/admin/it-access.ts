@@ -66,8 +66,10 @@ export function canUseOperationsIdentityBridge(role: ItAccessRole | null, status
   return status === 'active' && emailVerified && (role === 'chief_security_operator' || role === 'super_admin')
 }
 
-export function operationsRoleForIdentityBridge(administratorRole: string | null, grantRole: ItAccessRole | null): ItAccessRole | null {
-  return administratorRole === 'super_admin' ? 'super_admin' : grantRole
+export function operationsRoleForIdentityBridge(administratorRole: string | null): ItAccessRole | null {
+  if (administratorRole === 'super_admin') return 'super_admin'
+  if (administratorRole === 'it_admin') return 'chief_security_operator'
+  return null
 }
 
 const operationsPermissionRules: OperationsPermissionRule[] = [

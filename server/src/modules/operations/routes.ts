@@ -8,7 +8,7 @@ import { inspectDatabaseError } from '../../config/database-diagnostics.js'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { verifyPassword } from '../../config/password-policy.js'
 import { nextSessionExpiry, operationsSessionAbsoluteLifetimeMs, operationsSessionIdleTimeoutMs } from '../../config/session-policy.js'
-import { adminSessions, adminUsers, monitoringAlerts, monitoringDetectionRules, monitoringEvents, monitoringWorkerState, operationsAuditEvents, operationsIncidentEvents, operationsIncidents, operationsOperators, operationsSessions, operationsUsers, securityScanSchedules } from '../../database/admin-schema.js'
+import { adminSessions, adminUsers, monitoringAlerts, monitoringDetectionRules, monitoringEvents, monitoringWorkerState, operationsAuditEvents, operationsIncidentEvents, operationsIncidents, operationsSessions, operationsUsers, securityScanSchedules } from '../../database/admin-schema.js'
 import { getTelemetryQueueState } from './telemetry-store.js'
 import { getWafStatus } from '../../security/waf.js'
 import { addIpPolicy, listIpPolicies, removeIpPolicy, updateIpPolicy } from '../../security/ip-policy.js'
@@ -20,7 +20,7 @@ import { getRateLimitStoreStatus } from '../../security/distributed-rate-limit.j
 import { loadPersistedSecurityScans, persistSecurityScan } from '../security/scanner-persistence.js'
 import { dependencyScanScheduleId, nextDailyRunAt } from '../security/scheduled-scanner.js'
 import { summarizeDatabaseAggregates } from './database-performance.js'
-import { canUseOperationsIdentityBridge, hasItPermission, hasOperationsRoutePermission, itPermissions, type ItPermission } from '../admin/it-access.js'
+import { canUseOperationsIdentityBridge, hasItPermission, hasOperationsRoutePermission, itPermissions, operationsRoleForIdentityBridge, type ItPermission } from '../admin/it-access.js'
 import { itAccessRoles, type ItAccessRole } from '../../database/admin-schema.js'
 import { orders, payments } from '../../database/schema.js'
 
@@ -189,10 +189,9 @@ const authenticateOperations = async (request: Request, response: Response, next
         fullName: operationsUsers.fullName,
         status: adminUsers.status,
         emailVerifiedAt: adminUsers.emailVerifiedAt,
-        role: operationsOperators.role,
+        administratorRole: adminUsers.role,
       }).from(adminSessions)
         .innerJoin(adminUsers, eq(adminUsers.id, adminSessions.adminUserId))
-        .innerJoin(operationsOperators, and(eq(operationsOperators.adminUserId, adminUsers.id), isNull(operationsOperators.revokedAt)))
         .innerJoin(operationsUsers, and(eq(operationsUsers.adminUserId, adminUsers.id), isNull(operationsUsers.disabledAt)))
         .where(and(
           eq(adminSessions.id, session.adminSessionId),
@@ -200,8 +199,9 @@ const authenticateOperations = async (request: Request, response: Response, next
           eq(operationsUsers.id, session.operationsUserId!),
           gt(adminSessions.expiresAt, now),
         )).limit(1)
-      if (identity?.role && canUseOperationsIdentityBridge(identity.role, identity.status, identity.emailVerifiedAt !== null)) {
-        ;(request as OperationsRequest).operationsUser = { id: identity.id, adminUserId: identity.adminUserId, adminSessionId: session.adminSessionId, email: identity.email, fullName: identity.fullName, role: identity.role }
+      const operationsRole = operationsRoleForIdentityBridge(identity?.administratorRole ?? null)
+      if (identity && operationsRole && canUseOperationsIdentityBridge(operationsRole, identity.status, identity.emailVerifiedAt !== null)) {
+        ;(request as OperationsRequest).operationsUser = { id: identity.id, adminUserId: identity.adminUserId, adminSessionId: session.adminSessionId, email: identity.email, fullName: identity.fullName, role: operationsRole }
         next()
         return
       }
