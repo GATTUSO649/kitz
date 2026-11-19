@@ -7,7 +7,7 @@ import { adminDb } from '../../config/database.js'
 import { verifyPassword } from '../../config/password-policy.js'
 import { adminSessionAbsoluteLifetimeMs, adminSessionIdleTimeoutMs, nextSessionExpiry } from '../../config/session-policy.js'
 import { adminAuditLogs, adminInvitations, adminLoginAttempts, adminSessions, adminUsers, adminVerificationTokens } from '../../database/admin-schema.js'
-import { administratorPortal, marketplaceAdministratorRoles, requiredAdministratorRole } from './administration.js'
+import { administratorLoginPath, administratorPortal, marketplaceAdministratorRoles, requiredAdministratorRole } from './administration.js'
 import { authenticatedAdmin } from '../../middleware/authenticate.js'
 import { authenticateAdmin } from '../../middleware/authenticate.js'
 
@@ -86,26 +86,27 @@ adminAuthRouter.post('/verify', async (request, response) => {
         eq(adminVerificationTokens.tokenHash, hashToken(input.data.token)),
         gt(adminVerificationTokens.expiresAt, now),
       )).limit(1).for('update')
-    if (!record) return false
-    if (record.consumedAt) return Boolean(record.emailVerifiedAt)
-    if (['rejected', 'suspended', 'disabled'].includes(record.status)) return false
+    if (!record) return null
+    const approvalPending = Boolean(record.role && marketplaceAdministratorRoles.has(record.role))
+    if (record.consumedAt) return record.emailVerifiedAt ? { loginPath: administratorLoginPath(record.role), approvalPending } : null
+    if (['rejected', 'suspended', 'disabled'].includes(record.status)) return null
     const consumed = await transaction.update(adminVerificationTokens).set({ consumedAt: now })
       .where(and(
         eq(adminVerificationTokens.id, record.id),
         gt(adminVerificationTokens.expiresAt, now),
         isNull(adminVerificationTokens.consumedAt),
       )).returning({ id: adminVerificationTokens.id })
-    if (consumed.length !== 1) return false
+    if (consumed.length !== 1) return null
     const nextStatus = record.role && marketplaceAdministratorRoles.has(record.role) ? 'pending' : 'active'
     await transaction.update(adminUsers).set({ emailVerifiedAt: now, status: nextStatus })
       .where(eq(adminUsers.id, record.adminUserId))
-    return true
+    return { loginPath: administratorLoginPath(record.role), approvalPending }
   })
   if (!verification) {
     response.status(400).json({ error: { code: 'INVALID_TOKEN', message: 'The verification link is invalid, expired, or already used.' } })
     return
   }
-  response.json({ data: { verified: true } })
+  response.json({ data: { verified: true, ...verification } })
 })
 
 const adminLoginHandler = async (request: Request, response: Response) => {

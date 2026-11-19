@@ -142,13 +142,13 @@ async function apiPage<T>(url: string): Promise<{ data: T; pagination?: AdminPay
   return { data: payload.data, pagination: payload.pagination }
 }
 
-const adminVerificationRequests = new Map<string, Promise<unknown>>()
+const adminVerificationRequests = new Map<string, Promise<{ loginPath: string; approvalPending: boolean }>>()
 
-function verifyAdminToken(token: string): Promise<unknown> {
+function verifyAdminToken(token: string): Promise<{ loginPath: string; approvalPending: boolean }> {
   const existingRequest = adminVerificationRequests.get(token)
   if (existingRequest) return existingRequest
 
-  const request = api('/api/v1/admin/verify', {
+  const request = api<{ loginPath: string; approvalPending: boolean }>('/api/v1/admin/verify', {
     method: 'POST',
     body: JSON.stringify({ token }),
   })
@@ -361,9 +361,13 @@ export function AdminVerifyPage() {
     let active = true
     const request = invitation
       ? api<{ loginPath: string; approvalPending?: boolean }>('/api/v1/admin/verify-invitation', { method: 'POST', body: JSON.stringify({ token }) })
-      : verifyAdminToken(token).then(() => ({ loginPath: '/sales-admin/login', approvalPending: false }))
+      : verifyAdminToken(token)
     void request.then(({ loginPath, approvalPending }) => {
-      if (active) navigate(approvalPending ? loginPath : `${loginPath}?verified=1`, { replace: true })
+      if (!active) return
+      const destination = new URL(loginPath, window.location.origin)
+      if (approvalPending) destination.searchParams.set('status', 'approval-pending')
+      else destination.searchParams.set('verified', '1')
+      navigate(`${destination.pathname}${destination.search}`, { replace: true })
     }).catch((issue: unknown) => {
       if (active) setError(issue instanceof Error ? issue.message : 'Administrator verification failed.')
     })

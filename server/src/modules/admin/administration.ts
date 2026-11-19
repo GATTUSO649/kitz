@@ -149,6 +149,25 @@ export function administratorPortal(role: AdministratorRole) {
   })[role]
 }
 
+export function administratorLoginPath(role: AdministratorRole | null) {
+  if (!role) return '/sales-admin/login'
+  if (marketplaceAdministratorRoles.has(role)) return '/admin/access'
+  return ({
+    super_admin: '/super-admin/login',
+    it_admin: '/it-admin/login',
+    sales_admin: '/sales-admin/login',
+    finance_admin: '/finance-admin/login',
+    inventory_admin: '/inventory-admin/login',
+    marketing_admin: '/marketing-admin/login',
+    content_admin: '/content-admin/login',
+    second_hand_admin: '/admin/access',
+    seller_support_admin: '/admin/access',
+    marketplace_finance_admin: '/admin/access',
+    marketplace_moderator: '/admin/access',
+    laundry_admin: '/laundry-admin/login',
+  })[role]
+}
+
 export function requiredAdministratorRole(requestPath: string, expectedRole?: AdministratorRole) {
   const loginRoles: Record<string, AdministratorRole> = {
     '/login': 'sales_admin',

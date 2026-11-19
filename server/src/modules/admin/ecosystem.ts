@@ -12,7 +12,7 @@ import { adminAuditLogs, adminInvitations, adminLoginAttempts, adminRolePermissi
 import { categories, expenses, homepageSlides, inventoryMovements, notificationCampaigns, orders, payments, productVariants, products, supportRequests, users } from '../../database/schema.js'
 import { authenticateAdmin, authenticatedAdmin } from '../../middleware/authenticate.js'
 import { allocateAdministratorRoleNumber } from './role-number.js'
-import { administratorPermissions as permissionKeys, administratorPortal, administratorRoles as roles, defaultAdministratorPermissions, hasAdministratorPermission, isMarketplaceRoleNumberActivation, isVerifiedPendingMarketplaceAdmin, marketplaceAdministratorRoles, type AdministratorPermission } from './administration.js'
+import { administratorLoginPath, administratorPermissions as permissionKeys, administratorPortal, administratorRoles as roles, defaultAdministratorPermissions, hasAdministratorPermission, isMarketplaceRoleNumberActivation, isVerifiedPendingMarketplaceAdmin, marketplaceAdministratorRoles, type AdministratorPermission } from './administration.js'
 import { administratorPortalPermission } from './permission-routes.js'
 import { loadAdministratorPermissions, permissionDescriptions, validatePermissionSelection } from './permissions.js'
 
@@ -369,8 +369,7 @@ adminEcosystemRouter.post('/verify-invitation', async (request, response) => {
     const verifiedAt = new Date()
     await transaction.update(adminUsers).set({ email: invitation.email, passwordHash: invitation.passwordHash, status: 'active', emailVerifiedAt: verifiedAt, passwordUpdatedAt: verifiedAt }).where(eq(adminUsers.id, invitation.adminUserId))
     await transaction.insert(adminAuditLogs).values({ adminUserId: invitation.adminUserId, action: 'administrator.email_verified', targetType: 'admin_user', targetId: String(invitation.adminUserId) })
-    const marketplaceRole = marketplaceAdministratorRoles.has(admin.role)
-    const loginPath = marketplaceRole ? '/admin/access' : admin.role === 'it_admin' ? '/operations' : admin.role === 'sales_admin' ? '/sales-admin/login' : `${administratorPortal(admin.role).replace(/\/dashboard$/, '')}/login`
+    const loginPath = administratorLoginPath(admin.role)
     return { loginPath, approvalPending: false }
   })
   if (!verification) return response.status(400).json({ error: { code: 'INVALID_TOKEN', message: 'Invitation is invalid, expired, or already used.' } })

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { administratorPermissions, administratorPortal, administratorRoles, defaultAdministratorPermissions, isMarketplaceRoleNumberActivation, isVerifiedPendingMarketplaceAdmin, requiredAdministratorRole, rolePrefix } from './administration.js'
+import { administratorLoginPath, administratorPermissions, administratorPortal, administratorRoles, defaultAdministratorPermissions, isMarketplaceRoleNumberActivation, isVerifiedPendingMarketplaceAdmin, requiredAdministratorRole, rolePrefix } from './administration.js'
 import { administratorPermissionsForRoute, administratorPortalPermission, hasAnyPermission, hasDedicatedAdministratorGuard, projectDashboardForRole } from './permission-routes.js'
 import { resolveAdministratorPermissions, validatePermissionSelection } from './permissions.js'
 import { adminLoginSchema } from './auth.js'
@@ -139,6 +139,9 @@ test('portal summary endpoints require the role-specific dashboard permission', 
 
 test('administrator portal destination and login role come from server policy', () => {
   assert.equal(administratorPortal('sales_admin'), '/sales-admin/dashboard')
+  assert.equal(administratorLoginPath('it_admin'), '/it-admin/login')
+  assert.equal(administratorLoginPath('super_admin'), '/super-admin/login')
+  assert.equal(administratorLoginPath('second_hand_admin'), '/admin/access')
   assert.equal(requiredAdministratorRole('/super-admin/login'), 'super_admin')
   assert.equal(requiredAdministratorRole('/it-admin/login'), 'it_admin')
   assert.equal(requiredAdministratorRole('/login', 'super_admin'), 'sales_admin')
