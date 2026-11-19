@@ -153,6 +153,7 @@ export function requiredAdministratorRole(requestPath: string, expectedRole?: Ad
   const loginRoles: Record<string, AdministratorRole> = {
     '/login': 'sales_admin',
     '/super-admin/login': 'super_admin',
+    '/it-admin/login': 'it_admin',
     '/finance-admin/login': 'finance_admin',
     '/inventory-admin/login': 'inventory_admin',
     '/marketing-admin/login': 'marketing_admin',

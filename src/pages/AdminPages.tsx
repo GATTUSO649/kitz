@@ -115,7 +115,7 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
   } catch (error) {
     throw new Error(userFacingErrorMessage(error, 'The administrator service is unavailable. Please try again shortly.'))
   }
-  if (response.status === 401 && !/\/admin\/(?:login|register|verify)(?:[/?]|$)/.test(url)) {
+  if (response.status === 401 && !/\/admin\/(?:it-admin\/login|login|register|verify)(?:[/?]|$)/.test(url)) {
     window.dispatchEvent(new Event(adminSessionExpiredEvent))
   }
   if (response.status === 204) return undefined as T
@@ -268,6 +268,7 @@ function AdminAuthLayout({ children, className = '' }: { children: ReactNode; cl
 export function AdminLoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
+  const isItAdminLogin = location.pathname === '/it-admin/login'
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -276,7 +277,7 @@ export function AdminLoginPage() {
     setError('')
     const form = new FormData(event.currentTarget)
     try {
-      const result = await api<{ portal: string }>('/api/v1/admin/login', {
+      const result = await api<{ portal: string }>(isItAdminLogin ? '/api/v1/admin/it-admin/login' : '/api/v1/admin/login', {
         method: 'POST',
         body: JSON.stringify({
           identity: String(form.get('identity')),
@@ -284,7 +285,7 @@ export function AdminLoginPage() {
         }),
       })
       const returnTo = new URLSearchParams(location.search).get('returnTo')
-      navigate(returnTo === '/operations' ? '/operations' : result.portal ?? '/admin', { replace: true })
+      navigate(!isItAdminLogin && returnTo === '/operations' ? '/operations' : result.portal ?? '/admin', { replace: true })
     } catch (issue) {
       setError(issue instanceof TypeError ? 'We couldn\'t connect to the server. Please check your connection and try again.' : issue instanceof Error ? issue.message : 'Administrator sign in failed.')
     } finally {
@@ -2242,9 +2243,13 @@ export function AdminConsole({ role, marketHubOrigin }: { role: string | null; m
   const [reportPeriod, setReportPeriod] = useState<'today' | 'yesterday' | 'last7days' | 'last30days' | 'thisMonth' | 'lastMonth' | 'thisYear' | 'custom'>('last30days')
   const [customFrom, setCustomFrom] = useState(() => new Date().toISOString().slice(0, 10))
   const [customTo, setCustomTo] = useState(() => new Date().toISOString().slice(0, 10))
-  const current = sections.find(([, , path]) => path === location.pathname) ?? sections[0]
-  const adminLoginPath = role === 'content_admin' ? '/content-admin/login' : '/admin/login'
-  const visibleSections = role === 'content_admin'
+  const current = role === 'it_admin'
+    ? sections.find(([id]) => id === 'it') ?? sections[0]
+    : sections.find(([, , path]) => path === location.pathname) ?? sections[0]
+  const adminLoginPath = role === 'it_admin' ? '/it-admin/login' : role === 'content_admin' ? '/content-admin/login' : '/admin/login'
+  const visibleSections = role === 'it_admin'
+    ? sections.filter(([id]) => id === 'it')
+    : role === 'content_admin'
     ? sections.filter(([id]) => ['products', 'football', 'homepage', 'site-pages', 'categories'].includes(id))
     : role === 'finance_admin'
       ? sections.filter(([id]) => ['dashboard', 'payments', 'reports', 'expenses', 'audit'].includes(id))
@@ -2367,7 +2372,7 @@ export function AdminConsole({ role, marketHubOrigin }: { role: string | null; m
   ] : []
 
   return <div className="admin-app">
-    <aside className={menuOpen ? 'admin-sidebar is-open' : 'admin-sidebar'}><Link to="/" className="admin-brand" aria-label="MATRIX home"><img src="/matrix-logo.png" alt="MATRIX" /><span>ADMIN</span></Link><nav aria-label="Admin modules">{visibleSections.map(([id, title, path, Icon]) => <Link key={id} to={path} onClick={() => setMenuOpen(false)} className={current[0] === id ? 'active' : ''}><Icon size={17} />{title}</Link>)}</nav><button className="admin-logout" type="button" onClick={() => void logout()}><LogOut size={17} /> Sign out</button></aside>
+    <aside className={menuOpen ? 'admin-sidebar is-open' : 'admin-sidebar'}><Link to="/" className="admin-brand" aria-label="MATRIX home"><img src="/matrix-logo.png" alt="MATRIX" /><span>ADMIN</span></Link><nav aria-label="Admin modules">{visibleSections.map(([id, title, path, Icon]) => <Link key={id} to={role === 'it_admin' && id === 'it' ? '/it-admin/dashboard' : path} onClick={() => setMenuOpen(false)} className={current[0] === id ? 'active' : ''}><Icon size={17} />{title}</Link>)}</nav><button className="admin-logout" type="button" onClick={() => void logout()}><LogOut size={17} /> Sign out</button></aside>
     {menuOpen && <button className="admin-nav-scrim" aria-label="Close admin menu" onClick={() => setMenuOpen(false)} />}
     <main className={current[0] === 'products' ? 'admin-main admin-products-page' : current[0] === 'football' ? 'admin-main admin-football-page' : current[0] === 'homepage' || current[0] === 'site-pages' ? 'admin-main admin-homepage-page' : current[0] === 'settings' ? 'admin-main admin-settings-page' : 'admin-main'}><header className="admin-topbar"><button type="button" className="admin-menu-toggle" aria-label={menuOpen ? 'Close menu' : 'Open menu'} onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X /> : <Menu />}</button><div><span className="admin-kicker">KITCULTURE OPERATIONS</span><h1>{current[1]}</h1></div><Link to="/" className="admin-store-link">View storefront ↗</Link></header>
       {current[0] === 'dashboard' && <div className="admin-report-toolbar"><label>Reporting period<select value={reportPeriod} onChange={(event) => setReportPeriod(event.target.value as typeof reportPeriod)}><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="last7days">Last 7 days</option><option value="last30days">Last 30 days</option><option value="thisMonth">This month</option><option value="lastMonth">Last month</option><option value="thisYear">This year</option><option value="custom">Custom range</option></select></label>{reportPeriod === 'custom' && <><label>From<input type="date" value={customFrom} max={customTo} onChange={(event) => setCustomFrom(event.target.value)} /></label><label>To<input type="date" value={customTo} min={customFrom} onChange={(event) => setCustomTo(event.target.value)} /></label></>}</div>}
@@ -2420,10 +2425,11 @@ export function AdminRoute() {
   const location = useLocation()
   const legacyRolePortal = location.pathname.match(/^\/admin\/(super|it|finance|inventory|marketing|content)-admin(?:\/(.*))?$/)
   const isLegacyAdminPath = /^\/admin(?:\/|$)/.test(location.pathname)
-  const isAdministratorPortalPath = /^\/sales-admin(?:\/|$)/.test(location.pathname)
+  const isItAdminPortalPath = /^\/it-admin(?:\/|$)/.test(location.pathname)
+  const isAdministratorPortalPath = /^\/(?:sales-admin|it-admin)(?:\/|$)/.test(location.pathname)
   const isContentAdminPage = ['/sales-admin/homepage', '/sales-admin/site-pages'].includes(location.pathname)
   const isAdminPortalRoute = isAdministratorPortalPath
-  const isAdminAuthRoute = ['/sales-admin/login', '/sales-admin/register', '/sales-admin/onboarding', '/sales-admin/verify'].includes(location.pathname)
+  const isAdminAuthRoute = ['/sales-admin/login', '/sales-admin/register', '/sales-admin/onboarding', '/sales-admin/verify', '/it-admin/login'].includes(location.pathname)
   const sessionQuery = useQuery({
     queryKey: ['admin-session'],
     queryFn: () => api<{ user: { id: number; role?: string | null }; marketHubOrigin?: string | null }>('/api/v1/admin/me'),
@@ -2435,19 +2441,20 @@ export function AdminRoute() {
 
   if (legacyRolePortal) return <Navigate to={`/${legacyRolePortal[1]}-admin/${legacyRolePortal[2] || 'dashboard'}${location.search}${location.hash}`} replace />
   if (isLegacyAdminPath) return <Navigate to={`/sales-admin${location.pathname.slice('/admin'.length) || '/dashboard'}${location.search}${location.hash}`} replace />
-  if (location.pathname === '/sales-admin/login') return <AdminLoginPage />
+  if (location.pathname === '/sales-admin/login' || location.pathname === '/it-admin/login') return <AdminLoginPage />
   if (location.pathname === '/sales-admin/register') return <Navigate to="/sales-admin/login" replace />
   if (location.pathname === '/sales-admin/onboarding') return <AdminOnboardingPage />
   if (location.pathname === '/sales-admin/verify') return <AdminVerifyPage />
   if (isAdminPortalRoute) {
     if (sessionQuery.isPending || sessionQuery.isFetching) return <main className="auth-checking" role="status">Checking administrator session…</main>
     if (sessionQuery.isError) {
-      if (isAdminSessionExpired(sessionQuery.error)) return <Navigate to={isContentAdminPage ? '/content-admin/login?reason=expired' : '/sales-admin/login?reason=expired'} replace />
+      if (isAdminSessionExpired(sessionQuery.error)) return <Navigate to={isItAdminPortalPath ? '/it-admin/login?reason=expired' : isContentAdminPage ? '/content-admin/login?reason=expired' : '/sales-admin/login?reason=expired'} replace />
       return <main className="auth-checking"><p role="alert">Administrator service unavailable: {sessionQuery.error.message}</p><button type="button" onClick={() => void sessionQuery.refetch()}>Retry</button></main>
     }
     const role = sessionQuery.data?.user.role ?? null
     const contentAdminPage = role === 'content_admin' && isContentAdminPage
-    if (role !== 'sales_admin' && role !== 'super_admin' && !contentAdminPage) {
+    const itAdminPage = role === 'it_admin' && isItAdminPortalPath
+    if (role !== 'sales_admin' && role !== 'super_admin' && !contentAdminPage && !itAdminPage) {
       const portalByRole: Record<string, string> = {
         it_admin: '/it-admin/dashboard',
         finance_admin: '/finance-admin/dashboard',

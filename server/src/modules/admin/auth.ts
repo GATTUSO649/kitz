@@ -203,6 +203,7 @@ const adminLoginHandler = async (request: Request, response: Response) => {
 
 adminAuthRouter.post('/login', adminLoginHandler)
 adminAuthRouter.post('/super-admin/login', adminLoginHandler)
+adminAuthRouter.post('/it-admin/login', adminLoginHandler)
 adminAuthRouter.post('/finance-admin/login', adminLoginHandler)
 adminAuthRouter.post('/inventory-admin/login', adminLoginHandler)
 adminAuthRouter.post('/marketing-admin/login', adminLoginHandler)

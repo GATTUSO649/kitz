@@ -140,6 +140,7 @@ test('portal summary endpoints require the role-specific dashboard permission', 
 test('administrator portal destination and login role come from server policy', () => {
   assert.equal(administratorPortal('sales_admin'), '/sales-admin/dashboard')
   assert.equal(requiredAdministratorRole('/super-admin/login'), 'super_admin')
+  assert.equal(requiredAdministratorRole('/it-admin/login'), 'it_admin')
   assert.equal(requiredAdministratorRole('/login', 'super_admin'), 'sales_admin')
   assert.equal(requiredAdministratorRole('/finance-admin/login'), 'finance_admin')
   assert.equal(requiredAdministratorRole('/content-admin/login'), 'content_admin')

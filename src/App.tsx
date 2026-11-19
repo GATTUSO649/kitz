@@ -857,7 +857,8 @@ function App() {
   }
   if (roleAdminPage) return <Suspense fallback={pagePath.endsWith('/login') ? <DelayedBrandLoader label="Loading administrator sign-in" /> : null}><RolePortalRoute /></Suspense>
   if (isAdminPage) return <Suspense fallback={pagePath.endsWith('/login') ? <DelayedBrandLoader label="Loading administrator sign-in" /> : null}><AdminRoute /></Suspense>
-  if (isOperationsPage || isItAdminPage) return <Suspense fallback={isOperationsPage ? <DelayedBrandLoader label="Loading operations sign-in" /> : null}><OperationsRoute /></Suspense>
+  if (isOperationsPage) return <Suspense fallback={<DelayedBrandLoader label="Loading operations sign-in" />}><OperationsRoute /></Suspense>
+  if (isItAdminPage) return <Suspense fallback={<DelayedBrandLoader label="Loading administrator sign-in" />}><AdminRoute /></Suspense>
 
   if (isAccountPortalRoute || isCustomerAuthRoute) {
     if (!authChecked) return <DelayedBrandLoader label="Checking your account" />
