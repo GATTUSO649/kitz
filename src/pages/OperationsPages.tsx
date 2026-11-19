@@ -431,18 +431,29 @@ function OperationsBars({ title, items }: { title: string; items: { label: strin
 function OperationsLogin({ onAuthenticated }: { onAuthenticated: () => Promise<void> }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [signInMode, setSignInMode] = useState<'it_admin' | 'operations'>('it_admin')
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setBusy(true)
     setError('')
     const form = new FormData(event.currentTarget)
+    const identity = String(form.get('identity'))
+    const password = String(form.get('password'))
 
     try {
-      await operationsApi('/api/v1/operations/login', {
-        method: 'POST',
-        body: JSON.stringify({ email: String(form.get('email')), password: String(form.get('password')) }),
-      })
+      if (signInMode === 'it_admin') {
+        await operationsApi('/api/v1/admin/it-admin/login', {
+          method: 'POST',
+          body: JSON.stringify({ identity, password }),
+        })
+        await operationsApi('/api/v1/admin/it/operations-session', { method: 'POST' })
+      } else {
+        await operationsApi('/api/v1/operations/login', {
+          method: 'POST',
+          body: JSON.stringify({ email: identity, password }),
+        })
+      }
       await onAuthenticated()
     } catch (issue) {
       setError(issue instanceof Error ? issue.message : 'Operations sign in failed.')
@@ -454,11 +465,16 @@ function OperationsLogin({ onAuthenticated }: { onAuthenticated: () => Promise<v
   return (
     <main className="operations-login-page">
       <form className="operations-login-form" onSubmit={(event) => void submit(event)}>
-        <span className="operations-eyebrow">Separate operations identity</span>
+        <span className="operations-eyebrow">Verified operations access</span>
         <h1>IT operations sign in</h1>
-        <p>This account is separate from the storefront and admin session controls.</p>
+        <p>Sign in with your verified IT administrator or operations account.</p>
 
-        <label>Operations email<input name="email" type="email" autoComplete="username" maxLength={254} required /></label>
+        <div className="operations-login-modes" role="group" aria-label="Sign-in method">
+          <button type="button" className={signInMode === 'it_admin' ? 'is-active' : ''} aria-pressed={signInMode === 'it_admin'} onClick={() => setSignInMode('it_admin')}>Verified IT</button>
+          <button type="button" className={signInMode === 'operations' ? 'is-active' : ''} aria-pressed={signInMode === 'operations'} onClick={() => setSignInMode('operations')}>Operations account</button>
+        </div>
+
+        <label>{signInMode === 'it_admin' ? 'IT role number or email' : 'Operations email'}<input name="identity" type={signInMode === 'it_admin' ? 'text' : 'email'} autoComplete="username" maxLength={254} required /></label>
         <label>
           Password
           <input

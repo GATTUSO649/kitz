@@ -1,16 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { administratorLoginPath, administratorPermissions, administratorPortal, administratorRoles, defaultAdministratorPermissions, isMarketplaceRoleNumberActivation, isVerifiedPendingMarketplaceAdmin, requiredAdministratorRole, rolePrefix } from './administration.js'
-import { administratorItPermissions, hasAdministratorItPermission } from './it-access.js'
 import { administratorPermissionsForRoute, administratorPortalPermission, hasAnyPermission, hasDedicatedAdministratorGuard, projectDashboardForRole } from './permission-routes.js'
-test('IT Admin role permissions automatically grant only the mapped IT overview and incident capabilities', () => {
-  const permissions = defaultAdministratorPermissions.it_admin
-  assert.equal(hasAdministratorItPermission(permissions, 'overview.read'), true)
-  assert.equal(hasAdministratorItPermission(permissions, 'incidents.read'), true)
-  assert.equal(hasAdministratorItPermission(permissions, 'incidents.write'), true)
-  assert.equal(hasAdministratorItPermission(permissions, 'audit.read'), true)
-  assert.deepEqual(administratorItPermissions(permissions), ['overview.read', 'incidents.read', 'incidents.write', 'audit.read'])
-})
 import { resolveAdministratorPermissions, validatePermissionSelection } from './permissions.js'
 import { adminLoginSchema } from './auth.js'
 
@@ -148,7 +139,8 @@ test('portal summary endpoints require the role-specific dashboard permission', 
 
 test('administrator portal destination and login role come from server policy', () => {
   assert.equal(administratorPortal('sales_admin'), '/sales-admin/dashboard')
-  assert.equal(administratorLoginPath('it_admin'), '/it-admin/login')
+  assert.equal(administratorPortal('it_admin'), '/operations')
+  assert.equal(administratorLoginPath('it_admin'), '/operations')
   assert.equal(administratorLoginPath('super_admin'), '/super-admin/login')
   assert.equal(administratorLoginPath('second_hand_admin'), '/admin/access')
   assert.equal(requiredAdministratorRole('/super-admin/login'), 'super_admin')

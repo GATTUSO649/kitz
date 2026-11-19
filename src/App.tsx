@@ -1,6 +1,6 @@
 import { Fragment, lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { ArrowDown, ArrowRight, ChevronDown, Heart, Menu, Search, ShieldCheck, ShoppingBag, ShoppingCart, Smartphone, Star, Truck, UserRound, X } from 'lucide-react'
 import { z } from 'zod'
 import './App.css'
@@ -858,7 +858,7 @@ function App() {
   if (roleAdminPage) return <Suspense fallback={pagePath.endsWith('/login') ? <DelayedBrandLoader label="Loading administrator sign-in" /> : null}><RolePortalRoute /></Suspense>
   if (isAdminPage) return <Suspense fallback={pagePath.endsWith('/login') ? <DelayedBrandLoader label="Loading administrator sign-in" /> : null}><AdminRoute /></Suspense>
   if (isOperationsPage) return <Suspense fallback={<DelayedBrandLoader label="Loading operations sign-in" />}><OperationsRoute /></Suspense>
-  if (isItAdminPage) return <Suspense fallback={<DelayedBrandLoader label="Loading administrator sign-in" />}><AdminRoute /></Suspense>
+  if (isItAdminPage) return <Navigate to="/operations" replace />
 
   if (isAccountPortalRoute || isCustomerAuthRoute) {
     if (!authChecked) return <DelayedBrandLoader label="Checking your account" />

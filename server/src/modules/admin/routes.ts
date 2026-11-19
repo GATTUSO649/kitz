@@ -16,7 +16,7 @@ import { deleteProductImage, ImageStorageError, uploadBrandLogoImage, uploadHome
 import { isSiteImageUrl, siteImageSlotKeys } from '../site-images.js'
 import { isSiteContentField, siteContentSchema } from '../site-content.js'
 import { buildAdminDashboardReport, reportPeriods, resolveOptionalDateRange, resolveReportingRange } from './reporting.js'
-import { administratorItPermissions, canUseOperationsIdentityBridge, hasAdministratorItPermission, hasItPermission, itPermissions, type ItPermission } from './it-access.js'
+import { canUseOperationsIdentityBridge, hasItPermission, itPermissions, type ItPermission } from './it-access.js'
 import { createAccountRateLimiter } from '../../security/distributed-rate-limit.js'
 import { getRequestMetrics } from '../../middleware/request-metrics.js'
 import { loadAdministratorPermissions, isAdministratorRole } from './permissions.js'
@@ -1456,18 +1456,6 @@ async function requireItPermission(request: import('express').Request, response:
     response.status(503).json({ error: { code: 'IT_ACCESS_UNAVAILABLE', message: 'IT access is unavailable.' } })
     return false
   }
-  if (actor.role === 'it_admin') {
-    try {
-      const permissions = await loadAdministratorPermissions(actor.id, actor.role)
-      if (permissions && hasAdministratorItPermission(permissions, permission)) return 'it_admin'
-    } catch {
-      logger.warn({ requestId: String(request.id) }, 'Admin IT permission lookup failed')
-      response.status(503).json({ error: { code: 'IT_ACCESS_UNAVAILABLE', message: 'IT access could not be verified.' } })
-      return false
-    }
-    response.status(403).json({ error: { code: 'IT_PERMISSION_REQUIRED', message: 'You do not have permission to access this IT resource.' } })
-    return false
-  }
   let grant: Awaited<ReturnType<typeof activeItGrant>>
   try {
     grant = await activeItGrant(actor.id)
@@ -1552,9 +1540,6 @@ adminRouter.get('/it/identity-bridge-status', async (request, response) => {
     )).orderBy(desc(operationsAuditEvents.createdAt)).limit(10)
     const lastSuccessfulExchange = events.find((event) => event.action === 'operations.session.issued')
     const sourceSessionHealthy = actor.sessionExpiresAt > new Date()
-    const identityPermissions = role === 'it_admin'
-      ? administratorItPermissions(await loadAdministratorPermissions(actor.id, 'it_admin') ?? new Set())
-      : itPermissions.filter((permission) => hasItPermission(role, permission))
 
     response.json({ data: {
       checkedAt: new Date().toISOString(),
@@ -1569,8 +1554,8 @@ adminRouter.get('/it/identity-bridge-status', async (request, response) => {
         accountStatus: identity.status,
         emailVerified: identity.emailVerifiedAt !== null,
         role,
-        permissions: identityPermissions,
-        grantStatus: role === 'it_admin' ? 'administrator_role' : 'active',
+        permissions: itPermissions.filter((permission) => hasItPermission(role, permission)),
+        grantStatus: 'active',
       } : null,
       session: { sourceSessionStatus: sourceSessionHealthy ? 'active' : 'expired', sourceSessionExpiresAt: actor.sessionExpiresAt.toISOString(), projectionStatus },
       connectionStatus: projectionStatus,
@@ -1722,10 +1707,6 @@ async function probeItDatabase(database: typeof pool, name: string) {
 adminRouter.get('/it/overview', async (request, response) => {
   const role = await requireItPermission(request, response, 'overview.read')
   if (!role) return
-  const actor = authenticatedAdmin(request)
-  if (!actor) return response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Administrator sign in is required.' } })
-  const adminPermissions = role === 'it_admin' ? await loadAdministratorPermissions(actor.id, 'it_admin') : null
-  if (role === 'it_admin' && !adminPermissions) return response.status(503).json({ error: { code: 'IT_ACCESS_UNAVAILABLE', message: 'IT access could not be verified.' } })
   const [storeProbe, adminProbe, incidentCounts] = await Promise.allSettled([
     probeItDatabase(pool, 'store'),
     adminPool === pool ? probeItDatabase(adminPool, 'admin') : probeItDatabase(adminPool, 'admin'),
@@ -1744,9 +1725,7 @@ adminRouter.get('/it/overview', async (request, response) => {
     : { status: 'unavailable' as const, total: null, open: null, investigating: null }
   const memory = process.memoryUsage()
   response.json({ data: {
-    access: { role, permissions: role === 'it_admin'
-      ? administratorItPermissions(adminPermissions!)
-      : itPermissions.filter((permission) => hasItPermission(role, permission)) },
+    access: { role, permissions: itPermissions.filter((permission) => hasItPermission(role, permission)) },
     application: { status: 'healthy', uptimeSeconds: Math.floor(process.uptime()), nodeVersion: process.version, memoryRssBytes: memory.rss, heapUsedBytes: memory.heapUsed },
     databases: databaseProbes,
     requests: getRequestMetrics(),

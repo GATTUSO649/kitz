@@ -21,7 +21,7 @@ type ItAccessRole = 'super_admin' | 'chief_security_operator' | 'security_analys
 type ItRequestBucket = { bucketStartedAt: string; requestCount: number; errorCount: number; serverErrorCount: number; securitySignalCount: number; averageResponseMs: number | null; p95ResponseMs: number | null }
 type ItChartPoint = { label: string; value: number; detail: string }
 type ItOverviewData = {
-  access: { role: ItAccessRole | 'it_admin'; permissions: string[] }
+  access: { role: ItAccessRole; permissions: string[] }
   application: { status: string; uptimeSeconds: number; nodeVersion: string; memoryRssBytes: number; heapUsedBytes: number }
   databases: { name: string; status: 'healthy' | 'unavailable'; latencyMs: number | null }[]
   requests: { requestCount: number; requestsLastMinute: number; errorCount: number; clientErrorCount: number; serverErrorCount: number; successfulRequestCount: number; securitySignalCount: number; securitySignalsLastMinute: number; averageResponseMs: number | null; p95ResponseMs: number | null; collectedAt: string; endpoints: { endpoint: string; requests: number; errors: number; averageResponseMs: number }[]; timeline: ItRequestBucket[]; methods: { method: string; requests: number }[]; responseDistribution: { success: number; redirect: number; clientError: number; serverError: number } }
@@ -36,7 +36,7 @@ type ItIdentityBridgeStatus = {
   bridgeSchema: { status: 'present' | 'incomplete' | 'absent'; catalogChecks: Record<string, boolean>; migrationLedger: 'not_checked' }
   configurationStatus: string
   activationStatus: string
-  currentIdentity: { id: number; email: string; fullName: string; accountStatus: string; emailVerified: boolean; role: ItAccessRole | 'it_admin'; permissions: string[]; grantStatus: string } | null
+  currentIdentity: { id: number; email: string; fullName: string; accountStatus: string; emailVerified: boolean; role: ItAccessRole; permissions: string[]; grantStatus: string } | null
   session: { sourceSessionStatus: string; sourceSessionExpiresAt: string; projectionStatus: string }
   connectionStatus: string
   operationalStatus: string
@@ -2086,10 +2086,6 @@ function ItOperationsPanel() {
     refetchInterval: 30_000,
   })
   const role = overviewQuery.data?.access.role
-  const permissions = overviewQuery.data?.access.permissions ?? []
-  const tabs: ('overview' | 'incidents' | 'audit')[] = ['overview']
-  if (permissions.includes('incidents.read') || permissions.includes('incidents.write')) tabs.push('incidents')
-  if (permissions.includes('audit.read')) tabs.push('audit')
   const accessQuery = useQuery({
     queryKey: ['admin', 'it-access-grants'],
     queryFn: () => api<ItAccessGrant[]>('/api/v1/admin/it/access'),
@@ -2151,7 +2147,7 @@ function ItOperationsPanel() {
 
   if (overviewQuery.isPending) return <div className="admin-empty" role="status">Checking IT access…</div>
   if (overviewQuery.error instanceof AdminApiError && overviewQuery.error.code === 'IT_PERMISSION_REQUIRED') {
-    return <section className="admin-it-panel"><header><Shield size={20} /><div><span className="admin-kicker">RESTRICTED IT OPERATIONS</span><h2>IT permission required</h2></div></header><p>Your administrator account does not have the IT permission required for this view.</p></section>
+    return <section className="admin-it-panel"><header><Shield size={20} /><div><span className="admin-kicker">RESTRICTED IT OPERATIONS</span><h2>IT access is not assigned</h2></div></header><p>Your administrator account has not been granted an IT role. Access is explicitly assigned by an IT super-admin.</p></section>
   }
   if (overviewQuery.isError || !overviewQuery.data) {
     return <section className="admin-it-panel"><header><AlertTriangle size={20} /><div><span className="admin-kicker">IT OPERATIONS</span><h2>Operations data unavailable</h2></div></header><p>{overviewQuery.error instanceof Error ? overviewQuery.error.message : 'Retry the request or contact the system administrator.'}</p><button className="admin-it-button" type="button" onClick={() => void overviewQuery.refetch()}>Retry</button></section>
@@ -2202,7 +2198,7 @@ function ItOperationsPanel() {
         <small>Checked {new Date(identityBridge.checkedAt).toLocaleString()}. Database catalog presence is not proof of staging or production verification.</small>
       </>}
     </section>
-    <nav className="admin-it-tabs" aria-label="IT operations views">{tabs.map((tab) => <button key={tab} type="button" className={activeTab === tab ? 'is-active' : ''} aria-current={activeTab === tab ? 'page' : undefined} onClick={() => setActiveTab(tab)}>{itLabel(tab)}</button>)}</nav>
+    <nav className="admin-it-tabs" aria-label="IT operations views">{(['overview', 'incidents', 'audit'] as const).map((tab) => <button key={tab} type="button" className={activeTab === tab ? 'is-active' : ''} aria-current={activeTab === tab ? 'page' : undefined} onClick={() => setActiveTab(tab)}>{itLabel(tab)}</button>)}</nav>
 
     {activeTab === 'overview' ? <>
     <section className="admin-it-status-grid" aria-label="Current system health">
@@ -2261,7 +2257,9 @@ export function AdminConsole({ role, marketHubOrigin }: { role: string | null; m
     ? sections.filter(([id]) => ['products', 'football', 'homepage', 'site-pages', 'categories'].includes(id))
     : role === 'finance_admin'
       ? sections.filter(([id]) => ['dashboard', 'payments', 'reports', 'expenses', 'audit'].includes(id))
-      : sections
+        : role === 'super_admin'
+          ? sections
+          : sections.filter(([id]) => id !== 'it')
   const endpoint = current[0] === 'dashboard' ? 'dashboard'
     : current[0] === 'football' ? 'catalogue-options'
     : current[0] === 'inventory' ? 'inventory/movements'

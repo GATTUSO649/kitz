@@ -135,7 +135,7 @@ export function rolePrefix(role: AdministratorRole) {
 export function administratorPortal(role: AdministratorRole) {
   return ({
     super_admin: '/super-admin/dashboard',
-    it_admin: '/it-admin/dashboard',
+    it_admin: '/operations',
     sales_admin: '/sales-admin/dashboard',
     finance_admin: '/finance-admin/dashboard',
     inventory_admin: '/inventory-admin/dashboard',
@@ -154,7 +154,7 @@ export function administratorLoginPath(role: AdministratorRole | null) {
   if (marketplaceAdministratorRoles.has(role)) return '/admin/access'
   return ({
     super_admin: '/super-admin/login',
-    it_admin: '/it-admin/login',
+    it_admin: '/operations',
     sales_admin: '/sales-admin/login',
     finance_admin: '/finance-admin/login',
     inventory_admin: '/inventory-admin/login',
