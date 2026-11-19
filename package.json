@@ -34,7 +34,7 @@
     "db:mysql:generate:admin": "drizzle-kit generate --config=server/drizzle.admin.mysql.config.ts",
     "db:mysql:migrate:admin": "drizzle-kit migrate --config=server/drizzle.admin.mysql.config.ts",
     "admin:data:migrate": "tsx server/scripts/migrate-admin-data.mjs",
-      "admin:db:verify-targets": "tsx server/scripts/verify-admin-migration-targets.mjs",
+    "admin:db:verify-targets": "tsx server/scripts/verify-admin-migration-targets.mjs",
     "admin:provision": "tsx server/src/scripts/provision-admin.ts",
     "it:access": "tsx server/src/scripts/manage-it-access.ts",
     "operations:user": "tsx server/src/scripts/manage-operations-user.ts",
@@ -42,7 +42,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-query": "^5.90.21",
     "bcryptjs": "^3.0.3",
     "compression": "^1.8.2",
@@ -68,6 +67,7 @@
     "zod": "^4.3.5"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.5",
     "@types/compression": "^1.8.1",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
@@ -76,14 +76,14 @@
     "@types/pg": "^8.23.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
-    "@vitejs/plugin-react": "^6.1.1",
+    "@vitejs/plugin-react": "^6.3.0",
     "concurrently": "^9.2.1",
     "drizzle-kit": "^0.31.11",
     "oxlint": "^1.81.0",
     "supabase": "^3.0.0",
     "tsx": "^4.21.0",
     "typescript": "~6.0.2",
-    "vite": "^8.3.0"
+    "vite": "^8.3.8"
   },
   "overrides": {
     "@esbuild-kit/core-utils": {

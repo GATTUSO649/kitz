@@ -83,7 +83,7 @@ export function getMarketplaceDatabaseConfig(env: NodeJS.ProcessEnv = process.en
   const ssl = marketplacePostgresSslOptions(env)
   return {
     connectionString,
-    ssl: env.NODE_ENV === 'production' || isSupabaseHost ? ssl : undefined,
+    ssl: env.NODE_ENV === 'production' || isSupabaseHost || env.MARKETPLACE_DATABASE_CA || env.MARKETPLACE_DATABASE_CA_FILE ? ssl : undefined,
   }
 }
 

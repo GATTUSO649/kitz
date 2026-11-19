@@ -28,6 +28,7 @@ async function verifyTarget(name, target, ssl, expectedSchema) {
   try {
     const result = await pool.query(`
       SELECT current_database() AS database_name,
+            current_user AS role_name,
              current_schema() AS current_schema,
              inet_server_addr()::text AS server_address,
              EXISTS (
@@ -65,8 +66,22 @@ async function main() {
     ? projectIdentity(process.env.ADMIN_MIGRATION_DATABASE_URL.trim(), 'ADMIN_MIGRATION_DATABASE_URL')
     : null
   if (kitzTarget.projectRef === adminTarget.projectRef) throw new Error('Kitz and Admin URLs resolve to the same Supabase project.')
-  if (marketplaceTarget.projectRef === kitzTarget.projectRef || marketplaceTarget.projectRef === adminTarget.projectRef) {
-    throw new Error('MarketHub must resolve to a Supabase project independent of Kitz and Admin.')
+  if (marketplaceTarget.projectRef === adminTarget.projectRef) {
+    throw new Error('MARKETPLACE_DATABASE_URL resolves to the same Supabase project as ADMIN_DATABASE_URL.')
+  }
+  const marketplaceHost = marketplaceTarget.url.hostname.toLowerCase()
+  const marketplaceDatabase = decodeURIComponent(marketplaceTarget.url.pathname.replace(/^\/+/, ''))
+  const marketplaceUser = decodeURIComponent(marketplaceTarget.url.username)
+  const kitzUser = decodeURIComponent(kitzTarget.url.username)
+  if (!process.env.MARKETPLACE_DATABASE_HOST
+    || process.env.MARKETPLACE_DATABASE_HOST.toLowerCase() !== marketplaceHost
+    || !process.env.MARKETPLACE_DATABASE_NAME
+    || process.env.MARKETPLACE_DATABASE_NAME !== marketplaceDatabase
+    || !process.env.MARKETPLACE_DATABASE_USER
+    || process.env.MARKETPLACE_DATABASE_USER !== marketplaceUser
+    || process.env.MARKETPLACE_DATABASE_SCHEMA !== 'marketplace'
+    || marketplaceUser === kitzUser) {
+    throw new Error('MarketHub must use its configured marketplace schema and a dedicated runtime database role.')
   }
   if (migrationTarget && migrationTarget.projectRef !== adminTarget.projectRef) {
     throw new Error('ADMIN_MIGRATION_DATABASE_URL must resolve to the Admin Supabase project.')
