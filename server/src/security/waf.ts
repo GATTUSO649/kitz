@@ -174,7 +174,7 @@ export function getWafStatus(mode: WafMode) {
     mode,
     state: mode === 'disabled' ? 'disabled' : mode === 'block' ? 'blocking_high_confidence_rules' : 'detection_only',
     configuration: 'environment',
-    policiesPersisted: false,
+    policiesPersisted: true,
     externalEdgeProtection: 'unknown',
     rules: rules.map(({ ruleId, severity, component, blockable }) => ({ ruleId, severity, component, blockable })),
   }

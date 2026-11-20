@@ -8,10 +8,10 @@ import { inspectDatabaseError } from '../../config/database-diagnostics.js'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { verifyPassword } from '../../config/password-policy.js'
 import { nextSessionExpiry, operationsSessionAbsoluteLifetimeMs, operationsSessionIdleTimeoutMs } from '../../config/session-policy.js'
-import { adminSessions, adminUsers, monitoringAlerts, monitoringDetectionRules, monitoringEvents, monitoringWorkerState, operationsAuditEvents, operationsIncidentEvents, operationsIncidents, operationsSessions, operationsUsers, securityScanSchedules } from '../../database/admin-schema.js'
+import { adminSessions, adminUsers, monitoringAlerts, monitoringDetectionRules, monitoringEvents, monitoringWorkerState, operationsAuditEvents, operationsIncidentEvents, operationsIncidents, operationsSessions, operationsUsers, securityScanSchedules, wafIpPolicies } from '../../database/admin-schema.js'
 import { getTelemetryQueueState } from './telemetry-store.js'
 import { getWafStatus } from '../../security/waf.js'
-import { addIpPolicy, listIpPolicies, removeIpPolicy, updateIpPolicy } from '../../security/ip-policy.js'
+import { addIpPolicy, listIpPolicies, loadPersistedIpPolicies, removeIpPolicy, updateIpPolicy } from '../../security/ip-policy.js'
 import { securityNotificationStatus } from '../security/security-notifications.js'
 import { generateCycloneDxSbom } from '../security/sbom.js'
 import { cancelSecurityScan, dependencyScannerAvailability, getSecurityOverview, getSecurityScan, listSecurityFindings, listSecurityScans, startSecurityScan, updateSecurityFinding, type ScannerModule } from '../security/scanner-engine.js'
@@ -572,7 +572,7 @@ operationsRouter.get('/security/ip-policies', (_request, response) => {
   })
 })
 
-operationsRouter.post('/security/ip-policies', (request, response) => {
+operationsRouter.post('/security/ip-policies', async (request, response) => {
   const parsed = ipPolicySchema.safeParse(request.body)
   if (!parsed.success) {
     return response.status(400).json({ error: { code: 'INVALID_IP_POLICY', message: 'The IP policy payload is invalid.' } })
@@ -589,6 +589,32 @@ operationsRouter.post('/security/ip-policies', (request, response) => {
       reason: parsed.data.reason,
       expiresAt: parsed.data.expiresAt ?? null,
     })
+    if (adminDb) {
+      const actor = authenticatedOperationsUser(request)
+      await adminDb.transaction(async (transaction) => {
+        await transaction.insert(wafIpPolicies).values({
+          id: policy.id,
+          name: policy.name,
+          action: policy.action,
+          type: policy.type,
+          value: policy.value,
+          enabled: policy.enabled,
+          priority: policy.priority,
+          reason: policy.reason,
+          expiresAt: policy.expiresAt,
+          createdByOperationsUserId: actor?.adminUserId === undefined ? actor?.id ?? null : null,
+          createdByAdminUserId: actor?.adminUserId ?? null,
+        })
+        await transaction.insert(operationsAuditEvents).values({
+          ...operationsAuditIdentity(actor),
+          action: 'waf.ip_policy.created',
+          targetType: 'waf_ip_policy',
+          targetId: policy.id,
+          details: operationsAuditDetails(actor, { action: policy.action, type: policy.type, value: policy.value, expiresAt: policy.expiresAt?.toISOString() ?? null }),
+        })
+      })
+    }
+    await loadPersistedIpPolicies()
     response.status(201).json({ data: { ...policy, expiresAt: policy.expiresAt ? policy.expiresAt.toISOString() : null, createdAt: policy.createdAt.toISOString(), updatedAt: policy.updatedAt.toISOString() } })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'The IP policy could not be created.'
@@ -596,7 +622,7 @@ operationsRouter.post('/security/ip-policies', (request, response) => {
   }
 })
 
-operationsRouter.patch('/security/ip-policies/:id', (request, response) => {
+operationsRouter.patch('/security/ip-policies/:id', async (request, response) => {
   const id = z.string().trim().min(1).safeParse(request.params.id)
   const parsed = ipPolicySchema.safeParse(request.body)
   if (!id.success || !parsed.success) {
@@ -610,10 +636,33 @@ operationsRouter.patch('/security/ip-policies/:id', (request, response) => {
     return response.status(404).json({ error: { code: 'IP_POLICY_NOT_FOUND', message: 'The requested IP policy does not exist.' } })
   }
 
+  if (adminDb) {
+    const actor = authenticatedOperationsUser(request)
+    await adminDb.transaction(async (transaction) => {
+      await transaction.update(wafIpPolicies).set({
+        name: policy.name,
+        action: policy.action,
+        type: policy.type,
+        value: policy.value,
+        enabled: policy.enabled,
+        priority: policy.priority,
+        reason: policy.reason,
+        expiresAt: policy.expiresAt,
+      }).where(eq(wafIpPolicies.id, policy.id))
+      await transaction.insert(operationsAuditEvents).values({
+        ...operationsAuditIdentity(actor),
+        action: 'waf.ip_policy.updated',
+        targetType: 'waf_ip_policy',
+        targetId: policy.id,
+        details: operationsAuditDetails(actor, { action: policy.action, type: policy.type, value: policy.value, enabled: policy.enabled, expiresAt: policy.expiresAt?.toISOString() ?? null }),
+      })
+    })
+  }
+  await loadPersistedIpPolicies()
   response.json({ data: { ...policy, expiresAt: policy.expiresAt ? policy.expiresAt.toISOString() : null, createdAt: policy.createdAt.toISOString(), updatedAt: policy.updatedAt.toISOString() } })
 })
 
-operationsRouter.delete('/security/ip-policies/:id', (request, response) => {
+operationsRouter.delete('/security/ip-policies/:id', async (request, response) => {
   const id = z.string().trim().min(1).safeParse(request.params.id)
   if (!id.success) {
     return response.status(400).json({ error: { code: 'INVALID_IP_POLICY', message: 'The IP policy identifier is invalid.' } })
@@ -622,6 +671,20 @@ operationsRouter.delete('/security/ip-policies/:id', (request, response) => {
   if (!removed) {
     return response.status(404).json({ error: { code: 'IP_POLICY_NOT_FOUND', message: 'The requested IP policy does not exist.' } })
   }
+  if (adminDb) {
+    const actor = authenticatedOperationsUser(request)
+    await adminDb.transaction(async (transaction) => {
+      await transaction.delete(wafIpPolicies).where(eq(wafIpPolicies.id, id.data))
+      await transaction.insert(operationsAuditEvents).values({
+        ...operationsAuditIdentity(actor),
+        action: 'waf.ip_policy.deleted',
+        targetType: 'waf_ip_policy',
+        targetId: id.data,
+        details: operationsAuditDetails(actor),
+      })
+    })
+  }
+  await loadPersistedIpPolicies()
   response.status(204).end()
 })
 

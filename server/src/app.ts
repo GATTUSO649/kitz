@@ -24,6 +24,7 @@ import { createOriginAuthentication } from './middleware/origin-auth.js'
 import { requestMetrics } from './middleware/request-metrics.js'
 import { recordMonitoringEvent } from './modules/operations/monitoring-recorder.js'
 import { createWafMiddleware } from './security/waf.js'
+import { loadPersistedIpPolicies } from './security/ip-policy.js'
 import { createAccountRateLimiter, createSecurityRateLimiter, isRateLimitStorageUnavailable } from './security/distributed-rate-limit.js'
 
 export const app = express()
@@ -102,6 +103,7 @@ app.use((error: unknown, request: express.Request, response: express.Response, n
   response.setHeader('Cache-Control', 'no-store')
   response.status(400).json({ error: { code: 'INVALID_JSON_BODY', message: 'The request body must be valid JSON.' } })
 })
+void loadPersistedIpPolicies().catch(() => undefined)
 app.use(createWafMiddleware(env.WAF_MODE))
 app.use(createOriginAuthentication(env.ORIGIN_AUTH_TOKEN))
 

@@ -105,6 +105,7 @@ type SecurityScanner = { scanner: string; status: string; coverage: string; sour
 type SecurityScan = { id: string; status: string; scope: string[]; modules: { module: string; status: string; findingCount: number; unsupportedReason?: string }[]; findings: SecurityFinding[]; summary: Record<string, string | number | boolean | null>; startedAt: string; completedAt?: string }
 type SecuritySchedule = { enabled: boolean; dailyAt: string; nextRunAt: string | null; lastRunAt: string | null; worker: string }
 type WafStatus = { mode: 'disabled' | 'detect' | 'block'; state: string; configuration: string; policiesPersisted: boolean; externalEdgeProtection: string; rules: { ruleId: string; severity: string; component: string; blockable: boolean }[] }
+type WafIpPolicy = { id: string; name: string; action: 'allow' | 'block' | 'challenge'; type: 'ip' | 'cidr'; value: string; enabled: boolean; priority: number; reason: string; expiresAt: string | null; createdAt: string; updatedAt: string }
 type SecurityEvent = { id: number; eventType: string; severity: string; occurredAt: string; sourceService: string; metadata: Record<string, string | number | boolean | null> }
 type PersistedSecurityEvent = SecurityEvent & { category: string; requestId: string | null; correlationId: string | null; relatedResourceId: string | null; instanceId: string }
 type SecurityNotificationStatus = { configured: boolean; recipientConfigured: boolean; providerConfigured: boolean }
@@ -497,6 +498,8 @@ function OperationsConsole() {
   const [paymentSearch, setPaymentSearch] = useState('')
   const [paymentApplication, setPaymentApplication] = useState<'KITZ' | 'MARKETHUB'>('KITZ')
   const [wafEventSeverity, setWafEventSeverity] = useState('')
+  const [wafPolicyBusy, setWafPolicyBusy] = useState(false)
+  const [wafPolicyError, setWafPolicyError] = useState('')
   const [securityEventSeverity, setSecurityEventSeverity] = useState('')
   const [securityEventType, setSecurityEventType] = useState('')
   const [securityEventService, setSecurityEventService] = useState('')
@@ -526,6 +529,12 @@ function OperationsConsole() {
     queryFn: async () => (await operationsApi<WafStatus>('/api/v1/operations/security/waf')).data!,
     retry: false,
   })
+  const wafIpPoliciesQuery = useQuery({
+    queryKey: ['operations', 'waf-ip-policies'],
+    queryFn: async () => (await operationsApi<WafIpPolicy[]>('/api/v1/operations/security/ip-policies')).data ?? [],
+    refetchInterval: 15_000,
+    retry: false,
+  })
   const wafEventsQuery = useQuery({
     queryKey: ['operations', 'waf-events', wafEventSeverity],
     queryFn: async () => {
@@ -536,6 +545,63 @@ function OperationsConsole() {
     refetchInterval: 15_000,
     retry: false,
   })
+  async function createWafIpPolicy(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setWafPolicyError('')
+    setWafPolicyBusy(true)
+    try {
+      const form = new FormData(event.currentTarget)
+      await operationsApi<WafIpPolicy>('/api/v1/operations/security/ip-policies', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: String(form.get('name')),
+          action: String(form.get('action')),
+          type: String(form.get('type')),
+          value: String(form.get('value')),
+          reason: String(form.get('reason')),
+          priority: Number(form.get('priority')),
+          enabled: true,
+        }),
+      })
+      event.currentTarget.reset()
+      await queryClient.invalidateQueries({ queryKey: ['operations', 'waf-ip-policies'] })
+    } catch (issue) {
+      setWafPolicyError(issue instanceof Error ? issue.message : 'The IP policy could not be created.')
+    } finally {
+      setWafPolicyBusy(false)
+    }
+  }
+
+  async function updateWafIpPolicy(policy: WafIpPolicy, patch: Partial<WafIpPolicy>) {
+    setWafPolicyError('')
+    setWafPolicyBusy(true)
+    try {
+      await operationsApi<WafIpPolicy>(`/api/v1/operations/security/ip-policies/${encodeURIComponent(policy.id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      })
+      await queryClient.invalidateQueries({ queryKey: ['operations', 'waf-ip-policies'] })
+    } catch (issue) {
+      setWafPolicyError(issue instanceof Error ? issue.message : 'The IP policy could not be updated.')
+    } finally {
+      setWafPolicyBusy(false)
+    }
+  }
+
+  async function deleteWafIpPolicy(policy: WafIpPolicy) {
+    if (!window.confirm(`Delete IP policy ${policy.name}?`)) return
+    setWafPolicyError('')
+    setWafPolicyBusy(true)
+    try {
+      await operationsApi<never>(`/api/v1/operations/security/ip-policies/${encodeURIComponent(policy.id)}`, { method: 'DELETE' })
+      await queryClient.invalidateQueries({ queryKey: ['operations', 'waf-ip-policies'] })
+    } catch (issue) {
+      setWafPolicyError(issue instanceof Error ? issue.message : 'The IP policy could not be deleted.')
+    } finally {
+      setWafPolicyBusy(false)
+    }
+  }
+
   const securityEventsQuery = useQuery({
     queryKey: ['operations', 'security-events', securityEventSeverity, securityEventType, securityEventService, securityEventStart, securityEventEnd],
     queryFn: async () => {
@@ -1125,6 +1191,19 @@ function OperationsConsole() {
             <article className="operations-stat-card"><span>Policy persistence</span><strong>{wafStatusQuery.data.policiesPersisted ? 'Persisted' : 'Not persisted'}</strong><small>Mode is configured through the server environment</small></article>
             <article className="operations-stat-card"><span>External edge protection</span><strong>{label(wafStatusQuery.data.externalEdgeProtection)}</strong><small>No provider integration is verified</small></article>
           </div>
+          <section className="operations-panel-card full-span"><header><span className="operations-eyebrow">IP access control</span><h3>IP and CIDR policies</h3></header>
+            <form className="operations-waf-policy-form" onSubmit={(event) => void createWafIpPolicy(event)}>
+              <input name="name" required minLength={2} maxLength={80} placeholder="Policy name" aria-label="IP policy name" />
+              <select name="action" defaultValue="block" aria-label="IP policy action"><option value="block">Block</option><option value="allow">Allow</option><option value="challenge">Challenge</option></select>
+              <select name="type" defaultValue="ip" aria-label="IP policy type"><option value="ip">Single IP</option><option value="cidr">CIDR range</option></select>
+              <input name="value" required minLength={3} maxLength={128} placeholder="192.0.2.10 or 192.0.2.0/24" aria-label="IP or CIDR value" />
+              <input name="reason" required minLength={2} maxLength={240} placeholder="Reason" aria-label="Policy reason" />
+              <input name="priority" type="number" required min={0} max={1000} defaultValue={50} aria-label="Policy priority" />
+              <button type="submit" disabled={wafPolicyBusy}>{wafPolicyBusy ? 'Saving…' : 'Add policy'}</button>
+            </form>
+            {wafPolicyError && <p className="operations-error" role="alert">{wafPolicyError}</p>}
+            {wafIpPoliciesQuery.isPending ? <div className="operations-empty">Loading IP policies…</div> : wafIpPoliciesQuery.isError ? <div className="operations-empty">IP policies are unavailable: {wafIpPoliciesQuery.error.message}</div> : <div className="operations-table-wrap"><table className="operations-table"><thead><tr><th>Name</th><th>Target</th><th>Action</th><th>Priority</th><th>Status</th><th>Reason</th><th>Actions</th></tr></thead><tbody>{wafIpPoliciesQuery.data?.map((policy) => <tr key={policy.id}><td><strong>{policy.name}</strong><br /><small>{policy.type}</small></td><td>{policy.value}</td><td>{label(policy.action)}</td><td>{policy.priority}</td><td>{policy.enabled ? 'Enabled' : 'Disabled'}{policy.expiresAt ? ` until ${new Date(policy.expiresAt).toLocaleString()}` : ''}</td><td>{policy.reason}</td><td><div className="operations-inline-actions"><button type="button" disabled={wafPolicyBusy} onClick={() => void updateWafIpPolicy(policy, { enabled: !policy.enabled })}>{policy.enabled ? 'Disable' : 'Enable'}</button><button type="button" disabled={wafPolicyBusy} onClick={() => void deleteWafIpPolicy(policy)}>Delete</button></div></td></tr>) }{!wafIpPoliciesQuery.data?.length && <tr><td colSpan={7}>No IP policies are currently configured.</td></tr>}</tbody></table></div>}
+          </section>
           <section className="operations-panel-card full-span"><header><span className="operations-eyebrow">Active inspection coverage</span><h3>Application rules</h3></header>
             <div className="operations-table-wrap"><table className="operations-table"><thead><tr><th>Rule</th><th>Severity</th><th>Input</th><th>Block behavior</th></tr></thead><tbody>{wafStatusQuery.data.rules.map((rule) => <tr key={rule.ruleId}><td>{rule.ruleId}</td><td>{label(rule.severity)}</td><td>{label(rule.component)}</td><td>{rule.blockable ? 'Eligible in explicit block mode' : 'Detection only'}</td></tr>)}</tbody></table></div>
           </section>
