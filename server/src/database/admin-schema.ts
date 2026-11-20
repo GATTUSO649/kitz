@@ -59,8 +59,8 @@ export const adminBiometricCredentials = mysqlTable('admin_biometric_credentials
 
 export const adminBiometricChallenges = mysqlTable('admin_biometric_challenges', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
-  adminUserId: int('admin_user_id').notNull().references(() => adminUsers.id, { onDelete: 'cascade' }),
-  adminSessionId: int('admin_session_id').notNull().references(() => adminSessions.id, { onDelete: 'cascade' }),
+  adminUserId: int('admin_user_id').references(() => adminUsers.id, { onDelete: 'cascade' }),
+  adminSessionId: int('admin_session_id').references(() => adminSessions.id, { onDelete: 'cascade' }),
   challenge: varchar('challenge', { length: 128 }).notNull().unique(),
   purpose: varchar('purpose', { length: 24 }).notNull(),
   expiresAt: timestamp('expires_at').notNull(),
@@ -68,7 +68,7 @@ export const adminBiometricChallenges = mysqlTable('admin_biometric_challenges',
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (table) => [
   index('admin_biometric_challenges_session_purpose_idx').on(table.adminSessionId, table.purpose, table.expiresAt),
-  check('admin_biometric_challenges_purpose_check', sql`${table.purpose} IN ('registration', 'authentication')`),
+  check('admin_biometric_challenges_purpose_check', sql`${table.purpose} IN ('registration', 'authentication', 'login')`),
 ]).enableRLS()
 
 export const adminBiometricEvents = mysqlTable('admin_biometric_events', {

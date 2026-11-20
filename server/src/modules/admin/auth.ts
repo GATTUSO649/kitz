@@ -32,7 +32,7 @@ function cookieToken(header?: string) {
   try { return decodeURIComponent(value.slice(cookieName.length + 1)) } catch { return null }
 }
 
-function setAdminSessionCookie(response: Response, token: string) {
+export function setAdminSessionCookie(response: Response, token: string) {
   response.clearCookie(cookieName, {
     httpOnly: true,
     secure: env.NODE_ENV === 'production',

@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { and, asc, count, eq, gt, isNull } from 'drizzle-orm'
+import { and, asc, count, eq, gt, isNotNull, isNull } from 'drizzle-orm'
 import { Router, type RequestHandler } from 'express'
 import { z } from 'zod'
 import {
@@ -13,9 +13,12 @@ import {
 import { adminDb } from '../../config/database.js'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { verifyPassword } from '../../config/password-policy.js'
-import { adminAuditLogs, adminBiometricChallenges, adminBiometricCredentials, adminBiometricEvents, adminSessions, adminUsers } from '../../database/admin-schema.js'
+import { adminAuditLogs, adminBiometricChallenges, adminBiometricCredentials, adminBiometricEvents, adminLoginAttempts, adminSessions, adminUsers } from '../../database/admin-schema.js'
 import { authenticateAdmin, authenticatedAdmin } from '../../middleware/authenticate.js'
 import { createSecurityRateLimiter } from '../../security/distributed-rate-limit.js'
+import { adminSessionAbsoluteLifetimeMs, adminSessionIdleTimeoutMs, nextSessionExpiry } from '../../config/session-policy.js'
+import { setAdminSessionCookie } from './auth.js'
+import { administratorPortal } from './administration.js'
 
 const challengeLifetimeMs = 2 * 60_000
 const freshAuthenticationWindowMs = 5 * 60_000
@@ -44,6 +47,8 @@ export const adminBiometricsRouter = Router()
 const optionLimiter = createSecurityRateLimiter('super-admin.webauthn-options', { windowMs: failureWindowMs, limit: 10, standardHeaders: true })
 const verificationLimiter = createSecurityRateLimiter('super-admin.webauthn-verification', { windowMs: failureWindowMs, limit: 10, standardHeaders: true })
 const revokeLimiter = createSecurityRateLimiter('super-admin.webauthn-revoke', { windowMs: failureWindowMs, limit: 5, standardHeaders: true })
+const loginOptionsLimiter = createSecurityRateLimiter('super-admin.webauthn-login-options', { windowMs: failureWindowMs, limit: 10, standardHeaders: true })
+const loginVerificationLimiter = createSecurityRateLimiter('super-admin.webauthn-login-verification', { windowMs: failureWindowMs, limit: 10, standardHeaders: true })
 
 adminBiometricsRouter.use((request, response, next) => {
   if (['GET', 'HEAD', 'OPTIONS'].includes(request.method) || isAllowedClientOrigin(request.get('origin'))) {
@@ -52,6 +57,157 @@ adminBiometricsRouter.use((request, response, next) => {
   }
   response.status(403).json({ error: { code: 'ORIGIN_REJECTED', message: 'Request origin is not allowed.' } })
 })
+
+adminBiometricsRouter.post('/login/options', loginOptionsLimiter, async (_request, response) => {
+  if (!adminDb) return response.status(503).json({ error: { code: 'ADMIN_DATABASE_UNAVAILABLE', message: 'Administrator authentication is unavailable.' } })
+  const { rpID } = webAuthnRelyingParty()
+  const options = await generateAuthenticationOptions({
+    rpID,
+    challenge: randomBytes(challengeBytes),
+    timeout: challengeLifetimeMs,
+    userVerification: 'required',
+    allowCredentials: [],
+  })
+  const [challenge] = await adminDb.insert(adminBiometricChallenges).values({
+    adminUserId: null,
+    adminSessionId: null,
+    purpose: 'login',
+    challenge: options.challenge,
+    expiresAt: new Date(Date.now() + challengeLifetimeMs),
+  }).returning({ id: adminBiometricChallenges.id })
+  response.setHeader('Cache-Control', 'no-store')
+  response.json({ data: { options, challengeId: challenge.id } })
+})
+
+adminBiometricsRouter.post('/login/verify', loginVerificationLimiter, async (request, response) => {
+  if (!adminDb) return response.status(503).json({ error: { code: 'ADMIN_DATABASE_UNAVAILABLE', message: 'Administrator authentication is unavailable.' } })
+  const input = z.object({
+    challengeId: z.number().int().positive(),
+    response: z.record(z.string(), z.unknown()),
+  }).strict().safeParse(request.body)
+  if (!input.success) return response.status(400).json({ error: { code: 'INVALID_WEBAUTHN_RESPONSE', message: 'The authenticator response is invalid.' } })
+
+  const challenge = await adminDb.transaction(async (transaction) => {
+    const now = new Date()
+    const [record] = await transaction.select({
+      id: adminBiometricChallenges.id,
+      challenge: adminBiometricChallenges.challenge,
+      expiresAt: adminBiometricChallenges.expiresAt,
+      consumedAt: adminBiometricChallenges.consumedAt,
+    }).from(adminBiometricChallenges).where(and(
+      eq(adminBiometricChallenges.id, input.data.challengeId),
+      eq(adminBiometricChallenges.purpose, 'login'),
+      isNull(adminBiometricChallenges.adminUserId),
+      isNull(adminBiometricChallenges.adminSessionId),
+      isNull(adminBiometricChallenges.consumedAt),
+      gt(adminBiometricChallenges.expiresAt, now),
+    )).for('update').limit(1)
+    if (!record || !isBiometricChallengeConsumable(record, now)) return null
+    const [consumed] = await transaction.update(adminBiometricChallenges).set({ consumedAt: now }).where(and(
+      eq(adminBiometricChallenges.id, record.id),
+      isNull(adminBiometricChallenges.consumedAt),
+      gt(adminBiometricChallenges.expiresAt, now),
+    )).returning({ id: adminBiometricChallenges.id })
+    return consumed ? record.challenge : null
+  })
+  if (!challenge) {
+    await writeEvent({ adminUserId: null, adminSessionId: null, eventType: 'authentication_failed', succeeded: false, failureCode: 'LOGIN_CHALLENGE_INVALID', sourceHash: biometricSourceHash(request.ip) })
+    return response.status(400).json({ error: { code: 'CHALLENGE_INVALID_OR_EXPIRED', message: 'The sign-in challenge expired or was already used. Retry.' } })
+  }
+
+  const assertion = input.data.response as unknown as AuthenticationResponseJSON
+  const [credential] = await adminDb.select({
+    id: adminBiometricCredentials.id,
+    adminUserId: adminBiometricCredentials.adminUserId,
+    credentialId: adminBiometricCredentials.credentialId,
+    publicKey: adminBiometricCredentials.publicKey,
+    signCount: adminBiometricCredentials.signCount,
+    transports: adminBiometricCredentials.transports,
+    label: adminBiometricCredentials.label,
+    email: adminUsers.email,
+    fullName: adminUsers.fullName,
+    roleNumber: adminUsers.roleNumber,
+    role: adminUsers.role,
+    status: adminUsers.status,
+    emailVerifiedAt: adminUsers.emailVerifiedAt,
+  }).from(adminBiometricCredentials).innerJoin(adminUsers, eq(adminUsers.id, adminBiometricCredentials.adminUserId))
+    .where(and(
+      eq(adminBiometricCredentials.credentialId, assertion.id),
+      isNull(adminBiometricCredentials.revokedAt),
+      eq(adminUsers.role, 'super_admin'),
+      eq(adminUsers.status, 'active'),
+      isNotNull(adminUsers.emailVerifiedAt),
+    )).limit(1)
+
+  const credentialTag = biometricSourceHash(assertion.id ?? 'unknown')
+  if (!credential) {
+    await writeEvent({ adminUserId: null, adminSessionId: null, eventType: 'authentication_failed', succeeded: false, failureCode: 'LOGIN_CREDENTIAL_REJECTED', sourceHash: biometricSourceHash(request.ip) })
+    await adminDb.insert(adminLoginAttempts).values({ identity: `webauthn:${credentialTag.slice(0, 40)}`, success: false, failureCode: 'WEBAUTHN_LOGIN_REJECTED' })
+    return response.status(401).json({ error: { code: 'AUTHENTICATION_REJECTED', message: 'No active Super-Admin authenticator matched this request.' } })
+  }
+
+  const attempts = await failedAttemptState(credential.adminUserId)
+  if (attempts.lockedUntil) return response.status(423).json({ error: { code: 'BIOMETRIC_LOCKED', message: 'Too many verification attempts. Wait for the lockout to expire.', lockedUntil: attempts.lockedUntil.toISOString() } })
+
+  try {
+    const { origin, rpID } = webAuthnRelyingParty()
+    const verification = await verifyAuthenticationResponse({
+      response: assertion,
+      expectedChallenge: challenge,
+      expectedOrigin: origin,
+      expectedRPID: rpID,
+      credential: {
+        id: credential.credentialId,
+        publicKey: Buffer.from(credential.publicKey, 'base64url'),
+        counter: credential.signCount,
+        transports: credential.transports,
+      },
+      requireUserVerification: true,
+    })
+    if (!verification.verified || !verification.authenticationInfo.userVerified) throw new Error('USER_VERIFICATION_REQUIRED')
+
+    const now = new Date()
+    const token = randomBytes(32).toString('base64url')
+    const expiresAt = nextSessionExpiry(now, now, adminSessionIdleTimeoutMs, adminSessionAbsoluteLifetimeMs)!
+    await adminDb.transaction(async (transaction) => {
+      const currentCredential = await transaction.update(adminBiometricCredentials).set({
+        signCount: verification.authenticationInfo.newCounter,
+        lastUsedAt: now,
+      }).where(and(
+        eq(adminBiometricCredentials.id, credential.id),
+        eq(adminBiometricCredentials.adminUserId, credential.adminUserId),
+        isNull(adminBiometricCredentials.revokedAt),
+      )).returning({ id: adminBiometricCredentials.id })
+      if (currentCredential.length !== 1) throw new Error('CREDENTIAL_REVOKED')
+      const [session] = await transaction.insert(adminSessions).values({
+        adminUserId: credential.adminUserId,
+        tokenHash: createHash('sha256').update(token).digest('hex'),
+        expiresAt,
+        webauthnVerifiedAt: now,
+        createdAt: now,
+      }).returning({ id: adminSessions.id })
+      await transaction.insert(adminBiometricEvents).values({ adminUserId: credential.adminUserId, adminSessionId: session.id, eventType: 'authentication_succeeded', succeeded: true })
+      await transaction.insert(adminAuditLogs).values({ adminUserId: credential.adminUserId, action: 'admin.webauthn_login', targetType: 'admin_user', targetId: String(credential.adminUserId) })
+      await transaction.insert(adminLoginAttempts).values({ identity: credential.email, adminUserId: credential.adminUserId, success: true })
+      await transaction.update(adminUsers).set({ lastLoginAt: now }).where(eq(adminUsers.id, credential.adminUserId))
+    })
+    setAdminSessionCookie(response, token)
+    response.setHeader('Cache-Control', 'no-store')
+    response.json({ data: {
+      user: { id: credential.adminUserId, email: credential.email, fullName: credential.fullName, roleNumber: credential.roleNumber, role: credential.role },
+      portal: administratorPortal('super_admin'),
+      deviceLabel: credential.label,
+    } })
+  } catch (error) {
+    const failureCode = error instanceof Error ? error.message.slice(0, 80) : 'AUTHENTICATION_REJECTED'
+    await writeEvent({ adminUserId: credential.adminUserId, adminSessionId: null, eventType: 'authentication_failed', succeeded: false, failureCode, sourceHash: biometricSourceHash(request.ip) })
+    await adminDb.insert(adminLoginAttempts).values({ identity: credential.email, adminUserId: credential.adminUserId, success: false, failureCode: 'WEBAUTHN_LOGIN_REJECTED' })
+    const currentAttempts = await failedAttemptState(credential.adminUserId)
+    if (currentAttempts.lockedUntil) return response.status(423).json({ error: { code: 'BIOMETRIC_LOCKED', message: 'Too many verification attempts. Wait for the lockout to expire.', lockedUntil: currentAttempts.lockedUntil.toISOString() } })
+    response.status(401).json({ error: { code: 'AUTHENTICATION_REJECTED', message: 'The authenticator could not be verified. No administrator session was created.' } })
+  }
+})
+
 adminBiometricsRouter.use(authenticateAdmin, (request, response, next) => {
   const actor = authenticatedAdmin(request)
   if (!actor || actor.role !== 'super_admin' || actor.status !== 'active') {
@@ -130,8 +286,8 @@ async function failedAttemptState(adminUserId: number, now = new Date()) {
 }
 
 async function writeEvent(input: {
-  adminUserId: number
-  adminSessionId: number
+  adminUserId: number | null
+  adminSessionId: number | null
   eventType: string
   succeeded: boolean
   failureCode?: string
@@ -248,7 +404,7 @@ adminBiometricsRouter.post('/register/options', optionLimiter, async (request, r
     challenge: randomBytes(challengeBytes),
     timeout: challengeLifetimeMs,
     attestationType: 'none',
-    authenticatorSelection: { authenticatorAttachment: 'platform', residentKey: 'discouraged', userVerification: 'required' },
+    authenticatorSelection: { authenticatorAttachment: 'platform', residentKey: 'required', userVerification: 'required' },
     preferredAuthenticatorType: 'localDevice',
     excludeCredentials: credentials.map(({ credentialId, transports }) => ({ id: credentialId, transports })),
   })

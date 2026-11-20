@@ -610,13 +610,15 @@ test('WebAuthn relying party binds to the configured site origin and rejects ins
 })
 
 test('Super Admin WebAuthn mutations reject cross-origin requests before authentication', async () => {
-  const response = await fetch(`${baseUrl}/api/v1/super-admin/biometrics/register/options`, {
-    method: 'POST',
-    headers: { origin: 'https://attacker.invalid', 'Content-Type': 'application/json' },
-    body: '{}',
-  })
-  assert.equal(response.status, 403)
-  assert.equal((await response.json() as { error: { code: string } }).error.code, 'ORIGIN_REJECTED')
+  for (const path of ['/register/options', '/login/options']) {
+    const response = await fetch(`${baseUrl}/api/v1/super-admin/biometrics${path}`, {
+      method: 'POST',
+      headers: { origin: 'https://attacker.invalid', 'Content-Type': 'application/json' },
+      body: '{}',
+    })
+    assert.equal(response.status, 403)
+    assert.equal((await response.json() as { error: { code: string } }).error.code, 'ORIGIN_REJECTED')
+  }
 })
 
 test('WebAuthn lockout activates at the configured failed-attempt threshold', () => {
