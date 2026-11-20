@@ -84,6 +84,20 @@ export const adminBiometricEvents = mysqlTable('admin_biometric_events', {
   index('admin_biometric_events_admin_created_idx').on(table.adminUserId, table.createdAt),
 ]).enableRLS()
 
+export const adminBiometricRecoveryRequests = mysqlTable('admin_biometric_recovery_requests', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  adminUserId: int('admin_user_id').notNull().references(() => adminUsers.id, { onDelete: 'cascade' }),
+  adminSessionId: int('admin_session_id').references(() => adminSessions.id, { onDelete: 'set null' }),
+  tokenHash: varchar('token_hash', { length: 64 }).notNull().unique(),
+  status: varchar('status', { length: 24 }).notNull().default('pending'),
+  expiresAt: timestamp('expires_at').notNull(),
+  consumedAt: timestamp('consumed_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('admin_biometric_recovery_user_status_idx').on(table.adminUserId, table.status, table.expiresAt),
+  check('admin_biometric_recovery_status_check', sql`${table.status} IN ('pending', 'completed', 'cancelled')`),
+]).enableRLS()
+
 export const itAccessRoles = ['super_admin', 'chief_security_operator', 'security_analyst', 'it_support', 'database_admin', 'infrastructure_admin', 'viewer'] as const
 export type ItAccessRole = typeof itAccessRoles[number]
 

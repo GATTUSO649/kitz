@@ -591,6 +591,10 @@ test('Super Admin WebAuthn routes reject requests without an administrator sessi
     fetch(`${baseUrl}/api/v1/super-admin/biometrics/register/verify`, options),
     fetch(`${baseUrl}/api/v1/super-admin/biometrics/authenticate/options`, options),
     fetch(`${baseUrl}/api/v1/super-admin/biometrics/authenticate/verify`, options),
+    fetch(`${baseUrl}/api/v1/super-admin/biometrics/history`),
+    fetch(`${baseUrl}/api/v1/super-admin/biometrics/devices/1`, { ...options, method: 'PATCH', body: JSON.stringify({ label: 'Replacement laptop' }) }),
+    fetch(`${baseUrl}/api/v1/super-admin/biometrics/recovery/request`, options),
+    fetch(`${baseUrl}/api/v1/super-admin/biometrics/recovery/complete`, options),
     fetch(`${baseUrl}/api/v1/super-admin/biometrics/revoke`, options),
   ]
   const responses = await Promise.all(requests)

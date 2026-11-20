@@ -852,7 +852,7 @@ function App() {
   if (pagePath === '/admin/access') return <Suspense fallback={null}><AdminAccessPage /></Suspense>
   if (pagePath === '/admin/activate') return <Suspense fallback={null}><AdminActivationPage /></Suspense>
   if (isSuperAdminPage) {
-    const isSuperAdminAuthRoute = ['/super-admin/signup', '/super-admin/login', '/super-admin/verify', '/super-admin/fingerprint-verification'].includes(pagePath)
+    const isSuperAdminAuthRoute = ['/super-admin/signup', '/super-admin/login', '/super-admin/verify', '/super-admin/fingerprint-verification', '/super-admin/fingerprint-enrollment'].includes(pagePath)
     return <Suspense fallback={isSuperAdminAuthRoute ? <DelayedBrandLoader label="Loading Super Administrator sign-in" /> : null}>{isSuperAdminAuthRoute ? <SuperAdminRoute /> : <SuperAdminConsole />}</Suspense>
   }
   if (roleAdminPage) return <Suspense fallback={pagePath.endsWith('/login') ? <DelayedBrandLoader label="Loading administrator sign-in" /> : null}><RolePortalRoute /></Suspense>

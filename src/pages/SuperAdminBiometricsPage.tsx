@@ -48,7 +48,7 @@ function biometricLockDelay(lockedUntil: string) {
   return Math.max(0, Date.parse(lockedUntil) - Date.now())
 }
 
-export function SuperAdminBiometricsPage() {
+export function SuperAdminBiometricsPage({ mode = 'verification' }: { mode?: 'enrollment' | 'verification' | 'devices' }) {
   const navigate = useNavigate()
   const operationRef = useRef(0)
   const [phase, setPhase] = useState<Phase>('initializing')
@@ -220,8 +220,12 @@ export function SuperAdminBiometricsPage() {
       </div>
       <div className="sa-bio-content">
         <span className="sa-bio-eyebrow">KITCULTURE · SUPER-ADMIN</span>
-        <h1>Verify your administrator session</h1>
-        <p className="sa-bio-intro">Use the platform authenticator enrolled to your account. The IT Portal validates the signed challenge before unlocking administrative controls.</p>
+        <h1>{mode === 'enrollment' ? 'Register your fingerprint' : mode === 'devices' ? 'Registered device security' : 'Welcome back'}</h1>
+        <p className="sa-bio-intro">{mode === 'enrollment'
+          ? 'Register your device supported biometric authenticator to protect your administrator account.'
+          : mode === 'devices'
+            ? 'Review registered authenticators and revoke access for devices you no longer use.'
+            : 'Verify your identity to securely access your administration dashboard.'}</p>
         <div className={`sa-bio-status is-${phase}`} role="status"><i />{statusLabel}</div>
         <div className="sa-bio-progress" aria-label={`Verification state: ${statusLabel}`}><span className={phase !== 'idle' ? 'is-reached' : ''} /><span className={phase === 'verifying' || phase === 'success' ? 'is-reached' : ''} /><span className={phase === 'success' ? 'is-reached' : ''} /></div>
         <div className="sa-bio-note"><ShieldCheck size={17} /><span>Challenge expires after two minutes. Public-key signatures are checked server-side; no fingerprint images or templates are collected.</span></div>
@@ -230,11 +234,11 @@ export function SuperAdminBiometricsPage() {
         {notice && <p className="sa-bio-message is-notice" role="status">{notice}</p>}
         {locked && status?.lockedUntil && <p className="sa-bio-lock-copy">Retry after {new Date(status.lockedUntil).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}. Failed attempts are recorded in the administrator security log.</p>}
         {phase === 'initializing' && !status ? <div className="sa-bio-loading">Checking account security…</div> : null}
-        {status && !status.enrolled && <label className="sa-bio-label">Device label<input value={label} onChange={(event) => setLabel(event.target.value)} maxLength={100} disabled={busy} /></label>}
+        {status && (mode === 'enrollment' || mode === 'devices' || !status.enrolled) && <label className="sa-bio-label">Device label<input value={label} onChange={(event) => setLabel(event.target.value)} maxLength={100} disabled={busy} /></label>}
         <div className="sa-bio-actions">
           {phase === 'success' ? <button className="sa-bio-primary is-success" type="button" onClick={() => navigate('/super-admin/dashboard', { replace: true })}><Check size={17} />Continue to IT Portal</button>
-            : status?.enrolled ? <button className="sa-bio-primary" type="button" onClick={() => void beginCeremony()} disabled={busy || locked}><Fingerprint size={18} />{busy ? 'Verifying…' : phase === 'failed' ? 'Retry verification' : 'Verify authenticator'}</button>
-              : <button className="sa-bio-primary" type="button" onClick={() => void beginCeremony()} disabled={busy || locked || !status?.enrollmentAllowed}><Fingerprint size={18} />{busy ? 'Enrolling…' : phase === 'failed' ? 'Retry enrollment' : 'Enroll this device'}</button>}
+            : mode === 'enrollment' || !status?.enrolled ? <button className="sa-bio-primary" type="button" onClick={() => void beginCeremony(mode === 'enrollment' || mode === 'devices')} disabled={busy || locked || (mode === 'enrollment' && !status?.enrollmentAllowed)}><Fingerprint size={18} />{busy ? 'Enrolling…' : phase === 'failed' ? 'Retry enrollment' : 'Register fingerprint'}</button>
+              : <button className="sa-bio-primary" type="button" onClick={() => void beginCeremony()} disabled={busy || locked}><Fingerprint size={18} />{busy ? 'Verifying…' : phase === 'failed' ? 'Retry verification' : 'Verify with fingerprint'}</button>}
           {active && <button className="sa-bio-secondary" type="button" onClick={cancelCeremony}><X size={16} />Cancel</button>}
           {status?.enrolled && status.verified && <button className="sa-bio-secondary" type="button" onClick={() => void beginCeremony(true)} disabled={busy}><KeyRound size={16} />Add device</button>}
         </div>

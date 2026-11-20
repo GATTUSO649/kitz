@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { and, asc, count, eq, gt, isNotNull, isNull } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gt, isNotNull, isNull } from 'drizzle-orm'
 import { Router, type RequestHandler } from 'express'
 import { z } from 'zod'
 import {
@@ -13,7 +13,7 @@ import {
 import { adminDb } from '../../config/database.js'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { verifyPassword } from '../../config/password-policy.js'
-import { adminAuditLogs, adminBiometricChallenges, adminBiometricCredentials, adminBiometricEvents, adminLoginAttempts, adminSessions, adminUsers } from '../../database/admin-schema.js'
+import { adminAuditLogs, adminBiometricChallenges, adminBiometricCredentials, adminBiometricEvents, adminBiometricRecoveryRequests, adminLoginAttempts, adminSessions, adminUsers } from '../../database/admin-schema.js'
 import { authenticateAdmin, authenticatedAdmin } from '../../middleware/authenticate.js'
 import { createSecurityRateLimiter } from '../../security/distributed-rate-limit.js'
 import { adminSessionAbsoluteLifetimeMs, adminSessionIdleTimeoutMs, nextSessionExpiry } from '../../config/session-policy.js'
@@ -382,6 +382,105 @@ adminBiometricsRouter.get('/devices', async (request, response) => {
     createdAt: createdAt.toISOString(),
     lastUsedAt: lastUsedAt?.toISOString() ?? null,
   })) })
+})
+
+adminBiometricsRouter.patch('/devices/:id', async (request, response) => {
+  if (!adminDb) return response.status(503).json({ error: { code: 'ADMIN_DATABASE_UNAVAILABLE', message: 'Administrator authentication is unavailable.' } })
+  const params = z.object({ id: z.coerce.number().int().positive() }).safeParse(request.params)
+  const input = z.object({ label: z.string().trim().min(1).max(100) }).strict().safeParse(request.body)
+  if (!params.success || !input.success) return response.status(400).json({ error: { code: 'INVALID_DEVICE', message: 'Check the device name and try again.' } })
+  const actor = actorFor(request)
+  if (!sessionVerificationIsFresh(actor.webauthnVerifiedAt)) {
+    return response.status(428).json({ error: { code: 'BIOMETRIC_VERIFICATION_REQUIRED', message: 'Verify your device again before changing device details.' } })
+  }
+  const now = new Date()
+  const [updated] = await adminDb.update(adminBiometricCredentials).set({ label: input.data.label })
+    .where(and(eq(adminBiometricCredentials.id, params.data.id), eq(adminBiometricCredentials.adminUserId, actor.id), isNull(adminBiometricCredentials.revokedAt)))
+    .returning({ id: adminBiometricCredentials.id })
+  if (!updated) return response.status(404).json({ error: { code: 'CREDENTIAL_NOT_FOUND', message: 'This registered device could not be found.' } })
+  await adminDb.insert(adminBiometricEvents).values({ adminUserId: actor.id, adminSessionId: actor.sessionId, eventType: 'device_renamed', succeeded: true, sourceHash: null })
+  await adminDb.insert(adminAuditLogs).values({ adminUserId: actor.id, action: 'super_admin.authenticator_renamed', targetType: 'biometric_device', targetId: String(params.data.id) })
+  response.setHeader('Cache-Control', 'no-store')
+  response.json({ data: { id: params.data.id, label: input.data.label, updatedAt: now.toISOString() } })
+})
+
+adminBiometricsRouter.get('/history', async (request, response) => {
+  if (!adminDb) return response.status(503).json({ error: { code: 'ADMIN_DATABASE_UNAVAILABLE', message: 'Administrator authentication is unavailable.' } })
+  const actor = actorFor(request)
+  const input = z.object({ limit: z.coerce.number().int().min(1).max(100).default(50) }).safeParse(request.query)
+  if (!input.success) return response.status(400).json({ error: { code: 'INVALID_HISTORY_REQUEST', message: 'The security history request is invalid.' } })
+  const events = await adminDb.select({
+    id: adminBiometricEvents.id,
+    eventType: adminBiometricEvents.eventType,
+    succeeded: adminBiometricEvents.succeeded,
+    failureCode: adminBiometricEvents.failureCode,
+    createdAt: adminBiometricEvents.createdAt,
+  }).from(adminBiometricEvents).where(eq(adminBiometricEvents.adminUserId, actor.id)).orderBy(desc(adminBiometricEvents.createdAt)).limit(input.data.limit)
+  response.setHeader('Cache-Control', 'no-store')
+  response.json({ data: events.map((event) => ({
+    id: event.id,
+    eventType: event.eventType,
+    succeeded: event.succeeded,
+    failureCode: event.failureCode,
+    timestamp: event.createdAt.toISOString(),
+  })) })
+})
+
+adminBiometricsRouter.post('/recovery/request', async (request, response) => {
+  if (!adminDb) return response.status(503).json({ error: { code: 'ADMIN_DATABASE_UNAVAILABLE', message: 'Administrator authentication is unavailable.' } })
+  const actor = actorFor(request)
+  if (!sessionVerificationIsFresh(actor.webauthnVerifiedAt)) {
+    return response.status(428).json({ error: { code: 'BIOMETRIC_VERIFICATION_REQUIRED', message: 'Verify your identity before requesting account recovery.' } })
+  }
+  const token = randomBytes(32).toString('base64url')
+  const now = new Date()
+  const expiresAt = new Date(now.getTime() + 15 * 60_000)
+  await adminDb.transaction(async (transaction) => {
+    await transaction.update(adminBiometricRecoveryRequests).set({ status: 'cancelled' }).where(and(
+      eq(adminBiometricRecoveryRequests.adminUserId, actor.id),
+      eq(adminBiometricRecoveryRequests.status, 'pending'),
+    ))
+    await transaction.insert(adminBiometricRecoveryRequests).values({
+      adminUserId: actor.id,
+      adminSessionId: actor.sessionId,
+      tokenHash: createHash('sha256').update(token).digest('hex'),
+      status: 'pending',
+      expiresAt,
+    })
+    await transaction.insert(adminBiometricEvents).values({ adminUserId: actor.id, adminSessionId: actor.sessionId, eventType: 'recovery_requested', succeeded: true })
+    await transaction.insert(adminAuditLogs).values({ adminUserId: actor.id, action: 'super_admin.authenticator_recovery_requested', targetType: 'admin_user', targetId: String(actor.id) })
+  })
+  response.setHeader('Cache-Control', 'no-store')
+  response.json({ data: { requested: true, expiresAt: expiresAt.toISOString(), recoveryRequired: 'Additional authorization is required before a replacement device can be enrolled.' } })
+})
+
+adminBiometricsRouter.post('/recovery/complete', async (request, response) => {
+  if (!adminDb) return response.status(503).json({ error: { code: 'ADMIN_DATABASE_UNAVAILABLE', message: 'Administrator authentication is unavailable.' } })
+  const input = z.object({ password: z.string().min(1).max(128), recoveryToken: z.string().trim().min(32).max(128).optional() }).strict().safeParse(request.body)
+  if (!input.success) return response.status(400).json({ error: { code: 'INVALID_RECOVERY_REQUEST', message: 'Password reauthorization is required for account recovery.' } })
+  const actor = actorFor(request)
+  const [admin] = await adminDb.select({ passwordHash: adminUsers.passwordHash }).from(adminUsers).where(eq(adminUsers.id, actor.id)).limit(1)
+  if (!admin || !await verifyPassword(input.data.password, admin.passwordHash)) {
+    await writeEvent({ adminUserId: actor.id, adminSessionId: actor.sessionId, eventType: 'recovery_failed', succeeded: false, failureCode: 'PASSWORD_REAUTH_FAILED', sourceHash: biometricSourceHash(request.ip) })
+    return response.status(401).json({ error: { code: 'PASSWORD_REAUTH_FAILED', message: 'Your password could not be verified. Recovery was not completed.' } })
+  }
+  const now = new Date()
+  if (input.data.recoveryToken) {
+    const tokenHash = createHash('sha256').update(input.data.recoveryToken).digest('hex')
+    const [requestRecord] = await adminDb.select({ id: adminBiometricRecoveryRequests.id }).from(adminBiometricRecoveryRequests).where(and(
+      eq(adminBiometricRecoveryRequests.adminUserId, actor.id),
+      eq(adminBiometricRecoveryRequests.tokenHash, tokenHash),
+      eq(adminBiometricRecoveryRequests.status, 'pending'),
+      gt(adminBiometricRecoveryRequests.expiresAt, now),
+    )).limit(1)
+    if (!requestRecord) return response.status(400).json({ error: { code: 'RECOVERY_REQUEST_INVALID', message: 'The recovery request expired or was already used.' } })
+    await adminDb.update(adminBiometricRecoveryRequests).set({ status: 'completed', consumedAt: now }).where(eq(adminBiometricRecoveryRequests.id, requestRecord.id))
+  }
+  await adminDb.update(adminSessions).set({ webauthnVerifiedAt: null }).where(eq(adminSessions.adminUserId, actor.id))
+  await writeEvent({ adminUserId: actor.id, adminSessionId: actor.sessionId, eventType: 'recovery_completed', succeeded: true, sourceHash: biometricSourceHash(request.ip) })
+  await adminDb.insert(adminAuditLogs).values({ adminUserId: actor.id, action: 'super_admin.authenticator_recovery_completed', targetType: 'admin_user', targetId: String(actor.id) })
+  response.setHeader('Cache-Control', 'no-store')
+  response.json({ data: { recovered: true, message: 'Recovery authorization completed. Sign in again and enroll a replacement device.' } })
 })
 
 adminBiometricsRouter.post('/register/options', optionLimiter, async (request, response) => {

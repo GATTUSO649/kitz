@@ -171,7 +171,10 @@ export function SuperAdminRoute() {
   const queryClient = useQueryClient()
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState<'overview' | 'administrators' | 'security'>('overview')
-  const biometricPage = location.pathname === '/super-admin/fingerprint-verification'
+  const enrollmentPage = location.pathname === '/super-admin/fingerprint-enrollment'
+  const verificationPage = location.pathname === '/super-admin/fingerprint-verification'
+  const devicePage = location.pathname === '/super-admin/security/biometric-devices'
+  const biometricPage = enrollmentPage || verificationPage || devicePage
   const sessionPage = !['/super-admin/signup', '/super-admin/login', '/super-admin/verify'].includes(location.pathname)
   const dashboardPage = sessionPage && !biometricPage
   const session = useQuery({ queryKey: ['super-admin', 'session'], queryFn: () => adminApi<{ user: { role: string | null } }>('/api/v1/admin/me'), enabled: sessionPage, staleTime: 0, refetchOnMount: 'always', retry: false })
@@ -248,7 +251,9 @@ export function SuperAdminRoute() {
   if (location.pathname === '/super-admin/signup') return <SuperAdminSignupPage />
   if (session.isPending || session.isFetching) return <main className="role-portal-auth-check" role="status">Verifying administrator access...</main>
   if (session.isError || !authorized) return <Navigate to="/super-admin/login" replace />
-  if (biometricPage) return <SuperAdminBiometricsPage />
+  if (enrollmentPage) return <SuperAdminBiometricsPage mode="enrollment" />
+  if (verificationPage) return <SuperAdminBiometricsPage mode="verification" />
+  if (devicePage) return <SuperAdminBiometricsPage mode="devices" />
   if (dashboardPage && biometricStatus.data && !biometricStatus.data.verified) return <Navigate to="/super-admin/fingerprint-verification" replace />
   if (dashboardPage && biometricStatus.isError) return <main className="admin-empty admin-error"><strong>Authenticator status unavailable</strong><span>{biometricStatus.error.message}</span></main>
   if (overview.isError) return <main className="admin-empty admin-error"><strong>Super Administrator access unavailable</strong><span>{overview.error.message}</span></main>
