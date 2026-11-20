@@ -8,7 +8,7 @@ import { adminSessionAbsoluteLifetimeMs, adminSessionIdleTimeoutMs, customerSess
 
 type AuthenticatedRequest = Request & {
   auth?: { userId: number; email: string; fullName: string; roles: string[] }
-  admin?: { id: number; email: string; fullName: string; roleNumber: string | null; role: string | null; status: string; sessionId: number; sessionCreatedAt: Date; sessionExpiresAt: Date }
+  admin?: { id: number; email: string; fullName: string; roleNumber: string | null; role: string | null; status: string; sessionId: number; sessionCreatedAt: Date; sessionExpiresAt: Date; webauthnVerifiedAt: Date | null }
 }
 
 function sessionToken(request: Request) {
@@ -89,17 +89,17 @@ export const authenticateAdmin: RequestHandler = async (request, response, next)
   }
   const tokenHash = createHash('sha256').update(token).digest('hex')
   const now = new Date()
-  const [session] = await adminDb.select({ id: adminSessions.id, adminUserId: adminSessions.adminUserId, createdAt: adminSessions.createdAt, expiresAt: adminSessions.expiresAt }).from(adminSessions)
+  const [session] = await adminDb.select({ id: adminSessions.id, adminUserId: adminSessions.adminUserId, createdAt: adminSessions.createdAt, expiresAt: adminSessions.expiresAt, webauthnVerifiedAt: adminSessions.webauthnVerifiedAt }).from(adminSessions)
     .where(and(eq(adminSessions.tokenHash, tokenHash), gt(adminSessions.expiresAt, now))).limit(1)
   if (!session) {
-    response.clearCookie('kc_admin_session', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/api/v1/admin' })
+    response.clearCookie('kc_admin_session', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/api/v1' })
     response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Administrator sign in is required.' } })
     return
   }
   const renewedExpiry = nextSessionExpiry(session.createdAt, now, adminSessionIdleTimeoutMs, adminSessionAbsoluteLifetimeMs)
   if (!renewedExpiry) {
     await adminDb.delete(adminSessions).where(eq(adminSessions.id, session.id))
-    response.clearCookie('kc_admin_session', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/api/v1/admin' })
+    response.clearCookie('kc_admin_session', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/api/v1' })
     response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Administrator sign in is required.' } })
     return
   }
@@ -115,7 +115,7 @@ export const authenticateAdmin: RequestHandler = async (request, response, next)
     response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Administrator account is unavailable.' } })
     return
   }
-  ;(request as AuthenticatedRequest).admin = { ...admin, sessionId: session.id, sessionCreatedAt: session.createdAt, sessionExpiresAt: session.expiresAt }
+  ;(request as AuthenticatedRequest).admin = { ...admin, sessionId: session.id, sessionCreatedAt: session.createdAt, sessionExpiresAt: session.expiresAt, webauthnVerifiedAt: session.webauthnVerifiedAt }
   next()
 }
 

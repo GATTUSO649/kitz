@@ -14,6 +14,7 @@ import { catalogueRouter } from './modules/catalogue/routes.js'
 import { ordersRouter } from './modules/orders/routes.js'
 import { accountRouter } from './modules/account/routes.js'
 import { adminAuthRouter } from './modules/admin/auth.js'
+import { adminBiometricsRouter } from './modules/admin/biometrics.js'
 import { adminRouter } from './modules/admin/routes.js'
 import { operationsRouter } from './modules/operations/routes.js'
 import { adminEcosystemRouter } from './modules/admin/ecosystem.js'
@@ -150,6 +151,7 @@ app.use('/api/v1/admin', (request, response, next) => {
   }
   next()
 }, adminAuthRouter)
+app.use('/api/v1/super-admin/biometrics', adminBiometricsRouter)
 app.use('/api/v1/admin', adminEcosystemRouter)
 app.use('/api/v1/operations', operationsRouter)
 app.use('/api/v1/admin', adminRouter)

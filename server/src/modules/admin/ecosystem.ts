@@ -8,13 +8,14 @@ import { adminDb, db } from '../../config/database.js'
 import { env, isAllowedClientOrigin } from '../../config/env.js'
 import { bcryptPasswordSchema, verifyPassword } from '../../config/password-policy.js'
 import { buildAbsoluteUrl, customerEmailTemplate, sendTransactionalEmail } from '../../config/email.js'
-import { adminAuditLogs, adminInvitations, adminLoginAttempts, adminRolePermissions, adminSessions, adminSetupLocks, adminUserPermissions, adminUsers, adminVerificationTokens, administratorRoles, monitoringAlerts, monitoringDetectionRules, monitoringEvents, type AdministratorRole } from '../../database/admin-schema.js'
+import { adminAuditLogs, adminBiometricEvents, adminInvitations, adminLoginAttempts, adminRolePermissions, adminSessions, adminSetupLocks, adminUserPermissions, adminUsers, adminVerificationTokens, administratorRoles, monitoringAlerts, monitoringDetectionRules, monitoringEvents, type AdministratorRole } from '../../database/admin-schema.js'
 import { categories, expenses, homepageSlides, inventoryMovements, notificationCampaigns, orders, payments, productVariants, products, supportRequests, users } from '../../database/schema.js'
 import { authenticateAdmin, authenticatedAdmin } from '../../middleware/authenticate.js'
 import { allocateAdministratorRoleNumber } from './role-number.js'
 import { administratorLoginPath, administratorPermissions as permissionKeys, administratorPortal, administratorRoles as roles, defaultAdministratorPermissions, hasAdministratorPermission, isMarketplaceRoleNumberActivation, isVerifiedPendingMarketplaceAdmin, marketplaceAdministratorRoles, type AdministratorPermission } from './administration.js'
 import { administratorPortalPermission } from './permission-routes.js'
 import { loadAdministratorPermissions, permissionDescriptions, validatePermissionSelection } from './permissions.js'
+import { requireFreshSuperAdminWebAuthn } from './biometrics.js'
 
 export const adminEcosystemRouter = Router()
 adminEcosystemRouter.use((request, response, next) => {
@@ -383,6 +384,13 @@ adminEcosystemRouter.use((request, response, next) => {
   }
   next()
 })
+adminEcosystemRouter.use((request, response, next) => {
+  if (request.path.startsWith('/ecosystem')) {
+    requireFreshSuperAdminWebAuthn(request, response, next)
+    return
+  }
+  next()
+})
 
 async function requireSuperAdmin(permission: AdministratorPermission, request: Parameters<typeof authenticateAdmin>[0], response: Parameters<typeof authenticateAdmin>[1]) {
   const actor = authenticatedAdmin(request)
@@ -413,7 +421,7 @@ adminEcosystemRouter.get('/ecosystem', async (request, response) => {
 adminEcosystemRouter.get('/ecosystem/alerts', async (request, response) => {
   if (!await requireSuperAdmin('analytics.system', request, response)) return
   if (!adminDb) return
-  const [failedLogins, invitationDelivery, monitoring, systemEvents] = await Promise.all([
+  const [failedLogins, invitationDelivery, monitoring, systemEvents, biometricEvents] = await Promise.all([
     adminDb.select({ id: adminLoginAttempts.id, identity: adminLoginAttempts.identity, failureCode: adminLoginAttempts.failureCode, createdAt: adminLoginAttempts.createdAt })
       .from(adminLoginAttempts).where(eq(adminLoginAttempts.success, false)).orderBy(desc(adminLoginAttempts.createdAt)).limit(50),
     adminDb.select({ id: adminInvitations.id, email: adminInvitations.email, role: adminInvitations.role, deliveryStatus: adminInvitations.deliveryStatus, deliveryErrorCode: adminInvitations.deliveryErrorCode, createdAt: adminInvitations.createdAt })
@@ -422,12 +430,15 @@ adminEcosystemRouter.get('/ecosystem/alerts', async (request, response) => {
       .from(monitoringAlerts).innerJoin(monitoringDetectionRules, eq(monitoringAlerts.detectionRuleId, monitoringDetectionRules.id)).orderBy(desc(monitoringAlerts.lastOccurrence)).limit(100),
     adminDb.select({ id: monitoringEvents.id, eventType: monitoringEvents.eventType, category: monitoringEvents.category, severity: monitoringEvents.severity, sourceService: monitoringEvents.sourceService, relatedResourceId: monitoringEvents.relatedResourceId, occurredAt: monitoringEvents.occurredAt })
       .from(monitoringEvents).where(inArray(monitoringEvents.category, ['security', 'system'])).orderBy(desc(monitoringEvents.occurredAt)).limit(100),
+    adminDb.select({ id: adminBiometricEvents.id, eventType: adminBiometricEvents.eventType, succeeded: adminBiometricEvents.succeeded, failureCode: adminBiometricEvents.failureCode, createdAt: adminBiometricEvents.createdAt })
+      .from(adminBiometricEvents).orderBy(desc(adminBiometricEvents.createdAt)).limit(100),
   ])
   const data = [
     ...failedLogins.map((event) => ({ id: `login-${event.id}`, category: 'authentication', severity: 'warning', title: 'Administrator sign-in failed', detail: `${event.identity} · ${event.failureCode ?? 'Unknown failure'}`, status: 'recorded', createdAt: event.createdAt })),
     ...invitationDelivery.map((event) => ({ id: `invitation-${event.id}`, category: 'email_delivery', severity: event.deliveryStatus === 'failed' ? 'error' : 'warning', title: `Administrator invitation ${event.deliveryStatus}`, detail: `${event.email} · ${event.role} · ${event.deliveryErrorCode ?? 'Delivery status pending'}`, status: event.deliveryStatus, createdAt: event.createdAt })),
     ...monitoring.map((event) => ({ id: `monitoring-${event.id}`, category: 'monitoring', severity: event.severity, title: event.ruleName, detail: `${event.affectedService} · ${event.description} · ${event.occurrenceCount} occurrence(s)`, status: event.status, createdAt: event.lastOccurrence })),
     ...systemEvents.map((event) => ({ id: `event-${event.id}`, category: event.category, severity: event.severity, title: event.eventType, detail: `${event.sourceService}${event.relatedResourceId ? ` · ${event.relatedResourceId}` : ''}`, status: 'recorded', createdAt: event.occurredAt })),
+    ...biometricEvents.map((event) => ({ id: `biometric-${event.id}`, category: 'authentication', severity: event.succeeded ? 'info' : 'warning', title: `Super Admin authenticator ${event.eventType.replaceAll('_', ' ')}`, detail: event.failureCode ?? (event.succeeded ? 'Platform authenticator verified' : 'Verification rejected'), status: event.succeeded ? 'verified' : 'failed', createdAt: event.createdAt })),
   ].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()).slice(0, 100)
   response.json({ data })
 })

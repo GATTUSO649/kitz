@@ -3,6 +3,7 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import '../admin-theme.css'
 import '../super-admin-auth.css'
+import { SuperAdminBiometricsPage } from './SuperAdminBiometricsPage'
 
 type Administrator = { id: number; email: string; fullName: string; roleNumber: string | null; role: string | null; status: string; emailVerifiedAt: string | null; lastLoginAt: string | null; createdAt: string }
 type Overview = { total: number; active: number; suspended: number; pending: number; pendingInvitations: number; recentActivity: { action: string; createdAt: string }[]; recentLogins: { id: number; identity: string; success: boolean; failureCode: string | null; createdAt: string }[] }
@@ -10,6 +11,7 @@ type Overview = { total: number; active: number; suspended: number; pending: num
 async function adminApi<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { ...init, credentials: 'include', headers: { ...(init?.body ? { 'Content-Type': 'application/json' } : {}), ...init?.headers } })
   if (response.status === 401 && !/\/(?:bootstrap|verify|login)$/.test(path)) window.dispatchEvent(new Event('kitculture:admin-session-expired'))
+  if (response.status === 428) window.dispatchEvent(new Event('kitculture:admin-biometric-required'))
   const payload = await response.json().catch(() => ({})) as { data?: T; error?: { message?: string } }
   if (!response.ok) throw new Error(payload.error?.message ?? 'Administrator request failed.')
   return payload.data as T
@@ -95,7 +97,7 @@ export function SuperAdminLoginPage() {
     setBusy(true)
     try {
       await adminApi<{ portal: string }>('/api/v1/admin/super-admin/login', { method: 'POST', body: JSON.stringify({ identity, password }) })
-      navigate('/super-admin/dashboard', { replace: true })
+      navigate('/super-admin/fingerprint-verification', { replace: true })
     } catch (issue) {
       setError(issue instanceof Error ? issue.message : 'Super Administrator sign in failed.')
     } finally {
@@ -143,11 +145,14 @@ export function SuperAdminRoute() {
   const queryClient = useQueryClient()
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState<'overview' | 'administrators' | 'security'>('overview')
-  const dashboardPage = !['/super-admin/signup', '/super-admin/login', '/super-admin/verify'].includes(location.pathname)
-  const session = useQuery({ queryKey: ['super-admin', 'session'], queryFn: () => adminApi<{ user: { role: string | null } }>('/api/v1/admin/me'), enabled: dashboardPage, staleTime: 0, refetchOnMount: 'always', retry: false })
+  const biometricPage = location.pathname === '/super-admin/fingerprint-verification'
+  const sessionPage = !['/super-admin/signup', '/super-admin/login', '/super-admin/verify'].includes(location.pathname)
+  const dashboardPage = sessionPage && !biometricPage
+  const session = useQuery({ queryKey: ['super-admin', 'session'], queryFn: () => adminApi<{ user: { role: string | null } }>('/api/v1/admin/me'), enabled: sessionPage, staleTime: 0, refetchOnMount: 'always', retry: false })
   const authorized = session.data?.user.role === 'super_admin'
-  const overview = useQuery({ queryKey: ['super-admin', 'overview'], queryFn: () => adminApi<Overview>('/api/v1/admin/ecosystem'), enabled: dashboardPage && authorized, retry: false, refetchInterval: 30_000 })
-  const administrators = useQuery({ queryKey: ['super-admin', 'administrators'], queryFn: () => adminApi<Administrator[]>('/api/v1/admin/ecosystem/administrators'), enabled: dashboardPage && authorized, retry: false })
+  const biometricStatus = useQuery({ queryKey: ['super-admin', 'biometrics', 'status'], queryFn: () => adminApi<{ verified: boolean }>('/api/v1/super-admin/biometrics/status'), enabled: dashboardPage && authorized, retry: false })
+  const overview = useQuery({ queryKey: ['super-admin', 'overview'], queryFn: () => adminApi<Overview>('/api/v1/admin/ecosystem'), enabled: dashboardPage && authorized && biometricStatus.data?.verified, retry: false, refetchInterval: 30_000 })
+  const administrators = useQuery({ queryKey: ['super-admin', 'administrators'], queryFn: () => adminApi<Administrator[]>('/api/v1/admin/ecosystem/administrators'), enabled: dashboardPage && authorized && biometricStatus.data?.verified, retry: false })
 
   const invite = useMutation({ mutationFn: (input: { fullName: string; email: string; role: string }) => adminApi<{ id: number; roleNumber: string; deliveryStatus: string }>('/api/v1/admin/ecosystem/administrators/invite', { method: 'POST', body: JSON.stringify(input) }), onSuccess: async () => { await Promise.all([queryClient.invalidateQueries({ queryKey: ['super-admin', 'administrators'] }), queryClient.invalidateQueries({ queryKey: ['super-admin', 'overview'] })]) }, onError: (issue) => setError(issue instanceof Error ? issue.message : 'Invitation could not be created.') })
   const updateRole = async (id: number, role: string) => {
@@ -217,6 +222,9 @@ export function SuperAdminRoute() {
   if (location.pathname === '/super-admin/signup') return <SuperAdminSignupPage />
   if (session.isPending || session.isFetching) return <main className="role-portal-auth-check" role="status">Verifying administrator access...</main>
   if (session.isError || !authorized) return <Navigate to="/super-admin/login" replace />
+  if (biometricPage) return <SuperAdminBiometricsPage />
+  if (dashboardPage && biometricStatus.data && !biometricStatus.data.verified) return <Navigate to="/super-admin/fingerprint-verification" replace />
+  if (dashboardPage && biometricStatus.isError) return <main className="admin-empty admin-error"><strong>Authenticator status unavailable</strong><span>{biometricStatus.error.message}</span></main>
   if (overview.isError) return <main className="admin-empty admin-error"><strong>Super Administrator access unavailable</strong><span>{overview.error.message}</span></main>
 
   return <main className="admin-it-page super-admin-page">

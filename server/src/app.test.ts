@@ -22,6 +22,7 @@ process.env.MARKETHUB_SERVICE_TOKEN = 'a'.repeat(48)
 process.env.LOG_LEVEL = 'silent'
 
 const { app } = await import('./app.js')
+const { biometricLockoutStatus, isBiometricChallengeConsumable, webAuthnRelyingParty } = await import('./modules/admin/biometrics.js')
 const { pool, adminPool } = await import('./config/database.js')
 const { inspectDatabaseError } = await import('./config/database-diagnostics.js')
 const { resolveDatabaseUrl } = await import('./config/env.js')
@@ -579,4 +580,57 @@ test('recognizes two Supabase pooler URLs for the same project as one database t
     'postgresql://postgres.kitzref:secret@aws-0-region.pooler.supabase.com:6543/postgres',
     'postgresql://postgres.adminref:secret@aws-0-region.pooler.supabase.com:6543/postgres',
   ), false)
+})
+
+test('Super Admin WebAuthn routes reject requests without an administrator session', async () => {
+  const options = { method: 'POST', headers: { origin: process.env.CLIENT_ORIGIN!, 'Content-Type': 'application/json' }, body: '{}' }
+  const requests = [
+    fetch(`${baseUrl}/api/v1/super-admin/biometrics/status`),
+    fetch(`${baseUrl}/api/v1/super-admin/biometrics/devices`),
+    fetch(`${baseUrl}/api/v1/super-admin/biometrics/register/options`, options),
+    fetch(`${baseUrl}/api/v1/super-admin/biometrics/register/verify`, options),
+    fetch(`${baseUrl}/api/v1/super-admin/biometrics/authenticate/options`, options),
+    fetch(`${baseUrl}/api/v1/super-admin/biometrics/authenticate/verify`, options),
+    fetch(`${baseUrl}/api/v1/super-admin/biometrics/revoke`, options),
+  ]
+  const responses = await Promise.all(requests)
+  for (const response of responses) {
+    assert.equal(response.status, 401)
+    assert.equal((await response.json() as { error: { code: string } }).error.code, 'UNAUTHENTICATED')
+  }
+})
+
+test('WebAuthn relying party binds to the configured site origin and rejects insecure non-local origins', () => {
+  assert.deepEqual(webAuthnRelyingParty('https://admin.kitculture.example'), {
+    origin: 'https://admin.kitculture.example',
+    rpID: 'admin.kitculture.example',
+    rpName: 'KitCulture IT Portal',
+  })
+  assert.throws(() => webAuthnRelyingParty('http://admin.kitculture.example'), /requires HTTPS/)
+})
+
+test('Super Admin WebAuthn mutations reject cross-origin requests before authentication', async () => {
+  const response = await fetch(`${baseUrl}/api/v1/super-admin/biometrics/register/options`, {
+    method: 'POST',
+    headers: { origin: 'https://attacker.invalid', 'Content-Type': 'application/json' },
+    body: '{}',
+  })
+  assert.equal(response.status, 403)
+  assert.equal((await response.json() as { error: { code: string } }).error.code, 'ORIGIN_REJECTED')
+})
+
+test('WebAuthn lockout activates at the configured failed-attempt threshold', () => {
+  const now = new Date('2026-11-20T12:00:00.000Z')
+  assert.deepEqual(biometricLockoutStatus(4, new Date(now.getTime() - 60_000), now), { failures: 4, lockedUntil: null })
+  assert.deepEqual(biometricLockoutStatus(5, new Date(now.getTime() - 60_000), now), {
+    failures: 5,
+    lockedUntil: new Date(now.getTime() + 14 * 60_000),
+  })
+})
+
+test('WebAuthn challenges are single-use and expire strictly before verification', () => {
+  const now = new Date('2026-11-20T12:00:00.000Z')
+  assert.equal(isBiometricChallengeConsumable({ expiresAt: new Date(now.getTime() + 1), consumedAt: null }, now), true)
+  assert.equal(isBiometricChallengeConsumable({ expiresAt: now, consumedAt: null }, now), false)
+  assert.equal(isBiometricChallengeConsumable({ expiresAt: new Date(now.getTime() + 1), consumedAt: now }, now), false)
 })

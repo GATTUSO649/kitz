@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { boolean, check, index, integer as int, jsonb, pgTable as mysqlTable, primaryKey, text, timestamp as pgTimestamp, unique, varchar } from 'drizzle-orm/pg-core'
+import { bigint, boolean, check, index, integer as int, jsonb, pgTable as mysqlTable, primaryKey, text, timestamp as pgTimestamp, unique, varchar } from 'drizzle-orm/pg-core'
 
 const timestamp = (name: string) => pgTimestamp(name, { withTimezone: true, mode: 'date' })
 const enumText = <T extends string>(name: string, length: number) => varchar(name, { length }).$type<T>()
@@ -35,8 +35,54 @@ export const adminSessions = mysqlTable('admin_sessions', {
   adminUserId: int('admin_user_id').notNull().references(() => adminUsers.id, { onDelete: 'cascade' }),
   tokenHash: varchar('token_hash', { length: 64 }).notNull().unique(),
   expiresAt: timestamp('expires_at').notNull(),
+  webauthnVerifiedAt: timestamp('webauthn_verified_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (table) => [index('admin_sessions_user_expiry_idx').on(table.adminUserId, table.expiresAt)]).enableRLS()
+
+export const adminBiometricCredentials = mysqlTable('admin_biometric_credentials', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  adminUserId: int('admin_user_id').notNull().references(() => adminUsers.id, { onDelete: 'cascade' }),
+  credentialId: text('credential_id').notNull(),
+  publicKey: text('public_key').notNull(),
+  signCount: bigint('sign_count', { mode: 'number' }).notNull().default(0),
+  transports: jsonb('transports').$type<string[]>().notNull().default([]),
+  deviceType: varchar('device_type', { length: 24 }).notNull(),
+  backedUp: boolean('backed_up').notNull().default(false),
+  label: varchar('label', { length: 100 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  lastUsedAt: timestamp('last_used_at'),
+  revokedAt: timestamp('revoked_at'),
+}, (table) => [
+  unique('admin_biometric_credentials_credential_id_unique').on(table.credentialId),
+  index('admin_biometric_credentials_admin_revoked_idx').on(table.adminUserId, table.revokedAt),
+]).enableRLS()
+
+export const adminBiometricChallenges = mysqlTable('admin_biometric_challenges', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  adminUserId: int('admin_user_id').notNull().references(() => adminUsers.id, { onDelete: 'cascade' }),
+  adminSessionId: int('admin_session_id').notNull().references(() => adminSessions.id, { onDelete: 'cascade' }),
+  challenge: varchar('challenge', { length: 128 }).notNull().unique(),
+  purpose: varchar('purpose', { length: 24 }).notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
+  consumedAt: timestamp('consumed_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('admin_biometric_challenges_session_purpose_idx').on(table.adminSessionId, table.purpose, table.expiresAt),
+  check('admin_biometric_challenges_purpose_check', sql`${table.purpose} IN ('registration', 'authentication')`),
+]).enableRLS()
+
+export const adminBiometricEvents = mysqlTable('admin_biometric_events', {
+  id: int('id').generatedByDefaultAsIdentity().primaryKey(),
+  adminUserId: int('admin_user_id').references(() => adminUsers.id, { onDelete: 'set null' }),
+  adminSessionId: int('admin_session_id').references(() => adminSessions.id, { onDelete: 'set null' }),
+  eventType: varchar('event_type', { length: 32 }).notNull(),
+  succeeded: boolean('succeeded').notNull(),
+  failureCode: varchar('failure_code', { length: 80 }),
+  sourceHash: varchar('source_hash', { length: 64 }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('admin_biometric_events_admin_created_idx').on(table.adminUserId, table.createdAt),
+]).enableRLS()
 
 export const itAccessRoles = ['super_admin', 'chief_security_operator', 'security_analyst', 'it_support', 'database_admin', 'infrastructure_admin', 'viewer'] as const
 export type ItAccessRole = typeof itAccessRoles[number]

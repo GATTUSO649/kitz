@@ -23,6 +23,7 @@ import { loadAdministratorPermissions, isAdministratorRole } from './permissions
 import { administratorPermissionsForRoute, hasAnyPermission, hasDedicatedAdministratorGuard, projectDashboardForRole } from './permission-routes.js'
 import { adminWorkflowsRouter } from './workflows.js'
 import { adminLaundryRouter } from '../laundry/routes.js'
+import { requireFreshSuperAdminWebAuthn } from './biometrics.js'
 
 export const adminRouter = Router()
 adminRouter.use('/it/operations-session', (_request, response, next) => {
@@ -37,6 +38,14 @@ adminRouter.use((request, response, next) => {
   response.status(403).json({ error: { code: 'ORIGIN_REJECTED', message: 'Request origin is not allowed.' } })
 })
 adminRouter.use(authenticateAdmin)
+adminRouter.use((request, response, next) => {
+  const actor = authenticatedAdmin(request)
+  if (actor?.role === 'super_admin') {
+    requireFreshSuperAdminWebAuthn(request, response, next)
+    return
+  }
+  next()
+})
 
 adminRouter.use(async (request, response, next) => {
   const actor = authenticatedAdmin(request)

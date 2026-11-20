@@ -102,6 +102,7 @@ const navGroups = [
 async function adminApi<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { ...init, credentials: 'include', headers: { ...(init?.body ? { 'Content-Type': 'application/json' } : {}), ...init?.headers } })
   if (response.status === 401 && !/\/(?:bootstrap|verify|login)$/.test(path)) window.dispatchEvent(new Event('kitculture:admin-session-expired'))
+  if (response.status === 428) window.dispatchEvent(new Event('kitculture:admin-biometric-required'))
   const payload = await response.json().catch(() => ({})) as { data?: T; error?: { message?: string } }
   if (!response.ok) throw new Error(payload.error?.message ?? 'Administrator request failed.')
   return payload.data as T
@@ -214,20 +215,22 @@ export function SuperAdminConsole() {
 
   const adminProfile = useQuery({ queryKey: ['super-admin', 'profile'], queryFn: async () => { const result = await adminApi<{ user: Omit<AdminProfile, 'role' | 'portal'> & { role?: string | null }; portal: string | null }>('/api/v1/admin/me'); return { ...result.user, role: result.user.role ?? null, portal: result.portal } }, staleTime: 0, refetchOnMount: 'always', retry: false })
   const isSuperAdmin = adminProfile.data?.role === 'super_admin'
-  const overview = useQuery({ queryKey: ['super-admin', 'overview'], queryFn: () => adminApi<Overview>('/api/v1/admin/ecosystem'), enabled: isSuperAdmin, retry: false, refetchInterval: 30_000 })
-  const administrators = useQuery({ queryKey: ['super-admin', 'administrators'], queryFn: () => adminApi<Administrator[]>('/api/v1/admin/ecosystem/administrators'), enabled: isSuperAdmin, retry: false })
-  const roles = useQuery({ queryKey: ['super-admin', 'roles'], queryFn: () => adminApi<RoleRecord[]>('/api/v1/admin/ecosystem/roles'), enabled: isSuperAdmin, retry: false })
-  const systems = useQueries({ queries: portalRoles.map((role) => ({ queryKey: ['super-admin', 'system', role], queryFn: () => adminApi<PortalSnapshot>(`/api/v1/admin/portal/${role}`), enabled: isSuperAdmin && section === 'systems', retry: false, refetchInterval: 60_000 })) })
-  const businessOverview = useQuery({ queryKey: ['super-admin', 'business-overview', reportPeriod], queryFn: () => adminApi<DashboardReport>(`/api/v1/admin/dashboard?period=${reportPeriod}`), enabled: isSuperAdmin && ['overview', 'systems', 'reports'].includes(section), retry: false, refetchInterval: 60_000 })
-  const financialReport = useQuery({ queryKey: ['super-admin', 'financial-report'], queryFn: () => adminApi<FinancialReport>('/api/v1/admin/reports/financial'), enabled: isSuperAdmin && section === 'reports', retry: false })
-  const auditLog = useQuery({ queryKey: ['super-admin', 'audit-log'], queryFn: () => adminApi<AuditRecord[]>('/api/v1/admin/audit'), enabled: isSuperAdmin && (section === 'audit' || section === 'reports' || section === 'security' || section === 'roles'), retry: false })
-  const campaigns = useQuery({ queryKey: ['super-admin', 'customer-announcements'], queryFn: () => adminApi<NotificationCampaign[]>('/api/v1/admin/notifications'), enabled: isSuperAdmin && section === 'notifications', retry: false })
-  const internalAlerts = useQuery({ queryKey: ['super-admin', 'internal-alerts'], queryFn: () => adminApi<InternalAlert[]>('/api/v1/admin/ecosystem/alerts'), enabled: isSuperAdmin && section === 'notifications', retry: false })
-  const settings = useQuery({ queryKey: ['super-admin', 'application-settings'], queryFn: () => adminApi<BusinessSettings>('/api/v1/admin/settings'), enabled: isSuperAdmin && section === 'settings', retry: false })
+  const biometricStatus = useQuery({ queryKey: ['super-admin', 'biometrics', 'status'], queryFn: () => adminApi<{ verified: boolean }>('/api/v1/super-admin/biometrics/status'), enabled: isSuperAdmin, retry: false, refetchInterval: 60_000 })
+  const superAdminReady = isSuperAdmin && biometricStatus.data?.verified === true
+  const overview = useQuery({ queryKey: ['super-admin', 'overview'], queryFn: () => adminApi<Overview>('/api/v1/admin/ecosystem'), enabled: superAdminReady, retry: false, refetchInterval: 30_000 })
+  const administrators = useQuery({ queryKey: ['super-admin', 'administrators'], queryFn: () => adminApi<Administrator[]>('/api/v1/admin/ecosystem/administrators'), enabled: superAdminReady, retry: false })
+  const roles = useQuery({ queryKey: ['super-admin', 'roles'], queryFn: () => adminApi<RoleRecord[]>('/api/v1/admin/ecosystem/roles'), enabled: superAdminReady, retry: false })
+  const systems = useQueries({ queries: portalRoles.map((role) => ({ queryKey: ['super-admin', 'system', role], queryFn: () => adminApi<PortalSnapshot>(`/api/v1/admin/portal/${role}`), enabled: superAdminReady && section === 'systems', retry: false, refetchInterval: 60_000 })) })
+  const businessOverview = useQuery({ queryKey: ['super-admin', 'business-overview', reportPeriod], queryFn: () => adminApi<DashboardReport>(`/api/v1/admin/dashboard?period=${reportPeriod}`), enabled: superAdminReady && ['overview', 'systems', 'reports'].includes(section), retry: false, refetchInterval: 60_000 })
+  const financialReport = useQuery({ queryKey: ['super-admin', 'financial-report'], queryFn: () => adminApi<FinancialReport>('/api/v1/admin/reports/financial'), enabled: superAdminReady && section === 'reports', retry: false })
+  const auditLog = useQuery({ queryKey: ['super-admin', 'audit-log'], queryFn: () => adminApi<AuditRecord[]>('/api/v1/admin/audit'), enabled: superAdminReady && (section === 'audit' || section === 'reports' || section === 'security' || section === 'roles'), retry: false })
+  const campaigns = useQuery({ queryKey: ['super-admin', 'customer-announcements'], queryFn: () => adminApi<NotificationCampaign[]>('/api/v1/admin/notifications'), enabled: superAdminReady && section === 'notifications', retry: false })
+  const internalAlerts = useQuery({ queryKey: ['super-admin', 'internal-alerts'], queryFn: () => adminApi<InternalAlert[]>('/api/v1/admin/ecosystem/alerts'), enabled: superAdminReady && section === 'notifications', retry: false })
+  const settings = useQuery({ queryKey: ['super-admin', 'application-settings'], queryFn: () => adminApi<BusinessSettings>('/api/v1/admin/settings'), enabled: superAdminReady && section === 'settings', retry: false })
   const selected = administrators.data?.find((admin) => admin.id === selectedId) ?? null
   const securityEvents = (auditLog.data ?? []).filter((event) => /security|session|permission|login|password|access/i.test(event.action))
   const permissionHistory = (auditLog.data ?? []).filter((event) => /permission|role_permission/i.test(event.action))
-  const selectedActivity = useQuery({ queryKey: ['super-admin', 'activity', selectedId], queryFn: () => adminApi<AuditEvent[]>(`/api/v1/admin/ecosystem/administrators/${selectedId}/activity`), enabled: isSuperAdmin && selectedId !== null && section === 'administrators', retry: false })
+  const selectedActivity = useQuery({ queryKey: ['super-admin', 'activity', selectedId], queryFn: () => adminApi<AuditEvent[]>(`/api/v1/admin/ecosystem/administrators/${selectedId}/activity`), enabled: superAdminReady && selectedId !== null && section === 'administrators', retry: false })
 
   useEffect(() => {
     if (adminProfile.isError && adminProfile.error.message.toLowerCase().includes('sign in')) {
@@ -237,6 +240,12 @@ export function SuperAdminConsole() {
     if (!adminProfile.data || adminProfile.data.role === 'super_admin') return
     navigate(adminProfile.data.portal ?? '/admin/login', { replace: true })
   }, [adminProfile.data, adminProfile.error, adminProfile.isError, navigate])
+
+  useEffect(() => {
+    if (isSuperAdmin && biometricStatus.data && !biometricStatus.data.verified) {
+      navigate('/super-admin/fingerprint-verification', { replace: true })
+    }
+  }, [biometricStatus.data, isSuperAdmin, navigate])
 
   useEffect(() => {
     if (!isSuperAdmin || adminProfile.isPending || adminProfile.isFetching) return
@@ -252,6 +261,7 @@ export function SuperAdminConsole() {
       signingOut = true
       void adminApi('/api/v1/admin/logout', { method: 'POST', body: '{}' }).catch(() => undefined).finally(leaveForLogin)
     }
+    const requireBiometric = () => navigate('/super-admin/fingerprint-verification', { replace: true })
     const recordActivity = () => {
       if (signingOut) return
       window.clearTimeout(idleTimer)
@@ -264,11 +274,13 @@ export function SuperAdminConsole() {
     const activityEvents: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'wheel', 'touchstart']
     activityEvents.forEach((name) => window.addEventListener(name, recordActivity, { passive: true }))
     window.addEventListener('kitculture:admin-session-expired', leaveForLogin)
+    window.addEventListener('kitculture:admin-biometric-required', requireBiometric)
     recordActivity()
     return () => {
       window.clearTimeout(idleTimer)
       activityEvents.forEach((name) => window.removeEventListener(name, recordActivity))
       window.removeEventListener('kitculture:admin-session-expired', leaveForLogin)
+      window.removeEventListener('kitculture:admin-biometric-required', requireBiometric)
     }
   }, [adminProfile.isFetching, adminProfile.isPending, isSuperAdmin, navigate, queryClient])
 
@@ -398,6 +410,9 @@ export function SuperAdminConsole() {
   if (adminProfile.isPending || adminProfile.isFetching) return <main className="sa-gate" role="status"><div><Shield size={25} /><span className="sa-eyebrow">CHECKING ACCESS</span><h1>Verifying administrator session</h1></div></main>
   if (Boolean(adminProfile.isError)) return <Navigate to="/super-admin/login" replace />
   if (!isSuperAdmin) return <Navigate to={adminProfile.data?.portal ?? '/super-admin/login'} replace />
+  if (biometricStatus.isPending || biometricStatus.isFetching) return <main className="sa-gate" role="status"><div><ShieldCheck size={25} /><span className="sa-eyebrow">SESSION SECURITY</span><h1>Checking authenticator status</h1></div></main>
+  if (biometricStatus.isError) return <main className="sa-gate"><div><ShieldAlert size={25} /><span className="sa-eyebrow">SESSION SECURITY</span><h1>Authenticator status unavailable</h1><p>{biometricStatus.error.message}</p><button className="sa-button sa-button-primary" type="button" onClick={() => void biometricStatus.refetch()}><RefreshCw size={14} /> Try again</button></div></main>
+  if (!biometricStatus.data?.verified) return <Navigate to="/super-admin/fingerprint-verification" replace />
   if (overview.isError && !overview.data) {
     const signInRequired = overview.error instanceof Error && overview.error.message.toLowerCase().includes('sign in')
     return <main className="sa-gate"><div><ShieldAlert size={25} /><span className="sa-eyebrow">{signInRequired ? 'RESTRICTED AREA' : 'CONSOLE UNAVAILABLE'}</span><h1>{signInRequired ? 'Super Admin sign-in required' : 'Could not load Super Admin'}</h1><p>{signInRequired ? 'Your administrator session is missing or has expired.' : overview.error instanceof Error ? overview.error.message : 'The service could not be reached.'}</p>{signInRequired ? <a href="/super-admin/login">Go to secure sign in <ArrowRight size={15} /></a> : <button className="sa-button sa-button-primary" type="button" onClick={() => void refresh()}><RefreshCw size={14} /> Try again</button>}</div></main>

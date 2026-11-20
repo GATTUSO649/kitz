@@ -33,11 +33,17 @@ function cookieToken(header?: string) {
 }
 
 function setAdminSessionCookie(response: Response, token: string) {
-  response.cookie(cookieName, token, {
+  response.clearCookie(cookieName, {
     httpOnly: true,
     secure: env.NODE_ENV === 'production',
     sameSite: 'strict',
     path: '/api/v1/admin',
+  })
+  response.cookie(cookieName, token, {
+    httpOnly: true,
+    secure: env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/api/v1',
     maxAge: adminIdleTimeoutMs,
   })
 }
@@ -243,7 +249,7 @@ adminAuthRouter.post('/session/activity', (request, response, next) => {
     gt(adminSessions.expiresAt, now),
   )).returning({ id: adminSessions.id }) : []
   if (refreshed.length !== 1) {
-    response.clearCookie(cookieName, { httpOnly: true, secure: env.NODE_ENV === 'production', sameSite: 'strict', path: '/api/v1/admin' })
+    response.clearCookie(cookieName, { httpOnly: true, secure: env.NODE_ENV === 'production', sameSite: 'strict', path: '/api/v1' })
     response.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Administrator sign in is required.' } })
     return
   }
@@ -251,7 +257,7 @@ adminAuthRouter.post('/session/activity', (request, response, next) => {
     httpOnly: true,
     secure: env.NODE_ENV === 'production',
     sameSite: 'strict',
-    path: '/api/v1/admin',
+    path: '/api/v1',
     maxAge: nextExpiry!.getTime() - now.getTime(),
   })
   response.status(204).end()
@@ -267,7 +273,7 @@ adminAuthRouter.post('/logout', async (request, response) => {
     httpOnly: true,
     secure: env.NODE_ENV === 'production',
     sameSite: 'strict',
-    path: '/api/v1/admin',
+    path: '/api/v1',
   })
   response.status(204).end()
 })
