@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { isIP } from 'node:net'
+import { adminDb } from '../config/database.js'
+import { wafIpPolicies } from '../database/admin-schema.js'
 
 export type IpPolicyAction = 'allow' | 'block' | 'challenge'
 export type IpPolicyType = 'ip' | 'cidr'
@@ -186,6 +188,32 @@ export function removeIpPolicy(id: string): boolean {
     auditTrail.push({ id: randomUUID(), policyId: id, action: 'deleted', value: 'removed', occurredAt: new Date().toISOString() })
   }
   return removed
+}
+
+export function clearIpPolicies() {
+  policies.clear()
+}
+
+export async function loadPersistedIpPolicies() {
+  if (!adminDb) return
+  const rows = await adminDb.select().from(wafIpPolicies)
+  policies.clear()
+  for (const row of rows) {
+    if (row.expiresAt && row.expiresAt.getTime() <= Date.now()) continue
+    policies.set(row.id, {
+      id: row.id,
+      name: row.name,
+      action: row.action,
+      type: row.type,
+      value: row.value,
+      enabled: row.enabled,
+      priority: row.priority,
+      reason: row.reason,
+      expiresAt: row.expiresAt,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    })
+  }
 }
 
 export function evaluateIpPolicy(ipInput: string | null | undefined): IpPolicyDecision {

@@ -60,6 +60,7 @@ export function SuperAdminBiometricsPage({ mode = 'verification' }: { mode?: 'en
   const [revokeId, setRevokeId] = useState<number | null>(null)
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
+  const [browserSupport, setBrowserSupport] = useState<'checking' | 'supported' | 'unsupported'>('checking')
 
   async function loadStatus() {
     const [nextStatus, nextDevices] = await Promise.all([
@@ -96,6 +97,16 @@ export function SuperAdminBiometricsPage({ mode = 'verification' }: { mode?: 'en
   }, [])
 
   useEffect(() => {
+    if (!window.isSecureContext || typeof window.PublicKeyCredential === 'undefined') {
+      setBrowserSupport('unsupported')
+      return
+    }
+    void window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
+      .then((available) => setBrowserSupport(available ? 'supported' : 'unsupported'))
+      .catch(() => setBrowserSupport('unsupported'))
+  }, [])
+
+  useEffect(() => {
     if (!status?.lockedUntil) return
     const timer = window.setTimeout(() => {
       setStatus((current) => current ? { ...current, lockedUntil: null } : current)
@@ -106,6 +117,11 @@ export function SuperAdminBiometricsPage({ mode = 'verification' }: { mode?: 'en
 
   async function beginCeremony(addDevice = false) {
     if (!status || busy) return
+    if (browserSupport === 'unsupported') {
+      setError('This browser or device does not support secure device verification. Open this page in a supported browser on the same device.')
+      setPhase('failed')
+      return
+    }
     const operation = ++operationRef.current
     setBusy(true)
     setError('')
@@ -220,9 +236,9 @@ export function SuperAdminBiometricsPage({ mode = 'verification' }: { mode?: 'en
       </div>
       <div className="sa-bio-content">
         <span className="sa-bio-eyebrow">KITCULTURE · SUPER-ADMIN</span>
-        <h1>{mode === 'enrollment' ? 'Register your fingerprint' : mode === 'devices' ? 'Registered device security' : 'Welcome back'}</h1>
+        <h1>{mode === 'enrollment' ? 'Register your device verifier' : mode === 'devices' ? 'Registered device security' : 'Welcome back'}</h1>
         <p className="sa-bio-intro">{mode === 'enrollment'
-          ? 'Register your device supported biometric authenticator to protect your administrator account.'
+          ? 'Register this laptop or Android device authenticator to protect your administrator account.'
           : mode === 'devices'
             ? 'Review registered authenticators and revoke access for devices you no longer use.'
             : 'Verify your identity to securely access your administration dashboard.'}</p>
@@ -237,8 +253,8 @@ export function SuperAdminBiometricsPage({ mode = 'verification' }: { mode?: 'en
         {status && (mode === 'enrollment' || mode === 'devices' || !status.enrolled) && <label className="sa-bio-label">Device label<input value={label} onChange={(event) => setLabel(event.target.value)} maxLength={100} disabled={busy} /></label>}
         <div className="sa-bio-actions">
           {phase === 'success' ? <button className="sa-bio-primary is-success" type="button" onClick={() => navigate('/super-admin/dashboard', { replace: true })}><Check size={17} />Continue to IT Portal</button>
-            : mode === 'enrollment' || !status?.enrolled ? <button className="sa-bio-primary" type="button" onClick={() => void beginCeremony(mode === 'enrollment' || mode === 'devices')} disabled={busy || locked || (mode === 'enrollment' && !status?.enrollmentAllowed)}><Fingerprint size={18} />{busy ? 'Enrolling…' : phase === 'failed' ? 'Retry enrollment' : 'Register fingerprint'}</button>
-              : <button className="sa-bio-primary" type="button" onClick={() => void beginCeremony()} disabled={busy || locked}><Fingerprint size={18} />{busy ? 'Verifying…' : phase === 'failed' ? 'Retry verification' : 'Verify with fingerprint'}</button>}
+            : mode === 'enrollment' || mode === 'devices' || !status?.enrolled ? <button className="sa-bio-primary" type="button" onClick={() => void beginCeremony(mode === 'enrollment' || mode === 'devices')} disabled={busy || locked || browserSupport !== 'supported' || (mode === 'enrollment' && !status?.enrollmentAllowed)}><Fingerprint size={18} />{busy ? 'Enrolling…' : browserSupport === 'checking' ? 'Checking device support…' : browserSupport === 'unsupported' ? 'Fingerprint verifier unavailable' : phase === 'failed' ? 'Retry enrollment' : 'Register fingerprint'}</button>
+              : <button className="sa-bio-primary" type="button" onClick={() => void beginCeremony()} disabled={busy || locked || browserSupport !== 'supported'}><Fingerprint size={18} />{busy ? 'Verifying…' : browserSupport === 'checking' ? 'Checking device support…' : browserSupport === 'unsupported' ? 'Fingerprint verifier unavailable' : phase === 'failed' ? 'Retry verification' : 'Verify with fingerprint'}</button>}
           {active && <button className="sa-bio-secondary" type="button" onClick={cancelCeremony}><X size={16} />Cancel</button>}
           {status?.enrolled && status.verified && <button className="sa-bio-secondary" type="button" onClick={() => void beginCeremony(true)} disabled={busy}><KeyRound size={16} />Add device</button>}
         </div>

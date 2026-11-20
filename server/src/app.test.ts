@@ -582,6 +582,18 @@ test('recognizes two Supabase pooler URLs for the same project as one database t
   ), false)
 })
 
+test('accountless Super Admin passkey login is disabled', async () => {
+  for (const path of ['/login/options', '/login/verify']) {
+    const response = await fetch(`${baseUrl}/api/v1/super-admin/biometrics${path}`, {
+      method: 'POST',
+      headers: { origin: process.env.CLIENT_ORIGIN!, 'Content-Type': 'application/json' },
+      body: '{}',
+    })
+    assert.equal(response.status, 410)
+    assert.equal((await response.json() as { error: { code: string } }).error.code, 'PASSKEY_LOGIN_DISABLED')
+  }
+})
+
 test('Super Admin WebAuthn routes reject requests without an administrator session', async () => {
   const options = { method: 'POST', headers: { origin: process.env.CLIENT_ORIGIN!, 'Content-Type': 'application/json' }, body: '{}' }
   const requests = [

@@ -268,6 +268,27 @@ export const operationsAuditEvents = mysqlTable('operations_audit_events', {
   check('operations_audit_events_actor_type_check', sql`${table.actorType} IN ('admin', 'operations_user', 'provisioning_cli')`),
 ]).enableRLS()
 
+export const wafIpPolicies = mysqlTable('waf_ip_policies', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 80 }).notNull(),
+  action: enumText<'allow' | 'block' | 'challenge'>('action', 16).notNull(),
+  type: enumText<'ip' | 'cidr'>('type', 8).notNull(),
+  value: varchar('value', { length: 128 }).notNull(),
+  enabled: boolean('enabled').default(true).notNull(),
+  priority: int('priority').notNull().default(50),
+  reason: text('reason').notNull(),
+  expiresAt: timestamp('expires_at'),
+  createdByOperationsUserId: int('created_by_operations_user_id').references(() => operationsUsers.id, { onDelete: 'set null' }),
+  createdByAdminUserId: int('created_by_admin_user_id').references(() => adminUsers.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
+}, (table) => [
+  index('waf_ip_policies_enabled_priority_idx').on(table.enabled, table.priority),
+  check('waf_ip_policies_action_check', sql`${table.action} IN ('allow', 'block', 'challenge')`),
+  check('waf_ip_policies_type_check', sql`${table.type} IN ('ip', 'cidr')`),
+  check('waf_ip_policies_priority_check', sql`${table.priority} BETWEEN 0 AND 1000`),
+]).enableRLS()
+
 export const monitoringEvents = mysqlTable('monitoring_events', {
   id: int('id').generatedByDefaultAsIdentity().primaryKey(),
   eventId: varchar('event_id', { length: 36 }).notNull(),

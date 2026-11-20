@@ -1,9 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { startAuthentication } from '@simplewebauthn/browser'
-import type { PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/server'
-import { Fingerprint } from 'lucide-react'
+
 import '../admin-theme.css'
 import '../super-admin-auth.css'
 import { SuperAdminBiometricsPage } from './SuperAdminBiometricsPage'
@@ -108,35 +106,12 @@ export function SuperAdminLoginPage() {
     }
   }
 
-  async function signInWithAuthenticator() {
-    setError('')
-    setBusy(true)
-    try {
-      const { options, challengeId } = await adminApi<{ options: PublicKeyCredentialRequestOptionsJSON; challengeId: number }>(
-        '/api/v1/super-admin/biometrics/login/options',
-        { method: 'POST', body: '{}' },
-      )
-      const assertion = await startAuthentication({ optionsJSON: options })
-      await adminApi('/api/v1/super-admin/biometrics/login/verify', {
-        method: 'POST',
-        body: JSON.stringify({ challengeId, response: assertion }),
-      })
-      navigate('/super-admin/dashboard', { replace: true })
-    } catch (issue) {
-      setError(issue instanceof Error ? issue.message : 'Device authenticator sign in failed.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return <SuperAdminAuthLayout variant="login" eyebrow="SUPER ADMINISTRATOR" title="Secure sign in" description="Sign in with your password or a registered device authenticator.">
+  return <SuperAdminAuthLayout variant="login" eyebrow="SUPER ADMINISTRATOR" title="Secure sign in" description="Sign in with your password, then verify with this device.">
     <form className="sa-auth-form" onSubmit={(event) => void signIn(event)}>
       <label>Email or role number<input value={identity} onChange={(event) => setIdentity(event.target.value)} autoComplete="username" required /></label>
       <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></label>
       {error && <p className="sa-auth-error" role="alert">{error}</p>}
       <button className="sa-auth-submit" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in securely'}</button>
-      <button className="sa-auth-biometric" type="button" onClick={() => void signInWithAuthenticator()} disabled={busy}><Fingerprint size={17} />{busy ? 'Waiting for authenticator…' : 'Use fingerprint / device passkey'}</button>
-      <p className="sa-auth-biometric-note">The device may verify with fingerprint, PIN, or face. The browser does not disclose which method was used.</p>
       <a className="sa-auth-back" href="/">Return to KitCulture</a>
     </form>
   </SuperAdminAuthLayout>
