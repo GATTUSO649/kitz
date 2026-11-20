@@ -552,7 +552,7 @@ operationsRouter.get('/security/waf', (_request, response) => {
 
 const ipPolicySchema = z.object({
   name: z.string().trim().min(2).max(80).optional(),
-  action: z.enum(['allow', 'block', 'challenge']).optional(),
+  action: z.enum(['allow', 'block']).optional(),
   type: z.enum(['ip', 'cidr']).optional(),
   value: z.string().trim().min(3).max(128).optional(),
   enabled: z.boolean().optional(),

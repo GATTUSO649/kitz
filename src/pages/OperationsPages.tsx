@@ -105,7 +105,7 @@ type SecurityScanner = { scanner: string; status: string; coverage: string; sour
 type SecurityScan = { id: string; status: string; scope: string[]; modules: { module: string; status: string; findingCount: number; unsupportedReason?: string }[]; findings: SecurityFinding[]; summary: Record<string, string | number | boolean | null>; startedAt: string; completedAt?: string }
 type SecuritySchedule = { enabled: boolean; dailyAt: string; nextRunAt: string | null; lastRunAt: string | null; worker: string }
 type WafStatus = { mode: 'disabled' | 'detect' | 'block'; state: string; configuration: string; policiesPersisted: boolean; externalEdgeProtection: string; rules: { ruleId: string; severity: string; component: string; blockable: boolean }[] }
-type WafIpPolicy = { id: string; name: string; action: 'allow' | 'block' | 'challenge'; type: 'ip' | 'cidr'; value: string; enabled: boolean; priority: number; reason: string; expiresAt: string | null; createdAt: string; updatedAt: string }
+type WafIpPolicy = { id: string; name: string; action: 'allow' | 'block'; type: 'ip' | 'cidr'; value: string; enabled: boolean; priority: number; reason: string; expiresAt: string | null; createdAt: string; updatedAt: string }
 type SecurityEvent = { id: number; eventType: string; severity: string; occurredAt: string; sourceService: string; metadata: Record<string, string | number | boolean | null> }
 type PersistedSecurityEvent = SecurityEvent & { category: string; requestId: string | null; correlationId: string | null; relatedResourceId: string | null; instanceId: string }
 type SecurityNotificationStatus = { configured: boolean; recipientConfigured: boolean; providerConfigured: boolean }
@@ -1194,7 +1194,7 @@ function OperationsConsole() {
           <section className="operations-panel-card full-span"><header><span className="operations-eyebrow">IP access control</span><h3>IP and CIDR policies</h3></header>
             <form className="operations-waf-policy-form" onSubmit={(event) => void createWafIpPolicy(event)}>
               <input name="name" required minLength={2} maxLength={80} placeholder="Policy name" aria-label="IP policy name" />
-              <select name="action" defaultValue="block" aria-label="IP policy action"><option value="block">Block</option><option value="allow">Allow</option><option value="challenge">Challenge</option></select>
+              <select name="action" defaultValue="block" aria-label="IP policy action"><option value="block">Block</option><option value="allow">Allow</option></select>
               <select name="type" defaultValue="ip" aria-label="IP policy type"><option value="ip">Single IP</option><option value="cidr">CIDR range</option></select>
               <input name="value" required minLength={3} maxLength={128} placeholder="192.0.2.10 or 192.0.2.0/24" aria-label="IP or CIDR value" />
               <input name="reason" required minLength={2} maxLength={240} placeholder="Reason" aria-label="Policy reason" />

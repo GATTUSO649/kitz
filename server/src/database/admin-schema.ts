@@ -271,7 +271,7 @@ export const operationsAuditEvents = mysqlTable('operations_audit_events', {
 export const wafIpPolicies = mysqlTable('waf_ip_policies', {
   id: varchar('id', { length: 36 }).primaryKey(),
   name: varchar('name', { length: 80 }).notNull(),
-  action: enumText<'allow' | 'block' | 'challenge'>('action', 16).notNull(),
+  action: enumText<'allow' | 'block'>('action', 16).notNull(),
   type: enumText<'ip' | 'cidr'>('type', 8).notNull(),
   value: varchar('value', { length: 128 }).notNull(),
   enabled: boolean('enabled').default(true).notNull(),
@@ -284,7 +284,7 @@ export const wafIpPolicies = mysqlTable('waf_ip_policies', {
   updatedAt: timestamp('updated_at').defaultNow().$onUpdateFn(() => new Date()).notNull(),
 }, (table) => [
   index('waf_ip_policies_enabled_priority_idx').on(table.enabled, table.priority),
-  check('waf_ip_policies_action_check', sql`${table.action} IN ('allow', 'block', 'challenge')`),
+  check('waf_ip_policies_action_check', sql`${table.action} IN ('allow', 'block')`),
   check('waf_ip_policies_type_check', sql`${table.type} IN ('ip', 'cidr')`),
   check('waf_ip_policies_priority_check', sql`${table.priority} BETWEEN 0 AND 1000`),
 ]).enableRLS()

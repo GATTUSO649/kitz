@@ -1,0 +1,2 @@
+ALTER TABLE "waf_ip_policies" DROP CONSTRAINT "waf_ip_policies_action_check";--> statement-breakpoint
+ALTER TABLE "waf_ip_policies" ADD CONSTRAINT "waf_ip_policies_action_check" CHECK ("waf_ip_policies"."action" IN ('allow', 'block'));

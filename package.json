@@ -35,6 +35,7 @@
     "db:mysql:migrate:admin": "drizzle-kit migrate --config=server/drizzle.admin.mysql.config.ts",
     "admin:data:migrate": "tsx server/scripts/migrate-admin-data.mjs",
     "admin:db:verify-targets": "tsx server/scripts/verify-admin-migration-targets.mjs",
+    "admin:db:verify-waf": "tsx server/scripts/verify-waf-admin-migrations.mts",
     "admin:provision": "tsx server/src/scripts/provision-admin.ts",
     "it:access": "tsx server/src/scripts/manage-it-access.ts",
     "operations:user": "tsx server/src/scripts/manage-operations-user.ts",

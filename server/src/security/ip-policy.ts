@@ -3,7 +3,7 @@ import { isIP } from 'node:net'
 import { adminDb } from '../config/database.js'
 import { wafIpPolicies } from '../database/admin-schema.js'
 
-export type IpPolicyAction = 'allow' | 'block' | 'challenge'
+export type IpPolicyAction = 'allow' | 'block'
 export type IpPolicyType = 'ip' | 'cidr'
 
 export type IpPolicy = {
@@ -21,7 +21,7 @@ export type IpPolicy = {
 }
 
 export type IpPolicyDecision = {
-  action: IpPolicyAction | 'allow'
+  action: IpPolicyAction
   policyId: string | null
   matchedValue: string | null
   reason: string

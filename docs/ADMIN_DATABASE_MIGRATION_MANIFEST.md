@@ -71,7 +71,7 @@ Administrator-facing reports and workflows that query customers, products, order
 
 ## Not present in the current database schema
 
-The repository does not currently define persistent tables for MFA enrollment/recovery, device trust, threat-intelligence feeds/indicators, dedicated IP/CIDR policies, bot-protection records, or administrative notification/configuration registries beyond the tables listed above. The current IP policy implementation is in-memory. These are implementation gaps, not source tables that can be copied. Add and migrate them as separate approved schema work before claiming those capabilities are persistent in Admin Supabase.
+The repository does not currently define persistent tables for MFA enrollment/recovery, device trust, threat-intelligence feeds/indicators, bot-protection records, or administrative notification/configuration registries beyond the tables listed above. Persistent administrator-database IP/CIDR policies are implemented by `waf_ip_policies`; biometric recovery is implemented by `admin_biometric_recovery_requests`. The current IP policy implementation is in-memory. These are implementation gaps, not source tables that can be copied. Add and migrate them as separate approved schema work before claiming those capabilities are persistent in Admin Supabase.
 
 ## Live migration gates
 

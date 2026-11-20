@@ -90,6 +90,8 @@ const operationsPermissionRules: OperationsPermissionRule[] = [
   { path: /^\/security\/scans\/[^/]+\/cancel\/?$/, read: 'security.read', write: 'security.scan' },
   { path: /^\/security\/schedule\/?$/, read: 'security.read', write: 'dependencies.manage' },
   { path: /^\/security\/findings\/[^/]+\/status\/?$/, read: 'security.read', write: 'security.findings.write' },
+  { path: /^\/security\/waf\/?$/, read: 'security.firewall.read', write: 'security.rules.manage' },
+  { path: /^\/security\/ip-policies(?:\/|$)/, read: 'security.firewall.read', write: 'security.ip.manage' },
   { path: /^\/security(?:\/|$)/, read: 'security.read' },
 ]
 

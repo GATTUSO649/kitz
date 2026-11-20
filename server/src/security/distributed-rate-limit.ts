@@ -118,10 +118,6 @@ export function createSecurityRateLimiter(name: string, options: Partial<Options
       response.status(403).json({ error: { code: 'IP_POLICY_BLOCKED', message: 'The request was rejected by the current IP policy.' } })
       return
     }
-    if (decision.action === 'challenge') {
-      response.status(429).json({ error: { code: 'IP_POLICY_CHALLENGE', message: 'Additional verification is required for this source address.' } })
-      return
-    }
     return limiter(request, response, next)
   }
 }
