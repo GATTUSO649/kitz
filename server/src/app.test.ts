@@ -287,6 +287,12 @@ test('Operations API rejects requests without an Operations session before query
   }
 })
 
+test('Operations session status reports signed-out state without an authentication error', async () => {
+  const response = await fetch(`${baseUrl}/api/v1/operations/session-status`)
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { data: { hasSessionCookie: false } })
+})
+
 test('IT operator self-signup is disabled in favor of managed provisioning', async () => {
   const statusResponse = await fetch(`${baseUrl}/api/v1/operations/registration-status`)
   assert.equal(statusResponse.status, 200)

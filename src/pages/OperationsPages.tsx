@@ -1684,14 +1684,15 @@ function OperationsConsole() {
 export function OperationsRoute() {
   const accessQuery = useQuery({
     queryKey: ['operations', 'access'],
-    queryFn: async () => (await operationsApi<{ user: { id: number; email: string; fullName: string } }>('/api/v1/operations/me')).data,
+    queryFn: async () => {
+      const session = await operationsApi<{ hasSessionCookie: boolean }>('/api/v1/operations/session-status')
+      if (!session.data?.hasSessionCookie) return null
+      return (await operationsApi<{ user: { id: number; email: string; fullName: string } }>('/api/v1/operations/me')).data ?? null
+    },
     retry: false,
   })
 
   if (accessQuery.isPending) return <main className="operations-checking" role="status">Verifying operations access…</main>
-  if (accessQuery.error instanceof OperationsApiError && accessQuery.error.status === 401) {
-    return <OperationsLogin onAuthenticated={async () => { await accessQuery.refetch() }} />
-  }
   if (accessQuery.isError) {
     return (
       <main className="operations-checking operations-error-state">
@@ -1702,5 +1703,6 @@ export function OperationsRoute() {
     )
   }
 
+  if (!accessQuery.data) return <OperationsLogin onAuthenticated={async () => { await accessQuery.refetch() }} />
   return <OperationsConsole />
 }

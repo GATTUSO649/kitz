@@ -323,6 +323,10 @@ operationsRouter.post('/session/activity', authenticateOperations, async (reques
   setOperationsCookie(response, token, expiry.getTime() - now.getTime())
   response.status(204).end()
 })
+operationsRouter.get('/session-status', (request, response) => {
+  response.setHeader('Cache-Control', 'no-store')
+  response.json({ data: { hasSessionCookie: Boolean(operationsCookieToken(request)) } })
+})
 operationsRouter.use(authenticateOperations)
 operationsRouter.use((request, response, next) => {
   const actor = authenticatedOperationsUser(request)
