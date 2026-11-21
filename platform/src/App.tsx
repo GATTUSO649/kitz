@@ -1276,7 +1276,15 @@ function MarketplaceHome() {
     <header className="marketplace-header">
       <Link to="/" className="market-brand" aria-label="MATRIX home"><SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /></Link>
       <nav aria-label="Marketplace navigation"><Link className="market-home" to="/marketplace#top"><House size={15} />Home</Link><Link to="/marketplace?featured=all#products" aria-current={!search && filters.featured === 'all' ? 'page' : undefined}>All Products</Link><Link to="/marketplace?featured=false&sort=newest#products" aria-current={filters.featured === 'false' ? 'page' : undefined}>Recently Published</Link><Link to="/marketplace?featured=true#products" aria-current={filters.featured === 'true' ? 'page' : undefined}>Featured</Link></nav>
-      <div className="market-actions"><Link className="sell-link" to="/marketplace/seller/login">+ <span>Sell item</span></Link></div>
+      <div className="market-actions">
+        <Link className="sell-link" to="/marketplace/seller/login">+ <span>Sell item</span></Link>
+        <button className="rent-shop-link" type="button" onClick={() => {
+          void marketplaceFetch('/api/v1/marketplace/shop-rental/configuration').then(async (response) => {
+            const payload = await response.json() as { data?: { formUrl: string | null } }
+            if (payload.data?.formUrl) window.open(payload.data.formUrl, '_blank', 'noopener,noreferrer')
+          })
+        }}>Rent a Shop</button>
+      </div>
     </header>
     <main>
       <section className="market-hero" id="top">

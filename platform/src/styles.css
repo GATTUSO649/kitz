@@ -1401,6 +1401,8 @@ details.faq-card {
 .marketplace-header nav .market-home { padding: 8px 13px; border-radius: 24px; color: #f4f8ff; background: rgba(255, 255, 255, 0.08); }
 .marketplace-header nav a[aria-current="page"]:not(.market-home) { color: #ffc857; }
 .market-actions { display: flex; align-items: center; gap: 9px; }
+.rent-shop-link { min-height: 34px; padding: 7px 14px; border: 1.5px solid rgba(255,255,255,.58); border-radius: 999px; color: #edf5ff; background: rgba(255,255,255,.08); font-size: 12px; font-weight: 800; cursor: pointer; }
+.rent-shop-link:hover { border-color: #8ce0ba; background: rgba(73,184,132,.16); }
 .sell-link { padding: 8px 16px; border: 1.5px solid #f5b526; border-radius: 999px; color: #f8fbff; background: transparent; font-size: 12px; font-weight: 700; box-shadow: 0 0 0 1px rgba(245, 181, 38, 0.2); }
 .market-login { padding: 7px 12px; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 22px; color: #edf5ff; background: rgba(255, 255, 255, 0.04); font-size: 12px; font-weight: 700; }
 .market-hero { position: relative; min-height: 270px; overflow: hidden; color: white; background: #071f3d; }
