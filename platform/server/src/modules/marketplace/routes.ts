@@ -323,6 +323,43 @@ marketplaceRouter.get('/shops/:slug', async (request, response, next) => {
   } catch (error) { next(error) }
 })
 
+marketplaceRouter.get('/shops/:slug/products', async (request, response, next) => {
+  const slug = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(180).safeParse(request.params.slug)
+  if (!slug.success) return response.status(400).json({ error: { code: 'INVALID_SHOP', message: 'The shop URL is invalid.' } })
+  if (!database) return response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Shop products are temporarily unavailable.' } })
+  try {
+    const [shop] = await database.select({ id: marketplaceShops.id }).from(marketplaceShops).where(and(eq(marketplaceShops.slug, slug.data), eq(marketplaceShops.status, 'active'))).limit(1)
+    if (!shop) return response.status(404).json({ error: { code: 'SHOP_NOT_FOUND', message: 'This shop is not available.' } })
+    const products = await database.select({
+      reference: marketplaceProducts.reference,
+      slug: marketplaceProducts.slug,
+      title: marketplaceProducts.title,
+      description: marketplaceProducts.description,
+      condition: marketplaceProducts.condition,
+      priceKes: marketplaceProducts.priceKes,
+      negotiable: marketplaceProducts.negotiable,
+      featured: marketplaceProducts.featured,
+      publishedAt: marketplaceProducts.publishedAt,
+      category: marketplaceCategories.name,
+      county: marketplaceCounties.name,
+      town: marketplaceSellers.town,
+    }).from(marketplaceProducts)
+      .innerJoin(marketplaceCategories, eq(marketplaceProducts.categoryId, marketplaceCategories.id))
+      .innerJoin(marketplaceSellers, eq(marketplaceProducts.sellerId, marketplaceSellers.id))
+      .innerJoin(marketplaceCounties, eq(marketplaceSellers.countyId, marketplaceCounties.id))
+      .where(and(eq(marketplaceProducts.shopId, shop.id), eq(marketplaceProducts.status, 'published'), gt(marketplaceProducts.expiresAt, new Date())))
+      .orderBy(desc(marketplaceProducts.publishedAt)).limit(100)
+    const images = products.length ? await database.select({ productReference: marketplaceProducts.reference, imageUrl: marketplaceProductImages.imageUrl, isPrimary: marketplaceProductImages.isPrimary, sortOrder: marketplaceProductImages.sortOrder })
+      .from(marketplaceProductImages).innerJoin(marketplaceProducts, eq(marketplaceProductImages.productId, marketplaceProducts.id))
+      .where(inArray(marketplaceProducts.reference, products.map((product) => product.reference)))
+      .orderBy(desc(marketplaceProductImages.isPrimary), asc(marketplaceProductImages.sortOrder)) : []
+    const imageByReference = new Map<string, string>()
+    for (const image of images) if (!imageByReference.has(image.productReference)) imageByReference.set(image.productReference, marketplaceImageDeliveryUrl(image.imageUrl, 640))
+    response.setHeader('Cache-Control', 'no-store')
+    response.json({ data: products.map((product) => ({ ...product, imageUrl: imageByReference.get(product.reference) ?? null })) })
+  } catch (error) { next(error) }
+})
+
 marketplaceRouter.post('/products/:slug/views', productViewLimiter, async (request, response) => {
   const slug = z.string().min(1).max(180).safeParse(request.params.slug)
   if (!slug.success) {

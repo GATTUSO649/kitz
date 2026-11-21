@@ -1127,8 +1127,8 @@ function LandingPage() {
           <div className="card-shade shops-card-shade" />
           <div className="destination-content">
             <span className="destination-tag"><Store size={14} /> Shops</span>
-            <h2>Independent<br /><em>Shops</em></h2>
-            <p>Discover active businesses and browse products from independent online shops.</p>
+            <h2><em>Shops</em></h2>
+            <p>Discover active businesses and browse products from online shops.</p>
             <Link className="destination-button blue-button" to="/marketplace/shops">
               Explore Shops <ArrowRight size={17} />
             </Link>
@@ -1412,20 +1412,33 @@ function ShopsDirectoryPage() {
 
 function PublicShopPage() {
   const { slug = '' } = useParams()
-  const [shop, setShop] = useState<{ id: string; name: string; slug: string; description: string | null; logoUrl: string | null; coverUrl: string | null; category: string | null } | null>(null)
+  const [shop, setShop] = useState<{ id: string; name: string; slug: string; description: string | null; logoUrl: string | null; coverUrl: string | null; categoryName: string | null; categorySlug: string | null } | null>(null)
+  const [products, setProducts] = useState<Array<{ reference: string; slug: string; title: string; condition: string; priceKes: number; negotiable: boolean; featured: boolean; publishedAt: string | null; category: string; county: string; town: string; imageUrl: string | null }>>([])
   const [error, setError] = useState('')
+  const [search, setSearch] = useState('')
   useEffect(() => {
     const controller = new AbortController()
-    marketplaceFetch(`/api/v1/marketplace/shops/${encodeURIComponent(slug)}`, { signal: controller.signal })
-      .then(async (response) => {
-        const payload = await response.json() as { data?: typeof shop; error?: { message?: string } }
-        if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'This shop is unavailable.')
-        setShop(payload.data)
-      })
-      .catch((issue) => { if (!controller.signal.aborted) setError(issue instanceof Error ? issue.message : 'This shop is unavailable.') })
+    Promise.all([
+      marketplaceFetch(`/api/v1/marketplace/shops/${encodeURIComponent(slug)}`, { signal: controller.signal }),
+      marketplaceFetch(`/api/v1/marketplace/shops/${encodeURIComponent(slug)}/products`, { signal: controller.signal }),
+    ]).then(async ([shopResponse, productsResponse]) => {
+      const shopPayload = await shopResponse.json() as { data?: typeof shop; error?: { message?: string } }
+      const productsPayload = await productsResponse.json() as { data?: typeof products; error?: { message?: string } }
+      if (!shopResponse.ok || !shopPayload.data) throw new Error(shopPayload.error?.message ?? 'This shop is unavailable.')
+      if (!productsResponse.ok) throw new Error(productsPayload.error?.message ?? 'Shop products could not be loaded.')
+      setShop(shopPayload.data)
+      setProducts(productsPayload.data ?? [])
+    }).catch((issue) => { if (!controller.signal.aborted) setError(issue instanceof Error ? issue.message : 'This shop is unavailable.') })
     return () => controller.abort()
   }, [slug])
-  return <main className="marketplace-shell"><header className="marketplace-header"><Link to="/marketplace" className="market-brand"><SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /></Link><nav><Link to="/marketplace">Back to Market</Link></nav></header><section className="marketplace-shop-page" style={{ maxWidth: 1180, margin: '24px auto', padding: '0 18px' }}>{error ? <div className="catalogue-message" role="alert"><strong>Shop unavailable.</strong><span>{error}</span></div> : !shop ? <div className="catalogue-message">Loading shop…</div> : <><div className="product-detail" style={{ padding: 24 }}><span className="hero-eyebrow">MARKETHUB SHOP</span><h1>{shop.name}</h1>{shop.category && <small>{shop.category}</small>}<p>{shop.description || 'This shop has not added a description yet.'}</p><Link className="listing-whatsapp-cta" to={`/marketplace?shop=${encodeURIComponent(shop.slug)}#products`}>Browse this shop</Link></div></>}</section></main>
+  const visibleProducts = products.filter((product) => !search || `${product.title} ${product.category}`.toLowerCase().includes(search.toLowerCase()))
+  const openRentalApplication = () => {
+    void marketplaceFetch('/api/v1/marketplace/shop-rental/configuration').then(async (response) => {
+      const payload = await response.json() as { data?: { formUrl: string | null } }
+      if (payload.data?.formUrl) window.open(payload.data.formUrl, '_blank', 'noopener,noreferrer')
+    })
+  }
+  return <main className="marketplace-shell"><header className="marketplace-header"><Link to="/marketplace" className="market-brand" aria-label="MATRIX marketplace"><SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /></Link><nav aria-label="Shop navigation"><Link to="/marketplace/shops">All Shops</Link><Link to="/marketplace">Back to MarketHub</Link></nav><div className="market-actions"><button className="rent-shop-link" type="button" onClick={openRentalApplication}>Rent a Shop</button></div></header><section className="market-hero shop-public-hero" id="top" style={{ backgroundImage: shop?.coverUrl ? `linear-gradient(90deg,#071f3df2,#071f3d55), url(${JSON.stringify(shop.coverUrl)})` : undefined }}><div className="market-hero-copy"><span className="hero-eyebrow">MARKETHUB SHOP</span><h1>{shop?.name ?? 'Loading shop'}</h1><p>{shop?.description || 'Browse products from this independent shop.'}</p><form className="market-search" onSubmit={(event) => event.preventDefault()}><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search this shop..." /></form></div></section><section className="market-content" style={{ maxWidth: 1180, margin: '0 auto' }}><div className="listing-area" id="products"><div className="section-title"><span /><h2>{shop?.name ? `${shop.name} Products` : 'Shop Products'}</h2></div>{error ? <div className="catalogue-message" role="alert"><strong>Shop unavailable.</strong><span>{error}</span></div> : !visibleProducts.length ? <div className="catalogue-message"><strong>No products found.</strong><span>This shop has no matching active products.</span></div> : <div className="listing-grid">{visibleProducts.map((product) => <article className="listing-card" key={product.reference}><Link to={`/marketplace/products/${encodeURIComponent(product.slug)}`} className="listing-image">{product.imageUrl ? <img src={product.imageUrl} alt={product.title} /> : <span>No image</span>}</Link><div className="listing-info"><small><MapPin size={11} /> {product.town}, {product.county}</small><Link to={`/marketplace/products/${encodeURIComponent(product.slug)}`}><strong>{product.title}</strong></Link><div><b>KSh {new Intl.NumberFormat('en-KE').format(product.priceKes)}</b><span>{product.negotiable ? 'Negotiable' : product.condition.replaceAll('_', ' ')}</span></div></div></article>)}</div>}</div></section></main>
 }
 
 function ServiceUnavailablePage() {
