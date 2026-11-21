@@ -3,7 +3,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { createSecurityRateLimiter } from '../../security/distributed-rate-limit.js'
 import { database } from '../../database/connection.js'
-import { marketplaceAdminUsers, marketplaceCategories, marketplaceCounties, marketplaceProductImages, marketplaceProductReports, marketplaceProductViews, marketplaceProducts, marketplaceSellers, marketplaceSettings, marketplaceSubcategories } from '../../database/schema.js'
+import { marketplaceAdminUsers, marketplaceCategories, marketplaceCounties, marketplaceProductImages, marketplaceProductReports, marketplaceProductViews, marketplaceProducts, marketplaceSellers, marketplaceSettings, marketplaceShopCategories, marketplaceShops, marketplaceSubcategories } from '../../database/schema.js'
 import { calculateFeeKes } from './security.js'
 import { parseMarketplaceSocialLinks } from './social-links.js'
 import { enqueueMarketplaceEmail } from '../email/outbox.js'
@@ -33,6 +33,7 @@ marketplaceRouter.get('/settings/footer-social-links', async (_request, response
 const listingQuery = z.object({
   q: z.string().trim().max(120).optional(),
   category: z.string().trim().max(120).optional(),
+  shop: z.string().trim().lowercase().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(180).optional(),
   subcategory: z.string().trim().max(120).optional(),
   county: z.string().trim().max(100).optional(),
   subcounty: z.string().trim().max(100).optional(),
@@ -93,6 +94,7 @@ marketplaceRouter.get('/products', productSearchLimiter, async (request, respons
     const conditions = [eq(marketplaceProducts.status, 'published'), gt(marketplaceProducts.expiresAt, new Date())]
     if (filters.q) conditions.push(or(ilike(marketplaceProducts.title, `%${filters.q}%`), ilike(marketplaceProducts.description, `%${filters.q}%`))!)
     if (filters.category) conditions.push(eq(marketplaceCategories.slug, filters.category))
+    if (filters.shop) conditions.push(eq(marketplaceShops.slug, filters.shop))
     if (filters.subcategory) conditions.push(eq(marketplaceSubcategories.slug, filters.subcategory))
     if (filters.county) conditions.push(eq(marketplaceCounties.name, filters.county))
     if (filters.subcounty) conditions.push(eq(marketplaceSellers.subcounty, filters.subcounty))
@@ -130,11 +132,15 @@ marketplaceRouter.get('/products', productSearchLimiter, async (request, respons
         county: marketplaceCounties.name,
         subcounty: marketplaceSellers.subcounty,
         town: marketplaceSellers.town,
+        shopId: marketplaceShops.id,
+        shopName: marketplaceShops.name,
+        shopSlug: marketplaceShops.slug,
       }).from(marketplaceProducts)
         .innerJoin(marketplaceCategories, eq(marketplaceProducts.categoryId, marketplaceCategories.id))
         .leftJoin(marketplaceSubcategories, eq(marketplaceProducts.subcategoryId, marketplaceSubcategories.id))
         .innerJoin(marketplaceSellers, eq(marketplaceProducts.sellerId, marketplaceSellers.id))
         .innerJoin(marketplaceCounties, eq(marketplaceSellers.countyId, marketplaceCounties.id))
+        .leftJoin(marketplaceShops, eq(marketplaceProducts.shopId, marketplaceShops.id))
         .where(where).orderBy(orderBy).limit(filters.limit).offset(offset),
       database.select({ total: count() }).from(marketplaceProducts)
         .innerJoin(marketplaceCategories, eq(marketplaceProducts.categoryId, marketplaceCategories.id))
@@ -187,11 +193,15 @@ marketplaceRouter.get('/products/:slug', async (request, response, next) => {
       county: marketplaceCounties.name,
       subcounty: marketplaceSellers.subcounty,
       town: marketplaceSellers.town,
+      shopId: marketplaceShops.id,
+      shopName: marketplaceShops.name,
+      shopSlug: marketplaceShops.slug,
     }).from(marketplaceProducts)
       .innerJoin(marketplaceCategories, eq(marketplaceProducts.categoryId, marketplaceCategories.id))
       .leftJoin(marketplaceSubcategories, eq(marketplaceProducts.subcategoryId, marketplaceSubcategories.id))
       .innerJoin(marketplaceSellers, eq(marketplaceProducts.sellerId, marketplaceSellers.id))
       .innerJoin(marketplaceCounties, eq(marketplaceSellers.countyId, marketplaceCounties.id))
+      .leftJoin(marketplaceShops, eq(marketplaceProducts.shopId, marketplaceShops.id))
       .where(and(eq(marketplaceProducts.slug, slug.data), eq(marketplaceProducts.status, 'published'), gt(marketplaceProducts.expiresAt, new Date()), eq(marketplaceCategories.active, true)))
       .limit(1)
     if (!product) {
@@ -219,6 +229,7 @@ marketplaceRouter.get('/products/:slug', async (request, response, next) => {
       county: product.county,
       subcounty: product.subcounty,
       town: product.town,
+      shop: product.shopId && product.shopName && product.shopSlug ? { id: product.shopId, name: product.shopName, slug: product.shopSlug } : null,
     }
     response.json({ data: { ...publicProduct, contactUnlockFeeKes, images: images.map(({ imageUrl }) => marketplaceImageDeliveryUrl(imageUrl, 1200)) } })
   } catch (error) {
@@ -264,6 +275,30 @@ marketplaceRouter.get('/products/:slug/images/:imageIndex/share', productShareIm
   } catch (error) {
     next(error)
   }
+})
+
+marketplaceRouter.get('/shops/:slug', async (request, response, next) => {
+  const slug = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(180).safeParse(request.params.slug)
+  if (!slug.success) return response.status(400).json({ error: { code: 'INVALID_SHOP', message: 'The shop URL is invalid.' } })
+  if (!database) return response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Marketplace shops are temporarily unavailable.' } })
+  try {
+    const [shop] = await database.select({ id: marketplaceShops.id, name: marketplaceShops.name, slug: marketplaceShops.slug, description: marketplaceShops.description, logoUrl: marketplaceShops.logoUrl, coverUrl: marketplaceShops.coverUrl, category: marketplaceShops.category, status: marketplaceShops.status }).from(marketplaceShops).where(and(eq(marketplaceShops.slug, slug.data), eq(marketplaceShops.status, 'active'))).limit(1)
+    if (!shop) return response.status(404).json({ error: { code: 'SHOP_NOT_FOUND', message: 'This shop is not available.' } })
+    response.setHeader('Cache-Control', 'no-store')
+    response.json({ data: shop })
+  } catch (error) { next(error) }
+})
+
+marketplaceRouter.get('/shops/:slug', async (request, response, next) => {
+  const slug = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(180).safeParse(request.params.slug)
+  if (!slug.success) return response.status(400).json({ error: { code: 'INVALID_SHOP', message: 'The shop URL is invalid.' } })
+  if (!database) return response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Marketplace shops are temporarily unavailable.' } })
+  try {
+    const [shop] = await database.select({ id: marketplaceShops.id, name: marketplaceShops.name, slug: marketplaceShops.slug, description: marketplaceShops.description, logoUrl: marketplaceShops.logoUrl, coverUrl: marketplaceShops.coverUrl, category: marketplaceShops.category, status: marketplaceShops.status }).from(marketplaceShops).where(and(eq(marketplaceShops.slug, slug.data), eq(marketplaceShops.status, 'active'))).limit(1)
+    if (!shop) return response.status(404).json({ error: { code: 'SHOP_NOT_FOUND', message: 'This shop is not available.' } })
+    response.setHeader('Cache-Control', 'no-store')
+    response.json({ data: shop })
+  } catch (error) { next(error) }
 })
 
 marketplaceRouter.post('/products/:slug/views', productViewLimiter, async (request, response) => {

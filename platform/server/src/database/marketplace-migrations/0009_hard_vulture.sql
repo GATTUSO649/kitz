@@ -1,0 +1,2 @@
+ALTER TABLE "marketplace"."marketplace_products" ADD COLUMN "shop_id" uuid;--> statement-breakpoint
+ALTER TABLE "marketplace"."marketplace_products" ADD CONSTRAINT "marketplace_products_shop_id_marketplace_shops_id_fk" FOREIGN KEY ("shop_id") REFERENCES "marketplace"."marketplace_shops"("id") ON DELETE set null ON UPDATE no action;

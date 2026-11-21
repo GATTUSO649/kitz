@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { Activity, ArrowRight, BadgeDollarSign, Box, Check, ChevronDown, CircleAlert, CreditCard, Eye, EyeOff, LayoutDashboard, LockKeyhole, LogOut, Mail, MapPin, Plus, Search, Settings, ShieldCheck, Tag, Tags } from 'lucide-react'
+import { Activity, ArrowRight, BadgeDollarSign, Box, Check, ChevronDown, CircleAlert, CreditCard, Eye, EyeOff, LayoutDashboard, LockKeyhole, LogOut, Mail, MapPin, Plus, Search, Settings, ShieldCheck, Store, Tag, Tags } from 'lucide-react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { marketplaceFetch } from './api'
 import { SiteImage } from './SiteImages'
@@ -7,6 +7,8 @@ import { SiteImage } from './SiteImages'
 type AdminUser = { id: string; email: string; role: string; permissions: string[] }
 type Listing = { reference: string; title: string; status: string; priceKes: number; category: string; county: string; town: string }
 type MarketplaceSellerAccount = { id: string; email: string; status: 'pending' | 'active' | 'suspended'; emailVerifiedAt: string | null; createdAt: string; sellerName: string | null; town: string | null; county: string | null }
+type RentalApplication = { id: string; applicationReference: string; fullName: string; email: string; phone: string; county: string; town: string; businessName: string; businessCategory: string; preferredShopName: string; preferredPlanCode: string; status: 'pending' | 'under_review' | 'approved' | 'declined'; createdAt: string }
+
 type Category = { id: string; name: string; slug: string; active: boolean; sortOrder: number }
 type Payment = { reference: string; transactionId: string; merchantRequestId: string; checkoutRequestId: string | null; purpose: string; amountKes: number; currency: string; status: string; phone: string; createdAt: string; updatedAt: string; stkPushSubmittedAt: string | null; stkPushResponseAt: string | null; callbackReceivedAt: string | null; verificationCompletedAt: string | null; finalizedAt: string | null; providerResponseCode: string | null; providerResponseDescription: string | null; failureCategory: string | null; failureReason: string | null; providerReceipt: string | null; transactionAt: string | null; verifiedAt: string | null; listingReference: string | null }
 type PaymentPagination = { page: number; limit: number; total: number; hasMore: boolean }
@@ -26,7 +28,7 @@ type FooterSocialSettings = { facebookUrl: string; xUrl: string; youtubeUrl: str
 type Dashboard = { listings: { total: number; published: number; pendingPayment: number; sold: number; expired: number; suspended: number }; payments: { successful: number; failed: number; pending: number; ambiguous: number }; reports: { open: number }; revenueKes?: { publication: number; contactUnlock: number }; recentListings: Listing[] }
 
 const adminApi = '/api/v1/admin/marketplace'
-const sectionTitles: Record<string, string> = { dashboard: 'Dashboard', listings: 'Listings', payments: 'All Transactions', buyers: 'Buyers', reports: 'Reports', sellers: 'Sellers', categories: 'Categories', admins: 'Admin Users', settings: 'Settings', revenue: 'Revenue Overview', 'publication-fees': 'Publication Fees', 'contact-unlock-fees': 'Contact Unlock Fees', analytics: 'Marketplace Analytics', 'listing-performance': 'Listing Performance', 'payment-reports': 'Payment Reports', reconciliation: 'M-Pesa Reconciliation', activity: 'Activity Logs', notifications: 'Notifications', 'email-dashboard': 'Email Dashboard', 'email-compose': 'Compose Email', 'email-sent': 'Sent Emails', 'email-failed': 'Failed Emails', 'email-queue': 'Email Queue' }
+const sectionTitles: Record<string, string> = { dashboard: 'Dashboard', listings: 'Listings', payments: 'All Transactions', buyers: 'Buyers', reports: 'Reports', sellers: 'Sellers', 'rental-applications': 'Rental Applications', categories: 'Categories', admins: 'Admin Users', settings: 'Settings', revenue: 'Revenue Overview', 'publication-fees': 'Publication Fees', 'contact-unlock-fees': 'Contact Unlock Fees', analytics: 'Marketplace Analytics', 'listing-performance': 'Listing Performance', 'payment-reports': 'Payment Reports', reconciliation: 'M-Pesa Reconciliation', activity: 'Activity Logs', notifications: 'Notifications', 'email-dashboard': 'Email Dashboard', 'email-compose': 'Compose Email', 'email-sent': 'Sent Emails', 'email-failed': 'Failed Emails', 'email-queue': 'Email Queue' }
 const kitzAdminOrigin = import.meta.env.VITE_KITZ_ORIGIN || 'https://kitz.onrender.com'
 const kes = (value: number) => `KSh ${new Intl.NumberFormat('en-KE').format(value)}`
 const formatEAT = (value: string | null | undefined) => value ? new Intl.DateTimeFormat('en-KE', { timeZone: 'Africa/Nairobi', day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZoneName: 'short' }).format(new Date(value)) : 'Not recorded'
@@ -47,7 +49,7 @@ function MarketplaceAdminSidebar({ section, permissions, onLogout }: { section: 
       {group('MARKETPLACE', [
         ...(permissions.includes('listings:read') || permissions.includes('listings:manage') ? [link('listings', 'Listings', Box)] : []),
         ...(permissions.includes('categories:manage') ? [link('categories', 'Categories', Tags)] : []),
-        ...(permissions.includes('support:manage') ? [link('sellers', 'Sellers', ShieldCheck), link('buyers', 'Buyers', BadgeDollarSign)] : []),
+        ...(permissions.includes('support:manage') ? [link('rental-applications', 'Rental Applications', Store), link('sellers', 'Sellers', ShieldCheck), link('buyers', 'Buyers', BadgeDollarSign)] : []),
       ])}
       {permissions.includes('finance:read') && group('PAYMENTS', [
         link('payments', 'All Transactions', CreditCard),
@@ -121,7 +123,9 @@ export function MarketplaceAdminPage() {
   const [marketplaceAnalytics, setMarketplaceAnalytics] = useState<MarketplaceAnalytics | null>(null)
   const [paymentSummary, setPaymentSummary] = useState<PaymentSummary | null>(null)
   const [reports, setReports] = useState<ListingReport[]>([])
-    const [sellerAccounts, setSellerAccounts] = useState<MarketplaceSellerAccount[]>([])
+  const [sellerAccounts, setSellerAccounts] = useState<MarketplaceSellerAccount[]>([])
+  const [rentalApplications, setRentalApplications] = useState<RentalApplication[]>([])
+  const [rentalStatusFilter, setRentalStatusFilter] = useState('')
   const [feeSettings, setFeeSettings] = useState<FeeSettings>({ publicationFeeBasisPoints: 1_000, contactUnlockFeeBasisPoints: 500, listingExpiryDays: 7 })
   const [footerSocialSettings, setFooterSocialSettings] = useState<FooterSocialSettings>({ facebookUrl: '', xUrl: '', youtubeUrl: '', whatsappPhone: '', contactEmail: '', contactPhone: '' })
   const [categories, setCategories] = useState<Category[]>([])
@@ -182,12 +186,13 @@ export function MarketplaceAdminPage() {
                     : section === 'payment-reports' ? `${adminApi}/payments/summary`
           : section === 'reports' ? `${adminApi}/reports?status=open`
             : section === 'sellers' ? `${adminApi}/seller-accounts`
+              : section === 'rental-applications' ? `${adminApi}/shop-rental/applications${rentalStatusFilter ? `?status=${encodeURIComponent(rentalStatusFilter)}` : ''}`
               : section.startsWith('email-') ? `${adminApi}/emails?${emailQuery}`
                 : section === 'settings' ? `${adminApi}/settings/fees`
                 : section === 'categories' ? `${adminApi}/categories`
                   : `${adminApi}/dashboard`
       const response = await marketplaceFetch(endpoint, { signal: controller.signal })
-      const result = await response.json() as { data?: Dashboard | Listing[] | Payment[] | ListingReport[] | MarketplaceSellerAccount[] | Category[] | FeeSettings | FooterSocialSettings | BuyerRecord[] | ActivityRecord[] | NotificationRecord[] | EmailConsole | RevenueRecord[] | MarketplaceAnalytics | PaymentSummary; pagination?: PaymentPagination; error?: { message?: string } }
+      const result = await response.json() as { data?: Dashboard | Listing[] | Payment[] | ListingReport[] | MarketplaceSellerAccount[] | RentalApplication[] | Category[] | FeeSettings | FooterSocialSettings | BuyerRecord[] | ActivityRecord[] | NotificationRecord[] | EmailConsole | RevenueRecord[] | MarketplaceAnalytics | PaymentSummary; pagination?: PaymentPagination; error?: { message?: string } }
       if (!response.ok || !result.data) throw new Error(result.error?.message ?? 'Marketplace data could not be loaded.')
       if (section === 'listings') setListings(result.data as Listing[])
       else if (section === 'payments') { setPayments(result.data as Payment[]); setPaymentPagination(result.pagination ?? null) }
@@ -200,6 +205,7 @@ export function MarketplaceAdminPage() {
       else if (section === 'payment-reports') setPaymentSummary(result.data as PaymentSummary)
       else if (section === 'reports') setReports(result.data as ListingReport[])
       else if (section === 'sellers') setSellerAccounts(result.data as MarketplaceSellerAccount[])
+      else if (section === 'rental-applications') setRentalApplications(result.data as RentalApplication[])
       else if (section === 'settings') {
         setFeeSettings(result.data as FeeSettings)
         const socialResponse = await marketplaceFetch(`${adminApi}/settings/footer-social-links`, { signal: controller.signal })
@@ -245,6 +251,43 @@ export function MarketplaceAdminPage() {
       setNotice(status === 'suspended' ? 'Seller account suspended and sessions revoked.' : 'Seller account reactivated.')
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Seller status could not be updated.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function approveRentalApplication(application: RentalApplication) {
+    if (!window.confirm(`Approve ${application.businessName} and provision its online shop?`)) return
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      const response = await marketplaceFetch(`${adminApi}/shop-rental/applications/${application.id}/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ planCode: application.preferredPlanCode, shopName: application.preferredShopName, slug: application.preferredShopName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$|/g, '') }) })
+      const result = await response.json() as { data?: { status?: string }; error?: { message?: string } }
+      if (!response.ok) throw new Error(result.error?.message ?? 'Application could not be approved.')
+      setRentalApplications((current) => current.map((item) => item.id === application.id ? { ...item, status: 'approved' } : item))
+      setNotice('Application approved. Seller account and shop provisioning email queued.')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Application could not be approved.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function declineRentalApplication(application: RentalApplication) {
+    const reason = window.prompt('Enter a decline reason')?.trim()
+    if (!reason) return
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      const response = await marketplaceFetch(`${adminApi}/shop-rental/applications/${application.id}/decline`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) })
+      const result = await response.json() as { error?: { message?: string } }
+      if (!response.ok) throw new Error(result.error?.message ?? 'Application could not be declined.')
+      setRentalApplications((current) => current.map((item) => item.id === application.id ? { ...item, status: 'declined' } : item))
+      setNotice('Application declined. The applicant notification email was queued.')
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Application could not be declined.')
     } finally {
       setBusy(false)
     }
@@ -582,6 +625,11 @@ export function MarketplaceAdminPage() {
   </div>
 
   if (section === 'admins') return <div className="admin-app"><main className="admin-main"><section className="admin-workspace"><div className="admin-page-title"><div><span>PEOPLE &amp; ACCESS</span><h1>Second-hand administrators</h1></div></div><div className="admin-panel"><p>Administrator invitations, approvals, roles and permissions are managed in KitCulture Super Admin.</p><a className="admin-login-submit" href={`${kitzAdminOrigin}/super-admin/dashboard`}>Open Kitz Super Admin</a></div></section></main></div>
+
+  if (section === 'rental-applications') return <div className="admin-app">
+    <MarketplaceAdminSidebar section={section} permissions={admin?.permissions ?? []} onLogout={() => void logout()} />
+    <main className="admin-main"><header className="admin-topbar"><Link to="/admin/marketplace/dashboard">Marketplace dashboard</Link><span className="admin-user"><b>{admin?.role.replaceAll('_', ' ')}</b><small>{admin?.email}</small></span></header><section className="admin-workspace"><div className="admin-page-title"><div><span>SHOP MANAGEMENT</span><h1>Rental applications</h1></div><label className="admin-status-filter">Status<select value={rentalStatusFilter} onChange={(event) => { setRentalStatusFilter(event.target.value); const next = new URLSearchParams(searchParams); if (event.target.value) next.set('status', event.target.value); else next.delete('status'); }}><option value="">All</option><option value="pending">Pending</option><option value="under_review">Under review</option><option value="approved">Approved</option><option value="declined">Declined</option></select></label></div>{error && <div className="admin-alert" role="alert"><CircleAlert size={16} />{error}</div>}{notice && <p className="admin-success-message" role="status">{notice}</p>}<div className="admin-panel"><header><h2>Online shop requests</h2><span>{rentalApplications.length} applications</span></header><div className="admin-table-wrap"><table><thead><tr><th>Application</th><th>Applicant</th><th>Business</th><th>County</th><th>Plan</th><th>Submitted</th><th>Status</th><th>Actions</th></tr></thead><tbody>{rentalApplications.map((application) => <tr key={application.id}><td><strong>{application.applicationReference}</strong></td><td>{application.fullName}<br /><small>{application.email}</small></td><td>{application.businessName}<br /><small>{application.preferredShopName}</small></td><td>{application.county}</td><td>{application.preferredPlanCode}</td><td>{formatEAT(application.createdAt)}</td><td><span className={`status-pill status-${application.status}`}>{application.status.replaceAll('_', ' ')}</span></td><td>{application.status === 'pending' || application.status === 'under_review' ? <div className="admin-listing-actions"><button type="button" className="admin-reconcile" disabled={busy} onClick={() => void approveRentalApplication(application)}>Accept</button><button type="button" className="admin-reconcile is-danger" disabled={busy} onClick={() => void declineRentalApplication(application)}>Decline</button></div> : 'Reviewed'}</td></tr>)}{!rentalApplications.length && !loading && <tr><td colSpan={8}>No rental applications found.</td></tr>}</tbody></table></div></div></section></main>
+  </div>
 
   if (section === 'sellers') return <div className="admin-app">
     <MarketplaceAdminSidebar section={section} permissions={admin?.permissions ?? []} onLogout={() => void logout()} />

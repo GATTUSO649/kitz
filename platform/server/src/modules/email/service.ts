@@ -23,6 +23,10 @@ export type MarketplaceEmailKind =
   | 'marketplace_admin_invitation'
   | 'marketplace_admin_verification'
   | 'admin_custom_message'
+  | 'shop_rental_application_received'
+  | 'shop_rental_application_approved'
+  | 'shop_rental_application_declined'
+  | 'shop_account_activation'
 
 export type MarketplaceEmailInput = {
   to: string
@@ -68,6 +72,10 @@ const eventCopy: Record<MarketplaceEmailKind, { subject: string; intro: string }
   marketplace_admin_invitation: { subject: 'MarketHub second-hand admin invitation', intro: 'A marketplace Super Admin invited you to manage second-hand listings.' },
   marketplace_admin_verification: { subject: 'Verify your MarketHub administrator account', intro: 'Your password is set. Confirm your email address to activate Second-hand admin access.' },
   admin_custom_message: { subject: 'A message from MarketHub', intro: '' },
+  shop_rental_application_received: { subject: 'We received your MarketHub shop rental application', intro: 'Your application has been received and is awaiting review.' },
+  shop_rental_application_approved: { subject: 'Your MarketHub Online Shop Application Has Been Approved', intro: 'Your shop rental application has been approved.' },
+  shop_rental_application_declined: { subject: 'An update on your MarketHub shop rental application', intro: 'Your application was not approved at this time.' },
+  shop_account_activation: { subject: 'Activate your MarketHub shop account', intro: 'Open your secure activation link to set up your shop account.' },
 }
 
 function safeValue(value: unknown, maximum = 240): string {
@@ -126,6 +134,36 @@ function renderContactUnlockConfirmation(input: MarketplaceEmailInput): { subjec
 export function renderMarketplaceEmail(input: MarketplaceEmailInput): { subject: string; text: string; html: string } {
   const copy = eventCopy[input.kind]
   if (input.kind === 'contact_unlock_payment_success') return renderContactUnlockConfirmation(input)
+  if (input.kind === 'shop_rental_application_received' || input.kind === 'shop_rental_application_approved' || input.kind === 'shop_rental_application_declined' || input.kind === 'shop_account_activation') {
+    const name = safeValue(input.data.name, 160)
+    const businessName = safeValue(input.data.businessName, 160)
+    const shopName = safeValue(input.data.shopName, 160)
+    const applicationReference = safeValue(input.data.applicationReference, 32)
+    const reason = safeValue(input.data.reason, 1000)
+    const actionUrl = safeValue(input.data.actionUrl, 2048)
+    let safeActionUrl = ''
+    try {
+      const url = new URL(actionUrl)
+      if (['https:', 'http:'].includes(url.protocol) && !url.username && !url.password) safeActionUrl = url.toString()
+    } catch { /* Activation URLs are omitted if absent or invalid. */ }
+    const details = [
+      ...(name ? [`Hello ${name},`] : []),
+      copy.intro,
+      ...(businessName ? [`Business: ${businessName}`] : []),
+      ...(shopName ? [`Shop: ${shopName}`] : []),
+      ...(applicationReference ? [`Application: ${applicationReference}`] : []),
+      ...(reason ? [`Reason: ${reason}`] : []),
+      ...(safeActionUrl ? [`Continue: ${safeActionUrl}`] : []),
+    ]
+    const actionLabel = input.kind === 'shop_account_activation' ? 'Activate shop account' : 'View application status'
+    const actionLink = safeActionUrl ? `<p style="margin:24px 0"><a href="${escapeMarketplaceHtml(safeActionUrl)}" style="display:inline-block;padding:12px 18px;background:#078e3b;color:#fff;text-decoration:none;font-weight:700">${actionLabel}</a></p>` : ''
+    const htmlDetails = details.map((line) => `<p style="margin:0 0 14px;line-height:1.6;color:#25332d">${escapeMarketplaceHtml(line)}</p>`).join('')
+    return {
+      subject: copy.subject,
+      text: `${details.join('\n\n')}\n\nMarketHub Kenya`,
+      html: `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeMarketplaceHtml(copy.subject)}</title></head><body style="margin:0;background:#f2f5f0;color:#25332d;font-family:Arial,Helvetica,sans-serif"><main style="max-width:600px;margin:32px auto;padding:32px;background:#fff;border:1px solid #dce5dc"><p style="margin:0 0 24px;color:#1c6b45;font-weight:700">MarketHub Kenya</p>${htmlDetails}${actionLink}<p style="margin:28px 0 0;color:#65736a;font-size:13px">This is an automated marketplace notification. Do not reply with payment credentials or one-time codes.</p></main></body></html>`,
+    }
+  }
   if (input.kind === 'admin_custom_message') {
     const subject = safeValue(input.data.subject, 180) || copy.subject
     const body = typeof input.data.body === 'string'

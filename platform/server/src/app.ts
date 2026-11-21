@@ -17,6 +17,7 @@ import { getMarketplaceImageStorageReadiness } from './modules/marketplace/image
 import { submissionRouter } from './modules/marketplace/submission.js'
 import { marketplaceRouter } from './modules/marketplace/routes.js'
 import { paymentRouter } from './modules/payments/routes.js'
+import { rentalAdminRouter, rentalApplicationRouter } from './modules/marketplace/rental-applications.js'
 import { safeWorkerError, workerHealthSnapshot } from './workers/health.js'
 import { createSecurityRateLimiter, isRateLimitStorageUnavailable } from './security/distributed-rate-limit.js'
 
@@ -74,7 +75,9 @@ app.get('/health/ready', async (_request, response) => {
         ('marketplace_payments'), ('marketplace_product_access'), ('marketplace_product_images'),
         ('marketplace_product_reports'), ('marketplace_product_views'), ('marketplace_products'),
         ('marketplace_seller_accounts'), ('marketplace_seller_password_reset_tokens'), ('marketplace_seller_sessions'),
-        ('marketplace_seller_verification_tokens'), ('marketplace_sellers'), ('marketplace_settings'),
+        ('marketplace_seller_verification_tokens'), ('marketplace_sellers'), ('marketplace_rental_plans'),
+        ('marketplace_shop_rental_application'), ('marketplace_shop_rental_application_history'), ('marketplace_shops'),
+        ('marketplace_shop_subscriptions'), ('marketplace_shop_activation_tokens'), ('marketplace_shop_categories'), ('marketplace_settings'),
         ('marketplace_subcategories')
       ), required_privileges(name, privilege) AS (VALUES
         ('marketplace_admin_invitations', 'SELECT'), ('marketplace_admin_invitations', 'INSERT'), ('marketplace_admin_invitations', 'UPDATE'),
@@ -101,6 +104,13 @@ app.get('/health/ready', async (_request, response) => {
         ('marketplace_seller_verification_tokens', 'SELECT'), ('marketplace_seller_verification_tokens', 'INSERT'), ('marketplace_seller_verification_tokens', 'UPDATE'),
         ('marketplace_seller_password_reset_tokens', 'SELECT'), ('marketplace_seller_password_reset_tokens', 'INSERT'), ('marketplace_seller_password_reset_tokens', 'UPDATE'),
         ('marketplace_sellers', 'SELECT'), ('marketplace_sellers', 'INSERT'), ('marketplace_sellers', 'UPDATE'),
+        ('marketplace_rental_plans', 'SELECT'), ('marketplace_rental_plans', 'INSERT'), ('marketplace_rental_plans', 'UPDATE'),
+        ('marketplace_shop_rental_application', 'SELECT'), ('marketplace_shop_rental_application', 'INSERT'), ('marketplace_shop_rental_application', 'UPDATE'),
+        ('marketplace_shop_rental_application_history', 'SELECT'), ('marketplace_shop_rental_application_history', 'INSERT'),
+        ('marketplace_shops', 'SELECT'), ('marketplace_shops', 'INSERT'), ('marketplace_shops', 'UPDATE'),
+        ('marketplace_shop_subscriptions', 'SELECT'), ('marketplace_shop_subscriptions', 'INSERT'), ('marketplace_shop_subscriptions', 'UPDATE'),
+        ('marketplace_shop_activation_tokens', 'SELECT'), ('marketplace_shop_activation_tokens', 'INSERT'), ('marketplace_shop_activation_tokens', 'UPDATE'),
+        ('marketplace_shop_categories', 'SELECT'), ('marketplace_shop_categories', 'INSERT'), ('marketplace_shop_categories', 'UPDATE'),
         ('marketplace_settings', 'SELECT'), ('marketplace_settings', 'INSERT'), ('marketplace_settings', 'UPDATE')
       )
       SELECT EXISTS (
@@ -145,6 +155,8 @@ app.use('/api/v1/marketplace', submissionRouter)
 app.use('/api/v1/marketplace/payments', paymentRouter)
 app.use('/api/v1/admin/marketplace', marketplaceAdminRouter)
 app.use('/api/v1/admin/marketplace', marketplaceAdminDataRouter)
+app.use('/api/v1/marketplace', rentalApplicationRouter)
+app.use('/api/v1/admin/marketplace', rentalAdminRouter)
 app.use('/api', (_request, response) => response.status(404).json({ error: { code: 'NOT_FOUND', message: 'The requested API resource was not found.' } }))
 const clientDist = fileURLToPath(new URL('../../dist', import.meta.url))
 if (existsSync(clientDist)) {

@@ -35,6 +35,10 @@ type Listing = {
   subcounty: string
   town: string
   imageUrl: string | null
+  shopId?: string | null
+  shopName?: string | null
+  shopSlug?: string | null
+  shop?: { id: string; name: string; slug: string } | null
   contactUnlockFeeKes?: number
 }
 
@@ -78,7 +82,7 @@ type LaundryLocation = { id: number; name: string }
 type MarketplaceCategory = { id: string; name: string; slug: string; subcategories?: { id: string; name: string; slug: string }[] }
 type MarketplaceCounty = { code: string; name: string }
 type FooterSocialLinks = { facebookUrl: string | null; xUrl: string | null; youtubeUrl: string | null; whatsappUrl: string | null; whatsappPhone: string | null; contactEmail: string | null; contactPhone: string | null }
-type CatalogueFilters = { county: string; subcounty: string; town: string; condition: string; minPrice: string; maxPrice: string; publishedAfter: string; publishedBefore: string; negotiable: string; sort: string; featured: string; subcategory: string }
+type CatalogueFilters = { county: string; subcounty: string; town: string; condition: string; minPrice: string; maxPrice: string; publishedAfter: string; publishedBefore: string; negotiable: string; sort: string; featured: string; subcategory: string; shop: string }
 
 const defaultLaundrySettings: LaundryPageSettings = {
   title: 'Laundry & Dry Cleaning',
@@ -180,7 +184,7 @@ function ProductResults({ search, category, filterQuery, page, view, onPageChang
         {listing.imageUrl ? <img src={listing.imageUrl} alt={listing.title} loading={index < 4 ? 'eager' : 'lazy'} decoding="async" fetchPriority={index === 0 ? 'high' : 'auto'} width="640" height="480" /> : <span aria-label="No product image">No image</span>}
         {listing.featured && <b>Featured</b>}
       </Link>
-      <div className="listing-info"><small><MapPin size={11} /> {listing.town}, {listing.county}</small><Link to={`/marketplace/products/${encodeURIComponent(listing.slug)}`}><strong>{listing.title}</strong></Link><div><b>KSh {new Intl.NumberFormat('en-KE').format(listing.priceKes)}</b><span>{listing.negotiable ? 'Negotiable' : listing.condition.replaceAll('_', ' ')}</span></div></div>
+      <div className="listing-info"><small><MapPin size={11} /> {listing.town}, {listing.county}</small><Link to={`/marketplace/products/${encodeURIComponent(listing.slug)}`}><strong>{listing.title}</strong></Link>{listing.shopName && listing.shopSlug && <Link to={`/marketplace/shops/${encodeURIComponent(listing.shopSlug)}`}><small>{listing.shopName}</small></Link>}<div><b>KSh {new Intl.NumberFormat('en-KE').format(listing.priceKes)}</b><span>{listing.negotiable ? 'Negotiable' : listing.condition.replaceAll('_', ' ')}</span></div></div>
       <Link className="listing-whatsapp-cta" to={`/marketplace/products/${encodeURIComponent(listing.slug)}?intent=whatsapp`} aria-label={`Pay contact fee to reach the seller of ${listing.title} on WhatsApp`}><FaWhatsapp size={15} /> WhatsApp seller</Link>
     </article>)}</div>
     {pagination && pagination.total > pagination.limit && <nav className="catalogue-pagination" aria-label="Product pages"><button type="button" disabled={pagination.page <= 1} onClick={() => onPageChange(pagination.page - 1)}>Previous</button><span>Page {pagination.page} · {pagination.total} listings</span><button type="button" disabled={!pagination.hasMore} onClick={() => onPageChange(pagination.page + 1)}>Next</button></nav>}
@@ -974,6 +978,7 @@ function MarketplaceProductPage() {
         <div className="product-gallery"><div className="product-detail-image">{listing.images[selectedImage] ? <img src={listing.images[selectedImage]} alt={`${listing.title}, image ${selectedImage + 1}`} /> : <span>No image provided</span>}</div>{listing.images.length > 1 && <div className="image-thumbnails" aria-label="Product images">{listing.images.map((image, index) => <button type="button" key={image} className={selectedImage === index ? 'active' : ''} aria-label={`View image ${index + 1}`} aria-pressed={selectedImage === index} onClick={() => setSelectedImage(index)}><img src={image} alt="" loading="lazy" /></button>)}</div>}</div>
         <section>
           <small>{listing.category} · {listing.town}, {listing.county}</small>
+          {listing.shop && <Link className="seller-outline-button" to={`/marketplace/shops/${encodeURIComponent(listing.shop.slug)}`}>Visit {listing.shop.name}</Link>}
           <h1>{listing.title}</h1>
           <p className="detail-price">{formatKes(listing.priceKes)} {listing.negotiable && <span>Negotiable</span>}</p>
           <p>{listing.description}</p>
@@ -1111,9 +1116,19 @@ function LandingPage() {
             <span className="destination-tag"><ShoppingBag size={14} /> Second-Hand</span>
             <h2>Second-Hand<br /><em>Marketplace</em></h2>
             <p>Discover, advertise and connect with buyers and sellers of pre-loved finds.</p>
-            <Link className="destination-button green-button" to="/marketplace">
-              Explore Marketplace <ArrowRight size={17} />
-            </Link>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              <Link className="destination-button green-button" to="/marketplace">
+                Explore Marketplace <ArrowRight size={17} />
+              </Link>
+              <button className="destination-button" type="button" onClick={() => {
+                void marketplaceFetch('/api/v1/marketplace/shop-rental/configuration').then(async (response) => {
+                  const payload = await response.json() as { data?: { formUrl: string | null } }
+                  if (payload.data?.formUrl) window.open(payload.data.formUrl, '_blank', 'noopener,noreferrer')
+                })
+              }}>
+                Rent a Shop <ArrowRight size={17} />
+              </button>
+            </div>
           </div>
           <span className="card-index">02 / 03</span>
         </article>
@@ -1201,6 +1216,7 @@ function MarketplaceHome() {
     negotiable: searchParams.get('negotiable') ?? '',
     sort: searchParams.get('sort') ?? 'newest',
     featured: searchParams.get('featured') ?? 'all',
+    shop: searchParams.get('shop') ?? '',
   }
   const filterQuery = new URLSearchParams(Object.entries(filters).filter(([key, value]) => value !== '' && (value !== 'false' || key === 'featured'))).toString()
   useEffect(() => {
@@ -1306,7 +1322,7 @@ function MarketplaceHome() {
             <label>Sort<select name="sort" defaultValue={filters.sort}><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="price_low">Lowest price</option><option value="price_high">Highest price</option><option value="updated">Recently updated</option></select></label>
             <label className="filter-check"><input name="negotiable" type="checkbox" value="true" defaultChecked={filters.negotiable === 'true'} /> Negotiable</label>
             <label className="filter-check"><input name="featuredOnly" type="checkbox" value="true" defaultChecked={filters.featured === 'true'} /> Featured only</label>
-            <button type="submit">Apply filters</button><button type="button" className="filter-reset" onClick={() => setQuery({ county: '', subcounty: '', town: '', condition: '', minPrice: '', maxPrice: '', publishedAfter: '', publishedBefore: '', negotiable: '', sort: '', featured: '' })}>Reset</button>
+            <button type="submit">Apply filters</button><button type="button" className="filter-reset" onClick={() => setQuery({ county: '', subcounty: '', town: '', condition: '', minPrice: '', maxPrice: '', publishedAfter: '', publishedBefore: '', negotiable: '', sort: '', featured: '', shop: '' })}>Reset</button>
           </form>
           <ProductResults search={search} category={category} filterQuery={filterQuery} page={page} view={view} onPageChange={(nextPage) => setQuery({ page: String(nextPage) })} />
         </div>
@@ -1365,6 +1381,24 @@ function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
   </main>
 }
 
+function PublicShopPage() {
+  const { slug = '' } = useParams()
+  const [shop, setShop] = useState<{ id: string; name: string; slug: string; description: string | null; logoUrl: string | null; coverUrl: string | null; category: string | null } | null>(null)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    const controller = new AbortController()
+    marketplaceFetch(`/api/v1/marketplace/shops/${encodeURIComponent(slug)}`, { signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json() as { data?: typeof shop; error?: { message?: string } }
+        if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'This shop is unavailable.')
+        setShop(payload.data)
+      })
+      .catch((issue) => { if (!controller.signal.aborted) setError(issue instanceof Error ? issue.message : 'This shop is unavailable.') })
+    return () => controller.abort()
+  }, [slug])
+  return <main className="marketplace-shell"><header className="marketplace-header"><Link to="/marketplace" className="market-brand"><SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /></Link><nav><Link to="/marketplace">Back to Market</Link></nav></header><section className="marketplace-shop-page" style={{ maxWidth: 1180, margin: '24px auto', padding: '0 18px' }}>{error ? <div className="catalogue-message" role="alert"><strong>Shop unavailable.</strong><span>{error}</span></div> : !shop ? <div className="catalogue-message">Loading shop…</div> : <><div className="product-detail" style={{ padding: 24 }}><span className="hero-eyebrow">MARKETHUB SHOP</span><h1>{shop.name}</h1>{shop.category && <small>{shop.category}</small>}<p>{shop.description || 'This shop has not added a description yet.'}</p><Link className="listing-whatsapp-cta" to={`/marketplace?shop=${encodeURIComponent(shop.slug)}#products`}>Browse this shop</Link></div></>}</section></main>
+}
+
 function ServiceUnavailablePage() {
   return <main className="service-error-page"><ShoppingBag size={30} aria-hidden="true" /><h1>Error 503</h1><p>MarketHub is temporarily unavailable. Please try again later.</p><Link to="/marketplace">Return to MarketHub</Link></main>
 }
@@ -1372,6 +1406,35 @@ function ServiceUnavailablePage() {
 function KitsRedirect() {
   useEffect(() => { window.location.replace(kitzOrigin) }, [])
   return <p className="redirect-message">Opening Selling Kits…</p>
+}
+
+function ShopActivationPage() {
+  const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [activated, setActivated] = useState(false)
+  const token = searchParams.get('token') ?? ''
+
+  async function activate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      const response = await marketplaceFetch('/api/v1/marketplace/shop-rental/activate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, password, confirmPassword }) })
+      const result = await response.json() as { data?: { activated?: boolean }; error?: { message?: string } }
+      if (!response.ok || !result.data?.activated) throw new Error(result.error?.message ?? 'Shop account activation failed.')
+      setActivated(true)
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : 'Shop account activation failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return <main className="seller-auth-page"><Link to="/marketplace" className="seller-auth-brand" aria-label="MarketHub"><ShoppingBag size={52} /><span><strong><em>Market</em>Hub</strong><small>Buy · Sell · Reuse · Save</small></span></Link><section className="seller-auth-card"><span className="seller-eyebrow">SHOP ACTIVATION</span><h1>{activated ? 'Your shop account is ready' : 'Set your password'}</h1>{activated ? <><p>Your account is activated and ready to access the seller portal.</p><button className="seller-primary-button" type="button" onClick={() => navigate('/marketplace/seller/login')}>Open seller sign in</button></> : <form className="seller-account-form" onSubmit={activate}><label>Password<input type="password" required minLength={12} maxLength={128} autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label><label>Confirm password<input type="password" required minLength={12} maxLength={128} autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></label>{error && <p className="seller-error" role="alert">{error}</p>}<button className="seller-primary-button" type="submit" disabled={busy || !token}>{busy ? 'Activating…' : 'Activate shop account'}</button></form>}</section></main>
 }
 
 export function App() {
@@ -1403,9 +1466,11 @@ export function App() {
     <Route path="/marketplace/seller/forgot-password" element={<SellerForgotPasswordPage />} />
     <Route path="/marketplace/seller/reset-password" element={<SellerResetPasswordPage />} />
     <Route path="/marketplace/seller/verify" element={<SellerVerifyPage />} />
+    <Route path="/marketplace/shops/activate" element={<ShopActivationPage />} />
     <Route path="/marketplace/seller" element={<SellerPortalPage />} />
     <Route path="/marketplace/status" element={<SubmissionStatusPage />} />
     <Route path="/marketplace/products/:slug" element={<MarketplaceProductPage />} />
+    <Route path="/marketplace/shops/:slug" element={<PublicShopPage />} />
     <Route path="/terms" element={<LegalPage kind="terms" />} />
     <Route path="/privacy" element={<LegalPage kind="privacy" />} />
     <Route path="/error-503" element={<ServiceUnavailablePage />} />

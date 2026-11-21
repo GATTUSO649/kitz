@@ -1,4 +1,22 @@
 {
   "version": 1,
-  "migrations": []
+  "migrations": [
+    {
+      "id": "20261121000001",
+      "file": "supabase/migrations/20261121000001_marketplace_shop_rental.sql",
+      "sha256": "A976236E35A0D9BE968F46B455D44047F7C6D6FAE1059401FA90930A5973C1B0",
+      "targetSchema": "marketplace",
+      "reviewStatus": "reviewed",
+      "approvalStatus": "approved",
+      "executionStatus": "pending",
+      "executionEvidence": null,
+      "approvalReference": "USER-APPROVED-20261121",
+      "destructiveApproval": {
+        "status": "approved",
+        "reference": "USER-APPROVED-20261121"
+      },
+      "dependencies": [],
+      "description": "Add shop rental applications, categories, plans, shops, subscriptions, activation tokens, and product shop relationships."
+    }
+  ]
 }
