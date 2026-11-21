@@ -1,4 +1,4 @@
-import { ArrowRight, BadgeCheck, CalendarDays, CheckCircle2, CircleHelp, Clock3, Compass, House, LayoutGrid, List as ListIcon, LoaderCircle, Mail, MapPin, PackageCheck, Phone, Search, ShieldCheck, ShoppingBag, Shirt, SlidersHorizontal, Sparkles, Truck, X, Zap } from 'lucide-react'
+import { ArrowRight, BadgeCheck, CalendarDays, CheckCircle2, CircleHelp, Clock3, Compass, House, LayoutGrid, List as ListIcon, LoaderCircle, Mail, MapPin, PackageCheck, Phone, Search, ShieldCheck, ShoppingBag, Shirt, SlidersHorizontal, Sparkles, Store, Truck, X, Zap } from 'lucide-react'
 import { FaFacebookF, FaWhatsapp, FaXTwitter, FaYoutube } from 'react-icons/fa6'
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -1116,21 +1116,24 @@ function LandingPage() {
             <span className="destination-tag"><ShoppingBag size={14} /> Second-Hand</span>
             <h2>Second-Hand<br /><em>Marketplace</em></h2>
             <p>Discover, advertise and connect with buyers and sellers of pre-loved finds.</p>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-              <Link className="destination-button green-button" to="/marketplace">
-                Explore Marketplace <ArrowRight size={17} />
-              </Link>
-              <button className="destination-button" type="button" onClick={() => {
-                void marketplaceFetch('/api/v1/marketplace/shop-rental/configuration').then(async (response) => {
-                  const payload = await response.json() as { data?: { formUrl: string | null } }
-                  if (payload.data?.formUrl) window.open(payload.data.formUrl, '_blank', 'noopener,noreferrer')
-                })
-              }}>
-                Rent a Shop <ArrowRight size={17} />
-              </button>
-            </div>
+            <Link className="destination-button green-button" to="/marketplace">
+              Explore Second-Hand <ArrowRight size={17} />
+            </Link>
           </div>
           <span className="card-index">02 / 03</span>
+        </article>
+
+        <article className="destination-card shops-card">
+          <div className="card-shade shops-card-shade" />
+          <div className="destination-content">
+            <span className="destination-tag"><Store size={14} /> Shops</span>
+            <h2>Independent<br /><em>Shops</em></h2>
+            <p>Discover active businesses and browse products from independent online shops.</p>
+            <Link className="destination-button blue-button" to="/marketplace/shops">
+              Explore Shops <ArrowRight size={17} />
+            </Link>
+          </div>
+          <span className="card-index">03 / 04</span>
         </article>
 
         <article className="destination-card laundry-card">
@@ -1144,7 +1147,7 @@ function LandingPage() {
               Book Laundry <ArrowRight size={17} />
             </Link>
           </div>
-          <span className="card-index">03 / 03</span>
+          <span className="card-index">04 / 04</span>
         </article>
       </section>
 
@@ -1278,12 +1281,7 @@ function MarketplaceHome() {
       <nav aria-label="Marketplace navigation"><Link className="market-home" to="/marketplace#top"><House size={15} />Home</Link><Link to="/marketplace?featured=all#products" aria-current={!search && filters.featured === 'all' ? 'page' : undefined}>All Products</Link><Link to="/marketplace?featured=false&sort=newest#products" aria-current={filters.featured === 'false' ? 'page' : undefined}>Recently Published</Link><Link to="/marketplace?featured=true#products" aria-current={filters.featured === 'true' ? 'page' : undefined}>Featured</Link></nav>
       <div className="market-actions">
         <Link className="sell-link" to="/marketplace/seller/login">+ <span>Sell item</span></Link>
-        <button className="rent-shop-link" type="button" onClick={() => {
-          void marketplaceFetch('/api/v1/marketplace/shop-rental/configuration').then(async (response) => {
-            const payload = await response.json() as { data?: { formUrl: string | null } }
-            if (payload.data?.formUrl) window.open(payload.data.formUrl, '_blank', 'noopener,noreferrer')
-          })
-        }}>Rent a Shop</button>
+        <Link className="shops-link" to="/marketplace/shops">Browse Shops</Link>
       </div>
     </header>
     <main>
@@ -1389,6 +1387,29 @@ function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
   </main>
 }
 
+function ShopsDirectoryPage() {
+  const [shops, setShops] = useState<Array<{ id: string; name: string; slug: string; description: string | null; logoUrl: string | null; coverUrl: string | null; categoryName: string | null; categorySlug: string | null }>>([])
+  const [error, setError] = useState('')
+  useEffect(() => {
+    const controller = new AbortController()
+    marketplaceFetch('/api/v1/marketplace/shops', { signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json() as { data?: typeof shops; error?: { message?: string } }
+        if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'Shops could not be loaded.')
+        setShops(payload.data)
+      })
+      .catch((issue) => { if (!controller.signal.aborted) setError(issue instanceof Error ? issue.message : 'Shops could not be loaded.') })
+    return () => controller.abort()
+  }, [])
+  const openRentalApplication = () => {
+    void marketplaceFetch('/api/v1/marketplace/shop-rental/configuration').then(async (response) => {
+      const payload = await response.json() as { data?: { formUrl: string | null } }
+      if (payload.data?.formUrl) window.open(payload.data.formUrl, '_blank', 'noopener,noreferrer')
+    })
+  }
+  return <main className="marketplace-shell"><header className="marketplace-header"><Link to="/marketplace" className="market-brand"><SiteImage slot="platform-brand-logo" fallback="/images/Glossy%20Blue%20and%20Gold%20Matrix%20Logo.png" alt="MATRIX" /></Link><nav><Link to="/marketplace">Back to MarketHub</Link></nav><div className="market-actions"><button className="rent-shop-link" type="button" onClick={openRentalApplication}>Rent a Shop</button></div></header><section className="marketplace-shop-page" style={{ maxWidth: 1180, margin: '24px auto', padding: '0 18px' }}><span className="hero-eyebrow">INDEPENDENT MARKETHUB SHOPS</span><h1>Explore Shops</h1><p>Browse products and storefronts from independently rented online shops.</p>{error ? <div className="catalogue-message" role="alert"><strong>Shops unavailable.</strong><span>{error}</span></div> : !shops.length ? <div className="catalogue-message"><strong>No shops are active yet.</strong><span>Approved shops will appear here.</span></div> : <div className="listing-grid">{shops.map((shop) => <article className="listing-card" key={shop.id}><Link to={`/marketplace/shops/${encodeURIComponent(shop.slug)}`} className="listing-image">{shop.logoUrl ? <img src={shop.logoUrl} alt={shop.name} /> : <span>{shop.name}</span>}</Link><div className="listing-info"><small>{shop.categoryName ?? 'Independent shop'}</small><Link to={`/marketplace/shops/${encodeURIComponent(shop.slug)}`}><strong>{shop.name}</strong></Link><p>{shop.description || 'Visit this independent shop.'}</p></div></article>)}</div>}</section></main>
+}
+
 function PublicShopPage() {
   const { slug = '' } = useParams()
   const [shop, setShop] = useState<{ id: string; name: string; slug: string; description: string | null; logoUrl: string | null; coverUrl: string | null; category: string | null } | null>(null)
@@ -1474,6 +1495,7 @@ export function App() {
     <Route path="/marketplace/seller/forgot-password" element={<SellerForgotPasswordPage />} />
     <Route path="/marketplace/seller/reset-password" element={<SellerResetPasswordPage />} />
     <Route path="/marketplace/seller/verify" element={<SellerVerifyPage />} />
+    <Route path="/marketplace/shops" element={<ShopsDirectoryPage />} />
     <Route path="/marketplace/shops/activate" element={<ShopActivationPage />} />
     <Route path="/marketplace/seller" element={<SellerPortalPage />} />
     <Route path="/marketplace/status" element={<SubmissionStatusPage />} />

@@ -277,15 +277,24 @@ marketplaceRouter.get('/products/:slug/images/:imageIndex/share', productShareIm
   }
 })
 
-marketplaceRouter.get('/shops/:slug', async (request, response, next) => {
-  const slug = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(180).safeParse(request.params.slug)
-  if (!slug.success) return response.status(400).json({ error: { code: 'INVALID_SHOP', message: 'The shop URL is invalid.' } })
+marketplaceRouter.get('/shops', async (_request, response, next) => {
   if (!database) return response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Marketplace shops are temporarily unavailable.' } })
   try {
-    const [shop] = await database.select({ id: marketplaceShops.id, name: marketplaceShops.name, slug: marketplaceShops.slug, description: marketplaceShops.description, logoUrl: marketplaceShops.logoUrl, coverUrl: marketplaceShops.coverUrl, category: marketplaceShops.category, status: marketplaceShops.status }).from(marketplaceShops).where(and(eq(marketplaceShops.slug, slug.data), eq(marketplaceShops.status, 'active'))).limit(1)
-    if (!shop) return response.status(404).json({ error: { code: 'SHOP_NOT_FOUND', message: 'This shop is not available.' } })
+    const shops = await database.select({
+      id: marketplaceShops.id,
+      name: marketplaceShops.name,
+      slug: marketplaceShops.slug,
+      description: marketplaceShops.description,
+      logoUrl: marketplaceShops.logoUrl,
+      coverUrl: marketplaceShops.coverUrl,
+      categoryName: marketplaceShopCategories.name,
+      categorySlug: marketplaceShopCategories.slug,
+    }).from(marketplaceShops)
+      .leftJoin(marketplaceShopCategories, eq(marketplaceShops.categoryId, marketplaceShopCategories.id))
+      .where(and(eq(marketplaceShops.status, 'active'), eq(marketplaceShopCategories.active, true)))
+      .orderBy(desc(marketplaceShops.createdAt)).limit(100)
     response.setHeader('Cache-Control', 'no-store')
-    response.json({ data: shop })
+    response.json({ data: shops })
   } catch (error) { next(error) }
 })
 
@@ -294,7 +303,20 @@ marketplaceRouter.get('/shops/:slug', async (request, response, next) => {
   if (!slug.success) return response.status(400).json({ error: { code: 'INVALID_SHOP', message: 'The shop URL is invalid.' } })
   if (!database) return response.status(503).json({ error: { code: 'MARKETPLACE_UNAVAILABLE', message: 'Marketplace shops are temporarily unavailable.' } })
   try {
-    const [shop] = await database.select({ id: marketplaceShops.id, name: marketplaceShops.name, slug: marketplaceShops.slug, description: marketplaceShops.description, logoUrl: marketplaceShops.logoUrl, coverUrl: marketplaceShops.coverUrl, category: marketplaceShops.category, status: marketplaceShops.status }).from(marketplaceShops).where(and(eq(marketplaceShops.slug, slug.data), eq(marketplaceShops.status, 'active'))).limit(1)
+    const [shop] = await database.select({
+      id: marketplaceShops.id,
+      name: marketplaceShops.name,
+      slug: marketplaceShops.slug,
+      description: marketplaceShops.description,
+      logoUrl: marketplaceShops.logoUrl,
+      coverUrl: marketplaceShops.coverUrl,
+      categoryName: marketplaceShopCategories.name,
+      categorySlug: marketplaceShopCategories.slug,
+      status: marketplaceShops.status,
+    }).from(marketplaceShops)
+      .leftJoin(marketplaceShopCategories, eq(marketplaceShops.categoryId, marketplaceShopCategories.id))
+      .where(and(eq(marketplaceShops.slug, slug.data), eq(marketplaceShops.status, 'active')))
+      .limit(1)
     if (!shop) return response.status(404).json({ error: { code: 'SHOP_NOT_FOUND', message: 'This shop is not available.' } })
     response.setHeader('Cache-Control', 'no-store')
     response.json({ data: shop })

@@ -50,10 +50,13 @@ button, input { font: inherit; }
 .landing-intro h1 span { color: #ee7400; background: linear-gradient(90deg, #ff9a00 8%, #ed5c00 49%, #6f1bc8 86%); background-clip: text; -webkit-text-fill-color: transparent; }
 .landing-subtitle { display: flex; align-items: center; justify-content: center; gap: 15px; margin: 9px 0 0; font-size: 13px; font-weight: 700; white-space: nowrap; }
 .landing-subtitle i, .landing-footer p i { width: 45px; height: 2px; background: #14284a; }
-.destination-grid { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; max-width: 1450px; margin: 0 auto; }
+.destination-grid { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 22px; max-width: 1450px; margin: 0 auto; }
 .destination-card { min-height: 270px; border: 2px solid #fff; border-radius: 21px; overflow: hidden; position: relative; color: white; isolation: isolate; box-shadow: 0 9px 20px #061d4a36; animation: rise-in .8s both; }
 .destination-card:nth-child(2) { animation-delay: .12s; }
 .destination-card:nth-child(3) { animation-delay: .18s; }
+.destination-card:nth-child(4) { animation-delay: .24s; }
+.shops-card-shade { background: linear-gradient(90deg, #073c73ee 0%, #0b5e93db 46%, #07182a12 88%); }
+.blue-button { background: #edf5ff; }
 .destination-card > img { width: 100%; height: 100%; position: absolute; inset: 0; object-fit: cover; z-index: -2; transition: transform .6s cubic-bezier(.2,.8,.2,1); }
 .destination-card:hover > img { transform: scale(1.035); }
 .kits-card > img { object-position: center 58%; }
@@ -1401,6 +1404,8 @@ details.faq-card {
 .marketplace-header nav .market-home { padding: 8px 13px; border-radius: 24px; color: #f4f8ff; background: rgba(255, 255, 255, 0.08); }
 .marketplace-header nav a[aria-current="page"]:not(.market-home) { color: #ffc857; }
 .market-actions { display: flex; align-items: center; gap: 9px; }
+.shops-link { min-height:34px; display:inline-flex; align-items:center; padding:7px 14px; border:1.5px solid rgba(255,255,255,.58); border-radius:999px; color:#edf5ff; background:rgba(255,255,255,.08); font-size:12px; font-weight:800; }
+.shops-link:hover { border-color:#8ce0ba; background:rgba(73,184,132,.16); }
 .rent-shop-link { min-height: 34px; padding: 7px 14px; border: 1.5px solid rgba(255,255,255,.58); border-radius: 999px; color: #edf5ff; background: rgba(255,255,255,.08); font-size: 12px; font-weight: 800; cursor: pointer; }
 .rent-shop-link:hover { border-color: #8ce0ba; background: rgba(73,184,132,.16); }
 .sell-link { padding: 8px 16px; border: 1.5px solid #f5b526; border-radius: 999px; color: #f8fbff; background: transparent; font-size: 12px; font-weight: 700; box-shadow: 0 0 0 1px rgba(245, 181, 38, 0.2); }
